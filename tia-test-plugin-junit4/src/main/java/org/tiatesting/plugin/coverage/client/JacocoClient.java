@@ -99,7 +99,7 @@ public class JacocoClient {
     }
 
     private boolean containsLineCoverage(ICoverageNode coverageNode){
-        return coverageNode.containsCode() && coverageNode.getLineCounter().getMissedCount() < coverageNode.getLineCounter().getTotalCount();
+        return coverageNode.getLineCounter().getMissedCount() < coverageNode.getLineCounter().getTotalCount();
     }
 
     private IBundleCoverage analyze(final ExecutionDataStore data) throws IOException {

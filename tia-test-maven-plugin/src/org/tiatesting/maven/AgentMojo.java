@@ -5,6 +5,8 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.project.MavenProject;
 
 import java.io.File;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -12,11 +14,8 @@ import static java.lang.String.format;
 
 /**
  *
- * @phase initialize
  * @goal prepare-agent
- * @requiresProject true
- * @requiresDependencyResolution runtime
- * @threadSafe
+ * @requiresDependencyResolution compile
  */
 public class AgentMojo extends AbstractMojo {
 
@@ -33,12 +32,14 @@ public class AgentMojo extends AbstractMojo {
     /**
      * Map of plugin artifacts.
      *
+     * @parameter expression="${plugin.artifactMap}"
      * @required
      * @readonly
      */
-    Map<String, Artifact> pluginArtifactMap;
+    protected Map<String, Artifact> pluginArtifactMap;
+
     /**
-     * Allows to specify property which will contains settings for JaCoCo Agent.
+     * Allows us to specify property which will contains settings for JaCoCo Agent.
      * If not specified, then "argLine" would be used for "jar" packaging and
      * "tycho.testArgLine" for "eclipse-test-plugin".
      *
@@ -46,9 +47,7 @@ public class AgentMojo extends AbstractMojo {
     String propertyName;
 
     /**
-     * Maven project.
-     *
-     * @parameter property="project"
+     * @parameter default-value="${project}"
      * @readonly
      */
     private MavenProject project;
@@ -56,18 +55,27 @@ public class AgentMojo extends AbstractMojo {
     @Override
     public void execute() {
         final String name = getEffectivePropertyName();
-        System.out.println(project);
-        /*
         final Properties projectProperties = project.getProperties();
-        //final String oldValue = projectProperties.getProperty(name);
-        final String newValue = format("-javaagent:%s", getAgentJarFile());
+        final String oldValue = projectProperties.getProperty(name);
+        final String newValue = prependVMArguments(oldValue, getAgentJarFile());
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
-        */
+    }
+
+    public String prependVMArguments(final String arguments,
+                                     final File agentJarFile) {
+        final List<String> args = CommandLineSupport.split(arguments);
+        final String plainAgent = format("-javaagent:%s", agentJarFile);
+        for (final Iterator<String> i = args.iterator(); i.hasNext();) {
+            if (i.next().startsWith(plainAgent)) {
+                i.remove();
+            }
+        }
+        args.add(0, format("-javaagent:%s", agentJarFile));
+        return CommandLineSupport.quote(args);
     }
 
     File getAgentJarFile() {
-        System.out.println(pluginArtifactMap);
         final Artifact jacocoAgentArtifact = pluginArtifactMap.get(AGENT_ARTIFACT_NAME);
         return jacocoAgentArtifact.getFile();
     }

@@ -34,7 +34,7 @@ tasks.register('uberJar', Jar) {
         attributes attrs
     }
 
-    archiveClassifier = 'tiatesting-test-agent-uber'
+    archiveClassifier = 'runtime'
 
     dependsOn configurations.runtimeClasspath
     from {
