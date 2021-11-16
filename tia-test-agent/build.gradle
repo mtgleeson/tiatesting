@@ -1,0 +1,102 @@
+/**
+ * This project is for agents running on the server side. i.e. instead of using Jacoco.
+ */
+dependencies {
+    //compile group: 'junit', name: 'junit', version: '4.13.2'
+    implementation "commons-logging:commons-logging:1.1.3"
+
+    // dependencies for the custom agent
+    implementation 'com.google.code.gson:gson:2.8.2'
+    implementation "org.nanohttpd:nanohttpd:2.2.0"
+    implementation "com.squareup.okhttp3:okhttp:4.9.2"
+    implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
+
+    //compile group: 'org.ow2.asm', name: 'asm', version: '9.2'
+    //compile group: 'org.ow2.asm', name: 'asm-commons', version: '9.2'
+    //compile group: 'org.ow2.asm', name: 'asm-analysis', version: '9.2'
+    //compile group: 'org.ow2.asm', name: 'asm-util', version: '9.2'
+    //compile group: 'org.ow2.asm', name: 'asm-tree', version: '9.2'
+}
+
+
+Map <String, ?> attrs = [ 'Premain-Class': 'com.tiatesting.agent.Agent',
+                          'Can-Redefine-Classes': true,
+                          'Can-Retransform-Classes': true,
+                          'Agent-Class': 'com.tiatesting.agent.Agent']
+
+/*
+tasks.named('jar') {
+    manifest {
+        attributes attrs
+    }
+}
+*/
+
+tasks.register('uberJar', Jar) {
+    archiveClassifier = 'uber'
+
+    from sourceSets.main.output
+
+    manifest {
+        attributes attrs
+    }
+
+    archiveClassifier = 'tiatesting-test-agent-uber'
+
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    //baseName = 'tiatesting-test-agent-fat'
+   // from {
+    //    configurations.compile.collect { it.isDirectory() ? it : zipTree(it)}
+    //}
+    //exclude ('**/*.RSA')
+    //with jar
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifact sourceJar {
+                classifier "sources"
+            }
+
+            //groupId 'org.something'
+
+            artifact uberJar
+
+            //artifact packageJavadoc
+
+            pom.withXml {
+                asNode().children().last() + {
+                    resolveStrategy = Closure.DELEGATE_FIRST
+                    name 'tiatesting'
+                    description 'A library to support test impact analysis driven testing for junit4. This library ' +
+                            'contains an agent to be hooked up to an application containing the source code to be instrumented.'
+                    //url 'https://github.com/rpau/junit4git'
+                    //scm {
+                    //    url 'https://github.com/rpau/junit4git'
+                    //    connection 'https://github.com/rpau/junit4git.git'
+                    //}
+                    //licenses {
+                    //    license {
+                    //        name 'The Apache Software License, Version 2.0'
+                    //        url 'http://www.apache.org/license/LICENSE-2.0.txt'
+                    //    }
+                    //}
+                    developers {
+                        developer {
+                            id 'mtgleeson'
+                            name 'Matt'
+                            email 'mtgleeson@gmail.com'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

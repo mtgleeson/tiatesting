@@ -1,0 +1,90 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "org.tiatesting",
+    "module": "tia-test-plugin-junit4",
+    "version": "1.0.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "7.1"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "tia-test-plugin-junit4-1.0.0.jar",
+          "url": "tia-test-plugin-junit4-1.0.0.jar",
+          "size": 22530,
+          "sha512": "437414e997d9c273794c2bd53c6dc7e747da008749b7fc6edde4f4e1cff0ff5deecd77c2baac614b8229cde3172e5aa6b3be255afff4d6a0dc667471a0bd40b6",
+          "sha256": "2d1a7c4589620b2ac101d86cca83d775861e2e9276c3771e4c710e9b225a8ee3",
+          "sha1": "dee0c52f1cf4b738b339b2592128d054cca88e08",
+          "md5": "fd3a57b42bc627a731ae36521b08961d"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "junit",
+          "module": "junit",
+          "version": {
+            "requires": "4.13.2"
+          }
+        },
+        {
+          "group": "commons-logging",
+          "module": "commons-logging",
+          "version": {
+            "requires": "1.1.3"
+          }
+        },
+        {
+          "group": "org.jacoco",
+          "module": "org.jacoco.core",
+          "version": {
+            "requires": "0.8.7"
+          }
+        },
+        {
+          "group": "org.tiatesting",
+          "module": "tia-test-plugin-agent",
+          "version": {
+            "requires": "1.0.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "tia-test-plugin-junit4-1.0.0.jar",
+          "url": "tia-test-plugin-junit4-1.0.0.jar",
+          "size": 22530,
+          "sha512": "437414e997d9c273794c2bd53c6dc7e747da008749b7fc6edde4f4e1cff0ff5deecd77c2baac614b8229cde3172e5aa6b3be255afff4d6a0dc667471a0bd40b6",
+          "sha256": "2d1a7c4589620b2ac101d86cca83d775861e2e9276c3771e4c710e9b225a8ee3",
+          "sha1": "dee0c52f1cf4b738b339b2592128d054cca88e08",
+          "md5": "fd3a57b42bc627a731ae36521b08961d"
+        }
+      ]
+    }
+  ]
+}
