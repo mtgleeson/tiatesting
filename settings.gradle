@@ -3,4 +3,5 @@ include 'tia-test-plugin-junit4'
 include 'tia-test-agent'
 include 'tia-test-plugin-agent'
 include 'tia-test-maven-plugin'
+include 'tia-test-agent-perforce'
 

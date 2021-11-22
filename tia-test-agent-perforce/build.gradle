@@ -4,26 +4,12 @@ dependencies {
 
     // dependencies for the custom agent
     implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
-
-    //compile group: 'org.ow2.asm', name: 'asm', version: '9.2'
-    //compile group: 'org.ow2.asm', name: 'asm-commons', version: '9.2'
-    //compile group: 'org.ow2.asm', name: 'asm-analysis', version: '9.2'
-    //compile group: 'org.ow2.asm', name: 'asm-util', version: '9.2'
-    //compile group: 'org.ow2.asm', name: 'asm-tree', version: '9.2'
 }
 
 Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
                           'Can-Redefine-Classes': true,
                           'Can-Retransform-Classes': true,
                           'Agent-Class': 'org.tiatesting.agent.Agent']
-
-/*
-tasks.named('jar') {
-    manifest {
-        attributes attrs
-    }
-}
-*/
 
 tasks.register('uberJar', Jar) {
     archiveClassifier = 'uber'
