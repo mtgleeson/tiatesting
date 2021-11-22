@@ -17,8 +17,8 @@ public class Agent {
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         Set<String> ignoredTests = new HashSet<>();
-        ignoredTests.add("com.example.CarServiceTest");
-        ignoredTests.add("com.example.DoorServiceTest");
+        ignoredTests.add("com.ea.fos.junit.utasft.scenario.user.PreOrderPackTest");
+       // ignoredTests.add("com.example.DoorServiceTest");
 
         log.info("Ignoring tests: " + ignoredTests);
 

@@ -22,7 +22,7 @@ public class AgentMojo extends AbstractMojo {
     /**
      * Name of the JaCoCo Agent artifact.
      */
-    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-plugin-agent";
+    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-agent-perforce";
 
     /**
      * Name of the property used in maven-surefire-plugin.

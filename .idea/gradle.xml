@@ -10,6 +10,7 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/tia-test-agent" />
+            <option value="$PROJECT_DIR$/tia-test-agent-perforce" />
             <option value="$PROJECT_DIR$/tia-test-maven-plugin" />
             <option value="$PROJECT_DIR$/tia-test-plugin-agent" />
             <option value="$PROJECT_DIR$/tia-test-plugin-junit4" />
