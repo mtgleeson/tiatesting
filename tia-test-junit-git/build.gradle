@@ -1,0 +1,97 @@
+dependencies {
+    implementation project(':tia-test-persistence')
+    implementation project(':tia-test-vcs-git')
+    implementation group: 'junit', name: 'junit', version: '4.13.2'
+    implementation "commons-logging:commons-logging:1.1.3"
+    implementation "org.jacoco:org.jacoco.core:0.7.5.201505241946"
+    implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '5.13.0.202109080827-r'
+
+    // dependencies for the client of a custom agent
+    //implementation 'com.google.code.gson:gson:2.8.2'
+    //implementation "com.squareup.okhttp3:okhttp:3.9.0"
+
+    // implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '4.8.0.201706111038-r'
+    //implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
+    //testimplementation group: 'commons-io', name: 'commons-io', version: '2.5'
+    //testimplementation group: 'org.mockito', name: 'mockito-all', version: '1.10.19'
+
+
+
+    //implementation group: 'org.ow2.asm', name: 'asm', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-commons', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-analysis', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-util', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-tree', version: '9.2'
+}
+
+/*
+Map <String, ?> attrs = [ 'Premain-Class': 'org.walkmod.junit4git.core.ignorers.TestIgnorerAgent',
+                          'Can-Retransform-Classes': true,
+                          'Boot-Class-Path': 'junit4git-agent.jar'
+]
+*/
+
+tasks.register('uberJar', Jar) {
+    archiveClassifier = 'uber'
+
+    from sourceSets.main.output
+
+    //manifest {
+    //    attributes attrs
+    //}
+
+    archiveClassifier = 'tiatesting-plugin-uber'
+
+    dependsOn configurations.runtimeClasspath
+    from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){
+        exclude "META-INF/*.SF"
+        exclude "META-INF/*.DSA"
+        exclude "META-INF/*.RSA"
+    }
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifact sourceJar {
+                classifier "sources"
+            }
+
+            //groupId 'org.something'
+
+            artifact uberJar
+
+            //artifact packageJavadoc
+
+            pom.withXml {
+                asNode().children().last() + {
+                    resolveStrategy = Closure.DELEGATE_FIRST
+                    name 'tiatesting'
+                    description 'A library to support test impact analysis driven testing for junit4. This library ' +
+                            'contains an agent to be hooked up to an application containing the source code to be instrumented.'
+                    //url 'https://github.com/rpau/junit4git'
+                    //scm {
+                    //    url 'https://github.com/rpau/junit4git'
+                    //    connection 'https://github.com/rpau/junit4git.git'
+                    //}
+                    //licenses {
+                    //    license {
+                    //        name 'The Apache Software License, Version 2.0'
+                    //        url 'http://www.apache.org/license/LICENSE-2.0.txt'
+                    //    }
+                    //}
+                    developers {
+                        developer {
+                            id 'mtgleeson'
+                            name 'Matt'
+                            email 'mtgleeson@gmail.com'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

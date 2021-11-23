@@ -1,7 +1,8 @@
 rootProject.name = 'tia'
-include 'tia-test-plugin-junit4'
 include 'tia-test-agent'
-include 'tia-test-plugin-agent'
-include 'tia-test-maven-plugin'
 include 'tia-test-agent-perforce'
+include 'tia-test-agent-git'
+include 'tia-test-persistence'
+include 'tia-test-junit-git'
+include 'tia-test-vcs-git'
 

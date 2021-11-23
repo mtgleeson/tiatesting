@@ -22,13 +22,13 @@ public class Agent {
 
         log.info("Ignoring tests: " + ignoredTests);
 
-        AnnotationDescription description = AnnotationDescription.Builder.ofType(Ignore.class)
+        AnnotationDescription ignoreDescription = AnnotationDescription.Builder.ofType(Ignore.class)
                 .define("value", "Ignored by TIA testing")
                 .build();
 
         new AgentBuilder.Default()
                 .type(ElementMatchers.namedOneOf(ignoredTests.toArray(new String[ignoredTests.size()])))
-                .transform((builder, typeDescription, agr3, arg4) -> builder.annotateType(description))
+                .transform((builder, typeDescription, agr3, arg4) -> builder.annotateType(ignoreDescription))
                 .installOn(instrumentation);
     }
 }
