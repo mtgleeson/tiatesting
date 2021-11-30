@@ -5,24 +5,25 @@ import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.revwalk.RevCommit;
 import org.junit.Ignore;
+import org.tiatesting.MethodImpactAnalyzer;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.StoredMapping;
+import org.tiatesting.FileImpactAnalyzer;
+import org.tiatesting.vcs.SourceFileDiffContext;
 import org.tiatesting.vcs.git.GitReader;
 
-import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class Agent {
 
     private static Log log = LogFactory.getLog(Agent.class);
 
-    public static void premain(String agentArgs, Instrumentation instrumentation) throws IOException, GitAPIException {
+    public static void premain(String agentArgs, Instrumentation instrumentation) {
         //DataStore dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), System.getProperty("tiaDBFileSuffix"));
         GitReader gitReader = new GitReader("/Users/mgleeson/Documents/misc/test-java-project/.git");
         DataStore dataStore = new MapDataStore("/Users/mgleeson/Documents/misc/test-java-project", gitReader.getBranchName());
@@ -30,14 +31,18 @@ public class Agent {
 
         log.info("Store commit: " + dataStore.getStoredMapping().getCommitValue());
 
-        if (storedMapping.getCommitValue() != null){
-            Iterable<RevCommit> commits = gitReader.getCommitsSince(storedMapping.getCommitValue());
-
-            // TODO for each commit, read the list of file changes, for each java file, read the diff and identify the methods changed.
-
-        } else {
+        if (storedMapping.getCommitValue() == null) {
             log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
+            return;
         }
+
+        List<SourceFileDiffContext> impactedSourceFiles = gitReader.buildDiffFilesContext(storedMapping.getCommitValue());
+        new FileImpactAnalyzer(new MethodImpactAnalyzer()).getMethodsForFilesChanged(impactedSourceFiles);
+        //Iterable<RevCommit> commits = gitReader.getCommitsSince(storedMapping.getCommitValue());
+        //gitReader.getJavaFilesForCommits(commits);
+
+        //itReader.listDiff(storedMapping.getCommitValue());
+        // TODO for each commit, read the list of file changes, for each java file, read the diff and identify the methods changed.
 
         Set<String> ignoredTests = new HashSet<>();
         ignoredTests.add("com.example.CarServiceTest");
