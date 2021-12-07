@@ -24,12 +24,25 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
         final String oldValue = projectProperties.getProperty(name);
-        final String newValue = prependVMArguments(oldValue, getAgentJarFile());
+        final String newValue = addVMArguments(oldValue, getAgentJarFile());
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
     }
 
-    public String prependVMArguments(final String arguments,
+    /**
+     * Add the test suite agent after the jacoco agent in the command line.
+     *
+     * Note: The order does matter (as a work-around for 'java.lang.NoSuchFieldException: $jacocoAccess' error).
+     * The agent uses UUID which is being modified by Jacoco. Do the modification by Jacoco first before it
+     * gets used by the
+     *
+     * https://github.com/jacoco/jacoco/issues/551
+     *
+     * @param arguments
+     * @param agentJarFile
+     * @return
+     */
+    public String addVMArguments(final String arguments,
                                      final File agentJarFile) {
         final List<String> args = CommandLineSupport.split(arguments);
         final String plainAgent = format("-javaagent:%s", agentJarFile);
@@ -38,7 +51,11 @@ public abstract class TiaAgentMojo extends AbstractMojo {
                 i.remove();
             }
         }
-        args.add(0, format("-javaagent:%s", agentJarFile));
+
+        // TODO pass in the source file dir as an arg on the command line to the agent
+        System.out.println("tiaSourceFilesDir!!: " + getTiaSourceFilesDir());
+
+        args.add(format("-javaagent:%s", agentJarFile));
         return CommandLineSupport.quote(args);
     }
 
@@ -65,4 +82,6 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     public abstract MavenProject getProject();
 
     public abstract String getPropertyName();
+
+    public abstract  String getTiaSourceFilesDir();
 }

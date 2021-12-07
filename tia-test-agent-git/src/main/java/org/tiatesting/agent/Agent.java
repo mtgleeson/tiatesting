@@ -14,6 +14,7 @@ import org.tiatesting.FileImpactAnalyzer;
 import org.tiatesting.vcs.SourceFileDiffContext;
 import org.tiatesting.vcs.git.GitReader;
 
+import java.io.File;
 import java.lang.instrument.Instrumentation;
 import java.util.HashSet;
 import java.util.List;
@@ -37,7 +38,13 @@ public class Agent {
         }
 
         List<SourceFileDiffContext> impactedSourceFiles = gitReader.buildDiffFilesContext(storedMapping.getCommitValue());
-        new FileImpactAnalyzer(new MethodImpactAnalyzer()).getMethodsForFilesChanged(impactedSourceFiles);
+        File commitFromProjectDir = gitReader.checkoutSourceAtVersion(storedMapping.getCommitValue());
+
+        new FileImpactAnalyzer(new MethodImpactAnalyzer()).getMethodsForFilesChanged(impactedSourceFiles, commitFromProjectDir);
+
+        // TODO - delete temp folder created for checking out the source files at the old version -> commitFromProjectDir
+
+
         //Iterable<RevCommit> commits = gitReader.getCommitsSince(storedMapping.getCommitValue());
         //gitReader.getJavaFilesForCommits(commits);
 
@@ -45,7 +52,7 @@ public class Agent {
         // TODO for each commit, read the list of file changes, for each java file, read the diff and identify the methods changed.
 
         Set<String> ignoredTests = new HashSet<>();
-        ignoredTests.add("com.example.CarServiceTest");
+       // ignoredTests.add("com.example.CarServiceTest");
        // ignoredTests.add("com.example.DoorServiceTest");
 
         log.info("Ignoring tests: " + ignoredTests);

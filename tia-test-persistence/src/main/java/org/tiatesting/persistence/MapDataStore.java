@@ -9,6 +9,7 @@ import java.nio.channels.FileLock;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * DataStore implementation based on a plain Java Map and being persisted to a file on disk.
@@ -58,8 +59,8 @@ public class MapDataStore implements DataStore {
         Map<String, Set<String>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
         storedMapping.setTestMethodsCalled(mergedTestMappings);
 
-        //mergedTestMappings.forEach( (testClass, methodsCalled) ->
-        //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+        mergedTestMappings.forEach( (testClass, methodsCalled) ->
+                log.info(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
 
         boolean savedToDisk = writeTestMappingToDisk(storedMapping);
         log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));

@@ -4,6 +4,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.tiatesting.vcs.SourceFileDiffContext;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,21 +22,20 @@ public class FileImpactAnalyzer {
         this.methodImpactAnalyzer = methodImpactAnalyzer;
     }
 
-    public void getMethodsForFilesChanged(List<SourceFileDiffContext> impactedSourceFiles){
+    public void getMethodsForFilesChanged(List<SourceFileDiffContext> impactedSourceFiles, File commitFromProjectDir){
         Set<String> methodsImpacted = new HashSet<>();
-
 
         for (SourceFileDiffContext impactedSourceFile : impactedSourceFiles){
             switch(impactedSourceFile.getChangeType()){
                 case MODIFY:
-                    methodImpactAnalyzer.getMethodsForFileChanged(impactedSourceFile.getSourceContentOriginal(),
+                    methodImpactAnalyzer.getMethodsForImpactedFile(impactedSourceFile.getSourceContentOriginal(),
                             impactedSourceFile.getSourceContentNew(), impactedSourceFile.getOldFilePath(),
-                            impactedSourceFile.getNewFilePath(), methodsImpacted);
+                            impactedSourceFile.getNewFilePath(), methodsImpacted, commitFromProjectDir);
                     break;
             }
         }
 
-        System.out.println("methodsImpacted: " + methodsImpacted);
+        log.info("Methods impacted: " + methodsImpacted);
     }
 
 }

@@ -9,9 +9,14 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.visitor.VoidVisitor;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
+import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -29,20 +34,51 @@ public class MethodImpactAnalyzer {
     private static final int HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX = 1;
     private static final int HUNK_DIFF_ORIG_LINE_START_COUNT_GROUP_INDEX = 2;
 
-    protected void getMethodsForFileChanged(String originalFileContent, String newFilContent, String originalFileName,
-                                          String revisedFileName, Set<String> methodsImpacted){
+    /**
+     * Compare two versions of a source file and create a unified diff.
+     * Parse the original content as a Java file and check each method to see if it's in the diff based on the
+     * file line numbers and the diff segment line numbers.
+     *
+     * @param originalFileContent
+     * @param newFilContent
+     * @param originalFileName
+     * @param revisedFileName
+     * @param methodsImpacted
+     * @param commitFromProjectDir
+     */
+    protected void getMethodsForImpactedFile(String originalFileContent, String newFilContent, String originalFileName,
+                                             String revisedFileName, Set<String> methodsImpacted, File commitFromProjectDir){
+
         List<String> originalFileLines = Arrays.asList(originalFileContent.split(LINEBREAK_PATTERN));
         List<String> newFileLines = Arrays.asList(newFilContent.split(LINEBREAK_PATTERN));
 
         try {
+            // create the diff between the original and revised file content
             Patch<String> diff = DiffUtils.diff(originalFileLines, newFileLines);
-            //generating unified diff format
+
+            // generating unified diff format so the line numbers are consistent with the source file
             List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(originalFileName, revisedFileName, originalFileLines, diff, 0);
+
+            // Parse the original content as a Java file and check each method to see if it's in the diff based on the
+            // file line numbers and the diff segment line numbers
             MethodVisitorContext methodVisitorContext = new MethodVisitorContext(methodsImpacted);
             VoidVisitor<MethodVisitorContext> methodNameVisitor = new MethodImpactVisitor();
 
+            String sourceFilesDir = commitFromProjectDir + System.getProperty("tiaSourceFilesDir");
+            log.info("sourceFilesDir: " + sourceFilesDir);
+// TODO get this working - get source folder passed in to CombinedTypeSolver, and then
+            // find types of method parameters and full class name incl package
+            // https://leanpub.com/javaparservisited/read_full -> "Resolving a Type in a context"
+
+            TypeSolver typeSolver = new CombinedTypeSolver(new JavaParserTypeSolver(new File(sourceFilesDir)));
+            JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
+            StaticJavaParser.getConfiguration().setSymbolResolver(symbolSolver);
+            CompilationUnit cu = StaticJavaParser.parse(originalFileContent);
+
+            //resolvedReferenceTypeDeclaration.getAllMethods().forEach(m ->
+            //        20                 System.out.println(String.format("    %s", m.getQualifiedSignature()\
+
             unifiedDiff.forEach( patchDiff -> {
-                CompilationUnit cu = StaticJavaParser.parse(originalFileContent);
                 setImpactedLineBeginEnd(patchDiff, methodVisitorContext);
                 methodNameVisitor.visit(cu, methodVisitorContext);
             });
@@ -53,7 +89,7 @@ public class MethodImpactAnalyzer {
     }
 
     /**
-     * Parse the 'hunk' using regex to get the line numbers for the change for the original file.
+     * Parse the diff 'hunk' using regex to get the line numbers for the change for the original file.
      * i.e. @@ -11,2 +11,2 @@ i.e. this means old file - line 11, 2 lines (get replaced in new file, starting line 11 for 2 lines).
      * https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html
      *
@@ -64,7 +100,7 @@ public class MethodImpactAnalyzer {
         Matcher matcher = UNIFIED_DIFF_HUNK_PATTERN.matcher(patchDiff);
 
         if  (matcher.matches()){
-            System.out.println("diffHunk: " + patchDiff);
+            log.debug("Diff hunk: " + patchDiff);
             int revisionLineBegin = Integer.parseInt(matcher.group(HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX));
             int revisionLineCount = Integer.parseInt(matcher.group(HUNK_DIFF_ORIG_LINE_START_COUNT_GROUP_INDEX));
 
@@ -74,7 +110,7 @@ public class MethodImpactAnalyzer {
             methodVisitorContext.setImpactedLineNumBegin(revisionLineBegin);
             methodVisitorContext.setImpactedLineNumEnd(revisionLineBegin + (revisionLineCount - 1));
 
-            System.out.println("getImpactedLineNumBegin: " + methodVisitorContext.getImpactedLineNumBegin() + " getImpactedLineNumEnd: " + methodVisitorContext.getImpactedLineNumEnd());
+            log.debug("getImpactedLineNumBegin: " + methodVisitorContext.getImpactedLineNumBegin() + " getImpactedLineNumEnd: " + methodVisitorContext.getImpactedLineNumEnd());
         }
     }
 
@@ -99,9 +135,9 @@ public class MethodImpactAnalyzer {
              * Check if any of the impacted code line numbers are within the current methods line numbers.
              *
              * IM = impacted method (from VCS).
-             * Check start point is within method			IM start > = method start && IM start <= method end
-             * Check end point is within method			IM end  >= method start && IM end <= method end
-             * Check impacted code range covers the method			IM start <= method start && IM end >= method end
+             * Check start point is within method:			    IM start > = method start && IM start <= method end
+             * Check end point is within method:			    IM end  >= method start && IM end <= method end
+             * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
              */
             int impactedCodeLineBegin = arg.getImpactedLineNumBegin();
             int impactedCodeLineEnd = arg.getImpactedLineNumEnd();
@@ -114,17 +150,27 @@ public class MethodImpactAnalyzer {
 
             if (impactedChangeBeginIsWithinMethod || impactedChangeEndIsWithinMethod || impactedChangeRangeCoversMethod){
                 arg.getMethodsImpacted().add(md.getDeclarationAsString());
-            }
 
-            /* TODO need to add the method in the format used with JACOCO. Not sure it's available out of the box from JavaParser?
-            // Might need to create the format myself using what's available in JavaParser MethodDeclaration?
-            System.out.println("Method Name Printed: " + md.getName() + " |||||| " + md.getDeclarationAsString()
-                    + " ||||| " + md.getSignature()
-                    + " ||||| " + md.getNameAsExpression()
-                    + " ||||| " + md.getTypeAsString()
-                    + " ||||| " + md.getBegin().get().line
-                    + " ||||| " + md.getEnd().get().line);
-             */
+                // TODO need to add the method in the format used with JACOCO. Not sure it's available out of the box from JavaParser?
+                // Might need to create the format myself using what's available in JavaParser MethodDeclaration?
+                System.out.println("Method Name Printed:1 " + md.getName()
+                        + " |||||2 " + md.getDeclarationAsString()
+                        + " |||||3 " + md.getSignature()
+                        + " |||||4 " + md.getNameAsExpression()
+                        + " |||||5 " + md.getTypeAsString()
+                        + " |||||6 " + md.getNameAsString()
+                       // + " |||||7 " + md.getParentNodeForChildren().toString()
+                       // + " |||||8 " + md.getParentNode().get().toString()
+                       // + " |||||9 " + md.getChildNodes().toString()
+                       // + " |||||10 " + md.getDataKeys()
+                       // + " |||||11 " + md.getMetaModel().getPackageName()
+                       // + " |||||12 " + md.getMetaModel().getQualifiedClassName()
+                       // + " |||||13 " + md.getMetaModel().getMetaModelFieldName()
+                       // + " |||||14 " + md.getClass().getCanonicalName()
+                        + " |||||15 " + md.getBegin().get().line
+                        + " |||||16 " + md.getEnd().get().line
+                        + " |||||17 " + md.getParameters().get(0));
+            }
         }
     }
 

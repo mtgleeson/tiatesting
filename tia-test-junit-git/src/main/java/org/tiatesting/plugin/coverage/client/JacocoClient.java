@@ -124,10 +124,6 @@ public class JacocoClient {
         }
     }
 
-    private void analyzeClientExecutionData(){
-
-    }
-
     private int getHitCount(final boolean[] data) {
         int count = 0;
         for (final boolean hit : data) {
@@ -139,15 +135,19 @@ public class JacocoClient {
     }
 
     private List<File> loadClasses(){
-        String classesDir = System.getProperty("tiaClassFiles");
+        String classesDir = getProjectDir() + System.getProperty("tiaClassFilesDir");
         String classExtension = ".class";
         return loadFiles(classesDir, classExtension);
     }
 
     private List<File> loadSourceFiles(){
-        String sourceFilesDir = System.getProperty("tiaSourceFiles");
+        String sourceFilesDir = getProjectDir() + System.getProperty("tiaSourceFilesDir");
         String sourceExtension = ".java";
         return loadFiles(sourceFilesDir, sourceExtension);
+    }
+
+    private String getProjectDir(){
+        return System.getProperty("tiaProjectDir");
     }
 
     private List<File> loadFiles(String systemPropertyDirectory, String fileExtension){
