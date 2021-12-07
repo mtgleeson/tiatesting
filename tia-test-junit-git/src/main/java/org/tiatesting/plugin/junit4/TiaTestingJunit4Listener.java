@@ -68,7 +68,7 @@ public class TiaTestingJunit4Listener extends RunListener {
             this.dataStore.persistTestMapping(this.testMethodsCalled, gitReader.getHeadCommit());
         }
 
-        // temp. Create a new maven/gradle task/mojo that generates the file
+        // TODO temp. Create a new maven/gradle task/mojo that generates the file
         ReportGenerator reportGenerator = new TextFileReportGenerator(this.gitReader.getBranchName());
         reportGenerator.generateReport(this.dataStore);
     }
@@ -76,10 +76,12 @@ public class TiaTestingJunit4Listener extends RunListener {
     /**
      * Test suite maps to a test class.
      */
+    /*
     @Override
     public void testSuiteStarted(Description description) throws Exception {
-       // System.out.println("test suite started: " + description.getClassName() + " " + description.getTestClass() + " " + description.getDisplayName());
+        System.out.println("test suite started: " + description.getClassName() + " " + description.getTestClass() + " " + description.getDisplayName());
     }
+*/
 
     @Override
     public void testFailure(Failure failure) throws Exception {
