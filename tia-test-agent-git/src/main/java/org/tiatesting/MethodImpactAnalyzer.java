@@ -6,22 +6,20 @@ import com.github.difflib.algorithm.DiffException;
 import com.github.difflib.patch.Patch;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.visitor.VoidVisitor;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.symbolsolver.JavaSymbolSolver;
-import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 
-import java.io.File;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.lang.reflect.Method;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * TODO move this class to a new file impact analyzer module.
@@ -44,10 +42,11 @@ public class MethodImpactAnalyzer {
      * @param originalFileName
      * @param revisedFileName
      * @param methodsImpacted
-     * @param commitFromProjectDir
+     * @param classesImpacted
      */
     protected void getMethodsForImpactedFile(String originalFileContent, String newFilContent, String originalFileName,
-                                             String revisedFileName, Set<String> methodsImpacted, File commitFromProjectDir){
+                                             String revisedFileName, Set<String> methodsImpacted,
+                                             Map<String, List<MethodImpactTracker>> classesImpacted){
 
         List<String> originalFileLines = Arrays.asList(originalFileContent.split(LINEBREAK_PATTERN));
         List<String> newFileLines = Arrays.asList(newFilContent.split(LINEBREAK_PATTERN));
@@ -61,31 +60,36 @@ public class MethodImpactAnalyzer {
 
             // Parse the original content as a Java file and check each method to see if it's in the diff based on the
             // file line numbers and the diff segment line numbers
-            MethodVisitorContext methodVisitorContext = new MethodVisitorContext(methodsImpacted);
+            MethodVisitorContext methodVisitorContext = new MethodVisitorContext();
+            methodVisitorContext.setMethodsImpacted(methodsImpacted);
             VoidVisitor<MethodVisitorContext> methodNameVisitor = new MethodImpactVisitor();
 
-            String sourceFilesDir = commitFromProjectDir + System.getProperty("tiaSourceFilesDir");
-            log.info("sourceFilesDir: " + sourceFilesDir);
-// TODO get this working - get source folder passed in to CombinedTypeSolver, and then
-            // find types of method parameters and full class name incl package
-            // https://leanpub.com/javaparservisited/read_full -> "Resolving a Type in a context"
-
-            TypeSolver typeSolver = new CombinedTypeSolver(new JavaParserTypeSolver(new File(sourceFilesDir)));
-            JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
-            StaticJavaParser.getConfiguration().setSymbolResolver(symbolSolver);
             CompilationUnit cu = StaticJavaParser.parse(originalFileContent);
 
-            //resolvedReferenceTypeDeclaration.getAllMethods().forEach(m ->
-            //        20                 System.out.println(String.format("    %s", m.getQualifiedSignature()\
+            List<String> classNameList = new ArrayList<>();
+            VoidVisitor<List<String>> classNameVisitor = new ClassNameCollector();
+            classNameVisitor.visit(cu, classNameList);
+
+            for (String className : classNameList){
+                methodVisitorContext.getMethodImpactTrackers().addAll(classesImpacted.get(className));
+            }
+
+            /*
+            classesImpacted.forEach( (key, val) -> {
+                System.out.println(System.lineSeparator() + "key: " + key + " val: " + System.lineSeparator() + "\t" + val.stream().map( mt -> mt.getMethodName() + " " + mt.getMethodLineNumber() ).collect(Collectors.joining(System.lineSeparator() + "\t", "", "")));
+            });
+             */
 
             unifiedDiff.forEach( patchDiff -> {
                 setImpactedLineBeginEnd(patchDiff, methodVisitorContext);
                 methodNameVisitor.visit(cu, methodVisitorContext);
             });
+
         } catch (DiffException e) {
             e.printStackTrace();
             throw new RuntimeException(e);
         }
+
     }
 
     /**
@@ -114,6 +118,26 @@ public class MethodImpactAnalyzer {
         }
     }
 
+    private static class ClassNameCollector extends VoidVisitorAdapter<List<String>>{
+        @Override
+        public void visit(ClassOrInterfaceDeclaration n, List<String> collector) {
+            super.visit(n, collector);
+
+            if (n.getFullyQualifiedName().isPresent()){
+                // convert the fully qualified name using dots to use forward slashes, consistent with the ASM byte code internal naming convention
+                // https://asm.ow2.io/asm4-guide.pdf Section 2.1.2 Internal names
+                String className = n.getFullyQualifiedName().get().replaceAll("\\.", "/");
+
+                if (n.isNestedType()){
+                    // nested/inner classes should have a $ in the ASM naming convention i.e. com/example/DoorService$StaticNestedClass
+                    className = className.replaceAll("/" + n.getName().asString(), "\\$" +  n.getName().asString());
+                }
+
+                collector.add(className);
+            }
+        }
+    }
+
     /**
      * Visitor for methods in a source Java file. The visitor checks if a given diff (MethodVisitorContext) touches
      * the method. This is based on checking the range of lines from the diff snippet against the line number range
@@ -130,6 +154,11 @@ public class MethodImpactAnalyzer {
         @Override
         public void visit(MethodDeclaration md, MethodVisitorContext arg) {
             super.visit(md, arg);
+
+            // if there are no stored tracked methods for the class then don't both trying to find one
+            if (arg.getMethodImpactTrackers() == null || arg.getMethodImpactTrackers().size() == 0){
+                return;
+            }
 
             /**
              * Check if any of the impacted code line numbers are within the current methods line numbers.
@@ -149,10 +178,38 @@ public class MethodImpactAnalyzer {
             boolean impactedChangeRangeCoversMethod = impactedCodeLineBegin <= methodLineBegin && impactedCodeLineEnd >= methodLineEnd;
 
             if (impactedChangeBeginIsWithinMethod || impactedChangeEndIsWithinMethod || impactedChangeRangeCoversMethod){
-                arg.getMethodsImpacted().add(md.getDeclarationAsString());
+
+                MethodImpactTracker methodImpactTracker = getMethodImpactTracker(methodLineBegin, methodLineEnd, arg.getMethodImpactTrackers());
+
+                if (methodImpactTracker != null && !arg.getMethodsImpacted().contains(methodImpactTracker.getMethodName())){
+                    arg.getMethodsImpacted().add(methodImpactTracker.getMethodName());
+
+                    log.info(String.format("Found stored tracked method: %s, source line begin: %d, source line end: %d, stored line number: %d",
+                            methodImpactTracker.getMethodName(), methodLineBegin, methodLineEnd, methodImpactTracker.getMethodLineNumber()));
+                }
+
+/*
+                md.getParameters().forEach( p -> {
+                    System.out.println("resolved type 2: " + p.getName().getMetaModel().getQualifiedClassName());
+                    System.out.println("resolved type 2: " + p.getNameAsString());
+                    System.out.println("resolved type 2: " + p.getNameAsString());
+                    System.out.println("resolved type 2: " + p.getType().toDescriptor());
+                    System.out.println("resolved type 2: " + p.getType());
+                    System.out.println("resolved type 2: " + p.getTypeAsString());
+                    System.out.println("resolved type 2: " + p);
+
+                    ResolvedType type = p.getType().resolve();
+                    System.out.println("resolved type 1: " + type.getClass());
+                    System.out.println("resolved type 1: " + type.describe());
+                    //System.out.println("resolved type 3: " + type.asTypeParameter());
+                    //System.out.println("resolved type 4: " + type.asTypeParameter().getQualifiedName());
+                });
+
+ */
 
                 // TODO need to add the method in the format used with JACOCO. Not sure it's available out of the box from JavaParser?
                 // Might need to create the format myself using what's available in JavaParser MethodDeclaration?
+                /*
                 System.out.println("Method Name Printed:1 " + md.getName()
                         + " |||||2 " + md.getDeclarationAsString()
                         + " |||||3 " + md.getSignature()
@@ -169,22 +226,60 @@ public class MethodImpactAnalyzer {
                        // + " |||||14 " + md.getClass().getCanonicalName()
                         + " |||||15 " + md.getBegin().get().line
                         + " |||||16 " + md.getEnd().get().line
-                        + " |||||17 " + md.getParameters().get(0));
+                        + " |||||17 " + md.getParameters().get(0).getType().resolve());
+                 */
             }
         }
+    }
+
+    /**
+     * Find the associated stored impacted method using the given beginning and end line numbers.
+     *
+     * We use the stored impacted method tracker object as the source of truth for the method name. The reason being,
+     * the method name is stored using ASM's internal naming convention from byte code (via Jacoco).
+     *
+     * Rather than trying to reconstruct this name from source code we simply use the name from the stored impacted list.
+     * To match them, we have a source line number associated with the impacted method tracker object. This line number
+     * is derived via Jacoco after loading the compiled classes and source files.
+     *
+     * Given the beginning and end line numbers for a method from a source file, loop through and see if any of the
+     * impacted methods stored for the class have their line number within the given source code method.
+     *
+     * if so, we have a match and can use the name from the stored method tracker object.
+     *
+     * Why do we use name from the stored method tracker object? Because trying to reconstruct it manually from a parsed
+     * method (using JavaParser) is costly and difficult. To do it accurately you need to checkout a copy of all the source
+     * files at the "from" version temporarily onto disk and load these into JavaParser.
+     * This allows getting the fully qualified name of types declared within the source code but it doesn't work for
+     * types declared in libraries. To get that working (which I never did), you would also need to retrieve somehow and
+     * then load in all the library Jars (with the correct versions) for the application.
+     *
+     * @param methodLineBegin
+     * @param methodLineEnd
+     * @param methodImpactTrackers
+     * @return
+     */
+    private static MethodImpactTracker getMethodImpactTracker(final int methodLineBegin, final int methodLineEnd, List<MethodImpactTracker> methodImpactTrackers){
+        for (MethodImpactTracker methodImpactTracker : methodImpactTrackers){
+            if (methodImpactTracker.getMethodLineNumber() >= methodLineBegin && methodImpactTracker.getMethodLineNumber() <= methodLineEnd){
+                return methodImpactTracker;
+            }
+        }
+        return null;
     }
 
     private static class MethodVisitorContext  {
         Set<String> methodsImpacted;
         int impactedLineNumBegin;
         int impactedLineNumEnd;
-
-        public MethodVisitorContext(Set<String> methodsImpacted){
-            this.methodsImpacted = methodsImpacted;
-        }
+        List<MethodImpactTracker> methodImpactTrackers = new ArrayList<>();
 
         public Set<String> getMethodsImpacted() {
             return methodsImpacted;
+        }
+
+        public void setMethodsImpacted(Set<String> methodsImpacted){
+            this.methodsImpacted = methodsImpacted;
         }
 
         public int getImpactedLineNumBegin() {
@@ -201,6 +296,14 @@ public class MethodImpactAnalyzer {
 
         public void setImpactedLineNumEnd(int impactedLineNumEnd) {
             this.impactedLineNumEnd = impactedLineNumEnd;
+        }
+
+        public List<MethodImpactTracker> getMethodImpactTrackers() {
+            return methodImpactTrackers;
+        }
+
+        public void setMethodImpactTrackers(List<MethodImpactTracker> methodImpactTrackers) {
+            this.methodImpactTrackers = methodImpactTrackers;
         }
     }
 }

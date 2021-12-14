@@ -7,6 +7,8 @@ import org.jacoco.core.data.ExecutionDataStore;
 import org.jacoco.core.data.SessionInfoStore;
 import org.jacoco.core.runtime.RemoteControlReader;
 import org.jacoco.core.runtime.RemoteControlWriter;
+import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 
 import java.io.File;
 import java.io.IOException;
@@ -37,6 +39,7 @@ public class JacocoClient {
         log.debug("sources size: " + this.sourcefiles.size());
 
         try {
+            // collect & dump any existing coverage metrics
             collectCoverage();
         } catch (IOException e) {
             e.printStackTrace();
@@ -48,7 +51,7 @@ public class JacocoClient {
      *
      * @throws IOException
      */
-    public Set<String> collectCoverage() throws IOException {
+    public List<ClassImpactTracker> collectCoverage() throws IOException {
         long startTime = System.currentTimeMillis();
 
         // Open a socket to the coverage agent:
@@ -71,23 +74,28 @@ public class JacocoClient {
 
         // session and execution info have been read to our local objects
         IBundleCoverage bundleCoverage = analyze(executionDataStore);
-        Set<String> methodsCalled = collectMethodsCalled(bundleCoverage);
+        List<ClassImpactTracker> classesInvoked = collectMethodsCalled(bundleCoverage);
 
         socket.close();
         log.debug("Time to collect coverage (ms): " + (System.currentTimeMillis() - startTime));
-        return methodsCalled;
+        return classesInvoked;
     }
 
-    private Set<String> collectMethodsCalled(IBundleCoverage bundleCoverage){
-        Set<String> methodsCalled = new HashSet<>();
+    private List<ClassImpactTracker> collectMethodsCalled(IBundleCoverage bundleCoverage){
+        List<ClassImpactTracker> classesInvoked = new ArrayList<>();
 
         bundleCoverage.getPackages().forEach( bundlePackage -> {
             if (containsLineCoverage(bundlePackage)){
                 bundlePackage.getClasses().forEach( bundleClass -> {
                     if (containsLineCoverage(bundleClass)){
+
+                        List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
+                        classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), methodsImpactedForClass));
+
                         bundleClass.getMethods().forEach( method -> {
                             if (containsLineCoverage(method)){
-                                methodsCalled.add(bundleClass.getName() + "." + method.getName() + "." + method.getDesc());
+                                String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
+                                methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine()));
                             }
                         });
                     }
@@ -95,7 +103,7 @@ public class JacocoClient {
             }
         });
 
-        return methodsCalled;
+        return classesInvoked;
     }
 
     private boolean containsLineCoverage(ICoverageNode coverageNode){

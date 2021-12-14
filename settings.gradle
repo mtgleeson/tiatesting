@@ -5,4 +5,5 @@ include 'tia-test-agent-git'
 include 'tia-test-persistence'
 include 'tia-test-junit-git'
 include 'tia-test-vcs-git'
+include 'tia-test-core'
 

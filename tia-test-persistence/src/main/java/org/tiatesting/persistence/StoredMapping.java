@@ -1,16 +1,15 @@
 package org.tiatesting.persistence;
 
+import org.tiatesting.core.coverage.ClassImpactTracker;
+
 import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 public class StoredMapping implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private String commitValue;
-    private Map<String, Set<String>> testMethodsCalled = new HashMap<>();
+    private Map<String, List<ClassImpactTracker>> classesImpacted = new HashMap<>();
 
     public String getCommitValue() {
         return commitValue;
@@ -20,12 +19,12 @@ public class StoredMapping implements Serializable {
         this.commitValue = commitValue;
     }
 
-    public Map<String, Set<String>> getTestMethodsCalled() {
-        return testMethodsCalled;
+    public Map<String, List<ClassImpactTracker>> getClassesImpacted() {
+        return classesImpacted;
     }
 
-    public void setTestMethodsCalled(Map<String, Set<String>> testMethodsCalled) {
-        this.testMethodsCalled = testMethodsCalled;
+    public void setClassesImpacted(Map<String, List<ClassImpactTracker>> classesImpacted) {
+        this.classesImpacted = classesImpacted;
     }
 
     @Override
@@ -33,11 +32,11 @@ public class StoredMapping implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         StoredMapping that = (StoredMapping) o;
-        return commitValue.equals(that.commitValue) && testMethodsCalled.equals(that.testMethodsCalled);
+        return commitValue.equals(that.commitValue) && classesImpacted.equals(that.classesImpacted);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(commitValue, testMethodsCalled);
+        return Objects.hash(commitValue, classesImpacted);
     }
 }

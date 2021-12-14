@@ -3,6 +3,7 @@ package org.tiatesting.maven;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.project.MavenProject;
+import org.tiatesting.core.agent.AgentOptions;
 
 import java.io.File;
 import java.util.Iterator;
@@ -24,9 +25,20 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
         final String oldValue = projectProperties.getProperty(name);
-        final String newValue = addVMArguments(oldValue, getAgentJarFile());
+        final AgentOptions agentOptions = buildAgentOptions();
+        final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
+    }
+
+    private AgentOptions buildAgentOptions(){
+        AgentOptions agentOptions = new AgentOptions();
+
+        if (getTiaSourceFilesDir() != null && !getTiaSourceFilesDir().isEmpty()){
+            agentOptions.setSourceFilesDir(getTiaSourceFilesDir());
+        }
+
+        return agentOptions;
     }
 
     /**
@@ -40,10 +52,10 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      *
      * @param arguments
      * @param agentJarFile
+     * @param agentOptions
      * @return
      */
-    public String addVMArguments(final String arguments,
-                                     final File agentJarFile) {
+    public String addVMArguments(final String arguments, final File agentJarFile, final AgentOptions agentOptions) {
         final List<String> args = CommandLineSupport.split(arguments);
         final String plainAgent = format("-javaagent:%s", agentJarFile);
         for (final Iterator<String> i = args.iterator(); i.hasNext();) {
@@ -52,11 +64,22 @@ public abstract class TiaAgentMojo extends AbstractMojo {
             }
         }
 
-        // TODO pass in the source file dir as an arg on the command line to the agent
-        System.out.println("tiaSourceFilesDir!!: " + getTiaSourceFilesDir());
-
-        args.add(format("-javaagent:%s", agentJarFile));
+        args.add(getVMArgument(agentJarFile, agentOptions));
         return CommandLineSupport.quote(args);
+    }
+
+    /**
+     * Generate required JVM argument based on current configuration and
+     * supplied agent jar location.
+     *
+     * @param agentJarFile
+     *            location of the JaCoCo Agent Jar
+     * @param agentOptions
+     *             options to pass through to the agent
+     * @return Argument to pass to create new VM with coverage enabled
+     */
+    private String getVMArgument(final File agentJarFile, final AgentOptions agentOptions) {
+        return format("-javaagent:%s=%s", agentJarFile, agentOptions.toCommandLineOptionsString());
     }
 
     File getAgentJarFile() {

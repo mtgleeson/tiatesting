@@ -2,13 +2,14 @@ package org.tiatesting.persistence;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.tiatesting.core.coverage.ClassImpactTracker;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -47,20 +48,20 @@ public class MapDataStore implements DataStore {
     }
 
     @Override
-    public boolean persistTestMapping(Map<String, Set<String>> testMethodsCalled, String commitValue) {
+    public boolean persistTestMapping(Map<String, List<ClassImpactTracker>> testMethodsCalled, String commitValue) {
         long startTime = System.currentTimeMillis();
 
         // always get the latest test mapping before updating in case another process has updated the file since it was last read.
         StoredMapping storedMapping = readTestMappingFromDisk();
-        System.out.println("persisting commit value: " + commitValue);
+        log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
-        Map<String, Set<String>> testMethodsCalledOnDisk = storedMapping.getTestMethodsCalled();
-        Map<String, Set<String>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
-        storedMapping.setTestMethodsCalled(mergedTestMappings);
+        Map<String, List<ClassImpactTracker>> testMethodsCalledOnDisk = storedMapping.getClassesImpacted();
+        Map<String, List<ClassImpactTracker>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
+        storedMapping.setClassesImpacted(mergedTestMappings);
 
         mergedTestMappings.forEach( (testClass, methodsCalled) ->
-                log.info(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+                log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
 
         boolean savedToDisk = writeTestMappingToDisk(storedMapping);
         log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));
@@ -119,14 +120,17 @@ public class MapDataStore implements DataStore {
 
     /**
      * Update the stored test mappings based on the results from the current test run.
+     * For each test suite, set the methods impacted. If the test suite has an existing method mapping
+     * then update it to use the new test mapping
+     *
      *
      * @param oldTestMappings
      * @param newTestMappings
      * @return mergedTestMappings
      */
-    private Map<String, Set<String>> mergeTestMappingMaps(Map<String, Set<String>> oldTestMappings,
-                                                          Map<String, Set<String>> newTestMappings){
-        Map<String, Set<String>> mergedTestMappings = new HashMap<>(oldTestMappings);
+    private Map<String, List<ClassImpactTracker>> mergeTestMappingMaps(Map<String, List<ClassImpactTracker>> oldTestMappings,
+                                                          Map<String, List<ClassImpactTracker>> newTestMappings){
+        Map<String, List<ClassImpactTracker>> mergedTestMappings = new HashMap<>(oldTestMappings);
         newTestMappings.forEach((key, value) -> mergedTestMappings.merge(key, value, (v1, v2) -> v2));
         return mergedTestMappings;
     }

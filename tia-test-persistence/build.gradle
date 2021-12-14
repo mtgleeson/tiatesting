@@ -1,4 +1,5 @@
 dependencies {
+    implementation project(':tia-test-core')
     implementation "commons-logging:commons-logging:1.1.3"
 }
 
