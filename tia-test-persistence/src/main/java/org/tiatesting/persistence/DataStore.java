@@ -1,7 +1,9 @@
 package org.tiatesting.persistence;
 
+import org.tiatesting.core.coverage.ClassImpactTracker;
+
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public interface DataStore {
 
@@ -19,7 +21,7 @@ public interface DataStore {
      * @param commitValue
      * @return
      */
-    boolean persistTestMapping(Map<String, Set<String>> testMethodsCalled, String commitValue);
+    boolean persistTestMapping(Map<String, List<ClassImpactTracker>> testMethodsCalled, String commitValue);
 
     /**
      * Get the persistence strategy for the DB.

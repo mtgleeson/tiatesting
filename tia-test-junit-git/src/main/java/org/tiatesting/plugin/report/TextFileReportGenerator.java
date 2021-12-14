@@ -1,5 +1,7 @@
 package org.tiatesting.plugin.report;
 
+import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
 import org.apache.commons.logging.Log;
@@ -41,12 +43,15 @@ public class TextFileReportGenerator implements ReportGenerator{
             LocalDateTime localDate = LocalDateTime.now();
             writer.write("Test Mapping Report generated at " + dtf.format(localDate) + System.lineSeparator());
             writer.write("Test mapping valid for commit number: " + storedMapping.getCommitValue() + System.lineSeparator());
-            writer.write("Number of tests classes with mappings: " + storedMapping.getTestMethodsCalled().keySet().size());
+            writer.write("Number of tests classes with mappings: " + storedMapping.getClassesImpacted().keySet().size());
 
-            storedMapping.getTestMethodsCalled().forEach((testClass, methodsCalled) -> {
+            storedMapping.getClassesImpacted().forEach((testClass, classesImpacted) -> {
                 try {
-                    String fileTestEntry = methodsCalled.stream().map(String::valueOf).collect(
-                            Collectors.joining(System.lineSeparator() + "\t", System.lineSeparator() +  System.lineSeparator() + testClass + System.lineSeparator() + "\t", ""));
+                    String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass + System.lineSeparator() + "\t";
+                    for (ClassImpactTracker classImpacted : classesImpacted){
+                        fileTestEntry += classImpacted.getMethodsImpacted().stream().map(MethodImpactTracker::getMethodName).collect(
+                                Collectors.joining(System.lineSeparator() + "\t", "", ""));
+                    }
                     writer.write(fileTestEntry);
                 }
                 catch (IOException ex) {

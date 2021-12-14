@@ -15,6 +15,7 @@ public class GitCheckoutProcessor {
 
     private static final Log log = LogFactory.getLog(GitCheckoutProcessor.class);
 
+    // TODO shouldnt need this anymore - delete
     protected File checkoutSourceAtVersion(GitContext gitContext, String commit){
         //String tmpDirName = "tia-" + gitContext.getRepository().getDirectory().getParentFile().getName()
         //        + "-" + gitContext.getBranchName() + "-" + commit;

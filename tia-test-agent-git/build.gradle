@@ -1,4 +1,5 @@
 dependencies {
+    implementation project(':tia-test-core')
     implementation project(':tia-test-persistence')
     implementation project(':tia-test-vcs-git')
     //implementation group: 'org.tiatesting', name: 'tia-test-persistence', version: '1.1.0'

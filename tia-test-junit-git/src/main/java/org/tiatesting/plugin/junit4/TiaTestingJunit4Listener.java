@@ -1,5 +1,7 @@
 package org.tiatesting.plugin.junit4;
 
+import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.plugin.coverage.client.JacocoClient;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
@@ -15,6 +17,7 @@ import org.tiatesting.plugin.report.TextFileReportGenerator;
 import org.tiatesting.vcs.git.GitReader;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +29,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final GitReader gitReader;
-    private final Map<String, Set<String>> testMethodsCalled;
+    private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
     private Set<String> testSuitesFailed;
 
     public TiaTestingJunit4Listener() throws IOException {
@@ -109,7 +112,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         log.debug("Collecting coverage and adding the mapping for the successful test suite: " + description.getClassName());
-        Set<String> methodsCalledForTest = this.coverageClient.collectCoverage();
+        List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
         this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){

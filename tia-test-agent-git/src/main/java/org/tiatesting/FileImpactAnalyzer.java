@@ -2,15 +2,16 @@ package org.tiatesting;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.vcs.SourceFileDiffContext;
 
-import java.io.File;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * TODO move this class to a new file impact analyzer module.
+ * TODO move this class to a new file impact analyzer module (or existing tia-test-agent module).
  */
 public class FileImpactAnalyzer {
 
@@ -22,20 +23,28 @@ public class FileImpactAnalyzer {
         this.methodImpactAnalyzer = methodImpactAnalyzer;
     }
 
-    public void getMethodsForFilesChanged(List<SourceFileDiffContext> impactedSourceFiles, File commitFromProjectDir){
+    /**
+     *
+     *
+     * @param sourceFileDiffContexts
+     * @param classesImpacted
+     */
+    public Set<String> getMethodsForFilesChanged(List<SourceFileDiffContext> sourceFileDiffContexts,
+                                          Map<String, List<MethodImpactTracker>> classesImpacted){
         Set<String> methodsImpacted = new HashSet<>();
 
-        for (SourceFileDiffContext impactedSourceFile : impactedSourceFiles){
-            switch(impactedSourceFile.getChangeType()){
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
+            switch(sourceFileDiffContext.getChangeType()){
                 case MODIFY:
-                    methodImpactAnalyzer.getMethodsForImpactedFile(impactedSourceFile.getSourceContentOriginal(),
-                            impactedSourceFile.getSourceContentNew(), impactedSourceFile.getOldFilePath(),
-                            impactedSourceFile.getNewFilePath(), methodsImpacted, commitFromProjectDir);
+                    methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
+                            sourceFileDiffContext.getSourceContentNew(), sourceFileDiffContext.getOldFilePath(),
+                            sourceFileDiffContext.getNewFilePath(), methodsImpacted, classesImpacted);
                     break;
             }
         }
 
         log.info("Methods impacted: " + methodsImpacted);
+        return methodsImpacted;
     }
 
 }
