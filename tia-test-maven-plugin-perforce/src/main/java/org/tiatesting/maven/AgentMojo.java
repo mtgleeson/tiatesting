@@ -30,7 +30,6 @@ public class AgentMojo extends TiaAgentMojo {
      * Allows us to specify property which will contains settings for JaCoCo Agent.
      * If not specified, then "argLine" would be used for "jar" packaging and
      * "tycho.testArgLine" for "eclipse-test-plugin".
-     *
      */
     String propertyName;
 
@@ -40,19 +39,35 @@ public class AgentMojo extends TiaAgentMojo {
      */
     private MavenProject project;
 
-    public String getAgentArtifactName(){
+    /**
+     * A list of class loader names, that should be excluded from execution
+     * analysis. The list entries are separated by a colon (:) and may use
+     * wildcard characters (* and ?). This option might be required in case of
+     * special frameworks that conflict with JaCoCo code instrumentation, in
+     * particular class loaders that do not have access to the Java runtime
+     * classes.
+     *
+     * @parameter property="tiaSourceFilesDir"
+     */
+    String tiaSourceFilesDir;
+
+    public String getAgentArtifactName() {
         return AGENT_ARTIFACT_NAME;
     }
 
-    public Map<String, Artifact> getPluginArtifactMap(){
+    public Map<String, Artifact> getPluginArtifactMap() {
         return pluginArtifactMap;
     }
 
-    public MavenProject getProject(){
+    public MavenProject getProject() {
         return project;
     }
 
-    public String getPropertyName(){
+    public String getPropertyName() {
         return propertyName;
+    }
+
+    public String getTiaSourceFilesDir() {
+        return tiaSourceFilesDir;
     }
 }

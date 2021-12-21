@@ -1,6 +1,0 @@
-Manifest-Version: 1.0
-Premain-Class: com.tiatesting.agent.Agent
-Can-Redefine-Classes: true
-Agent-Class: com.tiatesting.agent.Agent
-Can-Retransform-Classes: true
-
