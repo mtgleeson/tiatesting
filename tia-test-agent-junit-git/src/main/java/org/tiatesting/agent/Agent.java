@@ -1,25 +1,22 @@
 package org.tiatesting.agent;
 
-import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.description.annotation.AnnotationDescription;
-import net.bytebuddy.matcher.ElementMatchers;
+import com.tiatesting.agent.fileanalyze.FileImpactAnalyzer;
+import com.tiatesting.agent.fileanalyze.MethodImpactAnalyzer;
+import com.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.junit.Ignore;
-import org.tiatesting.FileImpactAnalyzer;
-import org.tiatesting.MethodImpactAnalyzer;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.StoredMapping;
-import org.tiatesting.vcs.SourceFileDiffContext;
 import org.tiatesting.vcs.git.GitReader;
 
 import java.lang.instrument.Instrumentation;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class Agent {
 
@@ -30,11 +27,9 @@ public class Agent {
 
         //final Agent agent = Agent.getInstance(agentOptions);
 
-        //DataStore dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), System.getProperty("tiaDBFileSuffix"));
-        GitReader gitReader = new GitReader("/Users/mgleeson/Documents/misc/test-java-project/.git");
-        DataStore dataStore = new MapDataStore("/Users/mgleeson/Documents/misc/test-java-project", gitReader.getBranchName());
+        GitReader gitReader = new GitReader(agentOptions.getProjectDir());
+        DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
         StoredMapping storedMapping = dataStore.getStoredMapping();
-
         log.info("Store commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
@@ -42,19 +37,16 @@ public class Agent {
             return;
         }
 
+        // build the list of source files that have been changed since the previously analyzed commit
         List<SourceFileDiffContext> impactedSourceFiles = gitReader.buildDiffFilesContext(storedMapping.getCommitValue());
-        Map<String, List<MethodImpactTracker>> classesImpacted = getClassesImpacted(storedMapping);
 
+        // For the source files that have changed, do a diff to find the methods that have changed
         FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
-        Set<String> methodsImpacted = fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, classesImpacted);
-
-        // TODO convert ClassTrackerList
-        Map<String, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
-
-        Set<String> testsToRun = new HashSet<>();
-        Set<String> ignoredTests = new HashSet<>();
+        Set<String> methodsImpacted = fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, storedMapping);
 
         // build the list of test suites that need to be run based on the tracked methods that have been changed
+        Map<String, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
+        Set<String> testsToRun = new HashSet<>();
         methodsImpacted.forEach( ( methodImpacted ) -> {
             testsToRun.addAll(methodTestSuites.get(methodImpacted));
         });
@@ -62,6 +54,7 @@ public class Agent {
         // find the list of all known tracked test suites that are in the list of tests to run - this is the ignore list.
         // i.e. only ignore test suites that we have previously tracked and know haven't been impacted by the source changes.
         // this ensures any new test suites are executed.
+        Set<String> ignoredTests = new HashSet<>();
         storedMapping.getClassesImpacted().keySet().forEach( (testSuite) -> {
             if (!testsToRun.contains(testSuite)){
                 ignoredTests.add(testSuite);
@@ -69,41 +62,9 @@ public class Agent {
         });
 
        // ignoredTests.add("com.example.CarServiceTest");
-       // ignoredTests.add("com.example.DoorServiceTest");
 
         log.info("Ignoring tests: " + ignoredTests);
-
-        AnnotationDescription ignoreDescription = AnnotationDescription.Builder.ofType(Ignore.class)
-                .define("value", "Ignored by TIA testing")
-                .build();
-
-        new AgentBuilder.Default()
-                .type(ElementMatchers.namedOneOf(ignoredTests.toArray(new String[ignoredTests.size()])))
-                .transform((builder, typeDescription, agr3, arg4) -> builder.annotateType(ignoreDescription))
-                .installOn(instrumentation);
-    }
-
-    /**
-     * Convert to a map for convenience in analyzing the diff files: Tracked Class Name, List<MethodImpactTracker>
-     *
-     * @param storedMapping
-     * @return
-     */
-    private static Map<String, List<MethodImpactTracker>> getClassesImpacted(StoredMapping storedMapping){
-        Map<String, List<MethodImpactTracker>> classesImpacted = new HashMap<>();
-
-        for (List<ClassImpactTracker> testSuiteClassesImpacted : storedMapping.getClassesImpacted().values()){
-            for (ClassImpactTracker classImpacted : testSuiteClassesImpacted) {
-
-                if (classesImpacted.get(classImpacted.getClassName()) == null){
-                    classesImpacted.put(classImpacted.getClassName(), new ArrayList<>());
-                }
-
-                classesImpacted.get(classImpacted.getClassName()).addAll(classImpacted.getMethodsImpacted());
-            }
-        }
-
-        return classesImpacted;
+        new IgnoreTestInstrumentor().ignoreTests(ignoredTests, instrumentation, Ignore.class);
     }
 
     /**

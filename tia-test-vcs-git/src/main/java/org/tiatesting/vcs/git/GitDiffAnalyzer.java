@@ -11,8 +11,8 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.tiatesting.vcs.ChangeType;
-import org.tiatesting.vcs.SourceFileDiffContext;
+import org.tiatesting.core.diff.ChangeType;
+import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.vcs.VCSAnalyzerException;
 
 import java.io.ByteArrayOutputStream;

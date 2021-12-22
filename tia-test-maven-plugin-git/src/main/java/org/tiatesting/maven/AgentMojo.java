@@ -41,16 +41,19 @@ public class AgentMojo extends TiaAgentMojo {
     private MavenProject project;
 
     /**
-     * A list of class loader names, that should be excluded from execution
-     * analysis. The list entries are separated by a colon (:) and may use
-     * wildcard characters (* and ?). This option might be required in case of
-     * special frameworks that conflict with JaCoCo code instrumentation, in
-     * particular class loaders that do not have access to the Java runtime
-     * classes.
+     * The file path for the project being analyzed.
      *
-     * @parameter property="tiaSourceFilesDir"
+     * @parameter property="tiaProjectDir"
      */
-    String tiaSourceFilesDir;
+    String tiaProjectDir;
+
+    /**
+     * The file path for to the saved DB containing the previous analysis of the project.
+     *
+     * @parameter property="tiaDBFilePath"
+     */
+    String tiaDBFilePath;
+
 
     public String getAgentArtifactName(){
         return AGENT_ARTIFACT_NAME;
@@ -68,7 +71,11 @@ public class AgentMojo extends TiaAgentMojo {
         return propertyName;
     }
 
-    public String getTiaSourceFilesDir(){
-        return tiaSourceFilesDir;
+    public String getTiaProjectDir(){
+        return tiaProjectDir;
+    }
+
+    public String getTiaDBFilePath(){
+        return tiaDBFilePath;
     }
 }

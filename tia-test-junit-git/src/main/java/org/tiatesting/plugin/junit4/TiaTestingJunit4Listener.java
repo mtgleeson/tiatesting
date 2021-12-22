@@ -1,22 +1,20 @@
 package org.tiatesting.plugin.junit4;
 
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.plugin.coverage.client.JacocoClient;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.MapDataStore;
-import org.tiatesting.persistence.PersistenceStrategy;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
+import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.persistence.DataStore;
+import org.tiatesting.persistence.MapDataStore;
+import org.tiatesting.persistence.PersistenceStrategy;
+import org.tiatesting.plugin.coverage.client.JacocoClient;
 import org.tiatesting.plugin.report.ReportGenerator;
 import org.tiatesting.plugin.report.TextFileReportGenerator;
 import org.tiatesting.vcs.git.GitReader;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,11 +30,11 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
     private Set<String> testSuitesFailed;
 
-    public TiaTestingJunit4Listener() throws IOException {
+    public TiaTestingJunit4Listener() {
         this.coverageClient = new JacocoClient();
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
-        this.gitReader = new GitReader("/Users/mgleeson/Documents/misc/test-java-project/.git");
+        this.gitReader = new GitReader(System.getProperty("tiaProjectDir"));
         this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), gitReader.getBranchName(),
                 System.getProperty("tiaDBPersistenceStrategy"));
     }
