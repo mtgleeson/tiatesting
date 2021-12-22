@@ -11,18 +11,28 @@ import static java.lang.String.format;
 public class AgentOptions {
 
     /**
-     * Specifies the directory containing the source files for the program being analyzed.
+     * Specifies the file path for the project being analyzed.
      */
-    public static final String SOURCEFILESDIR = "sourceFilesDir";
+    public static final String PROJECT_DIR = "projectDir";
 
     /**
-     * Specifies the directory containing the source files for the program being analyzed.
+     * Specifies the default file path for the project being analyzed.
      */
-    private static final String DEFAULT_SOURCEFILESDIR = "/src/main/java";
+    private static final String DEFAULT_PROJECT_DIR = ".";
+
+    /**
+     * Specifies the file path for to the saved DB containing the previous analysis of the project.
+     */
+    public static final String DB_FILE_PATH = "dbFilePath";
+
+    /**
+     * Specifies the default file path for to the saved DB containing the previous analysis of the project.
+     */
+    private static final String DEFAULT_DB_FILE_PATH = ".";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
-
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(SOURCEFILESDIR);
 
     private final Map<String, String> options;
 
@@ -74,14 +84,6 @@ public class AgentOptions {
         return value == null ? defaultValue : value;
     }
 
-    public String getSourceFilesDir() {
-        return getOption(SOURCEFILESDIR, DEFAULT_SOURCEFILESDIR);
-    }
-
-    public void setSourceFilesDir(String sourceFilesDir) {
-        setOption(SOURCEFILESDIR, sourceFilesDir);
-    }
-
     /**
      * Creates a string representation that can be passed to the agent via the
      * command line. Might be the empty string, if no options are set.
@@ -98,5 +100,21 @@ public class AgentOptions {
             }
         }
         return sb.toString();
+    }
+
+    public String getProjectDir() {
+        return getOption(PROJECT_DIR, DEFAULT_PROJECT_DIR);
+    }
+
+    public void setProjectDir(String sourceFilesDir) {
+        setOption(PROJECT_DIR, sourceFilesDir);
+    }
+
+    public String getDBFilePath() {
+        return getOption(DB_FILE_PATH, DEFAULT_DB_FILE_PATH);
+    }
+
+    public void setDBFilePath(String sourceFilesDir) {
+        setOption(DB_FILE_PATH, sourceFilesDir);
     }
 }

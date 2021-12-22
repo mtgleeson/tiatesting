@@ -1,4 +1,4 @@
-package org.tiatesting.vcs;
+package org.tiatesting.core.diff;
 
 public enum ChangeType {
     /** Add a new file to the project */

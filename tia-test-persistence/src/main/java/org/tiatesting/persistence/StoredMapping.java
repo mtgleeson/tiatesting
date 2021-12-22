@@ -8,7 +8,14 @@ import java.util.*;
 public class StoredMapping implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    /**
+     * The version of project used to generate the saved class/method impact analysis for the test stuites.
+     */
     private String commitValue;
+
+    /**
+     * The saved mapping of impacted classes/methods for each test suite.
+     */
     private Map<String, List<ClassImpactTracker>> classesImpacted = new HashMap<>();
 
     public String getCommitValue() {

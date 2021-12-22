@@ -6,7 +6,7 @@ import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
-import org.tiatesting.vcs.SourceFileDiffContext;
+import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.vcs.VCSAnalyzerException;
 
 import java.io.File;
@@ -16,13 +16,14 @@ import java.util.List;
 public class GitReader {
 
     private static final Log log = LogFactory.getLog(GitReader.class);
+    public static final String GIT_REPOSITORY_NAME = "/.git";
 
     private final GitDiffAnalyzer gitDiffAnalyzer;
     private final GitContext gitContext;
     private final GitCheckoutProcessor gitCheckoutProcessor;
 
-    public GitReader(final String gitPath) {
-        Repository repository = getFileRepository(gitPath);
+    public GitReader(final String gitProjectPath) {
+        Repository repository = getFileRepository(gitProjectPath + GIT_REPOSITORY_NAME);
         gitContext = new GitContext(repository, readBranchName(repository), readHeadObjectId(repository));
         gitDiffAnalyzer = new GitDiffAnalyzer();
         gitCheckoutProcessor = new GitCheckoutProcessor();

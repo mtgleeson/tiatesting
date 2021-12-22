@@ -10,8 +10,8 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/tia-test-agent" />
-            <option value="$PROJECT_DIR$/tia-test-agent-git" />
-            <option value="$PROJECT_DIR$/tia-test-agent-perforce" />
+            <option value="$PROJECT_DIR$/tia-test-agent-junit-git" />
+            <option value="$PROJECT_DIR$/tia-test-agent-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-core" />
             <option value="$PROJECT_DIR$/tia-test-junit-git" />
             <option value="$PROJECT_DIR$/tia-test-persistence" />
