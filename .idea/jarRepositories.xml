@@ -17,6 +17,21 @@
       <option name="url" value="file:/$MAVEN_REPOSITORY$/" />
     </remote-repository>
     <remote-repository>
+      <option name="id" value="shibboleth" />
+      <option name="name" value="shibboleth" />
+      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="fos" />
+      <option name="name" value="FOS repository" />
+      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="Central Repository" />
+      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Maven Central repository" />
       <option name="url" value="https://repo1.maven.org/maven2" />
