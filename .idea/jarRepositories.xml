@@ -12,21 +12,6 @@
       <option name="url" value="https://repo.maven.apache.org/maven2/" />
     </remote-repository>
     <remote-repository>
-      <option name="id" value="shibboleth" />
-      <option name="name" value="shibboleth" />
-      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="fos" />
-      <option name="name" value="FOS repository" />
-      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="central" />
-      <option name="name" value="Central Repository" />
-      <option name="url" value="https://eac-mvn-001.fos.ea.com/nexus/content/groups/public" />
-    </remote-repository>
-    <remote-repository>
       <option name="id" value="MavenLocal" />
       <option name="name" value="MavenLocal" />
       <option name="url" value="file:/$MAVEN_REPOSITORY$/" />
@@ -37,14 +22,14 @@
       <option name="url" value="https://repo1.maven.org/maven2" />
     </remote-repository>
     <remote-repository>
-      <option name="id" value="central" />
-      <option name="name" value="central" />
-      <option name="url" value="https://repo1.maven.org/maven2" />
-    </remote-repository>
-    <remote-repository>
       <option name="id" value="jboss.community" />
       <option name="name" value="JBoss Community repository" />
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="central" />
+      <option name="url" value="https://repo1.maven.org/maven2" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="MavenLocal" />

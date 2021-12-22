@@ -15,7 +15,7 @@ public class AgentMojo extends TiaAgentMojo {
     /**
      * Name of the Tia Test Agent artifact.
      */
-    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-agent-git";
+    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-agent-junit-perforce";
 
     /**
      * Map of plugin artifacts.
@@ -30,7 +30,6 @@ public class AgentMojo extends TiaAgentMojo {
      * Allows us to specify property which will contains settings for JaCoCo Agent.
      * If not specified, then "argLine" would be used for "jar" packaging and
      * "tycho.testArgLine" for "eclipse-test-plugin".
-     *
      */
     String propertyName;
 
@@ -54,20 +53,19 @@ public class AgentMojo extends TiaAgentMojo {
      */
     String tiaDBFilePath;
 
-
-    public String getAgentArtifactName(){
+    public String getAgentArtifactName() {
         return AGENT_ARTIFACT_NAME;
     }
 
-    public Map<String, Artifact> getPluginArtifactMap(){
+    public Map<String, Artifact> getPluginArtifactMap() {
         return pluginArtifactMap;
     }
 
-    public MavenProject getProject(){
+    public MavenProject getProject() {
         return project;
     }
 
-    public String getPropertyName(){
+    public String getPropertyName() {
         return propertyName;
     }
 
