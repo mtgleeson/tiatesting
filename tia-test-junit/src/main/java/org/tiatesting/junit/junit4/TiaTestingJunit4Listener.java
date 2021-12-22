@@ -1,4 +1,4 @@
-package org.tiatesting.plugin.junit4;
+package org.tiatesting.junit.junit4;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -7,13 +7,13 @@ import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.junit.coverage.client.JacocoClient;
+import org.tiatesting.junit.report.ReportGenerator;
+import org.tiatesting.junit.report.TextFileReportGenerator;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.PersistenceStrategy;
-import org.tiatesting.plugin.coverage.client.JacocoClient;
-import org.tiatesting.plugin.report.ReportGenerator;
-import org.tiatesting.plugin.report.TextFileReportGenerator;
-import org.tiatesting.vcs.git.GitReader;
 
 import java.util.List;
 import java.util.Map;
@@ -26,16 +26,16 @@ public class TiaTestingJunit4Listener extends RunListener {
 
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
-    private final GitReader gitReader;
+    private final VCSReader vcsReader;
     private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
     private Set<String> testSuitesFailed;
 
-    public TiaTestingJunit4Listener() {
+    public TiaTestingJunit4Listener(VCSReader vcsReader) {
         this.coverageClient = new JacocoClient();
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
-        this.gitReader = new GitReader(System.getProperty("tiaProjectDir"));
-        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), gitReader.getBranchName(),
+        this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
+        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName(),
                 System.getProperty("tiaDBPersistenceStrategy"));
     }
 
@@ -66,11 +66,11 @@ public class TiaTestingJunit4Listener extends RunListener {
     public void testRunFinished(Result result) throws Exception {
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, gitReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
         }
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
-        ReportGenerator reportGenerator = new TextFileReportGenerator(this.gitReader.getBranchName());
+        ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
         reportGenerator.generateReport(this.dataStore);
     }
 
@@ -115,7 +115,7 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
             log.info("Test suite finished for " + description.getClassName() + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, gitReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
             this.testMethodsCalled.remove(description.getClassName());
         }
     }

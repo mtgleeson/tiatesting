@@ -7,13 +7,14 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.vcs.VCSAnalyzerException;
+import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-public class GitReader {
+public class GitReader implements VCSReader {
 
     private static final Log log = LogFactory.getLog(GitReader.class);
     public static final String GIT_REPOSITORY_NAME = "/.git";
@@ -31,7 +32,7 @@ public class GitReader {
 
     /**
      * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
-     * For each impacted source code file load the file content from the starting revision and the head revision.
+     * For each impacted source code file load the file content from both the starting revision and the head revision.
      *
      * @param commitFrom
      * @return
@@ -40,6 +41,12 @@ public class GitReader {
         return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom);
     }
 
+    /**
+     * TODO delete this.
+     *
+     * @param commit
+     * @return
+     */
     public File checkoutSourceAtVersion(String commit){
         return gitCheckoutProcessor.checkoutSourceAtVersion(gitContext, commit);
     }

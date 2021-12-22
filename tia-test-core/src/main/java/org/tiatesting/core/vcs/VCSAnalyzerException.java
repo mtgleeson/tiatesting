@@ -1,4 +1,4 @@
-package org.tiatesting.vcs;
+package org.tiatesting.core.vcs;
 
 /**
  * Represents any issue when analyzing the VCS systems for source code files impacted in a given commit range.

@@ -4,18 +4,22 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.tiatesting.vcs.VCSAnalyzerException;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.UUID;
 
+/**
+ * TODO shouldnt need this anymore - delete
+ * Checkout a version of the source code from the repository at a given commit.
+ */
 public class GitCheckoutProcessor {
 
     private static final Log log = LogFactory.getLog(GitCheckoutProcessor.class);
 
-    // TODO shouldnt need this anymore - delete
+
     protected File checkoutSourceAtVersion(GitContext gitContext, String commit){
         //String tmpDirName = "tia-" + gitContext.getRepository().getDirectory().getParentFile().getName()
         //        + "-" + gitContext.getBranchName() + "-" + commit;

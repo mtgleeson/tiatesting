@@ -1,18 +1,46 @@
 dependencies {
     implementation project(':tia-test-core')
     implementation project(':tia-test-persistence')
-    implementation project(':tia-test-junit')
     implementation group: 'junit', name: 'junit', version: '4.13.2'
-    implementation project(':tia-test-vcs-git')
     implementation "commons-logging:commons-logging:1.1.3"
+    implementation "org.jacoco:org.jacoco.core:0.7.5.201505241946"
+    //implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '5.13.0.202109080827-r'
+
+    // dependencies for the client of a custom agent
+    //implementation 'com.google.code.gson:gson:2.8.2'
+    //implementation "com.squareup.okhttp3:okhttp:3.9.0"
+
+    // implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '4.8.0.201706111038-r'
+    //implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
+    //testimplementation group: 'commons-io', name: 'commons-io', version: '2.5'
+    //testimplementation group: 'org.mockito', name: 'mockito-all', version: '1.10.19'
+
+
+
+    //implementation group: 'org.ow2.asm', name: 'asm', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-commons', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-analysis', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-util', version: '9.2'
+    //implementation group: 'org.ow2.asm', name: 'asm-tree', version: '9.2'
 }
+
+/*
+Map <String, ?> attrs = [ 'Premain-Class': 'org.walkmod.junit4git.core.ignorers.TestIgnorerAgent',
+                          'Can-Retransform-Classes': true,
+                          'Boot-Class-Path': 'junit4git-agent.jar'
+]
+*/
 
 tasks.register('uberJar', Jar) {
     archiveClassifier = 'uber'
 
     from sourceSets.main.output
 
-    archiveClassifier = 'tiatesting-junit-git-uber'
+    //manifest {
+    //    attributes attrs
+    //}
+
+    archiveClassifier = 'tiatesting-plugin-uber'
 
     dependsOn configurations.runtimeClasspath
     from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){

@@ -1,4 +1,4 @@
-package org.tiatesting.plugin.junit4;
+package org.tiatesting.junit.junit4;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -12,14 +12,6 @@ public class TiaTestingJunit4Runner extends BlockJUnit4ClassRunner {
     protected static TiaTestingJunit4Listener listener = null;
 
     private static Log log = LogFactory.getLog(TiaTestingJunit4Runner.class);
-
-    static {
-        try {
-            listener = new TiaTestingJunit4Listener();
-        } catch (Exception e) {
-            log.error("Error launching the Runner ", e);
-        }
-    }
 
     public TiaTestingJunit4Runner(Class<?> klass) throws InitializationError {
         super(klass);

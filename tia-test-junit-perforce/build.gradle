@@ -3,7 +3,7 @@ dependencies {
     implementation project(':tia-test-persistence')
     implementation project(':tia-test-junit')
     implementation group: 'junit', name: 'junit', version: '4.13.2'
-    implementation project(':tia-test-vcs-git')
+    implementation project(':tia-test-vcs-git') // TODO
     implementation "commons-logging:commons-logging:1.1.3"
 }
 
@@ -12,7 +12,7 @@ tasks.register('uberJar', Jar) {
 
     from sourceSets.main.output
 
-    archiveClassifier = 'tiatesting-junit-git-uber'
+    archiveClassifier = 'tiatesting-junit-perforce-uber'
 
     dependsOn configurations.runtimeClasspath
     from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){

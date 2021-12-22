@@ -1,4 +1,4 @@
-package org.tiatesting.plugin.report;
+package org.tiatesting.junit.report;
 
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
