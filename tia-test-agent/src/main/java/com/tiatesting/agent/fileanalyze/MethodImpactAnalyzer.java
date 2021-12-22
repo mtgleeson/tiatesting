@@ -1,4 +1,4 @@
-package org.tiatesting;
+package com.tiatesting.agent.fileanalyze;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
@@ -12,14 +12,11 @@ import com.github.javaparser.ast.visitor.VoidVisitor;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 
-import java.lang.reflect.Method;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * TODO move this class to a new file impact analyzer module.
@@ -44,7 +41,7 @@ public class MethodImpactAnalyzer {
      * @param methodsImpacted
      * @param classesImpacted
      */
-    protected void getMethodsForImpactedFile(String originalFileContent, String newFilContent, String originalFileName,
+    public void getMethodsForImpactedFile(String originalFileContent, String newFilContent, String originalFileName,
                                              String revisedFileName, Set<String> methodsImpacted,
                                              Map<String, List<MethodImpactTracker>> classesImpacted){
 
@@ -187,47 +184,6 @@ public class MethodImpactAnalyzer {
                     log.info(String.format("Found stored tracked method: %s, source line begin: %d, source line end: %d, stored line number: %d",
                             methodImpactTracker.getMethodName(), methodLineBegin, methodLineEnd, methodImpactTracker.getMethodLineNumber()));
                 }
-
-/*
-                md.getParameters().forEach( p -> {
-                    System.out.println("resolved type 2: " + p.getName().getMetaModel().getQualifiedClassName());
-                    System.out.println("resolved type 2: " + p.getNameAsString());
-                    System.out.println("resolved type 2: " + p.getNameAsString());
-                    System.out.println("resolved type 2: " + p.getType().toDescriptor());
-                    System.out.println("resolved type 2: " + p.getType());
-                    System.out.println("resolved type 2: " + p.getTypeAsString());
-                    System.out.println("resolved type 2: " + p);
-
-                    ResolvedType type = p.getType().resolve();
-                    System.out.println("resolved type 1: " + type.getClass());
-                    System.out.println("resolved type 1: " + type.describe());
-                    //System.out.println("resolved type 3: " + type.asTypeParameter());
-                    //System.out.println("resolved type 4: " + type.asTypeParameter().getQualifiedName());
-                });
-
- */
-
-                // TODO need to add the method in the format used with JACOCO. Not sure it's available out of the box from JavaParser?
-                // Might need to create the format myself using what's available in JavaParser MethodDeclaration?
-                /*
-                System.out.println("Method Name Printed:1 " + md.getName()
-                        + " |||||2 " + md.getDeclarationAsString()
-                        + " |||||3 " + md.getSignature()
-                        + " |||||4 " + md.getNameAsExpression()
-                        + " |||||5 " + md.getTypeAsString()
-                        + " |||||6 " + md.getNameAsString()
-                       // + " |||||7 " + md.getParentNodeForChildren().toString()
-                       // + " |||||8 " + md.getParentNode().get().toString()
-                       // + " |||||9 " + md.getChildNodes().toString()
-                       // + " |||||10 " + md.getDataKeys()
-                       // + " |||||11 " + md.getMetaModel().getPackageName()
-                       // + " |||||12 " + md.getMetaModel().getQualifiedClassName()
-                       // + " |||||13 " + md.getMetaModel().getMetaModelFieldName()
-                       // + " |||||14 " + md.getClass().getCanonicalName()
-                        + " |||||15 " + md.getBegin().get().line
-                        + " |||||16 " + md.getEnd().get().line
-                        + " |||||17 " + md.getParameters().get(0).getType().resolve());
-                 */
             }
         }
     }

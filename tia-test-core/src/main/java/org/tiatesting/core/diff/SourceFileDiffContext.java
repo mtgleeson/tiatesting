@@ -1,4 +1,4 @@
-package org.tiatesting.vcs;
+package org.tiatesting.core.diff;
 
 import java.util.Objects;
 
