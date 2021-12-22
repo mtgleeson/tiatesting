@@ -1,4 +1,4 @@
-package org.tiatesting.plugin.coverage.client;
+package org.tiatesting.junit.coverage.client;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;

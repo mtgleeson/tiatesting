@@ -13,7 +13,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.vcs.VCSAnalyzerException;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -22,6 +22,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Build the list of source files that have been changed since the previously analyzed commit.
+ */
 public class GitDiffAnalyzer {
 
     private static final Log log = LogFactory.getLog(GitDiffAnalyzer.class);

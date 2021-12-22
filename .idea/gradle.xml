@@ -13,9 +13,12 @@
             <option value="$PROJECT_DIR$/tia-test-agent-junit-git" />
             <option value="$PROJECT_DIR$/tia-test-agent-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-core" />
+            <option value="$PROJECT_DIR$/tia-test-junit" />
             <option value="$PROJECT_DIR$/tia-test-junit-git" />
+            <option value="$PROJECT_DIR$/tia-test-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-persistence" />
             <option value="$PROJECT_DIR$/tia-test-vcs-git" />
+            <option value="$PROJECT_DIR$/tia-test-vcs-perforce" />
           </set>
         </option>
       </GradleProjectSettings>
