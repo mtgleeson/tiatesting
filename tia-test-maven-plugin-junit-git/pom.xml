@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.tiatesting</groupId>
-    <artifactId>tia-test-maven-plugin-git</artifactId>
+    <artifactId>tia-test-maven-plugin-junit-git</artifactId>
     <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
 
@@ -30,7 +30,7 @@
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-test-agent-git</artifactId>
+            <artifactId>tia-test-agent-junit-git</artifactId>
             <version>1.1.0</version>
             <classifier>runtime</classifier>
         </dependency>

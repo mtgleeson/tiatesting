@@ -7,9 +7,9 @@
   <component name="MavenProjectsManager">
     <option name="originalFiles">
       <list>
-        <option value="$PROJECT_DIR$/tia-test-maven-plugin-perforce/pom.xml" />
-        <option value="$PROJECT_DIR$/tia-test-maven-plugin-git/pom.xml" />
         <option value="$PROJECT_DIR$/tia-test-maven-plugin/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-test-maven-plugin-junit-git/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-test-maven-plugin-junit-perforce/pom.xml" />
       </list>
     </option>
   </component>
