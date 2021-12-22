@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.tiatesting</groupId>
-    <artifactId>tia-test-maven-plugin-perforce</artifactId>
+    <artifactId>tia-test-maven-plugin-junit-perforce</artifactId>
     <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
 
