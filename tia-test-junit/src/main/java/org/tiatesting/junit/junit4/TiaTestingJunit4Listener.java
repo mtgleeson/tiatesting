@@ -1,14 +1,14 @@
 package org.tiatesting.junit.junit4;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.junit.coverage.client.JacocoClient;
 import org.tiatesting.junit.report.ReportGenerator;
 import org.tiatesting.junit.report.TextFileReportGenerator;
 import org.tiatesting.persistence.DataStore;
@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TiaTestingJunit4Listener extends RunListener {
 
-    private static final Log log = LogFactory.getLog(TiaTestingJunit4Listener.class);
+    private static final Logger log = LoggerFactory.getLogger(TiaTestingJunit4Listener.class);
 
     private final JacocoClient coverageClient;
     private final DataStore dataStore;

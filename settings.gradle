@@ -9,4 +9,5 @@ include 'tia-test-core'
 include 'tia-test-junit'
 include 'tia-test-junit-perforce'
 include 'tia-test-vcs-perforce'
+include 'tia-test-spock'
 

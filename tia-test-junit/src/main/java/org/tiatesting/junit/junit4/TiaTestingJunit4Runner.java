@@ -1,17 +1,17 @@
 package org.tiatesting.junit.junit4;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.BlockJUnit4ClassRunner;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.InitializationError;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TiaTestingJunit4Runner extends BlockJUnit4ClassRunner {
 
     protected static TiaTestingJunit4Listener listener = null;
 
-    private static Log log = LogFactory.getLog(TiaTestingJunit4Runner.class);
+    private static final Logger log = LoggerFactory.getLogger(TiaTestingJunit4Runner.class);
 
     public TiaTestingJunit4Runner(Class<?> klass) throws InitializationError {
         super(klass);
