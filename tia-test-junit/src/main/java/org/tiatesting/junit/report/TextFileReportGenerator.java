@@ -1,11 +1,11 @@
 package org.tiatesting.junit.report;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -21,8 +21,7 @@ import java.util.stream.Collectors;
  */
 public class TextFileReportGenerator implements ReportGenerator{
 
-    private static final Log log = LogFactory.getLog(TextFileReportGenerator.class);
-
+    private static final Logger log = LoggerFactory.getLogger(TextFileReportGenerator.class);
     private final String filenameExt;
 
     public TextFileReportGenerator(String filenameExt){
@@ -55,11 +54,11 @@ public class TextFileReportGenerator implements ReportGenerator{
                     writer.write(fileTestEntry);
                 }
                 catch (IOException ex) {
-                    log.error(ex);
+                    log.error("An error occurred", ex);
                 }
             });
         } catch(UncheckedIOException | IOException ex) {
-            log.error(ex);
+            log.error("An error occured", ex);
         }
 
         log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));

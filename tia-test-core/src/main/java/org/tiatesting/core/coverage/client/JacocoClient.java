@@ -1,12 +1,12 @@
-package org.tiatesting.junit.coverage.client;
+package org.tiatesting.core.coverage.client;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.jacoco.core.analysis.*;
 import org.jacoco.core.data.ExecutionDataStore;
 import org.jacoco.core.data.SessionInfoStore;
 import org.jacoco.core.runtime.RemoteControlReader;
 import org.jacoco.core.runtime.RemoteControlWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 
@@ -17,13 +17,15 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class JacocoClient {
 
-    private static final Log log = LogFactory.getLog(JacocoClient.class);
+    private static final Logger log = LoggerFactory.getLogger(JacocoClient.class);
     //private static final String DESTFILE = "jacoco-client-testrunner.exec";
     private static final String ADDRESS = "localhost";
     private static final int PORT = 6300;
@@ -85,16 +87,20 @@ public class JacocoClient {
         List<ClassImpactTracker> classesInvoked = new ArrayList<>();
 
         bundleCoverage.getPackages().forEach( bundlePackage -> {
+
             if (containsLineCoverage(bundlePackage)){
                 bundlePackage.getClasses().forEach( bundleClass -> {
-                    if (containsLineCoverage(bundleClass)){
 
+                    if (containsLineCoverage(bundleClass)){
+                        log.trace("Class contains line coverage " + bundleClass.getName());
                         List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
                         classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), methodsImpactedForClass));
 
                         bundleClass.getMethods().forEach( method -> {
+
                             if (containsLineCoverage(method)){
                                 String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
+                                log.trace("Method contains line coverage " + method.getName());
                                 methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine()));
                             }
                         });

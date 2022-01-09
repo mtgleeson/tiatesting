@@ -1,7 +1,7 @@
 package org.tiatesting.persistence;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 
 import java.io.*;
@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  */
 public class MapDataStore implements DataStore {
 
-    private static final Log log = LogFactory.getLog(MapDataStore.class);
+    private static final Logger log = LoggerFactory.getLogger(MapDataStore.class);
 
     private final String mappingFilenamePrefix = "tia-testmapping";
     private final String mappingFilenameSuffix;
@@ -107,7 +107,7 @@ public class MapDataStore implements DataStore {
             log.debug(dataStorePath + "/" + mappingFilename + " doesn't currently exist.");
             storedMapping = new StoredMapping();
         } catch (ClassNotFoundException | IOException e) {
-            log.error(e);
+            log.error("An error occurred", e);
             throw new RuntimeException(e);
         }
 

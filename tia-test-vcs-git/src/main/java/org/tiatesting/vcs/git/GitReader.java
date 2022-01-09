@@ -1,14 +1,14 @@
 package org.tiatesting.vcs.git;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
+import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
 import java.io.IOException;
@@ -16,7 +16,7 @@ import java.util.List;
 
 public class GitReader implements VCSReader {
 
-    private static final Log log = LogFactory.getLog(GitReader.class);
+    private static final Logger log = LoggerFactory.getLogger(GitReader.class);
     public static final String GIT_REPOSITORY_NAME = "/.git";
 
     private final GitDiffAnalyzer gitDiffAnalyzer;

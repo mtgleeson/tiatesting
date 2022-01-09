@@ -3,9 +3,9 @@ package org.tiatesting.agent;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.matcher.ElementMatchers;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.junit.Ignore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.instrument.Instrumentation;
 import java.util.HashSet;
@@ -13,7 +13,7 @@ import java.util.Set;
 
 public class Agent {
 
-    private static Log log = LogFactory.getLog(Agent.class);
+    private static final Logger log = LoggerFactory.getLogger(Agent.class);
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         Set<String> ignoredTests = new HashSet<>();

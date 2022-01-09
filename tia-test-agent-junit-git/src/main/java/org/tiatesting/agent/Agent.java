@@ -3,9 +3,9 @@ package org.tiatesting.agent;
 import com.tiatesting.agent.fileanalyze.FileImpactAnalyzer;
 import com.tiatesting.agent.fileanalyze.MethodImpactAnalyzer;
 import com.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.junit.Ignore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
@@ -20,7 +20,7 @@ import java.util.*;
 
 public class Agent {
 
-    private static Log log = LogFactory.getLog(Agent.class);
+    private static final Logger log = LoggerFactory.getLogger(Agent.class);
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
