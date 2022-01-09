@@ -1,7 +1,5 @@
 package org.tiatesting.vcs.git;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.ObjectId;
@@ -11,6 +9,8 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
@@ -27,7 +27,7 @@ import java.util.Map;
  */
 public class GitDiffAnalyzer {
 
-    private static final Log log = LogFactory.getLog(GitDiffAnalyzer.class);
+    private static final Logger log = LoggerFactory.getLogger(GitDiffAnalyzer.class);
     private static final String JAVA_FILE_EXTENSION = ".java";
 
     /**

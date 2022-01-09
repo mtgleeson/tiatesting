@@ -1,27 +1,23 @@
-package org.tiatesting.junit.report;
+package org.tiatesting.spock.report
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.StoredMapping;
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import org.tiatesting.core.coverage.ClassImpactTracker
+import org.tiatesting.persistence.DataStore
+import org.tiatesting.persistence.StoredMapping
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.stream.Collectors;
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Generate a text file report containing the test mappings.
  */
-public class TextFileReportGenerator implements ReportGenerator{
+class TextFileReportGenerator implements ReportGenerator{
 
     private static final Logger log = LoggerFactory.getLogger(TextFileReportGenerator.class);
+
     private final String filenameExt;
 
     public TextFileReportGenerator(String filenameExt){
@@ -48,8 +44,9 @@ public class TextFileReportGenerator implements ReportGenerator{
                 try {
                     String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass + System.lineSeparator() + "\t";
                     for (ClassImpactTracker classImpacted : classesImpacted){
-                        fileTestEntry += classImpacted.getMethodsImpacted().stream().map(MethodImpactTracker::getMethodName).collect(
-                                Collectors.joining(System.lineSeparator() + "\t", "", ""));
+                        fileTestEntry = classImpacted.getMethodsImpacted()
+                                .collect {it.getMethodName() + System.lineSeparator() + "\t" }
+                                .inject(fileTestEntry) { result, i -> result += i }
                     }
                     writer.write(fileTestEntry);
                 }
@@ -58,7 +55,7 @@ public class TextFileReportGenerator implements ReportGenerator{
                 }
             });
         } catch(UncheckedIOException | IOException ex) {
-            log.error("An error occured", ex);
+            log.error("An error occurred", ex);
         }
 
         log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));

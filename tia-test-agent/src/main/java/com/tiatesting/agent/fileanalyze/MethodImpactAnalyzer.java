@@ -10,8 +10,8 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.visitor.VoidVisitor;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 
 import java.util.*;
@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  */
 public class MethodImpactAnalyzer {
 
-    private static final Log log = LogFactory.getLog(MethodImpactAnalyzer.class);
+    private static final Logger log = LoggerFactory.getLogger(MethodImpactAnalyzer.class);
     private static final String LINEBREAK_PATTERN = "\\R";
     private static final Pattern UNIFIED_DIFF_HUNK_PATTERN = Pattern.compile("^@@ \\-(\\d+),(\\d+) \\+(\\d+),(\\d+) @@$");
     private static final int HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX = 1;

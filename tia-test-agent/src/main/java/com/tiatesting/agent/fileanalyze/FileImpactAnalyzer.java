@@ -1,7 +1,7 @@
 package com.tiatesting.agent.fileanalyze;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -14,7 +14,7 @@ import java.util.*;
  */
 public class FileImpactAnalyzer {
 
-    private static final Log log = LogFactory.getLog(FileImpactAnalyzer.class);
+    private static final Logger log = LoggerFactory.getLogger(FileImpactAnalyzer.class);
 
     final MethodImpactAnalyzer methodImpactAnalyzer;
 
