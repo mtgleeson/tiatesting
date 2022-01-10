@@ -1,15 +1,15 @@
 package org.tiatesting.agent;
 
-import com.tiatesting.agent.fileanalyze.FileImpactAnalyzer;
-import com.tiatesting.agent.fileanalyze.MethodImpactAnalyzer;
-import com.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
 import org.junit.Ignore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.diffanalyze.FileImpactAnalyzer;
+import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.StoredMapping;
@@ -42,7 +42,9 @@ public class Agent {
 
         // For the source files that have changed, do a diff to find the methods that have changed
         FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
-        Set<String> methodsImpacted = fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, storedMapping);
+        List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
+        Set<String> methodsImpacted = fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, storedMapping,
+                sourceFilesDirs);
 
         // build the list of test suites that need to be run based on the tracked methods that have been changed
         Map<String, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
@@ -50,6 +52,7 @@ public class Agent {
         methodsImpacted.forEach( ( methodImpacted ) -> {
             testsToRun.addAll(methodTestSuites.get(methodImpacted));
         });
+        log.debug("Selected tests to run: {}", testsToRun);
 
         // find the list of all known tracked test suites that are in the list of tests to run - this is the ignore list.
         // i.e. only ignore test suites that we have previously tracked and know haven't been impacted by the source changes.
@@ -63,7 +66,7 @@ public class Agent {
 
        // ignoredTests.add("com.example.CarServiceTest");
 
-        log.info("Ignoring tests: " + ignoredTests);
+        log.debug("Ignoring tests: {}", ignoredTests);
         new IgnoreTestInstrumentor().ignoreTests(ignoredTests, instrumentation, Ignore.class);
     }
 

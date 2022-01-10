@@ -42,6 +42,10 @@ public abstract class TiaAgentMojo extends AbstractMojo {
             agentOptions.setDBFilePath(getTiaDBFilePath());
         }
 
+        if (getTiaSourceFilesDirs() != null && !getTiaSourceFilesDirs().isEmpty()){
+            agentOptions.setSourceFilesDirs(getTiaSourceFilesDirs());
+        }
+
         return agentOptions;
     }
 
@@ -113,4 +117,6 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     public abstract String getTiaProjectDir();
 
     public abstract String getTiaDBFilePath();
+
+    public abstract String getTiaSourceFilesDirs();
 }

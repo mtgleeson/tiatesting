@@ -6,20 +6,26 @@ import java.util.Objects;
 public class MethodImpactTracker implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    private String methodName;
-    private int methodLineNumber;
+    private final String methodName;
+    private final int lineNumberStart;
+    private final int lineNumberEnd;
 
-    public MethodImpactTracker(String methodName, int methodLineNumber) {
+    public MethodImpactTracker(String methodName, int lineNumberStart, int lineNumberEnd) {
         this.methodName = methodName;
-        this.methodLineNumber = methodLineNumber;
+        this.lineNumberStart = lineNumberStart;
+        this.lineNumberEnd = lineNumberEnd;
     }
 
     public String getMethodName() {
         return methodName;
     }
 
-    public int getMethodLineNumber() {
-        return methodLineNumber;
+    public int getLineNumberStart() {
+        return lineNumberStart;
+    }
+
+    public int getLineNumberEnd() {
+        return lineNumberEnd;
     }
 
     @Override
@@ -27,11 +33,11 @@ public class MethodImpactTracker implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MethodImpactTracker that = (MethodImpactTracker) o;
-        return methodLineNumber == that.methodLineNumber && methodName.equals(that.methodName);
+        return lineNumberStart == that.lineNumberStart && lineNumberEnd == that.lineNumberEnd && methodName.equals(that.methodName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(methodName, methodLineNumber);
+        return Objects.hash(methodName, lineNumberStart, lineNumberEnd);
     }
 }

@@ -30,7 +30,17 @@ public class AgentOptions {
      */
     private static final String DEFAULT_DB_FILE_PATH = ".";
 
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH);
+    /**
+     * Specifies the source files path for the project being analyzed.
+     */
+    public static final String SOURCE_FILES_DIRS = "sourceFilesDir";
+
+    /**
+     * Specifies the default source files path for the project being analyzed.
+     */
+    private static final String DEFAULT_SOURCE_FILES_DIRS = ".";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -106,15 +116,23 @@ public class AgentOptions {
         return getOption(PROJECT_DIR, DEFAULT_PROJECT_DIR);
     }
 
-    public void setProjectDir(String sourceFilesDir) {
-        setOption(PROJECT_DIR, sourceFilesDir);
+    public void setProjectDir(String projectDir) {
+        setOption(PROJECT_DIR, projectDir);
     }
 
     public String getDBFilePath() {
         return getOption(DB_FILE_PATH, DEFAULT_DB_FILE_PATH);
     }
 
-    public void setDBFilePath(String sourceFilesDir) {
-        setOption(DB_FILE_PATH, sourceFilesDir);
+    public void setDBFilePath(String dbFilePath) {
+        setOption(DB_FILE_PATH, dbFilePath);
+    }
+
+    public String getSourceFilesDirs() {
+        return getOption(SOURCE_FILES_DIRS, DEFAULT_SOURCE_FILES_DIRS);
+    }
+
+    public void setSourceFilesDirs(String sourceFilesDirs) {
+        setOption(SOURCE_FILES_DIRS, sourceFilesDirs);
     }
 }

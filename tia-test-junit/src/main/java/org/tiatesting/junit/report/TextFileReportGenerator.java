@@ -46,10 +46,11 @@ public class TextFileReportGenerator implements ReportGenerator{
 
             storedMapping.getClassesImpacted().forEach((testClass, classesImpacted) -> {
                 try {
-                    String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass + System.lineSeparator() + "\t";
+                    String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass;
                     for (ClassImpactTracker classImpacted : classesImpacted){
-                        fileTestEntry += classImpacted.getMethodsImpacted().stream().map(MethodImpactTracker::getMethodName).collect(
-                                Collectors.joining(System.lineSeparator() + "\t", "", ""));
+                        for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()){
+                            fileTestEntry += System.lineSeparator() + "\t" + methodImpactTracker.getMethodName();
+                        }
                     }
                     writer.write(fileTestEntry);
                 }
@@ -58,7 +59,7 @@ public class TextFileReportGenerator implements ReportGenerator{
                 }
             });
         } catch(UncheckedIOException | IOException ex) {
-            log.error("An error occured", ex);
+            log.error("An error occurred", ex);
         }
 
         log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));

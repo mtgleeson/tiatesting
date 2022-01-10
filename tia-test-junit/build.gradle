@@ -3,7 +3,7 @@ dependencies {
     implementation project(':tia-test-persistence')
     implementation group: 'junit', name: 'junit', version: '4.13.2'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
-    implementation "org.jacoco:org.jacoco.core:0.7.5.201505241946"
+    implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
     //implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '5.13.0.202109080827-r'
 
     // dependencies for the client of a custom agent

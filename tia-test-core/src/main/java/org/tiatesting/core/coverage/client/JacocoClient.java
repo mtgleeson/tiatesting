@@ -31,14 +31,11 @@ public class JacocoClient {
     private static final int PORT = 6300;
 
     private final List<File> classfiles;
-    private final List<File> sourcefiles;
     private String name = "TIA Client Coverage Bundle";
 
     public JacocoClient(){
         this.classfiles = loadClasses();
-        this.sourcefiles = loadSourceFiles();
         log.debug("classes size: " + this.classfiles.size());
-        log.debug("sources size: " + this.sourcefiles.size());
 
         try {
             // collect & dump any existing coverage metrics
@@ -92,16 +89,17 @@ public class JacocoClient {
                 bundlePackage.getClasses().forEach( bundleClass -> {
 
                     if (containsLineCoverage(bundleClass)){
-                        log.trace("Class contains line coverage " + bundleClass.getName());
+                        String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
+                        log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
                         List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
-                        classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), methodsImpactedForClass));
+                        classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), sourceFilename, methodsImpactedForClass));
 
                         bundleClass.getMethods().forEach( method -> {
-
                             if (containsLineCoverage(method)){
                                 String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
-                                log.trace("Method contains line coverage " + method.getName());
-                                methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine()));
+                                log.trace("Method contains line coverage {} first: {} last: {}", method.getName(),
+                                        method.getFirstLine(), method.getLastLine());
+                                methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine(), method.getLastLine()));
                             }
                         });
                     }
@@ -152,12 +150,6 @@ public class JacocoClient {
         String classesDir = getProjectDir() + System.getProperty("tiaClassFilesDir");
         String classExtension = ".class";
         return loadFiles(classesDir, classExtension);
-    }
-
-    private List<File> loadSourceFiles(){
-        String sourceFilesDir = getProjectDir() + System.getProperty("tiaSourceFilesDir");
-        String sourceExtension = ".java";
-        return loadFiles(sourceFilesDir, sourceExtension);
     }
 
     private String getProjectDir(){
