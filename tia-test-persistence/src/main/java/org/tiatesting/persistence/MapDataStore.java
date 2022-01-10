@@ -60,8 +60,8 @@ public class MapDataStore implements DataStore {
         Map<String, List<ClassImpactTracker>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
         storedMapping.setClassesImpacted(mergedTestMappings);
 
-        mergedTestMappings.forEach( (testClass, methodsCalled) ->
-                log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+        //mergedTestMappings.forEach( (testClass, methodsCalled) ->
+        //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
 
         boolean savedToDisk = writeTestMappingToDisk(storedMapping);
         log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));

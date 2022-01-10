@@ -1,34 +1,24 @@
-package org.tiatesting.agent;
+package org.tiatesting.spock
 
-import org.junit.Ignore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
-import org.tiatesting.core.agent.AgentOptions;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.diffanalyze.FileImpactAnalyzer;
-import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.MapDataStore;
-import org.tiatesting.persistence.StoredMapping;
-import org.tiatesting.vcs.git.GitReader;
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import org.tiatesting.core.coverage.ClassImpactTracker
+import org.tiatesting.core.coverage.MethodImpactTracker
+import org.tiatesting.core.diff.SourceFileDiffContext
+import org.tiatesting.diffanalyze.FileImpactAnalyzer
+import org.tiatesting.diffanalyze.MethodImpactAnalyzer
+import org.tiatesting.persistence.DataStore
+import org.tiatesting.persistence.MapDataStore
+import org.tiatesting.persistence.StoredMapping
+import org.tiatesting.vcs.git.GitReader
 
-import java.lang.instrument.Instrumentation;
-import java.util.*;
+class TiaSpockInitializer {
 
-public class Agent {
+    private static final Logger log = LoggerFactory.getLogger(TiaSpockInitializer.class);
 
-    private static final Logger log = LoggerFactory.getLogger(Agent.class);
-
-    public static void premain(String agentArgs, Instrumentation instrumentation) {
-        final AgentOptions agentOptions = new AgentOptions(agentArgs);
-
-        //final Agent agent = Agent.getInstance(agentOptions);
-
-        GitReader gitReader = new GitReader(agentOptions.getProjectDir());
-        DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
+    Set<String> getTestsToRun(final String projectDir, final dbFilePath, final List<String> sourceFilesDirs){
+        GitReader gitReader = new GitReader(projectDir);
+        DataStore dataStore = new MapDataStore(dbFilePath, gitReader.getBranchName());
         StoredMapping storedMapping = dataStore.getStoredMapping();
         log.info("Store commit: " + storedMapping.getCommitValue());
 
@@ -42,7 +32,6 @@ public class Agent {
 
         // For the source files that have changed, do a diff to find the methods that have changed
         FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
-        List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
         Set<String> methodsImpacted = fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, storedMapping,
                 sourceFilesDirs);
 
@@ -64,20 +53,12 @@ public class Agent {
             }
         });
 
-       // ignoredTests.add("com.example.CarServiceTest");
+        // ignoredTests.add("com.example.CarServiceTest");
 
         log.debug("Ignoring tests: {}", ignoredTests);
-        new IgnoreTestInstrumentor().ignoreTests(ignoredTests, instrumentation, Ignore.class);
+        return ignoredTests
     }
 
-    /**
-     * Convert to a map containing a list of test suites for each impacted method.
-     * Use this for convenience lookup when finding the list of test suites to ignore for previously tracked methods
-     * that have been changed in the diff.
-     *
-     * @param storedMapping
-     * @return
-     */
     private static Map<String, Set<String>> buildMethodToTestSuiteMap(StoredMapping storedMapping){
         Map<String, Set<String>> methodTestSuites = new HashMap<>();
 

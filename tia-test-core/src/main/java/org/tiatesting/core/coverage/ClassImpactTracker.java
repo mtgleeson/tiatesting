@@ -14,17 +14,27 @@ public class ClassImpactTracker implements Serializable {
     private String className;
 
     /**
+     * The name of the source file associated with the class.
+     */
+    private String sourceFilename;
+
+    /**
      * Set of methods that were invoked for the class as part of running a test suite.
      */
     private List<MethodImpactTracker> methodsImpacted;
 
-    public ClassImpactTracker(String className, List<MethodImpactTracker> methodsImpacted) {
+    public ClassImpactTracker(String className, String sourceFilename, List<MethodImpactTracker> methodsImpacted) {
         this.className = className;
+        this.sourceFilename = sourceFilename;
         this.methodsImpacted = methodsImpacted;
     }
 
     public String getClassName() {
         return className;
+    }
+
+    public String getSourceFilename() {
+        return sourceFilename;
     }
 
     public List<MethodImpactTracker> getMethodsImpacted() {
@@ -36,11 +46,11 @@ public class ClassImpactTracker implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ClassImpactTracker that = (ClassImpactTracker) o;
-        return Objects.equals(className, that.className) && Objects.equals(methodsImpacted, that.methodsImpacted);
+        return className.equals(that.className) && sourceFilename.equals(that.sourceFilename) && methodsImpacted.equals(that.methodsImpacted);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(className, methodsImpacted);
+        return Objects.hash(className, sourceFilename, methodsImpacted);
     }
 }

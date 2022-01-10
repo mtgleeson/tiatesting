@@ -29,6 +29,7 @@ public class GitDiffAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(GitDiffAnalyzer.class);
     private static final String JAVA_FILE_EXTENSION = ".java";
+    private static final String GROOVY_FILE_EXTENSION = ".groovy";
 
     /**
      * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
@@ -70,10 +71,12 @@ public class GitDiffAnalyzer {
             diffFormatter.setRepository(repository);
 
             for (DiffEntry diffEntry : diffFormatter.scan(commitFrom, commitTo)) {
-                if (diffEntry.getOldPath().toLowerCase().endsWith(JAVA_FILE_EXTENSION)){
-                    SourceFileDiffContext diffContext = new SourceFileDiffContext(diffEntry.getOldPath(),
-                            diffEntry.getNewPath(), convertGitChangeType(diffEntry.getChangeType()));
-                    sourceFileDiffContexts.put(diffEntry.getOldPath(), diffContext);
+                String diffOldPath = diffEntry.getOldPath();
+                if (diffOldPath.toLowerCase().endsWith(JAVA_FILE_EXTENSION) ||
+                        diffOldPath.toLowerCase().endsWith(GROOVY_FILE_EXTENSION)){
+                    SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffEntry.getNewPath(),
+                            convertGitChangeType(diffEntry.getChangeType()));
+                    sourceFileDiffContexts.put(diffOldPath, diffContext);
                 }
             }
         } catch (IOException e) {

@@ -54,6 +54,12 @@ public class AgentMojo extends TiaAgentMojo {
      */
     String tiaDBFilePath;
 
+    /**
+     * The source files directories for the project being analyzed.
+     *
+     * @parameter property="tiaSourceFilesDirs"
+     */
+    String tiaSourceFilesDirs;
 
     public String getAgentArtifactName(){
         return AGENT_ARTIFACT_NAME;
@@ -71,11 +77,19 @@ public class AgentMojo extends TiaAgentMojo {
         return propertyName;
     }
 
+    @Override
     public String getTiaProjectDir(){
         return tiaProjectDir;
     }
 
+    @Override
     public String getTiaDBFilePath(){
         return tiaDBFilePath;
     }
+
+    @Override
+    public String getTiaSourceFilesDirs() {
+        return tiaSourceFilesDirs;
+    }
+
 }
