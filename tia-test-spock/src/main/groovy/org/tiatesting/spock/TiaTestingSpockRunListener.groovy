@@ -31,14 +31,13 @@ class TiaTestingSpockRunListener extends AbstractRunListener {
     private Set<String> testSuitesProcessed;
     private boolean stopStepRan;
 
-    public TiaTestingSpockRunListener(VCSReader vcsReader){
+    public TiaTestingSpockRunListener(VCSReader vcsReader, String dbFilePath, String dbPersistenceStrategy){
         this.coverageClient = new JacocoClient();
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
         this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
-        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName(),
-                System.getProperty("tiaDBPersistenceStrategy"));
+        this.dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName(),dbPersistenceStrategy);
     }
 
     @Override
@@ -63,7 +62,9 @@ class TiaTestingSpockRunListener extends AbstractRunListener {
 
     @Override
     public void afterSpec(SpecInfo spec) {
-        if (this.testSuitesFailed.contains(getSpecName(spec)) || this.testSuitesProcessed.contains(getSpecName(spec))) {
+        if (spec.isSkipped()
+                || this.testSuitesFailed.contains(getSpecName(spec))
+                || this.testSuitesProcessed.contains(getSpecName(spec))) {
             return;
         }
 
@@ -86,6 +87,7 @@ class TiaTestingSpockRunListener extends AbstractRunListener {
 
     @Override
     public void specSkipped(SpecInfo spec) {
+        log.info(getSpecName(spec) + " was skipped!")
     }
 
     @Override
@@ -110,7 +112,7 @@ class TiaTestingSpockRunListener extends AbstractRunListener {
         reportGenerator.generateReport(this.dataStore);
     }
 
-    private String getSpecName(SpecInfo spec){
+    public String getSpecName(SpecInfo spec){
         return spec.getPackage() + "." + spec.getName()
     }
 }

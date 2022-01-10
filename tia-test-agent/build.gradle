@@ -6,8 +6,8 @@ dependencies {
     implementation project(':tia-test-persistence')
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
     implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
-    implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.23.1'
-    implementation "io.github.java-diff-utils:java-diff-utils:4.5"
+    //implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.23.1'
+    //implementation "io.github.java-diff-utils:java-diff-utils:4.5"
 }
 
 publishing {

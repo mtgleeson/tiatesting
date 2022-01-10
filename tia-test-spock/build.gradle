@@ -5,12 +5,13 @@ plugins {
 dependencies {
     implementation project(':tia-test-core')
     implementation project(':tia-test-persistence')
+    implementation project(':tia-test-diffanalyzer')
     implementation project(':tia-test-vcs-git')
     implementation 'org.codehaus.groovy:groovy-all:3.0.5'
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
     //implementation "commons-logging:commons-logging:1.1.3"
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
-    implementation "org.jacoco:org.jacoco.core:0.8.7"
+    implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
     //implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '5.13.0.202109080827-r'
 
     // dependencies for the client of a custom agent

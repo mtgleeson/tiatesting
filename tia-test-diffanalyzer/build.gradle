@@ -1,37 +1,8 @@
 dependencies {
-    implementation project(':tia-test-agent')
     implementation project(':tia-test-core')
     implementation project(':tia-test-persistence')
-    implementation project(':tia-test-diffanalyzer')
-    implementation project(':tia-test-vcs-git')
-    implementation group: 'junit', name: 'junit', version: '4.13.2'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
-}
-
-Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
-                          'Can-Redefine-Classes': true,
-                          'Can-Retransform-Classes': true,
-                          'Agent-Class': 'org.tiatesting.agent.Agent']
-
-tasks.register('uberJar', Jar) {
-    archiveClassifier = 'uber'
-
-    from sourceSets.main.output
-    //exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
-
-    manifest {
-        attributes attrs
-    }
-
-    archiveClassifier = 'runtime'
-
-    dependsOn configurations.runtimeClasspath
-    from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){
-        exclude "META-INF/*.SF"
-        exclude "META-INF/*.DSA"
-        exclude "META-INF/*.RSA"
-    }
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    implementation "io.github.java-diff-utils:java-diff-utils:4.5"
 }
 
 publishing {
@@ -44,17 +15,13 @@ publishing {
             }
 
             //groupId 'org.something'
-
-            artifact uberJar
-
             //artifact packageJavadoc
 
             pom.withXml {
                 asNode().children().last() + {
                     resolveStrategy = Closure.DELEGATE_FIRST
                     name 'tiatesting'
-                    description 'A library to support test impact analysis driven testing for junit4. This library ' +
-                            'contains an agent to be hooked up to an application containing the test code to be instrumented.'
+                    description 'This library contains the core common classes used in the Tia Test program.'
                     //url 'https://github.com/rpau/junit4git'
                     //scm {
                     //    url 'https://github.com/rpau/junit4git'
