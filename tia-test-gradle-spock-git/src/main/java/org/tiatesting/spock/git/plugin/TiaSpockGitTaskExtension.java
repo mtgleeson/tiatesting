@@ -4,7 +4,7 @@ import org.gradle.api.tasks.Input;
 
 public class TiaSpockGitTaskExtension {
     private String projectDir;
-    private String classFilesDir;
+    private String classFilesDirs;
     private String sourceFilesDirs;
     private String dbFilePath;
     private String dbPersistenceStrategy;
@@ -20,12 +20,12 @@ public class TiaSpockGitTaskExtension {
     }
 
     @Input
-    public String getClassFilesDir() {
-        return classFilesDir;
+    public String getClassFilesDirs() {
+        return classFilesDirs;
     }
 
-    public void setClassFilesDir(String classFilesDir) {
-        this.classFilesDir = classFilesDir;
+    public void setClassFilesDirs(String classFilesDirs) {
+        this.classFilesDirs = classFilesDirs;
     }
 
     @Input

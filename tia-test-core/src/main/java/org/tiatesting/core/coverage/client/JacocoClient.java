@@ -91,14 +91,14 @@ public class JacocoClient {
 
                     if (containsLineCoverage(bundleClass)){
                         String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
-                        log.debug("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
+                        log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
                         List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
                         classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), sourceFilename, methodsImpactedForClass));
 
                         bundleClass.getMethods().forEach( method -> {
                             if (containsLineCoverage(method)){
                                 String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
-                                log.debug("Method contains line coverage {} first: {} last: {}", method.getName(),
+                                log.trace("Method contains line coverage {} first: {} last: {}", method.getName(),
                                         method.getFirstLine(), method.getLastLine());
                                 methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine(), method.getLastLine()));
                             }
@@ -148,8 +148,8 @@ public class JacocoClient {
     }
 
     private List<File> loadClasses(){
-        //String classesDir = getProjectDir() + System.getProperty("tiaClassFilesDir");
-        List<String> classesDirs = System.getProperty("tiaClassFilesDir") != null ? Arrays.asList(System.getProperty("tiaClassFilesDir").split(",")) : null;
+        String classesDirsStr = System.getProperty("tiaClassFilesDirs");
+        List<String> classesDirs = classesDirsStr != null ? Arrays.asList(classesDirsStr.split(",")) : null;
         String classExtension = ".class";
         List<File> files = new ArrayList<>();
 
