@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -90,14 +91,14 @@ public class JacocoClient {
 
                     if (containsLineCoverage(bundleClass)){
                         String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
-                        log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
+                        log.debug("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
                         List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
                         classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), sourceFilename, methodsImpactedForClass));
 
                         bundleClass.getMethods().forEach( method -> {
                             if (containsLineCoverage(method)){
                                 String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
-                                log.trace("Method contains line coverage {} first: {} last: {}", method.getName(),
+                                log.debug("Method contains line coverage {} first: {} last: {}", method.getName(),
                                         method.getFirstLine(), method.getLastLine());
                                 methodsImpactedForClass.add(new MethodImpactTracker(methodName,  method.getFirstLine(), method.getLastLine()));
                             }
@@ -147,9 +148,19 @@ public class JacocoClient {
     }
 
     private List<File> loadClasses(){
-        String classesDir = getProjectDir() + System.getProperty("tiaClassFilesDir");
+        //String classesDir = getProjectDir() + System.getProperty("tiaClassFilesDir");
+        List<String> classesDirs = System.getProperty("tiaClassFilesDir") != null ? Arrays.asList(System.getProperty("tiaClassFilesDir").split(",")) : null;
         String classExtension = ".class";
-        return loadFiles(classesDir, classExtension);
+        List<File> files = new ArrayList<>();
+
+        for (String classesDir: classesDirs){
+            classesDir = getProjectDir() + classesDir;
+            List<File> classFiles = loadFiles(classesDir, classExtension);
+            System.out.println("classesDir " + classesDir + " " +classFiles.size());
+            files.addAll(classFiles);
+        }
+
+        return files;
     }
 
     private String getProjectDir(){

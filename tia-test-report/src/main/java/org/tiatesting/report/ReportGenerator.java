@@ -1,4 +1,4 @@
-package org.tiatesting.spock.report;
+package org.tiatesting.report;
 
 import org.tiatesting.persistence.DataStore;
 

@@ -30,36 +30,17 @@ public class GitReader implements VCSReader {
         gitCheckoutProcessor = new GitCheckoutProcessor();
     }
 
-    /**
-     * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
-     * For each impacted source code file load the file content from both the starting revision and the head revision.
-     *
-     * @param commitFrom
-     * @return
-     */
+    @Override
     public List<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom) {
         return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom);
     }
 
-    /**
-     * TODO delete this.
-     *
-     * @param commit
-     * @return
-     */
-    public File checkoutSourceAtVersion(String commit){
-        return gitCheckoutProcessor.checkoutSourceAtVersion(gitContext, commit);
-    }
-
-    /**
-     * Get the head commit value for the Git repository.
-     *
-     * @return
-     */
+    @Override
     public String getHeadCommit(){
         return gitContext.getHeadObjectId().getName();
     }
 
+    @Override
     public String getBranchName(){
         return gitContext.getBranchName();
     }
@@ -90,4 +71,13 @@ public class GitReader implements VCSReader {
         }
     }
 
+    /**
+     * TODO delete this.
+     *
+     * @param commit
+     * @return
+     */
+    public File checkoutSourceAtVersion(String commit){
+        return gitCheckoutProcessor.checkoutSourceAtVersion(gitContext, commit);
+    }
 }
