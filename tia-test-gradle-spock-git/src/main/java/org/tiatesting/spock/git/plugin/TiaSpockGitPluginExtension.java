@@ -29,7 +29,7 @@ public class TiaSpockGitPluginExtension {
                     // set the system properties needed by TIA passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", tiaTaskExtension.isEnabled());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
-                    testTask.systemProperty("tiaClassFilesDir", tiaTaskExtension.getClassFilesDir());
+                    testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
                     testTask.systemProperty("tiaDBPersistenceStrategy", tiaTaskExtension.getDbPersistenceStrategy());

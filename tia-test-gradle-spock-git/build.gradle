@@ -1,4 +1,3 @@
-apply plugin: 'groovy-gradle-plugin'
 apply plugin: 'java-gradle-plugin'
 
 gradlePlugin {
