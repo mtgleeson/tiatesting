@@ -1,4 +1,4 @@
-package org.tiatesting.junit.report;
+package org.tiatesting.report;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.stream.Collectors;
 
 /**
  * Generate a text file report containing the test mappings.

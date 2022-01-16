@@ -14,10 +14,12 @@
             <option value="$PROJECT_DIR$/tia-test-agent-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-core" />
             <option value="$PROJECT_DIR$/tia-test-diffanalyzer" />
+            <option value="$PROJECT_DIR$/tia-test-gradle-spock-git" />
             <option value="$PROJECT_DIR$/tia-test-junit" />
             <option value="$PROJECT_DIR$/tia-test-junit-git" />
             <option value="$PROJECT_DIR$/tia-test-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-persistence" />
+            <option value="$PROJECT_DIR$/tia-test-report" />
             <option value="$PROJECT_DIR$/tia-test-spock" />
             <option value="$PROJECT_DIR$/tia-test-vcs-git" />
             <option value="$PROJECT_DIR$/tia-test-vcs-perforce" />
