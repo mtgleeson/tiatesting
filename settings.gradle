@@ -11,4 +11,6 @@ include 'tia-test-junit-perforce'
 include 'tia-test-vcs-perforce'
 include 'tia-test-spock'
 include 'tia-test-diffanalyzer'
+include 'tia-test-report'
+include 'tia-test-gradle-spock-git'
 

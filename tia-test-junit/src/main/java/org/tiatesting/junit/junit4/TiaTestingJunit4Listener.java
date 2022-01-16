@@ -9,11 +9,11 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.junit.report.ReportGenerator;
-import org.tiatesting.junit.report.TextFileReportGenerator;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.PersistenceStrategy;
+import org.tiatesting.report.ReportGenerator;
+import org.tiatesting.report.TextFileReportGenerator;
 
 import java.util.List;
 import java.util.Map;
