@@ -45,7 +45,7 @@ public class FileImpactAnalyzer {
             }
         }
 
-        log.info("Methods impacted: " + methodsInvokedByChanges);
+        log.debug("Methods impacted: " + methodsInvokedByChanges);
         return methodsInvokedByChanges;
     }
 
