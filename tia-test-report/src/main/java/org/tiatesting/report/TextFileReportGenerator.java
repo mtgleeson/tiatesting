@@ -48,7 +48,8 @@ public class TextFileReportGenerator implements ReportGenerator{
                     String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass;
                     for (ClassImpactTracker classImpacted : classesImpacted){
                         for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()){
-                            fileTestEntry += System.lineSeparator() + "\t" + methodImpactTracker.getMethodName();
+                            fileTestEntry += System.lineSeparator() + "\t" + methodImpactTracker.getMethodName() +
+                                    " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
                         }
                     }
                     writer.write(fileTestEntry);

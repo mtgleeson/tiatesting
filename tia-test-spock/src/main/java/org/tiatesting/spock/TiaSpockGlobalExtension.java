@@ -34,7 +34,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore);
         } else {
-            log.error("TIA is disabled for this test run (use tiaEnabled to enable TIA).");
+            log.error("TIA is disabled for this test run (use tia.enabled to enable TIA).");
             dataStore = null;
             sourceFilesDirs = null;
             this.tiaTestingSpockRunListener = null;

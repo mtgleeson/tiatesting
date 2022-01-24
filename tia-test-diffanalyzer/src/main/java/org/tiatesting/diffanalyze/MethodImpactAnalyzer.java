@@ -98,6 +98,9 @@ public class MethodImpactAnalyzer {
         for (MethodImpactTracker methodImpactTracker : methodsTrackedForSourceFile) {
             /**
              * Check if any of the impacted code line numbers are within the current methods line numbers.
+             * Note: the stored line numbers generated from the code coverage analysis start from the line after the
+             * method name, and end at the line before the closing brace.
+             *
              *
              * IM = impacted method (from VCS).
              * Check start point is within method:			    IM start > = method start && IM start <= method end
@@ -106,8 +109,8 @@ public class MethodImpactAnalyzer {
              */
             int diffLineBegin = diffContext.getImpactedLineNumBegin();
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
-            int methodLineBegin = methodImpactTracker.getLineNumberStart();
-            int methodLineEnd = methodImpactTracker.getLineNumberEnd();
+            int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line
+            int methodLineEnd = methodImpactTracker.getLineNumberEnd() + 1; // add 1 to catch changes made to the end of the method (previously closing brace)
             log.trace("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
 
             boolean diffBeginIsWithinMethod = diffLineBegin >= methodLineBegin && diffLineBegin <= methodLineEnd;
@@ -116,9 +119,8 @@ public class MethodImpactAnalyzer {
 
             if (diffBeginIsWithinMethod || diffEndIsWithinMethod || diffRangeCoversMethod) {
                 methodsInvokedByChanges.add(methodImpactTracker.getMethodName());
-                log.debug("Found stored tracked method: {}, source line begin: {}, source line end: {}, stored line begin: {}, stored line end: {}",
-                        methodImpactTracker.getMethodName(), methodLineBegin, methodLineEnd,
-                        methodImpactTracker.getLineNumberStart(), methodImpactTracker.getLineNumberEnd());
+                log.debug("Found stored tracked method: {}, diff line begin: {}, diff line end: {}, stored line begin: {}, stored line end: {}",
+                        methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
             }
         }
     }
