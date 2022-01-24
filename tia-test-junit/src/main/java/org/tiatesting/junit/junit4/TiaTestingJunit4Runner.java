@@ -41,7 +41,6 @@ public class TiaTestingJunit4Runner extends BlockJUnit4ClassRunner {
 
     @Override
     protected boolean isIgnored(FrameworkMethod child) {
-        System.out.println("Checking if method is ignored!! " + child.getName());
         if(shouldIgnore()) {
             return true;
         }

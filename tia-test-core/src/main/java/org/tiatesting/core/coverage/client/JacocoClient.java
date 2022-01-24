@@ -156,7 +156,6 @@ public class JacocoClient {
         for (String classesDir: classesDirs){
             classesDir = getProjectDir() + classesDir;
             List<File> classFiles = loadFiles(classesDir, classExtension);
-            System.out.println("classesDir " + classesDir + " " +classFiles.size());
             files.addAll(classFiles);
         }
 
