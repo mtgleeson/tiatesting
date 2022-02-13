@@ -8,12 +8,6 @@ public class ClassImpactTracker implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * The name of the class that was invoked when running and test suite.
-     * The format should. be the fully qualified name using slashes instead of dots. i.e. com/example/DoorService
-     */
-    private String className;
-
-    /**
      * The name of the source file associated with the class.
      */
     private String sourceFilename;
@@ -23,14 +17,9 @@ public class ClassImpactTracker implements Serializable {
      */
     private List<MethodImpactTracker> methodsImpacted;
 
-    public ClassImpactTracker(String className, String sourceFilename, List<MethodImpactTracker> methodsImpacted) {
-        this.className = className;
+    public ClassImpactTracker(String sourceFilename, List<MethodImpactTracker> methodsImpacted) {
         this.sourceFilename = sourceFilename;
         this.methodsImpacted = methodsImpacted;
-    }
-
-    public String getClassName() {
-        return className;
     }
 
     public String getSourceFilename() {
@@ -46,11 +35,11 @@ public class ClassImpactTracker implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ClassImpactTracker that = (ClassImpactTracker) o;
-        return className.equals(that.className) && sourceFilename.equals(that.sourceFilename) && methodsImpacted.equals(that.methodsImpacted);
+        return sourceFilename.equals(that.sourceFilename) && methodsImpacted.equals(that.methodsImpacted);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(className, sourceFilename, methodsImpacted);
+        return Objects.hash(sourceFilename, methodsImpacted);
     }
 }

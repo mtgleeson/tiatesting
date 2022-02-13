@@ -50,6 +50,10 @@ public class TiaSpockTestRunInitializer {
         });
         log.debug("Selected tests to run: {}", testsToRun);
 
+        // add the tests that failed on the previous run - force them to be re-run
+        testsToRun.addAll(storedMapping.getTestSuitesFailed());
+        log.info("Running previously failed tests: {}", storedMapping.getTestSuitesFailed());
+
         // find the list of all known tracked test suites that are in the list of tests to run - this is the ignore list.
         // i.e. only ignore test suites that we have previously tracked and know haven't been impacted by the source changes.
         // this ensures any new test suites are executed.

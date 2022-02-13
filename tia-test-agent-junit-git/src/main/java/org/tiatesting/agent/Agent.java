@@ -30,7 +30,7 @@ public class Agent {
         GitReader gitReader = new GitReader(agentOptions.getProjectDir());
         DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
         StoredMapping storedMapping = dataStore.getStoredMapping();
-        log.info("Store commit: " + storedMapping.getCommitValue());
+        log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
             log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
@@ -54,6 +54,10 @@ public class Agent {
         });
         log.debug("Selected tests to run: {}", testsToRun);
 
+        // add the tests that failed on the previous run - force them to be re-run
+        testsToRun.addAll(storedMapping.getTestSuitesFailed());
+        log.info("Running previously failed tests: {}", storedMapping.getTestSuitesFailed());
+
         // find the list of all known tracked test suites that are in the list of tests to run - this is the ignore list.
         // i.e. only ignore test suites that we have previously tracked and know haven't been impacted by the source changes.
         // this ensures any new test suites are executed.
@@ -63,8 +67,6 @@ public class Agent {
                 ignoredTests.add(testSuite);
             }
         });
-
-       // ignoredTests.add("com.example.CarServiceTest");
 
         log.debug("Ignoring tests: {}", ignoredTests);
         new IgnoreTestInstrumentor().ignoreTests(ignoredTests, instrumentation, Ignore.class);

@@ -92,21 +92,21 @@ public class MethodImpactAnalyzer {
         return sourceFilesTracked.get(fileName);
     }
 
+    /**
+     * Check if any of the impacted code line numbers are within the current methods line numbers.
+     * Note: the stored line numbers generated from the code coverage analysis start from the line after the
+     * method name, and end at the line before the closing brace.
+     *
+     *
+     * IM = impacted method (from VCS).
+     * Check start point is within method:			    IM start > = method start && IM start <= method end
+     * Check end point is within method:			    IM end  >= method start && IM end <= method end
+     * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
+     */
     private void findTrackedMethodsForSourceDiff(final DiffContext diffContext,
                                                  final Set<MethodImpactTracker> methodsTrackedForSourceFile,
                                                  final Set<String> methodsInvokedByChanges){
         for (MethodImpactTracker methodImpactTracker : methodsTrackedForSourceFile) {
-            /**
-             * Check if any of the impacted code line numbers are within the current methods line numbers.
-             * Note: the stored line numbers generated from the code coverage analysis start from the line after the
-             * method name, and end at the line before the closing brace.
-             *
-             *
-             * IM = impacted method (from VCS).
-             * Check start point is within method:			    IM start > = method start && IM start <= method end
-             * Check end point is within method:			    IM end  >= method start && IM end <= method end
-             * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
-             */
             int diffLineBegin = diffContext.getImpactedLineNumBegin();
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
             int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line

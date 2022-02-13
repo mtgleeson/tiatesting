@@ -63,10 +63,10 @@ public class TiaTestingJunit4Listener extends RunListener {
      * @throws Exception
      */
     @Override
-    public void testRunFinished(Result result) throws Exception {
+    public void testRunFinished(Result result) {
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
         }
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
@@ -85,7 +85,7 @@ public class TiaTestingJunit4Listener extends RunListener {
 */
 
     @Override
-    public void testFailure(Failure failure) throws Exception {
+    public void testFailure(Failure failure) {
         this.testSuitesFailed.add(failure.getDescription().getClassName());
     }
 
@@ -105,18 +105,17 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     @Override
     public void testSuiteFinished(Description description) throws Exception {
-        if (this.testSuitesFailed.contains(description.getClassName())) {
-            return;
+        if (!this.testSuitesFailed.contains(description.getClassName())) {
+            log.debug("Collecting coverage and adding the mapping for the test suite: " + description.getClassName());
+            List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
+            this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
         }
-
-        log.debug("Collecting coverage and adding the mapping for the successful test suite: " + description.getClassName());
-        List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
-        this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
             log.info("Test suite finished for " + description.getClassName() + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
             this.testMethodsCalled.remove(description.getClassName());
+            this.testSuitesFailed.remove(description.getClassName());
         }
     }
 }
