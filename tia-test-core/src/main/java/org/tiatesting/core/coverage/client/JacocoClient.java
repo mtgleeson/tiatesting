@@ -93,7 +93,7 @@ public class JacocoClient {
                         String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
                         log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
                         List<MethodImpactTracker> methodsImpactedForClass = new ArrayList<>();
-                        classesInvoked.add(new ClassImpactTracker(bundleClass.getName(), sourceFilename, methodsImpactedForClass));
+                        classesInvoked.add(new ClassImpactTracker(sourceFilename, methodsImpactedForClass));
 
                         bundleClass.getMethods().forEach( method -> {
                             if (containsLineCoverage(method)){

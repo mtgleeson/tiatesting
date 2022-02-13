@@ -64,27 +64,29 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     @Override
     public void afterSpec(SpecInfo spec) {
-        if (spec.isSkipped()
-                || this.testSuitesFailed.contains(getSpecName(spec))
-                || this.testSuitesProcessed.contains(getSpecName(spec))) {
+        if (spec.isSkipped() || this.testSuitesProcessed.contains(getSpecName(spec))) {
             return;
         }
 
-        log.debug("Collecting coverage and adding the mapping for the successful test suite: " + getSpecName(spec));
-        List<ClassImpactTracker> methodsCalledForTest;
-        try {
-            methodsCalledForTest = this.coverageClient.collectCoverage();
-        } catch (IOException e) {
-            log.error("Error while collecting coverage", e);
-            throw new RuntimeException(e);
+        if (!this.testSuitesFailed.contains(getSpecName(spec))){
+            log.debug("Collecting coverage and adding the mapping for the test suite: " + getSpecName(spec));
+            List<ClassImpactTracker> methodsCalledForTest;
+            try {
+                methodsCalledForTest = this.coverageClient.collectCoverage();
+            } catch (IOException e) {
+                log.error("Error while collecting coverage", e);
+                throw new RuntimeException(e);
+            }
+            this.testMethodsCalled.put(getSpecName(spec), methodsCalledForTest);
         }
-        this.testMethodsCalled.put(getSpecName(spec), methodsCalledForTest);
+
         testSuitesProcessed.add(getSpecName(spec)); // this method is called twice for some reason - avoid processing it twice.
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
             log.info("Test suite finished for " + getSpecName(spec) + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
             this.testMethodsCalled.remove(getSpecName(spec));
+            this.testSuitesFailed.remove(getSpecName(spec));
         }
     }
 
@@ -112,7 +114,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
         }
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
