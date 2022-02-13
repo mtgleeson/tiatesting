@@ -7,10 +7,7 @@ import org.tiatesting.core.coverage.ClassImpactTracker;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.*;
 
 /**
  * DataStore implementation based on a plain Java Map and being persisted to a file on disk.
@@ -48,7 +45,8 @@ public class MapDataStore implements DataStore {
     }
 
     @Override
-    public boolean persistTestMapping(Map<String, List<ClassImpactTracker>> testMethodsCalled, String commitValue) {
+    public boolean persistTestMapping(final Map<String, List<ClassImpactTracker>> testMethodsCalled,
+                                      final Set<String> testSuitesFailed, final String commitValue) {
         long startTime = System.currentTimeMillis();
 
         // always get the latest test mapping before updating in case another process has updated the file since it was last read.
@@ -60,6 +58,13 @@ public class MapDataStore implements DataStore {
         Map<String, List<ClassImpactTracker>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
         storedMapping.setClassesImpacted(mergedTestMappings);
 
+        // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
+        // scenarios where the test suite is split into multiple processes which can be updating the stored TIA DB.
+        // First, remove all the test suites that were executed in this run, and then add back any that failed.
+        storedMapping.getTestSuitesFailed().removeAll(testMethodsCalled.keySet());
+        storedMapping.getTestSuitesFailed().addAll(testSuitesFailed);
+
+        storedMapping.setLastUpdated(new Date());
         //mergedTestMappings.forEach( (testClass, methodsCalled) ->
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
 
@@ -75,7 +80,7 @@ public class MapDataStore implements DataStore {
      * @param dbPersistenceStrategy
      * @return
      */
-    private PersistenceStrategy getPersistenceStrategy(String dbPersistenceStrategy){
+    private PersistenceStrategy getPersistenceStrategy(final String dbPersistenceStrategy){
         PersistenceStrategy persistenceStrategy = PersistenceStrategy.getDefaultPersistenceStrategy();
 
         if (dbPersistenceStrategy != null && dbPersistenceStrategy.length() > 0){
@@ -128,8 +133,8 @@ public class MapDataStore implements DataStore {
      * @param newTestMappings
      * @return mergedTestMappings
      */
-    private Map<String, List<ClassImpactTracker>> mergeTestMappingMaps(Map<String, List<ClassImpactTracker>> oldTestMappings,
-                                                          Map<String, List<ClassImpactTracker>> newTestMappings){
+    private Map<String, List<ClassImpactTracker>> mergeTestMappingMaps(final Map<String, List<ClassImpactTracker>> oldTestMappings,
+                                                                       final Map<String, List<ClassImpactTracker>> newTestMappings){
         Map<String, List<ClassImpactTracker>> mergedTestMappings = new HashMap<>(oldTestMappings);
         newTestMappings.forEach((key, value) -> mergedTestMappings.merge(key, value, (v1, v2) -> v2));
         return mergedTestMappings;
@@ -144,7 +149,7 @@ public class MapDataStore implements DataStore {
      * @param storedMapping
      * @return
      */
-    private boolean writeTestMappingToDisk(StoredMapping storedMapping){
+    private boolean writeTestMappingToDisk(final StoredMapping storedMapping){
         boolean savedToDisk = true;
         final String fullMappingFilename = dataStorePath + "/" + mappingFilename;
 
