@@ -35,6 +35,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore){
         this.coverageClient = new JacocoClient();
+        this.coverageClient.initialize();
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
@@ -109,8 +110,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
             return;
         }
 
-        log.info("Test run finished!!");
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
+        log.info("Test run finished!!");
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");

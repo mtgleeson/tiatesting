@@ -31,11 +31,14 @@ public class JacocoClient {
     private static final String ADDRESS = "localhost";
     private static final int PORT = 6300;
 
-    private final List<File> classfiles;
+    private final List<File> classfiles = new ArrayList<>();
     private String name = "TIA Client Coverage Bundle";
 
     public JacocoClient(){
-        this.classfiles = loadClasses();
+    }
+
+    public void initialize(){
+        loadClasses();
         log.debug("classes size: " + this.classfiles.size());
 
         try {
@@ -147,19 +150,16 @@ public class JacocoClient {
         return count;
     }
 
-    private List<File> loadClasses(){
+    private void loadClasses(){
         String classesDirsStr = System.getProperty("tiaClassFilesDirs");
         List<String> classesDirs = classesDirsStr != null ? Arrays.asList(classesDirsStr.split(",")) : null;
         String classExtension = ".class";
-        List<File> files = new ArrayList<>();
 
         for (String classesDir: classesDirs){
             classesDir = getProjectDir() + classesDir;
             List<File> classFiles = loadFiles(classesDir, classExtension);
-            files.addAll(classFiles);
+            this.classfiles.addAll(classFiles);
         }
-
-        return files;
     }
 
     private String getProjectDir(){

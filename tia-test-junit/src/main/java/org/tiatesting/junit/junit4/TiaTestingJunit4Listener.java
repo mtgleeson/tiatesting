@@ -29,14 +29,35 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final VCSReader vcsReader;
     private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
     private Set<String> testSuitesFailed;
+    private final boolean enabled; // is TIA enabled?
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
+        this.enabled = isEnabled();
         this.coverageClient = new JacocoClient();
+
+        if (enabled){
+            this.coverageClient.initialize();
+        }
+
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
         this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName(),
                 System.getProperty("tiaDBPersistenceStrategy"));
+    }
+
+    /**
+     * Enable the TiaTestingJunit4Listener only if TIA is enabled and the test run is
+     * marked to update the DB. i.e. only collect coverage metrics and update the
+     * TIA DB when the test run is marked to update the DB (usually from CI).
+     *
+     * @return
+     */
+    private boolean isEnabled(){
+        // TODO test this!
+        boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
+        boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
+        return enabled && updateDB;
     }
 
 /*
@@ -64,6 +85,10 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     @Override
     public void testRunFinished(Result result) {
+        if (!enabled){
+            return;
+        }
+
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
             this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
@@ -105,6 +130,10 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     @Override
     public void testSuiteFinished(Description description) throws Exception {
+        if (!enabled){
+            return;
+        }
+
         if (!this.testSuitesFailed.contains(description.getClassName())) {
             log.debug("Collecting coverage and adding the mapping for the test suite: " + description.getClassName());
             List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
