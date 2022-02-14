@@ -125,6 +125,10 @@ public abstract class TiaAgentMojo extends AbstractMojo {
 
     public abstract String getTiaSourceFilesDirs();
 
+    public abstract boolean isTiaEnabled();
+
+    public abstract boolean isTiaUpdateDB();
+
     /**
      * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
      * changes and Ignore tests not impacted by the changes.
@@ -133,9 +137,11 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     private boolean isEnabled(){
         // TODO test this!
-        boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
+        boolean enabled = isTiaEnabled();
+        boolean updateDB = isTiaUpdateDB();
         String userSpecifiedTests = System.getProperty("test");
+        getLog().info("tiaEnabled: " + enabled);
+        getLog().info("tiaUpdateDB: " + updateDB);
 
         /**
          * TIA is enabled but we're not updating the DB. The DB is usually updated via the CI so

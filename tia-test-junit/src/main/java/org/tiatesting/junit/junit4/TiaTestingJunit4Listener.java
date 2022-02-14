@@ -57,6 +57,8 @@ public class TiaTestingJunit4Listener extends RunListener {
         // TODO test this!
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
         boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
+        log.info("tiaEnabled2: " + enabled);
+        log.info("tiaUpdateDB2: " + updateDB);
         return enabled && updateDB;
     }
 
