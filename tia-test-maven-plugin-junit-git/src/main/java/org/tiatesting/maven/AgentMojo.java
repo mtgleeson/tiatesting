@@ -61,6 +61,20 @@ public class AgentMojo extends TiaAgentMojo {
      */
     String tiaSourceFilesDirs;
 
+    /**
+     * Is TIA enabled?
+     *
+     * @parameter property="tiaEnabled"
+     */
+    boolean tiaEnabled;
+
+    /**
+     * Should the TIA DB be updated with this test run?
+     *
+     * @parameter property="tiaUpdateDB"
+     */
+    String tiaUpdateDB;
+
     public String getAgentArtifactName(){
         return AGENT_ARTIFACT_NAME;
     }
@@ -92,4 +106,13 @@ public class AgentMojo extends TiaAgentMojo {
         return tiaSourceFilesDirs;
     }
 
+    @Override
+    public boolean isTiaEnabled() {
+        return tiaEnabled;
+    }
+
+    @Override
+    public boolean isTiaUpdateDB() {
+        return Boolean.parseBoolean(tiaUpdateDB);
+    }
 }
