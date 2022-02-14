@@ -22,6 +22,11 @@ public abstract class TiaAgentMojo extends AbstractMojo {
 
     @Override
     public void execute() {
+        if (!isEnabled()){
+            getLog().info("TIA is disabled");
+            return;
+        }
+
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
         final String oldValue = projectProperties.getProperty(name);
@@ -119,4 +124,30 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     public abstract String getTiaDBFilePath();
 
     public abstract String getTiaSourceFilesDirs();
+
+    /**
+     * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
+     * changes and Ignore tests not impacted by the changes.
+     *
+     * @return
+     */
+    private boolean isEnabled(){
+        // TODO test this!
+        boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
+        boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
+        String userSpecifiedTests = System.getProperty("test");
+
+        /**
+         * TIA is enabled but we're not updating the DB. The DB is usually updated via the CI so
+         * this indicates the tests are being run locally.
+         * If the user specified specific individual tests to run, disable TIA so those tests are run
+         * and guaranteed to be the only tests to run.
+         */
+        if (enabled && !updateDB){
+            boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
+            enabled = !hasUserSpecifiedTests; // disable TIA if the user has specified tests to run
+        }
+
+        return enabled;
+    }
 }

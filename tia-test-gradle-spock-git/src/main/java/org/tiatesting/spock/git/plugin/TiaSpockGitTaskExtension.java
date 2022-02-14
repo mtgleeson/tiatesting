@@ -9,6 +9,7 @@ public class TiaSpockGitTaskExtension {
     private String dbFilePath;
     private String dbPersistenceStrategy;
     private boolean enabled;
+    private boolean updateDB;
 
     @Input
     public String getProjectDir() {
@@ -62,5 +63,14 @@ public class TiaSpockGitTaskExtension {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    @Input
+    public boolean isUpdateDB() {
+        return updateDB;
+    }
+
+    public void setUpdateDB(boolean updateDB) {
+        this.updateDB = updateDB;
     }
 }
