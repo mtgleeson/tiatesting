@@ -1,16 +1,10 @@
 package org.tiatesting.spock.git.plugin;
 
-import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.plugins.JavaPlugin;
-import org.gradle.api.tasks.TaskCollection;
 import org.gradle.api.tasks.testing.Test;
-import org.gradle.testing.jacoco.plugins.JacocoPluginExtension;
-
-import java.util.Objects;
 
 public class TiaSpockGitPlugin implements Plugin<Project> {
 
