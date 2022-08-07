@@ -21,20 +21,29 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final List<String> sourceFilesDirs;
     private final TiaSpockRunListener tiaTestingSpockRunListener;
     private final DataStore dataStore;
+    private final SpecificationUtil specificationUtil;
     private Set<String> ignoredTests = new HashSet<>();
     private final VCSReader vcsReader;
 
     public TiaSpockGlobalExtension(final VCSReader vcsReader){
         this.vcsReader = vcsReader;
+        this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
         tiaUpdateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
 
-        if (tiaEnabled && tiaUpdateDB){
+        if (tiaEnabled){
             String dbPersistenceStrategy = System.getProperty("tiaDBPersistenceStrategy");
             String dbFilePath = System.getProperty("tiaDBFilePath");
             dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName(), dbPersistenceStrategy);
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
-            this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore);
+
+            if (tiaUpdateDB){
+                // the listener is used for collecting and update coverage
+                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore);
+            } else {
+                // not updating the DB, no need to use the Spock listener
+                this.tiaTestingSpockRunListener = null;
+            }
         } else {
             log.info("TIA is disabled for this test run.");
             dataStore = null;
@@ -57,7 +66,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 spec.addListener(tiaTestingSpockRunListener);
             }
 
-            if (ignoredTests.contains(tiaTestingSpockRunListener.getSpecName(spec))){
+            if (ignoredTests.contains(specificationUtil.getSpecName(spec))){
                 spec.skip("Test not selected to run based on the changes analyzed by Tia");
             }
         }

@@ -15,12 +15,11 @@ import java.util.Set;
 public class TiaSpockGitPluginExtension {
     private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginExtension.class);
 
-    public <T extends Task & JavaForkOptions> void applyTo(final T task) {
+    public <T extends Test & JavaForkOptions> void applyTo(final T task) {
         String taskName = task.getName();
         LOGGER.debug("Applying Tia to " + taskName);
         TiaSpockGitTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaSpockGitTaskExtension.class);
         JacocoTaskExtension jacocoTaskExtension = task.getExtensions().findByType(JacocoTaskExtension.class);
-        Objects.requireNonNull(tiaTaskExtension);
 
         Action<Task> action = new Action<Task>() {
             @Override
@@ -52,12 +51,18 @@ public class TiaSpockGitPluginExtension {
      * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
      * changes and Ignore tests not impacted by the changes.
      *
+     * Note: It's not ideal we need to cast to the DefaultTestFilter as it's the internals of Gradle and
+     * could change in future versions. Another way of getting the command line --tests parameter is using the
+     * @Option(option = "tests", description = "Sets test class or method name to be included, '*' is supported.")
+     * https://github.com/gradle/gradle/blob/b131fefc8d9efb8e154abd09f7eb91c854df1310/subprojects/testing-base/src/main/java/org/gradle/api/tasks/testing/AbstractTestTask.java#L104
+     * annotation. But again this is currently only intended for the internals of Gradle.
+     * i.e. Gradle doesn't currently provide a good way to publicly expose the command line parameters.
+     *
      * @param tiaTaskExtension
      * @param task
      * @return
      */
     private boolean isEnabled(final TiaSpockGitTaskExtension tiaTaskExtension, Test task){
-        // TODO test this!
         boolean enabled = tiaTaskExtension.isEnabled();
         boolean updateDB = tiaTaskExtension.isUpdateDB();
         Set<String> userSpecifiedTests = ((DefaultTestFilter)task.getFilter()).getCommandLineIncludePatterns();
@@ -75,9 +80,5 @@ public class TiaSpockGitPluginExtension {
 
         return enabled;
     }
-/*
-    public <T extends Task & JavaForkOptions> void applyTo(TaskCollection<T> tasks) {
-        ((TaskCollection) tasks).withType(JavaForkOptions.class, (Action<T>) this::applyTo);
-    }
-*/
+
 }

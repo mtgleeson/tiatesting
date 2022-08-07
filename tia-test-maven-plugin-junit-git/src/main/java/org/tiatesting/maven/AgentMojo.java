@@ -6,6 +6,7 @@ import org.apache.maven.project.MavenProject;
 import java.util.Map;
 
 /**
+ * http://people.apache.org/~ltheussl/maven-stage-site/guides/plugin/guide-java-plugin-development.html
  *
  * @goal prepare-agent
  * @requiresDependencyResolution compile
