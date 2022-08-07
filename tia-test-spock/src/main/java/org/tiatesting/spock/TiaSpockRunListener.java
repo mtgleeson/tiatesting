@@ -31,6 +31,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
+    private final SpecificationUtil specificationUtil;
     private boolean stopStepRan;
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore){
@@ -39,6 +40,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.testMethodsCalled = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
+        this.specificationUtil = new SpecificationUtil();
         this.vcsReader = vcsReader;
         this.dataStore = dataStore;
     }
@@ -65,12 +67,12 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     @Override
     public void afterSpec(SpecInfo spec) {
-        if (spec.isSkipped() || this.testSuitesProcessed.contains(getSpecName(spec))) {
+        if (spec.isSkipped() || this.testSuitesProcessed.contains(specificationUtil.getSpecName(spec))) {
             return;
         }
 
-        if (!this.testSuitesFailed.contains(getSpecName(spec))){
-            log.debug("Collecting coverage and adding the mapping for the test suite: " + getSpecName(spec));
+        if (!this.testSuitesFailed.contains(specificationUtil.getSpecName(spec))){
+            log.debug("Collecting coverage and adding the mapping for the test suite: " + specificationUtil.getSpecName(spec));
             List<ClassImpactTracker> methodsCalledForTest;
             try {
                 methodsCalledForTest = this.coverageClient.collectCoverage();
@@ -78,27 +80,27 @@ public class TiaSpockRunListener extends AbstractRunListener {
                 log.error("Error while collecting coverage", e);
                 throw new RuntimeException(e);
             }
-            this.testMethodsCalled.put(getSpecName(spec), methodsCalledForTest);
+            this.testMethodsCalled.put(specificationUtil.getSpecName(spec), methodsCalledForTest);
         }
 
-        testSuitesProcessed.add(getSpecName(spec)); // this method is called twice for some reason - avoid processing it twice.
+        testSuitesProcessed.add(specificationUtil.getSpecName(spec)); // this method is called twice for some reason - avoid processing it twice.
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
-            log.info("Test suite finished for " + getSpecName(spec) + ". Persisting the incremental test mapping.");
+            log.info("Test suite finished for " + specificationUtil.getSpecName(spec) + ". Persisting the incremental test mapping.");
             this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
-            this.testMethodsCalled.remove(getSpecName(spec));
-            this.testSuitesFailed.remove(getSpecName(spec));
+            this.testMethodsCalled.remove(specificationUtil.getSpecName(spec));
+            this.testSuitesFailed.remove(specificationUtil.getSpecName(spec));
         }
     }
 
     @Override
     public void error(ErrorInfo error) {
-        this.testSuitesFailed.add(getSpecName(error.getMethod().getFeature().getSpec()));
+        this.testSuitesFailed.add(specificationUtil.getSpecName(error.getMethod().getFeature().getSpec()));
     }
 
     @Override
     public void specSkipped(SpecInfo spec) {
-        log.info(getSpecName(spec) + " was skipped!");
+        log.info(specificationUtil.getSpecName(spec) + " was skipped!");
     }
 
     @Override
@@ -123,7 +125,4 @@ public class TiaSpockRunListener extends AbstractRunListener {
         reportGenerator.generateReport(this.dataStore);
     }
 
-    public String getSpecName(SpecInfo spec){
-        return spec.getPackage() + "." + spec.getName();
-    }
 }
