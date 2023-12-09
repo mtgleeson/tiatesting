@@ -32,8 +32,8 @@ public class GitDiffAnalyzer {
     private static final String GROOVY_FILE_EXTENSION = ".groovy";
 
     /**
-     * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
-     * For each impacted source code file load the file content from the starting revision and the head revision.
+     * Build the list of files that have changes either since the previously stored commit, or from local uncommited changes.
+     * Return the list of SourceFileDiffContext.
      *
      * @param gitContext
      * @param commitFrom
@@ -43,6 +43,27 @@ public class GitDiffAnalyzer {
         ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
         ObjectId commitToObjectId = gitContext.getHeadObjectId();
 
+        // get changes from the previously stored commit to head
+        Map<String, SourceFileDiffContext> sourceFileDiffContexts = buildSourceFileChangesFromPreviouslyStoredCommit(gitContext,
+                commitFromObjectId, commitToObjectId);
+
+        // add local (uncommited) changes
+        // TODO
+
+        return new ArrayList<>(sourceFileDiffContexts.values());
+    }
+
+    /**
+     * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
+     * For each impacted source code file load the file content from the starting revision and the head revision.
+     *
+     * @param gitContext
+     * @param commitFromObjectId
+     * @param commitToObjectId
+     * @return
+     */
+    private Map<String, SourceFileDiffContext> buildSourceFileChangesFromPreviouslyStoredCommit(GitContext gitContext, ObjectId commitFromObjectId,
+                                                                                                ObjectId commitToObjectId){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = getSourceFilesImpacted(gitContext.getRepository(),
                 commitFromObjectId, commitToObjectId);
         log.info(String.format("Source files found in the commit range: %s", sourceFileDiffContexts.keySet()));
@@ -50,7 +71,7 @@ public class GitDiffAnalyzer {
         readFileContentForVersion(gitContext, commitFromObjectId, sourceFileDiffContexts, true);
         readFileContentForVersion(gitContext, commitToObjectId, sourceFileDiffContexts, false);
 
-        return new ArrayList<>(sourceFileDiffContexts.values());
+        return sourceFileDiffContexts;
     }
 
     /**
