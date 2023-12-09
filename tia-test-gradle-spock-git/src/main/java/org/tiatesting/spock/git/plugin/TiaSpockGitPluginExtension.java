@@ -9,7 +9,6 @@ import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
 
-import java.util.Objects;
 import java.util.Set;
 
 public class TiaSpockGitPluginExtension {
@@ -66,6 +65,8 @@ public class TiaSpockGitPluginExtension {
         boolean enabled = tiaTaskExtension.isEnabled();
         boolean updateDB = tiaTaskExtension.isUpdateDB();
         Set<String> userSpecifiedTests = ((DefaultTestFilter)task.getFilter()).getCommandLineIncludePatterns();
+        LOGGER.debug("TIA enabled value from the task extension: " + enabled);
+        LOGGER.debug("TIA updateDB value from the task extension: " + updateDB);
 
         /**
          * TIA is enabled but we're not updating the DB. The DB is usually updated via the CI so
@@ -75,7 +76,12 @@ public class TiaSpockGitPluginExtension {
          */
         if (enabled && !updateDB){
             boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
-            enabled = !hasUserSpecifiedTests; // disable TIA if the user has specified tests to run
+
+            if (hasUserSpecifiedTests){
+                // disable TIA if the user has specified tests to run
+                enabled = false;
+                LOGGER.warn("Disabling TIA due to specifying individual tests to run and not updating the mapping DB.");
+            }
         }
 
         return enabled;
