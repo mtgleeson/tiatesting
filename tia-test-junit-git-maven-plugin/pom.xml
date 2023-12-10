@@ -13,6 +13,11 @@
     <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Git version control projects.</description>
     <url>http://maven.apache.org</url>
 
+    <organization>
+        <name>MGleeson</name>
+        <url>https://github.com/mtgleeson/</url>
+    </organization>
+
     <properties>
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -30,7 +35,7 @@
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-test-agent-junit-git</artifactId>
+            <artifactId>tia-test-junit-git-agent</artifactId>
             <version>1.1.0</version>
             <classifier>runtime</classifier>
         </dependency>
@@ -51,6 +56,39 @@
             <version>2.2.1</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>3.6.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.8.2</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-plugin-plugin</artifactId>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+        </plugins>
+    </reporting>
 
     <!--
     <build>

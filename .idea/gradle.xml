@@ -4,20 +4,19 @@
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
-        <option name="distributionType" value="DEFAULT_WRAPPED" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/tia-test-agent" />
-            <option value="$PROJECT_DIR$/tia-test-agent-junit-git" />
-            <option value="$PROJECT_DIR$/tia-test-agent-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-test-core" />
             <option value="$PROJECT_DIR$/tia-test-diffanalyzer" />
             <option value="$PROJECT_DIR$/tia-test-gradle-spock-git" />
             <option value="$PROJECT_DIR$/tia-test-junit" />
             <option value="$PROJECT_DIR$/tia-test-junit-git" />
+            <option value="$PROJECT_DIR$/tia-test-junit-git-agent" />
             <option value="$PROJECT_DIR$/tia-test-junit-perforce" />
+            <option value="$PROJECT_DIR$/tia-test-junit-perforce-agent" />
             <option value="$PROJECT_DIR$/tia-test-persistence" />
             <option value="$PROJECT_DIR$/tia-test-report" />
             <option value="$PROJECT_DIR$/tia-test-spock" />

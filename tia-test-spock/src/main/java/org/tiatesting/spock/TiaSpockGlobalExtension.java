@@ -55,7 +55,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void start() {
         if (tiaEnabled) {
-            ignoredTests = new TiaSpockTestRunInitializer(vcsReader, dataStore).getTestsToRun(sourceFilesDirs);
+            ignoredTests = new TiaSpockTestRunInitializer(vcsReader, dataStore).getTestsToIgnore(sourceFilesDirs);
         }
     }
 
