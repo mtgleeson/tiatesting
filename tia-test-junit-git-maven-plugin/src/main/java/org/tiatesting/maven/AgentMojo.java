@@ -14,7 +14,7 @@ public class AgentMojo extends TiaAgentMojo {
     /**
      * Name of the Tia Test Agent artifact.
      */
-    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-agent-junit-git";
+    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-test-junit-git-agent";
 
     /**
      * Map of plugin artifacts.
@@ -29,5 +29,4 @@ public class AgentMojo extends TiaAgentMojo {
     public Map<String, Artifact> getPluginArtifactMap() {
         return pluginArtifactMap;
     }
-
 }
