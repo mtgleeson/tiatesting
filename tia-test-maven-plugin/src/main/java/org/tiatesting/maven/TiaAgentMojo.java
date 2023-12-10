@@ -2,6 +2,9 @@ package org.tiatesting.maven;
 
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.agent.AgentOptions;
 
@@ -20,8 +23,54 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     static final String SUREFIRE_ARG_LINE = "argLine";
 
+    /**
+     * Maven project.
+     */
+    @Parameter(property = "project", readonly = true)
+    private MavenProject project;
+
+    /**
+     * Allows to specify property which will contains settings for JaCoCo Agent.
+     * If not specified, then "argLine" would be used for "jar" packaging and
+     * "tycho.testArgLine" for "eclipse-test-plugin".
+     */
+    @Parameter(property = "jacoco.propertyName")
+    String propertyName;
+
+    /**
+     * The file path for the project being analyzed.
+     *
+     */
+    @Parameter(property = "tiaProjectDir")
+    String tiaProjectDir;
+
+    /**
+     * The file path for to the saved DB containing the previous analysis of the project.
+     */
+    @Parameter(property = "tiaDBFilePath")
+    String tiaDBFilePath;
+
+    /**
+     * The source files directories for the project being analyzed.
+     */
+    @Parameter(property = "tiaSourceFilesDirs")
+    String tiaSourceFilesDirs;
+
+    /**
+     * Is TIA enabled?
+     */
+    @Parameter(property = "tiaEnabled")
+    boolean tiaEnabled;
+
+    /**
+     * Should the TIA DB be updated with this test run?
+     */
+    @Parameter(property = "tiaUpdateDB")
+
+    String tiaUpdateDB;
+
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException, MojoFailureException {
         if (!isEnabled()){
             getLog().info("TIA is disabled");
             return;
@@ -115,20 +164,6 @@ public abstract class TiaAgentMojo extends AbstractMojo {
 
     public abstract Map<String, Artifact> getPluginArtifactMap();
 
-    public abstract MavenProject getProject();
-
-    public abstract String getPropertyName();
-
-    public abstract String getTiaProjectDir();
-
-    public abstract String getTiaDBFilePath();
-
-    public abstract String getTiaSourceFilesDirs();
-
-    public abstract boolean isTiaEnabled();
-
-    public abstract boolean isTiaUpdateDB();
-
     /**
      * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
      * changes and Ignore tests not impacted by the changes.
@@ -155,5 +190,33 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         }
 
         return enabled;
+    }
+
+    public MavenProject getProject(){
+        return project;
+    }
+
+    public String getPropertyName(){
+        return propertyName;
+    }
+
+    public String getTiaProjectDir(){
+        return tiaProjectDir;
+    }
+
+    public String getTiaDBFilePath(){
+        return tiaDBFilePath;
+    }
+
+    public String getTiaSourceFilesDirs() {
+        return tiaSourceFilesDirs;
+    }
+
+    public boolean isTiaEnabled() {
+        return tiaEnabled;
+    }
+
+    public boolean isTiaUpdateDB() {
+        return Boolean.parseBoolean(tiaUpdateDB);
     }
 }
