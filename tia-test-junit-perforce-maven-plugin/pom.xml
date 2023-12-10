@@ -11,7 +11,12 @@
 
     <name>tia-test-junit-perforce-maven-plugin Tia Testing Maven Plugin for Junit and Perforce</name>
     <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Junit and Perforce version control projects.</description>
-    <url>http://maven.apache.org</url>
+    <url>https://github.com/mtgleeson</url>
+
+    <organization>
+        <name>MGleeson</name>
+        <url>https://github.com/mtgleeson</url>
+    </organization>
 
     <properties>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -30,7 +35,7 @@
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-test-agent-perforce</artifactId>
+            <artifactId>tia-test-junit-perforce-agent</artifactId>
             <version>1.1.0</version>
             <classifier>runtime</classifier>
         </dependency>
@@ -51,44 +56,38 @@
             <version>2.2.1</version>
         </dependency>
     </dependencies>
-    <!--
-        <build>
-            <sourceDirectory>src</sourceDirectory>
+
+    <build>
+        <pluginManagement>
             <plugins>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-javadoc-plugin</artifactId>
-                    <configuration>
-                        <tagletArtifacts>
-                            <tagletArtifact>
-                                <groupId>org.apache.maven.plugin-tools</groupId>
-                                <artifactId>maven-plugin-tools-javadoc</artifactId>
-                                <version>2.8</version>
-                            </tagletArtifact>
-                        </tagletArtifacts>
-                    </configuration>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-plugin-plugin</artifactId>
-                    <executions>
-                        <execution>
-                            <id>help-mojo</id>
-                            <goals>
-                                <goal>helpmojo</goal>
-                            </goals>
-                        </execution>
-                        <execution>
-                            <id>report</id>
-                            <phase>package</phase>
-                            <goals>
-                                <goal>report</goal>
-                            </goals>
-                        </execution>
-                    </executions>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.8.2</version>
                 </plugin>
             </plugins>
-        </build>
-    -->
+        </pluginManagement>
+    </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-plugin-plugin</artifactId>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+        </plugins>
+    </reporting>
 
 </project>
