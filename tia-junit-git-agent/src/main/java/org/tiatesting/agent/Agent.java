@@ -26,10 +26,9 @@ public class Agent {
 
         GitReader gitReader = new GitReader(agentOptions.getProjectDir());
         DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
-        TestSelector testSelector = new TestSelector();
         List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
+        TestSelector testSelector = new TestSelector();
         Set<String> testsToIgnore = testSelector.selectTestsToIgnore(dataStore.getStoredMapping(), gitReader, sourceFilesDirs);
-
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
     }
 
