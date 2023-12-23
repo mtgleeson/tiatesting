@@ -136,11 +136,9 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        if (!this.testSuitesFailed.contains(description.getClassName())) {
-            log.debug("Collecting coverage and adding the mapping for the test suite: " + description.getClassName());
-            List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
-            this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
-        }
+        log.debug("Collecting coverage and adding the mapping for the test suite: " + description.getClassName());
+        List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
+        this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
             log.info("Test suite finished for " + description.getClassName() + ". Persisting the incremental test mapping.");
