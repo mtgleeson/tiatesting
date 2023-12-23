@@ -1,0 +1,47 @@
+dependencies {
+    implementation project(':tia-core')
+    implementation project(':tia-persistence')
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation "io.github.java-diff-utils:java-diff-utils:4.5"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifact sourceJar {
+                classifier "sources"
+            }
+
+            //groupId 'org.something'
+            //artifact packageJavadoc
+
+            pom.withXml {
+                asNode().children().last() + {
+                    resolveStrategy = Closure.DELEGATE_FIRST
+                    name 'tiatesting'
+                    description 'This library contains the core common classes used in the Tia Test program.'
+                    //url 'https://github.com/rpau/junit4git'
+                    //scm {
+                    //    url 'https://github.com/rpau/junit4git'
+                    //    connection 'https://github.com/rpau/junit4git.git'
+                    //}
+                    //licenses {
+                    //    license {
+                    //        name 'The Apache Software License, Version 2.0'
+                    //        url 'http://www.apache.org/license/LICENSE-2.0.txt'
+                    //    }
+                    //}
+                    developers {
+                        developer {
+                            id 'mtgleeson'
+                            name 'Matt'
+                            email 'mtgleeson@gmail.com'
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
