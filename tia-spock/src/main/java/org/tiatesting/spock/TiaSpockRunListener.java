@@ -71,17 +71,15 @@ public class TiaSpockRunListener extends AbstractRunListener {
             return;
         }
 
-        if (!this.testSuitesFailed.contains(specificationUtil.getSpecName(spec))){
-            log.debug("Collecting coverage and adding the mapping for the test suite: " + specificationUtil.getSpecName(spec));
-            List<ClassImpactTracker> methodsCalledForTest;
-            try {
-                methodsCalledForTest = this.coverageClient.collectCoverage();
-            } catch (IOException e) {
-                log.error("Error while collecting coverage", e);
-                throw new RuntimeException(e);
-            }
-            this.testMethodsCalled.put(specificationUtil.getSpecName(spec), methodsCalledForTest);
+        log.debug("Collecting coverage and adding the mapping for the test suite: " + specificationUtil.getSpecName(spec));
+        List<ClassImpactTracker> methodsCalledForTest;
+        try {
+            methodsCalledForTest = this.coverageClient.collectCoverage();
+        } catch (IOException e) {
+            log.error("Error while collecting coverage", e);
+            throw new RuntimeException(e);
         }
+        this.testMethodsCalled.put(specificationUtil.getSpecName(spec), methodsCalledForTest);
 
         testSuitesProcessed.add(specificationUtil.getSpecName(spec)); // this method is called twice for some reason - avoid processing it twice.
 
