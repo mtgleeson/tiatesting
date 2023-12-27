@@ -3,6 +3,7 @@ package org.tiatesting.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
@@ -45,7 +46,7 @@ public class MapDataStore implements DataStore {
     }
 
     @Override
-    public boolean persistTestMapping(final Map<String, List<ClassImpactTracker>> testMethodsCalled,
+    public boolean persistTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers,
                                       final Set<String> testSuitesFailed, final String commitValue) {
         long startTime = System.currentTimeMillis();
 
@@ -54,14 +55,14 @@ public class MapDataStore implements DataStore {
         log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
-        Map<String, List<ClassImpactTracker>> testMethodsCalledOnDisk = storedMapping.getClassesImpacted();
-        Map<String, List<ClassImpactTracker>> mergedTestMappings = mergeTestMappingMaps(testMethodsCalledOnDisk, testMethodsCalled);
-        storedMapping.setClassesImpacted(mergedTestMappings);
+        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
+        Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
+        storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
 
         // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
         // scenarios where the test suite is split into multiple processes which can be updating the stored TIA DB.
         // First, remove all the test suites that were executed in this run, and then add back any that failed.
-        storedMapping.getTestSuitesFailed().removeAll(testMethodsCalled.keySet());
+        storedMapping.getTestSuitesFailed().removeAll(testSuiteTrackers.keySet());
         storedMapping.getTestSuitesFailed().addAll(testSuitesFailed);
 
         storedMapping.setLastUpdated(new Date());
@@ -124,19 +125,18 @@ public class MapDataStore implements DataStore {
     }
 
     /**
-     * Update the stored test mappings based on the results from the current test run.
-     * For each test suite, set the methods impacted. If the test suite has an existing method mapping
-     * then update it to use the new test mapping
+     * Update the stored test suite trackers absed on the results from the current test run.
+     * For each test suite, set the new tracker including the new test to source code mappings.
+     * If the test suite has an existing tracker then update it to use the new traker.
      *
-     *
-     * @param oldTestMappings
-     * @param newTestMappings
+     * @param oldTestSuiteTrackers
+     * @param newTestSuiteTrackers
      * @return mergedTestMappings
      */
-    private Map<String, List<ClassImpactTracker>> mergeTestMappingMaps(final Map<String, List<ClassImpactTracker>> oldTestMappings,
-                                                                       final Map<String, List<ClassImpactTracker>> newTestMappings){
-        Map<String, List<ClassImpactTracker>> mergedTestMappings = new HashMap<>(oldTestMappings);
-        newTestMappings.forEach((key, value) -> mergedTestMappings.merge(key, value, (v1, v2) -> v2));
+    private Map<String, TestSuiteTracker> mergeTestMappingMaps(final Map<String, TestSuiteTracker> oldTestSuiteTrackers,
+                                                                       final Map<String, TestSuiteTracker> newTestSuiteTrackers){
+        Map<String, TestSuiteTracker> mergedTestMappings = new HashMap<>(oldTestSuiteTrackers);
+        newTestSuiteTrackers.forEach((key, value) -> mergedTestMappings.merge(key, value, (v1, v2) -> v2));
         return mergedTestMappings;
     }
 

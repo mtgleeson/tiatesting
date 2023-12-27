@@ -7,6 +7,7 @@ import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
@@ -27,7 +28,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final VCSReader vcsReader;
-    private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
+    private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private Set<String> testSuitesFailed;
     private final boolean enabled; // is TIA enabled?
 
@@ -39,7 +40,7 @@ public class TiaTestingJunit4Listener extends RunListener {
             this.coverageClient.initialize();
         }
 
-        this.testMethodsCalled = new ConcurrentHashMap<>();
+        this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
         this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName(),
@@ -93,7 +94,7 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
         }
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
@@ -136,15 +137,18 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        log.debug("Collecting coverage and adding the mapping for the test suite: " + description.getClassName());
-        List<ClassImpactTracker> methodsCalledForTest = this.coverageClient.collectCoverage();
-        this.testMethodsCalled.put(description.getClassName(), methodsCalledForTest);
+        String testSuiteName = description.getClassName();
+        log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
+        TestSuiteTracker testSuiteTracker = new TestSuiteTracker(testSuiteName);
+        testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
+        testSuiteTracker.setClassesImpacted(this.coverageClient.collectCoverage());
+        this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
-            log.info("Test suite finished for " + description.getClassName() + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
-            this.testMethodsCalled.remove(description.getClassName());
-            this.testSuitesFailed.remove(description.getClassName());
+            log.info("Test suite finished for " + testSuiteName + ". Persisting the incremental test mapping.");
+            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
+            this.testSuiteTrackers.remove(testSuiteName);
+            this.testSuitesFailed.remove(testSuiteName);
         }
     }
 }
