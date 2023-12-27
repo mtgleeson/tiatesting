@@ -38,7 +38,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
 
             if (tiaUpdateDB){
-                // the listener is used for collecting and update coverage
+                // the listener is used for collecting coverage and updating the stored test mapping
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore);
             } else {
                 // not updating the DB, no need to use the Spock listener

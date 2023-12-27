@@ -1,6 +1,7 @@
 package org.tiatesting.persistence;
 
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.Serializable;
 import java.util.*;
@@ -16,7 +17,7 @@ public class StoredMapping implements Serializable {
     /**
      * The saved mapping of impacted classes/methods for each test suite.
      */
-    private Map<String, List<ClassImpactTracker>> classesImpacted = new HashMap<>();
+    private Map<String, TestSuiteTracker> testSuitesTracked = new HashMap<>();
 
     /**
      * The set of test suites that failed on the previous run. These tests will be forced to re-run in the next
@@ -37,12 +38,12 @@ public class StoredMapping implements Serializable {
         this.commitValue = commitValue;
     }
 
-    public Map<String, List<ClassImpactTracker>> getClassesImpacted() {
-        return classesImpacted;
+    public Map<String, TestSuiteTracker> getTestSuitesTracked() {
+        return testSuitesTracked;
     }
 
-    public void setClassesImpacted(Map<String, List<ClassImpactTracker>> classesImpacted) {
-        this.classesImpacted = classesImpacted;
+    public void setTestSuitesTracked(Map<String, TestSuiteTracker> testSuitesTracked) {
+        this.testSuitesTracked = testSuitesTracked;
     }
 
     public Set<String> getTestSuitesFailed() {
@@ -66,12 +67,12 @@ public class StoredMapping implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         StoredMapping that = (StoredMapping) o;
-        return commitValue.equals(that.commitValue) && classesImpacted.equals(that.classesImpacted)
+        return commitValue.equals(that.commitValue) && testSuitesTracked.equals(that.testSuitesTracked)
                 && testSuitesFailed.equals(that.testSuitesFailed) && lastUpdated.equals(that.lastUpdated);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(commitValue, classesImpacted, testSuitesFailed, lastUpdated);
+        return Objects.hash(commitValue, testSuitesTracked, testSuitesFailed, lastUpdated);
     }
 }

@@ -8,6 +8,7 @@ import org.spockframework.runtime.model.FeatureInfo;
 import org.spockframework.runtime.model.IterationInfo;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
@@ -28,7 +29,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final VCSReader vcsReader;
-    private final Map<String, List<ClassImpactTracker>> testMethodsCalled;
+    private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
     private final SpecificationUtil specificationUtil;
@@ -37,7 +38,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore){
         this.coverageClient = new JacocoClient();
         this.coverageClient.initialize();
-        this.testMethodsCalled = new ConcurrentHashMap<>();
+        this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
         this.specificationUtil = new SpecificationUtil();
@@ -67,27 +68,30 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     @Override
     public void afterSpec(SpecInfo spec) {
-        if (spec.isSkipped() || this.testSuitesProcessed.contains(specificationUtil.getSpecName(spec))) {
+        String specName = specificationUtil.getSpecName(spec);
+
+        if (spec.isSkipped() || this.testSuitesProcessed.contains(specName)) {
             return;
         }
 
-        log.debug("Collecting coverage and adding the mapping for the test suite: " + specificationUtil.getSpecName(spec));
-        List<ClassImpactTracker> methodsCalledForTest;
+        log.debug("Collecting coverage and adding the mapping for the test suite: " + specName);
+        TestSuiteTracker testSuiteTracker = new TestSuiteTracker(specName);
+        testSuiteTracker.setSourceFilename(specificationUtil.getSpecSourceFileName(spec));
         try {
-            methodsCalledForTest = this.coverageClient.collectCoverage();
+            testSuiteTracker.setClassesImpacted(this.coverageClient.collectCoverage());
         } catch (IOException e) {
             log.error("Error while collecting coverage", e);
             throw new RuntimeException(e);
         }
-        this.testMethodsCalled.put(specificationUtil.getSpecName(spec), methodsCalledForTest);
+        this.testSuiteTrackers.put(specName, testSuiteTracker);
 
-        testSuitesProcessed.add(specificationUtil.getSpecName(spec)); // this method is called twice for some reason - avoid processing it twice.
+        testSuitesProcessed.add(specName); // this method is called twice for some reason - avoid processing it twice.
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
-            log.info("Test suite finished for " + specificationUtil.getSpecName(spec) + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
-            this.testMethodsCalled.remove(specificationUtil.getSpecName(spec));
-            this.testSuitesFailed.remove(specificationUtil.getSpecName(spec));
+            log.info("Test suite finished for " + specName + ". Persisting the incremental test mapping.");
+            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
+            this.testSuiteTrackers.remove(specName);
+            this.testSuitesFailed.remove(specName);
         }
     }
 
@@ -115,7 +119,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
             log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testMethodsCalled, this.testSuitesFailed, vcsReader.getHeadCommit());
+            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
         }
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file

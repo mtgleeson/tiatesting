@@ -41,7 +41,7 @@ public class TextFileReportGenerator implements ReportGenerator{
             LocalDateTime localDate = LocalDateTime.now();
             writer.write("Test Mapping Report generated at " + dtf.format(localDate) + System.lineSeparator());
             writer.write("Test mapping valid for commit number: " + storedMapping.getCommitValue() + System.lineSeparator());
-            writer.write("Number of tests classes with mappings: " + storedMapping.getClassesImpacted().keySet().size()
+            writer.write("Number of tests classes with mappings: " + storedMapping.getTestSuitesTracked().keySet().size()
                     + System.lineSeparator() + System.lineSeparator());
 
             writer.write("Failed tests:");
@@ -55,10 +55,10 @@ public class TextFileReportGenerator implements ReportGenerator{
 
             writer.write(System.lineSeparator() + System.lineSeparator() + "Test class mapping:");
 
-            storedMapping.getClassesImpacted().forEach((testClass, classesImpacted) -> {
+            storedMapping.getTestSuitesTracked().forEach((testClass, testSuiteTracker) -> {
                 try {
                     String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass;
-                    for (ClassImpactTracker classImpacted : classesImpacted){
+                    for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()){
                         for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()){
                             fileTestEntry += System.lineSeparator() + "\t" + methodImpactTracker.getMethodName() +
                                     " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
