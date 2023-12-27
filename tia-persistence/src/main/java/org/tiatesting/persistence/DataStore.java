@@ -1,6 +1,7 @@
 package org.tiatesting.persistence;
 
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.util.List;
 import java.util.Map;
@@ -18,12 +19,12 @@ public interface DataStore {
     /**
      * Persist the mapping of the methods called by each test class.
      *
-     * @param testMethodsCalled
+     * @param testSuiteTrackers
      * @param testSuitesFailed
      * @param commitValue
      * @return
      */
-    boolean persistTestMapping(Map<String, List<ClassImpactTracker>> testMethodsCalled,
+    boolean persistTestMapping(Map<String, TestSuiteTracker> testSuiteTrackers,
                                Set<String> testSuitesFailed, String commitValue);
 
     /**

@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.FileImpactAnalyzer;
@@ -11,6 +13,9 @@ import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.util.*;
+
+import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXTENSION;
+import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXTENSION;
 
 public class TestSelector {
 
@@ -46,11 +51,43 @@ public class TestSelector {
         List<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue());
         Set<String> impactedMethods = findMethodsImpacted(impactedSourceFiles, storedMapping, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(storedMapping, impactedMethods);
+
+        // Re-run tests that failed since the last successful full test run.
         addPreviouslyFailedTests(storedMapping, testsToRun);
+
+        // If any test suite files were modified, always re-run these. So add them to the run list.
+        addModifiedTestFilesToRunList(impactedSourceFiles, storedMapping, testsToRun);
+
+        // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
 
         log.debug("Ignoring tests: {}", testsToIgnore);
         return testsToIgnore;
+    }
+
+    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> impactedSourceFiles, StoredMapping storedMapping,
+                                               Set<String> testsToRun){
+        Set<String> testSuitesAdded = new HashSet<>();
+        for (SourceFileDiffContext sourceFileDiffContext : impactedSourceFiles){
+            if (sourceFileDiffContext.getChangeType() == ChangeType.MODIFY){
+                testSuitesAdded.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked()));
+            }
+        }
+
+        log.debug("Selected tests to run from VCS test file changes: {}", testSuitesAdded);
+        testsToRun.addAll(testSuitesAdded);
+    }
+
+    private String getTestNameFromFilePath(String testFilePath, Map<String, TestSuiteTracker> testSuitesTrackers){
+        testFilePath = testFilePath.replaceAll(JAVA_FILE_EXTENSION, "");
+        testFilePath = testFilePath.replaceAll(GROOVY_FILE_EXTENSION, "");
+
+        for (TestSuiteTracker testSuiteTracker : testSuitesTrackers.values()){
+            if (testFilePath.endsWith(testSuiteTracker.getSourceFilename())){
+                return testSuiteTracker.getName();
+            }
+        }
+        return null;
     }
 
     /**
@@ -82,7 +119,7 @@ public class TestSelector {
             testsToRun.addAll(methodTestSuites.get(methodImpacted));
         });
 
-        log.debug("Selected tests to run: {}", testsToRun);
+        log.debug("Selected tests to run from VCS source changes: {}", testsToRun);
         return testsToRun;
     }
 
@@ -109,7 +146,7 @@ public class TestSelector {
     private Set<String> getTestsToIgnore(StoredMapping storedMapping, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
 
-        storedMapping.getClassesImpacted().keySet().forEach( (testSuite) -> {
+        storedMapping.getTestSuitesTracked().keySet().forEach( (testSuite) -> {
             if (!testsToRun.contains(testSuite)){
                 testsToIgnore.add(testSuite);
             }
@@ -123,14 +160,14 @@ public class TestSelector {
      * Use this for convenience lookup when finding the list of test suites to ignore for previously tracked methods
      * that have been changed in the diff.
      *
-     * @param storedMapping
+     * @param storedMapping keyed by method name, value is a list of test suites
      * @return
      */
     private Map<String, Set<String>> buildMethodToTestSuiteMap(StoredMapping storedMapping){
         Map<String, Set<String>> methodTestSuites = new HashMap<>();
 
-        storedMapping.getClassesImpacted().forEach((testSuiteName, classImpactTrackers) -> {
-            for (ClassImpactTracker classImpacted : classImpactTrackers) {
+        storedMapping.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
+            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
                 for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()) {
                     if (methodTestSuites.get(methodImpactTracker.getMethodName()) == null) {
                         methodTestSuites.put(methodImpactTracker.getMethodName(), new HashSet<>());

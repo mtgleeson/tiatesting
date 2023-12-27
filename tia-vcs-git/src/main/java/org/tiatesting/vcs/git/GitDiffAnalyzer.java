@@ -14,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -22,14 +21,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXTENSION;
+import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXTENSION;
+
 /**
  * Build the list of source files that have been changed since the previously analyzed commit.
  */
 public class GitDiffAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(GitDiffAnalyzer.class);
-    private static final String JAVA_FILE_EXTENSION = ".java";
-    private static final String GROOVY_FILE_EXTENSION = ".groovy";
 
     /**
      * Build the list of files that have changes either since the previously stored commit, or from local uncommited changes.
@@ -37,7 +37,7 @@ public class GitDiffAnalyzer {
      *
      * @param gitContext
      * @param commitFrom
-     * @return
+     * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
     protected List<SourceFileDiffContext> buildDiffFilesContext(GitContext gitContext, String commitFrom) {
         ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
@@ -55,12 +55,12 @@ public class GitDiffAnalyzer {
 
     /**
      * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
-     * For each impacted source code file load the file content from the starting revision and the head revision.
+     * For each impacted source code file, load the file content from the starting revision and the head revision.
      *
      * @param gitContext
      * @param commitFromObjectId
      * @param commitToObjectId
-     * @return
+     * @return map keyed by the old file path and the value being the SourceFileDiffContext
      */
     private Map<String, SourceFileDiffContext> buildSourceFileChangesFromPreviouslyStoredCommit(GitContext gitContext, ObjectId commitFromObjectId,
                                                                                                 ObjectId commitToObjectId){
@@ -81,7 +81,7 @@ public class GitDiffAnalyzer {
      * @param repository
      * @param commitFrom
      * @param commitTo
-     * @return
+     * @return map keyed by the old file path and the value being the SourceFileDiffContext
      */
     private Map<String, SourceFileDiffContext> getSourceFilesImpacted(Repository repository, ObjectId commitFrom, ObjectId commitTo) {
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
