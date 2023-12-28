@@ -19,6 +19,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final boolean tiaEnabled;
     private final boolean tiaUpdateDB;
     private final List<String> sourceFilesDirs;
+    private final List<String> testFilesDirs;
     private final TiaSpockRunListener tiaTestingSpockRunListener;
     private final DataStore dataStore;
     private final SpecificationUtil specificationUtil;
@@ -36,6 +37,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             String dbFilePath = System.getProperty("tiaDBFilePath");
             dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName(), dbPersistenceStrategy);
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
+            testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
 
             if (tiaUpdateDB){
                 // the listener is used for collecting coverage and updating the stored test mapping
@@ -48,6 +50,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             log.info("TIA is disabled for this test run.");
             dataStore = null;
             sourceFilesDirs = null;
+            testFilesDirs = null;
             this.tiaTestingSpockRunListener = null;
         }
     }
@@ -55,7 +58,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void start() {
         if (tiaEnabled) {
-            ignoredTests = new TiaSpockTestRunInitializer(vcsReader, dataStore).getTestsToIgnore(sourceFilesDirs);
+            ignoredTests = new TiaSpockTestRunInitializer(vcsReader, dataStore, tiaUpdateDB).getTestsToIgnore(sourceFilesDirs, testFilesDirs);
         }
     }
 

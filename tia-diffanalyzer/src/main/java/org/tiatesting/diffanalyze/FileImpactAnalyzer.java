@@ -6,6 +6,7 @@ import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.util.*;
@@ -16,11 +17,66 @@ import java.util.*;
 public class FileImpactAnalyzer {
 
     private static final Logger log = LoggerFactory.getLogger(FileImpactAnalyzer.class);
+    public static final String SOURCE_FILE_ADDED = "sourceFileAdded";
+    public static final String SOURCE_FILE_MODIFIED = "sourceFileModified";
+    public static final String SOURCE_FILE_DELETED = "sourceFileDeleted";
+    public static final String TEST_FILE_ADDED = "testFileAdded";
+    public static final String TEST_FILE_MODIFIED = "testFileModified";
+    public static final String TEST_FILE_DELETED = "testFileDeleted";
 
     final MethodImpactAnalyzer methodImpactAnalyzer;
 
     public FileImpactAnalyzer(MethodImpactAnalyzer methodImpactAnalyzer){
         this.methodImpactAnalyzer = methodImpactAnalyzer;
+    }
+
+    /**
+     * Loop over impactedSourceFiles once and create a map containing a list of modified source code diffs, modified test
+     * file diffs, deleted test file diffs.
+     *
+     * @param sourceFileDiffContexts
+     * @param testFilesDirs
+     * @return
+     */
+    public Map<String, List<SourceFileDiffContext>> groupImpactedTestFiles(List<SourceFileDiffContext> sourceFileDiffContexts,
+                                                                           final List<String> testFilesDirs){
+        Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = new HashMap<>();
+        groupedImpactedFiles.put(SOURCE_FILE_ADDED, new ArrayList<>());
+        groupedImpactedFiles.put(SOURCE_FILE_MODIFIED, new ArrayList<>());
+        groupedImpactedFiles.put(SOURCE_FILE_DELETED, new ArrayList<>());
+        groupedImpactedFiles.put(TEST_FILE_ADDED, new ArrayList<>());
+        groupedImpactedFiles.put(TEST_FILE_MODIFIED, new ArrayList<>());
+        groupedImpactedFiles.put(TEST_FILE_DELETED, new ArrayList<>());
+
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts) {
+            boolean isTestFile = isTestFile(sourceFileDiffContext, testFilesDirs);
+
+            switch (sourceFileDiffContext.getChangeType()) {
+                case ADD:
+                    groupedImpactedFiles.get((isTestFile ? TEST_FILE_ADDED : SOURCE_FILE_ADDED)).add(sourceFileDiffContext);
+                    break;
+                case MODIFY:
+                    groupedImpactedFiles.get((isTestFile ? TEST_FILE_MODIFIED : SOURCE_FILE_MODIFIED)).add(sourceFileDiffContext);
+                    break;
+                case DELETE:
+                    groupedImpactedFiles.get((isTestFile ? TEST_FILE_DELETED : SOURCE_FILE_DELETED)).add(sourceFileDiffContext);
+                    break;
+            }
+        }
+
+        return groupedImpactedFiles;
+    }
+
+    private boolean isTestFile(SourceFileDiffContext sourceFileDiffContext, final List<String> testFilesDirs){
+        for (String testFilesDir: testFilesDirs){
+            // remove the starting "/" if specified as VCS diff filename doesn't start with a /
+            testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir;
+
+            if (sourceFileDiffContext.getOldFilePath().contains(testFilesDir)){
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -36,14 +92,10 @@ public class FileImpactAnalyzer {
         Map<String, Set<MethodImpactTracker>> sourceFilesTracked = buildTrackedSourceFileMethods(storedMapping);
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
-            switch(sourceFileDiffContext.getChangeType()){
-                case MODIFY:
-                    methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
-                            sourceFileDiffContext.getSourceContentNew(), sourceFileDiffContext.getOldFilePath(),
-                            sourceFileDiffContext.getNewFilePath(), methodsInvokedByChanges, sourceFilesTracked,
-                            sourceFilesDirs);
-                    break;
-            }
+            methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
+                    sourceFileDiffContext.getSourceContentNew(), sourceFileDiffContext.getOldFilePath(),
+                    sourceFileDiffContext.getNewFilePath(), methodsInvokedByChanges, sourceFilesTracked,
+                    sourceFilesDirs);
         }
 
         log.debug("Methods impacted: " + methodsInvokedByChanges);

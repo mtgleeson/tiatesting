@@ -57,6 +57,12 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     String tiaSourceFilesDirs;
 
     /**
+     * The test files directories for the project being analyzed.
+     */
+    @Parameter(property = "tiaTestFilesDirs")
+    String tiaTestFilesDirs;
+
+    /**
      * Is TIA enabled?
      */
     @Parameter(property = "tiaEnabled")
@@ -66,8 +72,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      * Should the TIA DB be updated with this test run?
      */
     @Parameter(property = "tiaUpdateDB")
-
-    String tiaUpdateDB;
+    boolean tiaUpdateDB;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -120,6 +125,12 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         if (getTiaSourceFilesDirs() != null && !getTiaSourceFilesDirs().isEmpty()){
             agentOptions.setSourceFilesDirs(getTiaSourceFilesDirs());
         }
+
+        if (getTiaTestFilesDirs() != null && !getTiaTestFilesDirs().isEmpty()){
+            agentOptions.setTestFilesDirs(getTiaTestFilesDirs());
+        }
+
+        agentOptions.setUpdateDB(String.valueOf(isTiaUpdateDB()));
 
         return agentOptions;
     }
@@ -233,11 +244,15 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         return tiaSourceFilesDirs;
     }
 
+    public String getTiaTestFilesDirs() {
+        return tiaTestFilesDirs;
+    }
+
     public boolean isTiaEnabled() {
         return tiaEnabled;
     }
 
     public boolean isTiaUpdateDB() {
-        return Boolean.parseBoolean(tiaUpdateDB);
+        return tiaUpdateDB;
     }
 }
