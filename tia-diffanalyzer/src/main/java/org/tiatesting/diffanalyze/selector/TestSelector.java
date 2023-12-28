@@ -16,10 +16,13 @@ import java.util.*;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXTENSION;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXTENSION;
+import static org.tiatesting.diffanalyze.FileImpactAnalyzer.*;
 
 public class TestSelector {
 
     private static final Logger log = LoggerFactory.getLogger(TestSelector.class);
+
+    FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
 
     /**
      * Find the list of tests that should not be run.
@@ -37,9 +40,13 @@ public class TestSelector {
      * @param storedMapping
      * @param vcsReader
      * @param sourceFilesDirs
+     * @param testFilesDirs
+     * @param tiaUpdateDB
      * @return list of test suites to ignore in the current test run.
      */
-    public Set<String> selectTestsToIgnore(StoredMapping storedMapping, VCSReader vcsReader, List<String> sourceFilesDirs){
+    public Set<String> selectTestsToIgnore(final StoredMapping storedMapping, final VCSReader vcsReader,
+                                           final List<String> sourceFilesDirs, final List<String> testFilesDirs,
+                                           final boolean tiaUpdateDB){
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
@@ -49,14 +56,20 @@ public class TestSelector {
         }
 
         List<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue());
-        Set<String> impactedMethods = findMethodsImpacted(impactedSourceFiles, storedMapping, sourceFilesDirs);
+        Map<String, List<SourceFileDiffContext>> groupedImpactedSourceFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
+
+        // Find all test suites that execute the source code methods that have changed
+        Set<String> impactedMethods = findMethodsImpacted(groupedImpactedSourceFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(storedMapping, impactedMethods);
 
         // Re-run tests that failed since the last successful full test run.
         addPreviouslyFailedTests(storedMapping, testsToRun);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(impactedSourceFiles, storedMapping, testsToRun);
+        addModifiedTestFilesToRunList(groupedImpactedSourceFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
+
+        // Mark any removed test files to be removed in the next DB mapping update and remove them from the tests to run.
+        processDeletedTestFiles(groupedImpactedSourceFiles.get(TEST_FILE_DELETED), storedMapping, testsToRun);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
@@ -65,43 +78,77 @@ public class TestSelector {
         return testsToIgnore;
     }
 
-    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> impactedSourceFiles, StoredMapping storedMapping,
-                                               Set<String> testsToRun){
-        Set<String> testSuitesAdded = new HashSet<>();
-        for (SourceFileDiffContext sourceFileDiffContext : impactedSourceFiles){
-            if (sourceFileDiffContext.getChangeType() == ChangeType.MODIFY){
-                testSuitesAdded.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked()));
-            }
+    /**
+     * Mark any removed test files to be removed in the next DB mapping update and remove them from the tests to run.
+     *
+     * @param sourceFileDiffContexts
+     * @param storedMapping
+     * @param testFilesDirs
+     */
+    private void processDeletedTestFiles(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
+                                         List<String> testFilesDirs){
+        Set<String> testSuitesDeleted = new HashSet<>();
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
+            testSuitesDeleted.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs));
         }
 
-        log.debug("Selected tests to run from VCS test file changes: {}", testSuitesAdded);
-        testsToRun.addAll(testSuitesAdded);
+        log.debug("Marking deleted tests to be removed from the stored mapping in the next update: {}", testSuitesDeleted);
+        // TODO if updateDB = true, add testSuitesDeleted to the tia DB in a new list: removedTestSuites
+        // when persisting the mapping, check if removedTestSuites is not empty and if so, remove the tests from the tracker before persisting.
+        // rename StoredMapping to TiaStoredDB
     }
 
-    private String getTestNameFromFilePath(String testFilePath, Map<String, TestSuiteTracker> testSuitesTrackers){
-        testFilePath = testFilePath.replaceAll(JAVA_FILE_EXTENSION, "");
-        testFilePath = testFilePath.replaceAll(GROOVY_FILE_EXTENSION, "");
+    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
+                                               Set<String> testsToRun, List<String> testFilesDirs){
+        Set<String> testSuitesModified = new HashSet<>();
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
+            testSuitesModified.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs));
+        }
 
-        for (TestSuiteTracker testSuiteTracker : testSuitesTrackers.values()){
-            if (testFilePath.endsWith(testSuiteTracker.getSourceFilename())){
-                return testSuiteTracker.getName();
+        log.debug("Selected tests to run from VCS test file changes: {}", testSuitesModified);
+        testsToRun.addAll(testSuitesModified);
+    }
+
+    /**
+     * Convert a test filename from a diff context to a full class name if it exists in the known tracked test suites.
+     * For example:
+     * Diff filename: src/test/groovy/com/example/DoorServiceSpec.groovy
+     * Converts to: com.example.DoorServiceSpec
+     *
+     * @param testFilePath
+     * @param testSuitesTrackers
+     * @param testFilesDirs
+     * @return
+     */
+    private String getTestNameFromFilePath(String testFilePath, Map<String, TestSuiteTracker> testSuitesTrackers, List<String> testFilesDirs){
+        testFilePath = testFilePath.replaceAll("\\." + JAVA_FILE_EXTENSION, "");
+        testFilePath = testFilePath.replaceAll("\\." + GROOVY_FILE_EXTENSION, "");
+
+        for(String testFilesDir : testFilesDirs){
+            testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir; // trim leading /
+            if (testFilePath.indexOf(testFilesDir) > -1){
+                testFilePath = testFilePath.substring(testFilePath.indexOf(testFilesDir) + testFilesDir.length());
+                break;
             }
         }
-        return null;
+
+        testFilePath = testFilePath.startsWith("/") ? testFilePath.substring(1, testFilePath.length()) : testFilePath; // trim leading /
+        testFilePath = testFilePath.replaceAll("\\/", ".");
+
+        return testSuitesTrackers.containsKey(testFilePath)? testFilePath : null;
     }
 
     /**
      * For the source files that have changed, do a diff to find the methods that have changed.
      *
-     * @param impactedSourceFiles
+     * @param sourceFileDiffContexts
      * @param storedMapping
      * @param sourceFilesDirs
      * @return
      */
-    private Set<String> findMethodsImpacted(List<SourceFileDiffContext> impactedSourceFiles,
+    private Set<String> findMethodsImpacted(List<SourceFileDiffContext> sourceFileDiffContexts,
                                             StoredMapping storedMapping, List<String> sourceFilesDirs){
-        FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
-        return fileImpactAnalyzer.getMethodsForFilesChanged(impactedSourceFiles, storedMapping, sourceFilesDirs);
+        return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, storedMapping, sourceFilesDirs);
     }
 
     /**

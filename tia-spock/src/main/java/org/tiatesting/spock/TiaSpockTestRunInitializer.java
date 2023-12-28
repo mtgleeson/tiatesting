@@ -14,14 +14,16 @@ public class TiaSpockTestRunInitializer {
 
     private final VCSReader vcsReader;
     private final DataStore dataStore;
+    private final boolean tiaUpdateDB;
 
-    public TiaSpockTestRunInitializer(final VCSReader vcsReader, final DataStore dataStore){
+    public TiaSpockTestRunInitializer(final VCSReader vcsReader, final DataStore dataStore, final boolean tiaUpdateDB){
         this.vcsReader = vcsReader;
         this.dataStore = dataStore;
+        this.tiaUpdateDB = tiaUpdateDB;
     }
 
-    Set<String> getTestsToIgnore(final List<String> sourceFilesDirs){
+    Set<String> getTestsToIgnore(final List<String> sourceFilesDirs, final List<String> testFilesDirs){
         TestSelector testSelector = new TestSelector();
-        return testSelector.selectTestsToIgnore(dataStore.getStoredMapping(), vcsReader, sourceFilesDirs);
+        return testSelector.selectTestsToIgnore(dataStore.getStoredMapping(), vcsReader, sourceFilesDirs, testFilesDirs, tiaUpdateDB);
     }
 }
