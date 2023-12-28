@@ -93,8 +93,8 @@ public class GitDiffAnalyzer {
 
             for (DiffEntry diffEntry : diffFormatter.scan(commitFrom, commitTo)) {
                 String diffOldPath = diffEntry.getOldPath();
-                if (diffOldPath.toLowerCase().endsWith(JAVA_FILE_EXTENSION) ||
-                        diffOldPath.toLowerCase().endsWith(GROOVY_FILE_EXTENSION)){
+                if (diffOldPath.toLowerCase().endsWith("." + JAVA_FILE_EXTENSION) ||
+                        diffOldPath.toLowerCase().endsWith("." + GROOVY_FILE_EXTENSION)){
                     SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffEntry.getNewPath(),
                             convertGitChangeType(diffEntry.getChangeType()));
                     sourceFileDiffContexts.put(diffOldPath, diffContext);

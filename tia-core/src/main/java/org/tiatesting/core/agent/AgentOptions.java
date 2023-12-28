@@ -40,7 +40,28 @@ public class AgentOptions {
      */
     private static final String DEFAULT_SOURCE_FILES_DIRS = ".";
 
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS);
+    /**
+     * Specifies the test files path for the project being analyzed.
+     */
+    public static final String TEST_FILES_DIRS = "testFilesDir";
+
+    /**
+     * Specifies the default test files path for the project being analyzed.
+     */
+    private static final String DEFAULT_TEST_FILES_DIRS = ".";
+
+    /**
+     * Specifies whether the Tia database is being updated in the test run.
+     */
+    public static final String UPDATE_DB = "updateDB";
+
+    /**
+     * Specifies the default option for whether the Tia database is being updated in the test run.
+     */
+    private static final String DEFAULT_UPDATE_DB = "false";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS,
+            TEST_FILES_DIRS, UPDATE_DB);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -134,5 +155,21 @@ public class AgentOptions {
 
     public void setSourceFilesDirs(String sourceFilesDirs) {
         setOption(SOURCE_FILES_DIRS, sourceFilesDirs);
+    }
+
+    public String getTestFilesDirs() {
+        return getOption(TEST_FILES_DIRS, DEFAULT_TEST_FILES_DIRS);
+    }
+
+    public void setTestFilesDirs(String testFilesDirs) {
+        setOption(TEST_FILES_DIRS, testFilesDirs);
+    }
+
+    public String getUpdateDB() {
+        return getOption(UPDATE_DB, DEFAULT_UPDATE_DB);
+    }
+
+    public void setUpdateDB(String updateDB) {
+        setOption(UPDATE_DB, updateDB);
     }
 }

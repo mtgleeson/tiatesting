@@ -6,6 +6,7 @@ public class TiaSpockGitTaskExtension {
     private String projectDir;
     private String classFilesDirs;
     private String sourceFilesDirs;
+    private String testFilesDirs;
     private String dbFilePath;
     private String dbPersistenceStrategy;
     private boolean enabled;
@@ -36,6 +37,15 @@ public class TiaSpockGitTaskExtension {
 
     public void setSourceFilesDirs(String sourceFilesDirs) {
         this.sourceFilesDirs = sourceFilesDirs;
+    }
+
+    @Input
+    public String getTestFilesDirs() {
+        return testFilesDirs;
+    }
+
+    public void setTestFilesDirs(String testFilesDirs) {
+        this.testFilesDirs = testFilesDirs;
     }
 
     @Input
