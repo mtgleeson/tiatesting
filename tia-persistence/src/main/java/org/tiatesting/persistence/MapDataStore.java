@@ -37,7 +37,7 @@ public class MapDataStore implements DataStore {
 
     @Override
     public boolean persistTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
-                                      final Set<String> runnerTestSuites, final Map<Integer, MethodImpactTracker> methodTrackers,
+                                      final Set<String> runnerTestSuites, final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
                                       final String commitValue) {
         long startTime = System.currentTimeMillis();
 
@@ -46,14 +46,15 @@ public class MapDataStore implements DataStore {
         log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
-        // update the tracked methods
-        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = storedMapping.getMethodsTracked();
-        updateMethodTracker(methodTrackersOnDisk, methodTrackers, testSuiteTrackers);
-
         // update the test mapping
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
         Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
         storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
+
+        // update the tracked methods
+        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = storedMapping.getMethodsTracked();
+        Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun, mergedTestSuiteTrackers);
+        storedMapping.setMethodsTracked(updatedMethodTrackers);
 
         // remove any test suites that have been deleted
         removeDeletedTestSuites(storedMapping, runnerTestSuites);
@@ -127,33 +128,47 @@ public class MapDataStore implements DataStore {
     /**
      * Update the method tracker which is stored on disk.
      *
-     * @param methodTrackerOnDisk
-     * @param newMethodTrackers
-     * @param testSuiteTrackers
+     * @param methodTrackerOnDisk current method tracker persisted on disk
+     * @param methodTrackerFromTestRun methods called from the current test run
+     * @param testSuiteTrackers updated test suite tracker to be persisted
      */
-    private void updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
-                                     final Map<Integer, MethodImpactTracker> newMethodTrackers,
-                                     final Map<String, TestSuiteTracker> testSuiteTrackers){
+    private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
+                                                                  final Map<Integer, MethodImpactTracker> methodTrackerFromTestRun,
+                                                                  final Map<String, TestSuiteTracker> testSuiteTrackers){
 
-        Set<Integer> allMethodsImpactedFromTestRun = new HashSet<>();
+        // Set containing the combined method ids using the updated test mapping after the test run
+        Set<Integer> methodsImpactedAfterTestRun = new HashSet<>();
 
+        // collect a set of all methods called from the updated test mapping
         for (TestSuiteTracker testSuiteTracker : testSuiteTrackers.values()){
             for (ClassImpactTracker classImpactTracker : testSuiteTracker.getClassesImpacted()){
-                allMethodsImpactedFromTestRun.addAll(classImpactTracker.getMethodsImpacted());
+                methodsImpactedAfterTestRun.addAll(classImpactTracker.getMethodsImpacted());
             }
         }
 
-        for (Integer methodImpactedId : allMethodsImpactedFromTestRun){
-            methodTrackerOnDisk.put(methodImpactedId, newMethodTrackers.get(methodImpactedId));
+        // add all methods called from the test mapping to the method tracker index. The method tracker will now
+        // have the correct list of methods. But the methods will have the details associated before the test run
+        // which will potentially have incorrect line numbers. This happens when a method(s) exist in a source file that
+        // had its line numbers changes due to a source file change, but the methods weren't executed in the test run.
+        Map<Integer, MethodImpactTracker> newMethodTracker = new HashMap<>();
+
+        for (Integer methodImpactedId : methodsImpactedAfterTestRun){
+            if (methodTrackerFromTestRun.containsKey(methodImpactedId)){
+                newMethodTracker.put(methodImpactedId, methodTrackerFromTestRun.get(methodImpactedId));
+            } else {
+                newMethodTracker.put(methodImpactedId, methodTrackerOnDisk.get(methodImpactedId));
+            }
         }
 
         // update the method details for all methods stored in the DB with the latest method line numbers in case they
         // have changed due to source code changes (even if the method wasn't executed from the test run).
-        for(Integer methodId : methodTrackerOnDisk.keySet()){
-            if (newMethodTrackers.containsKey(methodId)){
-                methodTrackerOnDisk.put(methodId, newMethodTrackers.get(methodId));
-            }
-        }
+        //for (Integer methodId : methodTrackerFromTestRun.keySet()){
+        //    if (newMethodTracker.containsKey(methodId)){
+        //        newMethodTracker.put(methodId, methodTrackerFromTestRun.get(methodId));
+        //    }
+       // }
+
+        return newMethodTracker;
     }
 
     /**
