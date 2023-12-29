@@ -29,8 +29,8 @@ public class Agent {
         List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
         List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;
         boolean updateDB = Boolean.valueOf(agentOptions.getUpdateDB());
-        TestSelector testSelector = new TestSelector();
-        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(dataStore.getStoredMapping(), gitReader, sourceFilesDirs, testFilesDirs, updateDB);
+        TestSelector testSelector = new TestSelector(dataStore);
+        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, updateDB);
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
     }
 

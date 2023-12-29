@@ -5,24 +5,30 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
-import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
+import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.util.*;
 
-import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXTENSION;
-import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXTENSION;
+import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
+import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
 import static org.tiatesting.diffanalyze.FileImpactAnalyzer.*;
 
 public class TestSelector {
 
     private static final Logger log = LoggerFactory.getLogger(TestSelector.class);
 
+    private final DataStore dataStore;
+
     FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
+
+    public TestSelector (final DataStore dataStore){
+        this.dataStore = dataStore;
+    }
 
     /**
      * Find the list of tests that should not be run.
@@ -37,16 +43,15 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
-     * @param storedMapping
      * @param vcsReader
      * @param sourceFilesDirs
      * @param testFilesDirs
      * @param tiaUpdateDB
      * @return list of test suites to ignore in the current test run.
      */
-    public Set<String> selectTestsToIgnore(final StoredMapping storedMapping, final VCSReader vcsReader,
-                                           final List<String> sourceFilesDirs, final List<String> testFilesDirs,
-                                           final boolean tiaUpdateDB){
+    public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirs,
+                                           final List<String> testFilesDirs, final boolean tiaUpdateDB){
+        StoredMapping storedMapping = dataStore.getStoredMapping();
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
@@ -59,7 +64,7 @@ public class TestSelector {
         Map<String, List<SourceFileDiffContext>> groupedImpactedSourceFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed
-        Set<String> impactedMethods = findMethodsImpacted(groupedImpactedSourceFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
+        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedSourceFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(storedMapping, impactedMethods);
 
         // Re-run tests that failed since the last successful full test run.
@@ -68,34 +73,11 @@ public class TestSelector {
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedSourceFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
 
-        // Mark any removed test files to be removed in the next DB mapping update and remove them from the tests to run.
-        processDeletedTestFiles(groupedImpactedSourceFiles.get(TEST_FILE_DELETED), storedMapping, testsToRun);
-
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
 
         log.debug("Ignoring tests: {}", testsToIgnore);
         return testsToIgnore;
-    }
-
-    /**
-     * Mark any removed test files to be removed in the next DB mapping update and remove them from the tests to run.
-     *
-     * @param sourceFileDiffContexts
-     * @param storedMapping
-     * @param testFilesDirs
-     */
-    private void processDeletedTestFiles(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
-                                         List<String> testFilesDirs){
-        Set<String> testSuitesDeleted = new HashSet<>();
-        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
-            testSuitesDeleted.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs));
-        }
-
-        log.debug("Marking deleted tests to be removed from the stored mapping in the next update: {}", testSuitesDeleted);
-        // TODO if updateDB = true, add testSuitesDeleted to the tia DB in a new list: removedTestSuites
-        // when persisting the mapping, check if removedTestSuites is not empty and if so, remove the tests from the tracker before persisting.
-        // rename StoredMapping to TiaStoredDB
     }
 
     private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
@@ -121,8 +103,8 @@ public class TestSelector {
      * @return
      */
     private String getTestNameFromFilePath(String testFilePath, Map<String, TestSuiteTracker> testSuitesTrackers, List<String> testFilesDirs){
-        testFilePath = testFilePath.replaceAll("\\." + JAVA_FILE_EXTENSION, "");
-        testFilePath = testFilePath.replaceAll("\\." + GROOVY_FILE_EXTENSION, "");
+        testFilePath = testFilePath.replaceAll("\\." + JAVA_FILE_EXT, "");
+        testFilePath = testFilePath.replaceAll("\\." + GROOVY_FILE_EXT, "");
 
         for(String testFilesDir : testFilesDirs){
             testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir; // trim leading /
@@ -144,10 +126,10 @@ public class TestSelector {
      * @param sourceFileDiffContexts
      * @param storedMapping
      * @param sourceFilesDirs
-     * @return
+     * @return set of method (hashcodes) that are impacted by the diff changes
      */
-    private Set<String> findMethodsImpacted(List<SourceFileDiffContext> sourceFileDiffContexts,
-                                            StoredMapping storedMapping, List<String> sourceFilesDirs){
+    private Set<Integer> findMethodsImpacted(List<SourceFileDiffContext> sourceFileDiffContexts,
+                                             StoredMapping storedMapping, List<String> sourceFilesDirs){
         return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, storedMapping, sourceFilesDirs);
     }
 
@@ -158,8 +140,8 @@ public class TestSelector {
      * @param methodsImpacted
      * @return the tests that should be executed based on the methods changed in the source code.
      */
-    private Set<String> findTestSuitesForImpactedMethods(StoredMapping storedMapping, Set<String> methodsImpacted){
-        Map<String, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
+    private Set<String> findTestSuitesForImpactedMethods(StoredMapping storedMapping, Set<Integer> methodsImpacted){
+        Map<Integer, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
 
         Set<String> testsToRun = new HashSet<>();
         methodsImpacted.forEach( ( methodImpacted ) -> {
@@ -210,17 +192,17 @@ public class TestSelector {
      * @param storedMapping keyed by method name, value is a list of test suites
      * @return
      */
-    private Map<String, Set<String>> buildMethodToTestSuiteMap(StoredMapping storedMapping){
-        Map<String, Set<String>> methodTestSuites = new HashMap<>();
+    private Map<Integer, Set<String>> buildMethodToTestSuiteMap(StoredMapping storedMapping){
+        Map<Integer, Set<String>> methodTestSuites = new HashMap<>();
 
         storedMapping.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
-                for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()) {
-                    if (methodTestSuites.get(methodImpactTracker.getMethodName()) == null) {
-                        methodTestSuites.put(methodImpactTracker.getMethodName(), new HashSet<>());
+                for (Integer methodTrackedHashCode : classImpacted.getMethodsImpacted()) {
+                    if (methodTestSuites.get(methodTrackedHashCode) == null) {
+                        methodTestSuites.put(methodTrackedHashCode, new HashSet<>());
                     }
 
-                    methodTestSuites.get(methodImpactTracker.getMethodName()).add(testSuiteName);
+                    methodTestSuites.get(methodTrackedHashCode).add(testSuiteName);
                 }
             }
         });

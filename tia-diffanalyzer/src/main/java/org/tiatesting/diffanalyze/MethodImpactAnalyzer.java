@@ -37,12 +37,14 @@ public class MethodImpactAnalyzer {
      * @param methodsInvokedByChanges A set of methods that will be invoked by the changes in source code
      * @param sourceFilesTracked The tracked list of source files and their associated list of methods with previous execution coverage
      * @param sourceFilesDirs Locations of the source files for the project being tested
+     * @param methodImpactTrackers
      */
     public void getMethodsForImpactedFile(final String originalFileContent, final String newFilContent,
                                           final String originalFileName, final String revisedFileName,
-                                          final Set<String> methodsInvokedByChanges,
-                                          final Map<String, Set<MethodImpactTracker>> sourceFilesTracked,
-                                          final List<String> sourceFilesDirs){
+                                          final Set<Integer> methodsInvokedByChanges,
+                                          final Map<String, Set<Integer>> sourceFilesTracked,
+                                          final List<String> sourceFilesDirs,
+                                          final Map<Integer, MethodImpactTracker> methodImpactTrackers){
 
         List<String> originalFileLines = Arrays.asList(originalFileContent.split(LINEBREAK_PATTERN));
         List<String> newFileLines = Arrays.asList(newFilContent.split(LINEBREAK_PATTERN));
@@ -55,12 +57,11 @@ public class MethodImpactAnalyzer {
             List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(originalFileName, revisedFileName, originalFileLines, diff, 0);
 
             /*
-            Find the class from the tracked list.
-            For each diff, get the line number from the original file, then find the method from the tracked list within
-            the line number range (using start and end line numbers).
+                Find the class from the tracked list.
+                For each diff, get the line number from the original file, then find the method from the tracked list within
+                the line number range (using start and end line numbers).
              */
-            Set<MethodImpactTracker> methodsTrackedForSourceFile = getMethodsTrackedForSourceFile(sourceFilesTracked,
-                    originalFileName, sourceFilesDirs);
+            Set<Integer> methodsTrackedForSourceFile = getMethodsTrackedForSourceFile(sourceFilesTracked, originalFileName, sourceFilesDirs);
 
             if (methodsTrackedForSourceFile != null && !methodsTrackedForSourceFile.isEmpty()){
                 unifiedDiff.forEach( patchDiff -> {
@@ -69,7 +70,7 @@ public class MethodImpactAnalyzer {
                     setImpactedLineBeginEnd(patchDiff, diffContext);
 
                     if (diffContext.isUnifiedDiff()){
-                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, methodsInvokedByChanges);
+                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, methodsInvokedByChanges, methodImpactTrackers);
                     }
                 });
             }
@@ -79,7 +80,7 @@ public class MethodImpactAnalyzer {
         }
     }
 
-    private Set<MethodImpactTracker> getMethodsTrackedForSourceFile(final Map<String, Set<MethodImpactTracker>> sourceFilesTracked,
+    private Set<Integer> getMethodsTrackedForSourceFile(final Map<String, Set<Integer>> sourceFilesTracked,
                                                                     final String originalFilePath,
                                                                     final List<String> sourceFilesDirs){
         String fileName = "/" + originalFilePath;
@@ -97,16 +98,22 @@ public class MethodImpactAnalyzer {
      * Note: the stored line numbers generated from the code coverage analysis start from the line after the
      * method name, and end at the line before the closing brace.
      *
-     *
      * IM = impacted method (from VCS).
      * Check start point is within method:			    IM start > = method start && IM start <= method end
      * Check end point is within method:			    IM end  >= method start && IM end <= method end
      * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
+     *
+     * @param diffContext
+     * @param methodsTrackedForSourceFile
+     * @param methodsInvokedByChanges
+     * @param methodImpactTrackers
      */
     private void findTrackedMethodsForSourceDiff(final DiffContext diffContext,
-                                                 final Set<MethodImpactTracker> methodsTrackedForSourceFile,
-                                                 final Set<String> methodsInvokedByChanges){
-        for (MethodImpactTracker methodImpactTracker : methodsTrackedForSourceFile) {
+                                                 final Set<Integer> methodsTrackedForSourceFile,
+                                                 final Set<Integer> methodsInvokedByChanges,
+                                                 final Map<Integer, MethodImpactTracker> methodImpactTrackers){
+        for (Integer methodHashcode : methodsTrackedForSourceFile) {
+            MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodHashcode);
             int diffLineBegin = diffContext.getImpactedLineNumBegin();
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
             int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line
@@ -118,7 +125,7 @@ public class MethodImpactAnalyzer {
             boolean diffRangeCoversMethod = diffLineBegin <= methodLineBegin && diffLineEnd >= methodLineEnd;
 
             if (diffBeginIsWithinMethod || diffEndIsWithinMethod || diffRangeCoversMethod) {
-                methodsInvokedByChanges.add(methodImpactTracker.getMethodName());
+                methodsInvokedByChanges.add(methodHashcode);
                 log.debug("Found stored tracked method: {}, diff line begin: {}, diff line end: {}, stored line begin: {}, stored line end: {}",
                         methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
             }

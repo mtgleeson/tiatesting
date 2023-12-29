@@ -1,6 +1,7 @@
 package org.tiatesting.persistence;
 
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.util.List;
@@ -21,15 +22,13 @@ public interface DataStore {
      *
      * @param testSuiteTrackers
      * @param testSuitesFailed
+     * @param runnerTestSuites
+     * @param methodTrackers
      * @param commitValue
-     * @return
+     * @return was the test mapping data saved successfully
      */
-    boolean persistTestMapping(Map<String, TestSuiteTracker> testSuiteTrackers,
-                               Set<String> testSuitesFailed, String commitValue);
+    boolean persistTestMapping(Map<String, TestSuiteTracker> testSuiteTrackers, Set<String> testSuitesFailed,
+                               Set<String> runnerTestSuites, Map<Integer, MethodImpactTracker> methodTrackers,
+                               String commitValue);
 
-    /**
-     * Get the persistence strategy for the DB.
-     * @return
-     */
-    PersistenceStrategy getDBPersistenceStrategy();
 }

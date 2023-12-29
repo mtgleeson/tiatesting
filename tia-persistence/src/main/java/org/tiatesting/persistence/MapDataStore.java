@@ -3,6 +3,7 @@ package org.tiatesting.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.*;
@@ -22,17 +23,11 @@ public class MapDataStore implements DataStore {
     private final String mappingFilenameExt = "ser";
     private final String mappingFilename;
     private final String dataStorePath;
-    private final PersistenceStrategy persistenceStrategy;
 
     public MapDataStore(String dataStorePath, String mappingFilenameSuffix){
-        this(dataStorePath, mappingFilenameSuffix, PersistenceStrategy.getDefaultPersistenceStrategy().name());
-    }
-
-    public MapDataStore(String dataStorePath, String mappingFilenameSuffix, String dbPersistenceStrategy){
         this.dataStorePath = dataStorePath;
         this.mappingFilenameSuffix = mappingFilenameSuffix;
         this.mappingFilename = buildMappingFilename();
-        this.persistenceStrategy = getPersistenceStrategy(dbPersistenceStrategy);
     }
 
     @Override
@@ -41,13 +36,9 @@ public class MapDataStore implements DataStore {
     }
 
     @Override
-    public PersistenceStrategy getDBPersistenceStrategy(){
-        return this.persistenceStrategy;
-    }
-
-    @Override
-    public boolean persistTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers,
-                                      final Set<String> testSuitesFailed, final String commitValue) {
+    public boolean persistTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
+                                      final Set<String> runnerTestSuites, final Map<Integer, MethodImpactTracker> methodTrackers,
+                                      final String commitValue) {
         long startTime = System.currentTimeMillis();
 
         // always get the latest test mapping before updating in case another process has updated the file since it was last read.
@@ -55,9 +46,17 @@ public class MapDataStore implements DataStore {
         log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
+        // update the tracked methods
+        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = storedMapping.getMethodsTracked();
+        updateMethodTracker(methodTrackersOnDisk, methodTrackers, testSuiteTrackers);
+
+        // update the test mapping
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
         Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
         storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
+
+        // remove any test suites that have been deleted
+        removeDeletedTestSuites(storedMapping, runnerTestSuites);
 
         // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
         // scenarios where the test suite is split into multiple processes which can be updating the stored TIA DB.
@@ -75,24 +74,25 @@ public class MapDataStore implements DataStore {
     }
 
     /**
-     * Find the persistence strategy based on the given configuration value.
-     * If none is provided, or it doesn't match a valid value, use the default persistence strategy.
+     * Remove all deleted test suites from the test trackers that will be updated in the DB.
+     * A test suite is determined to be deleted if it was not in the list of test suites executed by the test runner,
+     * but it was previously tracked by Tia and stored in the DB.
      *
-     * @param dbPersistenceStrategy
-     * @return
+     * @param storedMapping
+     * @param runnerTestSuites
      */
-    private PersistenceStrategy getPersistenceStrategy(final String dbPersistenceStrategy){
-        PersistenceStrategy persistenceStrategy = PersistenceStrategy.getDefaultPersistenceStrategy();
-
-        if (dbPersistenceStrategy != null && dbPersistenceStrategy.length() > 0){
-            try {
-                persistenceStrategy = PersistenceStrategy.valueOf(dbPersistenceStrategy);
-            } catch (IllegalArgumentException ex) {
-                log.warn("Invalid persistence strategy provided: " + dbPersistenceStrategy + ". Defaulting to: " + persistenceStrategy);
+    private void removeDeletedTestSuites(final StoredMapping storedMapping, final Set<String> runnerTestSuites){
+        Set<String> deletedTestSuites = new HashSet<>();
+        for (String testSuiteTracked : storedMapping.getTestSuitesTracked().keySet()){
+            if (!runnerTestSuites.contains(testSuiteTracked)){
+                deletedTestSuites.add(testSuiteTracked);
             }
         }
 
-        return persistenceStrategy;
+        if (!deletedTestSuites.isEmpty()) {
+            log.info("Removing the following deleted test suites from the persisted mapping: {}", deletedTestSuites);
+            storedMapping.getTestSuitesTracked().keySet().removeAll(deletedTestSuites);
+        }
     }
 
     /**
@@ -122,6 +122,38 @@ public class MapDataStore implements DataStore {
 
     private String buildMappingFilename(){
         return mappingFilenamePrefix + "-" + mappingFilenameSuffix + "." + mappingFilenameExt;
+    }
+
+    /**
+     * Update the method tracker which is stored on disk.
+     *
+     * @param methodTrackerOnDisk
+     * @param newMethodTrackers
+     * @param testSuiteTrackers
+     */
+    private void updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
+                                     final Map<Integer, MethodImpactTracker> newMethodTrackers,
+                                     final Map<String, TestSuiteTracker> testSuiteTrackers){
+
+        Set<Integer> allMethodsImpactedFromTestRun = new HashSet<>();
+
+        for (TestSuiteTracker testSuiteTracker : testSuiteTrackers.values()){
+            for (ClassImpactTracker classImpactTracker : testSuiteTracker.getClassesImpacted()){
+                allMethodsImpactedFromTestRun.addAll(classImpactTracker.getMethodsImpacted());
+            }
+        }
+
+        for (Integer methodImpactedId : allMethodsImpactedFromTestRun){
+            methodTrackerOnDisk.put(methodImpactedId, newMethodTrackers.get(methodImpactedId));
+        }
+
+        // update the method details for all methods stored in the DB with the latest method line numbers in case they
+        // have changed due to source code changes (even if the method wasn't executed from the test run).
+        for(Integer methodId : methodTrackerOnDisk.keySet()){
+            if (newMethodTrackers.containsKey(methodId)){
+                methodTrackerOnDisk.put(methodId, newMethodTrackers.get(methodId));
+            }
+        }
     }
 
     /**
