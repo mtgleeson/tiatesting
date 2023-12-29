@@ -6,6 +6,10 @@ import java.util.Objects;
 public class MethodImpactTracker implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    /**
+     * This is the full package.class name + method name + medthod signature.
+     * For example: com/example/HandleService.getHandleModel.(Ljava/lang/Long;)Ljava/lang/String
+     */
     private final String methodName;
     private final int lineNumberStart;
     private final int lineNumberEnd;
@@ -33,11 +37,11 @@ public class MethodImpactTracker implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         MethodImpactTracker that = (MethodImpactTracker) o;
-        return lineNumberStart == that.lineNumberStart && lineNumberEnd == that.lineNumberEnd && methodName.equals(that.methodName);
+        return Objects.equals(methodName, that.methodName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(methodName, lineNumberStart, lineNumberEnd);
+        return Objects.hash(methodName);
     }
 }

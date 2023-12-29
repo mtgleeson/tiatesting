@@ -3,6 +3,7 @@ package org.tiatesting.core.coverage;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Object used to track data about the code source file that is executed by a test suite.
@@ -20,10 +21,11 @@ public class ClassImpactTracker implements Serializable {
 
     /**
      * Set of methods that were invoked for the class as part of running a test suite.
+     * This set contains the unique hashcode associated with the method.
      */
-    private List<MethodImpactTracker> methodsImpacted;
+    private Set<Integer> methodsImpacted;
 
-    public ClassImpactTracker(String sourceFilename, List<MethodImpactTracker> methodsImpacted) {
+    public ClassImpactTracker(String sourceFilename, Set<Integer> methodsImpacted) {
         this.sourceFilename = sourceFilename;
         this.methodsImpacted = methodsImpacted;
     }
@@ -32,7 +34,7 @@ public class ClassImpactTracker implements Serializable {
         return sourceFilename;
     }
 
-    public List<MethodImpactTracker> getMethodsImpacted() {
+    public Set<Integer> getMethodsImpacted() {
         return methodsImpacted;
     }
 

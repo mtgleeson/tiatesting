@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TiaSpockGlobalExtension implements IGlobalExtension {
 
@@ -24,6 +25,10 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final DataStore dataStore;
     private final SpecificationUtil specificationUtil;
     private Set<String> ignoredTests = new HashSet<>();
+    /*
+    Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
+     */
+    private Set<String> runnerTestSuites = ConcurrentHashMap.newKeySet();
     private final VCSReader vcsReader;
 
     public TiaSpockGlobalExtension(final VCSReader vcsReader){
@@ -33,9 +38,8 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         tiaUpdateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
 
         if (tiaEnabled){
-            String dbPersistenceStrategy = System.getProperty("tiaDBPersistenceStrategy");
             String dbFilePath = System.getProperty("tiaDBFilePath");
-            dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName(), dbPersistenceStrategy);
+            dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName());
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
 
@@ -66,6 +70,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     public void visitSpec(SpecInfo spec){
         if (tiaEnabled){
             if (tiaUpdateDB){
+                runnerTestSuites.add(specificationUtil.getSpecName(spec));
                 spec.addListener(tiaTestingSpockRunListener);
             }
 
@@ -78,7 +83,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void stop(){
         if (tiaEnabled && tiaUpdateDB) {
-            tiaTestingSpockRunListener.finishAllTests();
+            tiaTestingSpockRunListener.finishAllTests(runnerTestSuites);
         }
     }
 }

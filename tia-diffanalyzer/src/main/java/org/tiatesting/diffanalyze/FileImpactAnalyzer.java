@@ -5,11 +5,13 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Analyze
@@ -72,7 +74,7 @@ public class FileImpactAnalyzer {
             // remove the starting "/" if specified as VCS diff filename doesn't start with a /
             testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir;
 
-            if (sourceFileDiffContext.getOldFilePath().contains(testFilesDir)){
+            if (getDiffFilePath(sourceFileDiffContext).contains(testFilesDir)){
                 return true;
             }
         }
@@ -86,31 +88,34 @@ public class FileImpactAnalyzer {
      * @param storedMapping
      * @param sourceFilesDirs Locations of the source files for the project being tested
      */
-    public Set<String> getMethodsForFilesChanged(final List<SourceFileDiffContext> sourceFileDiffContexts,
-                                                 final StoredMapping storedMapping, final List<String> sourceFilesDirs){
-        Set<String> methodsInvokedByChanges = new HashSet<>();
-        Map<String, Set<MethodImpactTracker>> sourceFilesTracked = buildTrackedSourceFileMethods(storedMapping);
+    public Set<Integer> getMethodsForFilesChanged(final List<SourceFileDiffContext> sourceFileDiffContexts,
+                                                  final StoredMapping storedMapping, final List<String> sourceFilesDirs){
+        Set<Integer> methodsInvokedByChanges = new HashSet<>();
+        Map<String, Set<Integer>> sourceFilesTracked = buildTrackedSourceFileMethods(storedMapping);
+        Map<Integer, MethodImpactTracker> methodImpactTrackers = storedMapping.getMethodsTracked();
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
                     sourceFileDiffContext.getSourceContentNew(), sourceFileDiffContext.getOldFilePath(),
                     sourceFileDiffContext.getNewFilePath(), methodsInvokedByChanges, sourceFilesTracked,
-                    sourceFilesDirs);
+                    sourceFilesDirs, methodImpactTrackers);
         }
 
-        log.debug("Methods impacted: " + methodsInvokedByChanges);
+        log.debug("Methods impacted: " +
+                methodsInvokedByChanges.stream().map( hc -> methodImpactTrackers.get(hc).getMethodName() ).collect(Collectors.joining(",")));
+
         return methodsInvokedByChanges;
     }
 
     /**
      * Build a convenience map showing a list of impacted methods for each impacted source file (ignore test suite information).
-     * Used for convenience in analyzing the diff files: Tracked Source File, List<MethodImpactTracker>
+     * Used for convenience in analyzing the diff files: Tracked Source File: List<MethodImpactTracker>
      *
      * @param storedMapping
      * @return
      */
-    private static Map<String, Set<MethodImpactTracker>> buildTrackedSourceFileMethods(final StoredMapping storedMapping){
-        Map<String, Set<MethodImpactTracker>> sourceFilesTracked = new HashMap<>();
+    private static Map<String, Set<Integer>> buildTrackedSourceFileMethods(final StoredMapping storedMapping){
+        Map<String, Set<Integer>> sourceFilesTracked = new HashMap<>();
 
         for (TestSuiteTracker testSuiteTracker : storedMapping.getTestSuitesTracked().values()){
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
@@ -125,5 +130,13 @@ public class FileImpactAnalyzer {
         }
 
         return sourceFilesTracked;
+    }
+
+    private String getDiffFilePath(SourceFileDiffContext sourceFileDiffContext){
+        if (sourceFileDiffContext.getChangeType() == ChangeType.ADD){
+            return sourceFileDiffContext.getNewFilePath();
+        } else {
+            return sourceFileDiffContext.getOldFilePath();
+        }
     }
 }

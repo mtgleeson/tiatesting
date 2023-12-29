@@ -35,7 +35,6 @@ public class TiaSpockGitPluginExtension {
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
                     testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
-                    testTask.systemProperty("tiaDBPersistenceStrategy", tiaTaskExtension.getDbPersistenceStrategy());
 
                     LOGGER.debug("Enabling Jacoco in TCP server mode");
                     jacocoTaskExtension.setEnabled(true);
