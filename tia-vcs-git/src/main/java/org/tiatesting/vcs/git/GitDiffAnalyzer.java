@@ -21,8 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXTENSION;
-import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXTENSION;
+import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
+import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
 
 /**
  * Build the list of source files that have been changed since the previously analyzed commit.
@@ -93,11 +93,18 @@ public class GitDiffAnalyzer {
 
             for (DiffEntry diffEntry : diffFormatter.scan(commitFrom, commitTo)) {
                 String diffOldPath = diffEntry.getOldPath();
-                if (diffOldPath.toLowerCase().endsWith("." + JAVA_FILE_EXTENSION) ||
-                        diffOldPath.toLowerCase().endsWith("." + GROOVY_FILE_EXTENSION)){
+                String diffNewPath = diffEntry.getNewPath();
+
+                if (diffOldPath.toLowerCase().endsWith("." + JAVA_FILE_EXT) || diffOldPath.toLowerCase().endsWith("." + GROOVY_FILE_EXT)){
+                    // file has been modified or deleted
                     SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffEntry.getNewPath(),
                             convertGitChangeType(diffEntry.getChangeType()));
                     sourceFileDiffContexts.put(diffOldPath, diffContext);
+                } else if (diffNewPath.toLowerCase().endsWith("." + JAVA_FILE_EXT) || diffNewPath.toLowerCase().endsWith("." + GROOVY_FILE_EXT)){
+                    // new file has been added
+                    SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffNewPath,
+                            convertGitChangeType(diffEntry.getChangeType()));
+                    sourceFileDiffContexts.put(diffNewPath, diffContext);
                 }
             }
         } catch (IOException e) {

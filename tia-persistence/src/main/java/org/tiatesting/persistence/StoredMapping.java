@@ -1,6 +1,7 @@
 package org.tiatesting.persistence;
 
 import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.Serializable;
@@ -24,6 +25,14 @@ public class StoredMapping implements Serializable {
      * (official) selective test run where the mapping is being updated.
      */
     private Set<String> testSuitesFailed = new HashSet<>();
+
+    /**
+     * The set of source code methods that are tracked in the DB due to having been part of the test suite coverage.
+     * We store the methods keyed by the method name hashcode as an index for storage optimization.
+     * i.e. rather than store the method details for every class tracked, we stored the method hashcode only.
+     * We can use the method hashcode to look up the method details from this map.
+     */
+    private Map<Integer, MethodImpactTracker> methodsTracked = new HashMap<>();
 
     /**
      * THe date and time the stored mapping was last updated.
@@ -62,17 +71,24 @@ public class StoredMapping implements Serializable {
         this.lastUpdated = lastUpdated;
     }
 
+    public Map<Integer, MethodImpactTracker> getMethodsTracked() {
+        return methodsTracked;
+    }
+
+    public void setMethodsTracked(Map<Integer, MethodImpactTracker> methodsTracked) {
+        this.methodsTracked = methodsTracked;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         StoredMapping that = (StoredMapping) o;
-        return commitValue.equals(that.commitValue) && testSuitesTracked.equals(that.testSuitesTracked)
-                && testSuitesFailed.equals(that.testSuitesFailed) && lastUpdated.equals(that.lastUpdated);
+        return Objects.equals(commitValue, that.commitValue) && Objects.equals(lastUpdated, that.lastUpdated);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(commitValue, testSuitesTracked, testSuitesFailed, lastUpdated);
+        return Objects.hash(commitValue, lastUpdated);
     }
 }

@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 
 /**
  * Generate a text file report containing the test mappings.
@@ -53,13 +54,25 @@ public class TextFileReportGenerator implements ReportGenerator{
                 }
             }
 
+            Map<Integer, MethodImpactTracker> methodImpactTrackers = storedMapping.getMethodsTracked();
+            writer.write(System.lineSeparator() + System.lineSeparator() + "Methods index:");
+            methodImpactTrackers.forEach((methodId, methodImpactTracker) -> {
+                try {
+                    writer.write((System.lineSeparator() + "\t" + methodId + ": " + methodImpactTracker.getMethodName() +
+                            " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
             writer.write(System.lineSeparator() + System.lineSeparator() + "Test class mapping:");
 
             storedMapping.getTestSuitesTracked().forEach((testClass, testSuiteTracker) -> {
                 try {
                     String fileTestEntry = System.lineSeparator() +  System.lineSeparator() + testClass;
                     for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()){
-                        for (MethodImpactTracker methodImpactTracker : classImpacted.getMethodsImpacted()){
+                        for (Integer methodId : classImpacted.getMethodsImpacted()){
+                            MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodId);
                             fileTestEntry += System.lineSeparator() + "\t" + methodImpactTracker.getMethodName() +
                                     " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
                         }

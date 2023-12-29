@@ -6,17 +6,16 @@ import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
+import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
-import org.tiatesting.persistence.PersistenceStrategy;
 import org.tiatesting.report.ReportGenerator;
 import org.tiatesting.report.TextFileReportGenerator;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +28,12 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final DataStore dataStore;
     private final VCSReader vcsReader;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
+    private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private Set<String> testSuitesFailed;
+    /*
+    Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
+     */
+    private Set<String> runnerTestSuites;
     private final boolean enabled; // is TIA enabled?
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
@@ -42,9 +46,10 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
+        this.runnerTestSuites = ConcurrentHashMap.newKeySet();
+        this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
-        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName(),
-                System.getProperty("tiaDBPersistenceStrategy"));
+        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName());
     }
 
     /**
@@ -63,22 +68,46 @@ public class TiaTestingJunit4Listener extends RunListener {
         return enabled && updateDB;
     }
 
-/*
-    @Override
-    public void testStarted(Description description) {
-        System.out.println("test started: " + description.getClassName() + " " + description.getMethodName());
+    public void testSuiteStarted(Description description) throws Exception {
+        runnerTestSuites.add(getTestSuiteName(description));
+    }
+
+    public void testIgnored(Description description) throws Exception {
+        runnerTestSuites.add(getTestSuiteName(description));
     }
 
     @Override
-    public void testFinished(Description description) {
-        System.out.println("test finished: " + description.getClassName() + " " + description.getMethodName());
+    public void testFailure(Failure failure) {
+        this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
     }
 
     @Override
-    public void testRunStarted(Description description) throws Exception {
-        System.out.println("test run started: " + description.getClassName() + " " + description.getMethodName());
+    public void testAssumptionFailure(Failure failure) {
+        this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
     }
-*/
+
+    /**
+     * Called when a test suite (class) has finished, whether the test suite succeeds or fails.
+     * Track the list of methods called for the tests in the suite (only if all the tests in the suite were successful).
+     *
+     * @param description
+     * @throws Exception
+     */
+    @Override
+    public void testSuiteFinished(Description description) throws Exception {
+        if (!enabled){
+            return;
+        }
+
+        String testSuiteName = getTestSuiteName(description);
+        log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
+        TestSuiteTracker testSuiteTracker = new TestSuiteTracker(testSuiteName);
+        testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
+        CoverageResult coverageResult = this.coverageClient.collectCoverage();
+        testSuiteTracker.setClassesImpacted(coverageResult.getClassesInvoked());
+        this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
+        testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+    }
 
     /**
      * Called when all tests have finished.
@@ -92,63 +121,16 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.ALL){
-            log.info("Test run finished. Persisting the test mapping.");
-            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
-        }
+        log.info("Test run finished. Persisting the test mapping.");
+        this.dataStore.persistTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, testRunMethodsImpacted,
+                vcsReader.getHeadCommit());
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
         ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
         reportGenerator.generateReport(this.dataStore);
     }
 
-    /**
-     * Test suite maps to a test class.
-     */
-    /*
-    @Override
-    public void testSuiteStarted(Description description) throws Exception {
-        System.out.println("test suite started: " + description.getClassName() + " " + description.getTestClass() + " " + description.getDisplayName());
-    }
-*/
-
-    @Override
-    public void testFailure(Failure failure) {
-        this.testSuitesFailed.add(failure.getDescription().getClassName());
-    }
-
-    @Override
-    public void testAssumptionFailure(Failure failure) {
-        this.testSuitesFailed.add(failure.getDescription().getClassName());
-    }
-
-    /**
-     * Called when a test suite (class) has finished, whether the test suite succeeds or fails.
-     * Track the list of methods called for the tests in the suite (only if all the tests in the suite were successful).
-     *
-     * If the persistence strategy is incremental then also persist the method mapping for the test suite.
-     *
-     * @param description
-     * @throws Exception
-     */
-    @Override
-    public void testSuiteFinished(Description description) throws Exception {
-        if (!enabled){
-            return;
-        }
-
-        String testSuiteName = description.getClassName();
-        log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
-        TestSuiteTracker testSuiteTracker = new TestSuiteTracker(testSuiteName);
-        testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
-        testSuiteTracker.setClassesImpacted(this.coverageClient.collectCoverage());
-        this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
-
-        if (dataStore.getDBPersistenceStrategy() == PersistenceStrategy.INCREMENTAL){
-            log.info("Test suite finished for " + testSuiteName + ". Persisting the incremental test mapping.");
-            this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, vcsReader.getHeadCommit());
-            this.testSuiteTrackers.remove(testSuiteName);
-            this.testSuitesFailed.remove(testSuiteName);
-        }
+    private String getTestSuiteName(Description description){
+        return description.getClassName();
     }
 }

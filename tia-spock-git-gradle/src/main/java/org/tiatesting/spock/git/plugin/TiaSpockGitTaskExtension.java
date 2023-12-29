@@ -8,7 +8,6 @@ public class TiaSpockGitTaskExtension {
     private String sourceFilesDirs;
     private String testFilesDirs;
     private String dbFilePath;
-    private String dbPersistenceStrategy;
     private boolean enabled;
     private boolean updateDB;
 
@@ -55,15 +54,6 @@ public class TiaSpockGitTaskExtension {
 
     public void setDbFilePath(String dbFilePath) {
         this.dbFilePath = dbFilePath;
-    }
-
-    @Input
-    public String getDbPersistenceStrategy() {
-        return dbPersistenceStrategy;
-    }
-
-    public void setDbPersistenceStrategy(String dbPersistenceStrategy) {
-        this.dbPersistenceStrategy = dbPersistenceStrategy;
     }
 
     @Input
