@@ -34,7 +34,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
      */
     private Set<String> runnerTestSuites;
-    private final boolean enabled; // is TIA enabled?
+    private final boolean enabled; // is the Tia Junit4Listener enabled for updating the test mapping?
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
         this.enabled = isEnabled();
@@ -48,7 +48,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
-        this.vcsReader = vcsReader; //new GitReader(System.getProperty("tiaProjectDir"));
+        this.vcsReader = vcsReader;
         this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName());
     }
 
@@ -60,11 +60,22 @@ public class TiaTestingJunit4Listener extends RunListener {
      * @return
      */
     private boolean isEnabled(){
-        // TODO test this!
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
         boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
-        log.info("tiaEnabled: " + enabled);
-        log.info("tiaUpdateDB: " + updateDB);
+        log.info("Tia Junit4Listener: enabled: {}, update DB: {}", enabled, updateDB);
+
+        /**
+         * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
+         */
+        if (enabled){
+            String userSpecifiedTests = System.getProperty("test");
+            boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
+            if (hasUserSpecifiedTests){
+                log.info("User has specified tests, disabling Tia");
+                enabled = false;
+            }
+        }
+
         return enabled && updateDB;
     }
 

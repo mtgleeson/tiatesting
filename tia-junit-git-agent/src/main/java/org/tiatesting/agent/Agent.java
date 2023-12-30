@@ -28,9 +28,9 @@ public class Agent {
         DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
         List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
         List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;
-        boolean updateDB = Boolean.valueOf(agentOptions.getUpdateDB());
+        //boolean updateDB = Boolean.valueOf(agentOptions.getUpdateDB());
         TestSelector testSelector = new TestSelector(dataStore);
-        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, updateDB);
+        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs);
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
     }
 
