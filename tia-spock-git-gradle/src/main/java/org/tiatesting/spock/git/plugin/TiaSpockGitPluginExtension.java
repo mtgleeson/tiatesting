@@ -8,6 +8,7 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 
@@ -27,8 +28,8 @@ public class TiaSpockGitPluginExtension {
                 boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
 
                 if (isTiaEnabled){
-                    // set the system properties needed by TIA passed in as configuration from the Gradle plugin
-                    testTask.systemProperty("tiaEnabled", tiaTaskExtension.isEnabled());
+                    // set the system properties needed by Tia passed in as configuration from the Gradle plugin
+                    testTask.systemProperty("tiaEnabled", true);
                     testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.isUpdateDB());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
@@ -39,6 +40,9 @@ public class TiaSpockGitPluginExtension {
                     LOGGER.debug("Enabling Jacoco in TCP server mode");
                     jacocoTaskExtension.setEnabled(true);
                     jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
+                }else{
+                    testTask.systemProperty("tiaEnabled", false);
+                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.isUpdateDB());
                 }
             }
         };
@@ -47,8 +51,8 @@ public class TiaSpockGitPluginExtension {
     }
 
     /**
-     * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
-     * changes and Ignore tests not impacted by the changes.
+     * Check if Tia is enabled. Used to determine if we should load the Tia agent and analyse the
+     * changes and @Ignore tests not impacted by the changes.
      *
      * Note: It's not ideal we need to cast to the DefaultTestFilter as it's the internals of Gradle and
      * could change in future versions. Another way of getting the command line --tests parameter is using the
@@ -64,23 +68,19 @@ public class TiaSpockGitPluginExtension {
     private boolean isEnabled(final TiaSpockGitTaskExtension tiaTaskExtension, Test task){
         boolean enabled = tiaTaskExtension.isEnabled();
         boolean updateDB = tiaTaskExtension.isUpdateDB();
-        Set<String> userSpecifiedTests = ((DefaultTestFilter)task.getFilter()).getCommandLineIncludePatterns();
-        LOGGER.debug("TIA enabled value from the task extension: " + enabled);
-        LOGGER.debug("TIA updateDB value from the task extension: " + updateDB);
+        LOGGER.info("Tia plugin task ext: enabled: " + enabled + ", update DB: " + updateDB);
 
         /**
-         * TIA is enabled but we're not updating the DB. The DB is usually updated via the CI so
-         * this indicates the tests are being run locally.
-         * If the user specified specific individual tests to run, disable TIA so those tests are run
+         * If the user specified specific individual tests to run, disable Tia so those tests are run
          * and guaranteed to be the only tests to run.
          */
-        if (enabled && !updateDB){
+        if (enabled){
+            Set<String> userSpecifiedTests = ((DefaultTestFilter)task.getFilter()).getCommandLineIncludePatterns();
             boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
 
             if (hasUserSpecifiedTests){
-                // disable TIA if the user has specified tests to run
+                LOGGER.warn("Users has specified tests, disabling Tia");
                 enabled = false;
-                LOGGER.warn("Disabling TIA due to specifying individual tests to run and not updating the mapping DB.");
             }
         }
 

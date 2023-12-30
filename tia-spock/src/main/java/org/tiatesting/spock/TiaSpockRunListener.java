@@ -48,26 +48,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
     }
 
     @Override
-    public void beforeSpec(SpecInfo spec) {
-    }
-
-    @Override
-    public void beforeFeature(FeatureInfo feature) {
-    }
-
-    @Override
-    public void beforeIteration(IterationInfo iteration) {
-    }
-
-    @Override
-    public void afterIteration(IterationInfo iteration) {
-    }
-
-    @Override
-    public void afterFeature(FeatureInfo feature) {
-    }
-
-    @Override
     public void afterSpec(SpecInfo spec) {
         String specName = specificationUtil.getSpecName(spec);
 
@@ -99,10 +79,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
     @Override
     public void specSkipped(SpecInfo spec) {
         log.info(specificationUtil.getSpecName(spec) + " was skipped!");
-    }
-
-    @Override
-    public void featureSkipped(FeatureInfo feature) {
     }
 
     public void finishAllTests(Set<String> runnerTestSuites){
