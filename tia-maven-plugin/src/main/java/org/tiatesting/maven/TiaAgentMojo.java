@@ -77,7 +77,6 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (!isEnabled()){
-            getLog().info("TIA is disabled");
             return;
         }
 
@@ -197,28 +196,27 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     public abstract Map<String, Artifact> getPluginArtifactMap();
 
     /**
-     * Check if TIA is enabled. Used to determine if we should load the TIA agent and analaze the
+     * Check if Tia is enabled. Used to determine if we should load the Tia agent and analyse the
      * changes and Ignore tests not impacted by the changes.
      *
      * @return
      */
     private boolean isEnabled(){
-        // TODO test this!
         boolean enabled = isTiaEnabled();
         boolean updateDB = isTiaUpdateDB();
-        String userSpecifiedTests = System.getProperty("test");
-        getLog().info("tiaEnabled: " + enabled);
-        getLog().info("tiaUpdateDB: " + updateDB);
+        getLog().info("Tia AgentMojo: enabled: " + enabled + ", update DB: " + updateDB);
 
         /**
-         * TIA is enabled but we're not updating the DB. The DB is usually updated via the CI so
-         * this indicates the tests are being run locally.
-         * If the user specified specific individual tests to run, disable TIA so those tests are run
+         * If the user specified specific individual tests to run, disable Tia so those tests are run
          * and guaranteed to be the only tests to run.
          */
-        if (enabled && !updateDB){
+        if (enabled){
+            String userSpecifiedTests = System.getProperty("test");
             boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
-            enabled = !hasUserSpecifiedTests; // disable TIA if the user has specified tests to run
+            if (hasUserSpecifiedTests){
+                getLog().info("User has specified tests, disabling Tia");
+                enabled = false;
+            }
         }
 
         return enabled;

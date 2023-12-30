@@ -36,6 +36,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
         tiaUpdateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
+        log.info("Tia: enabled: {}, update DB: {}", tiaEnabled, tiaUpdateDB);
 
         if (tiaEnabled){
             String dbFilePath = System.getProperty("tiaDBFilePath");
@@ -51,7 +52,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 this.tiaTestingSpockRunListener = null;
             }
         } else {
-            log.info("TIA is disabled for this test run.");
             dataStore = null;
             sourceFilesDirs = null;
             testFilesDirs = null;

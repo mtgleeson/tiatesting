@@ -46,11 +46,10 @@ public class TestSelector {
      * @param vcsReader
      * @param sourceFilesDirs
      * @param testFilesDirs
-     * @param tiaUpdateDB
      * @return list of test suites to ignore in the current test run.
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirs,
-                                           final List<String> testFilesDirs, final boolean tiaUpdateDB){
+                                           final List<String> testFilesDirs){
         StoredMapping storedMapping = dataStore.getStoredMapping();
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
