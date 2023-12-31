@@ -1,6 +1,7 @@
 package org.tiatesting.spock.git.plugin;
 
 import org.gradle.api.Action;
+import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
@@ -14,6 +15,12 @@ import java.util.Set;
 
 public class TiaSpockGitPluginExtension {
     private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginExtension.class);
+
+    private Project project;
+
+    public TiaSpockGitPluginExtension(Project project){
+        this.project = project;
+    }
 
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {
         String taskName = task.getName();
@@ -30,19 +37,22 @@ public class TiaSpockGitPluginExtension {
                 if (isTiaEnabled){
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", true);
-                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.isUpdateDB());
+                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.getUpdateDB());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
                     testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
 
-                    LOGGER.debug("Enabling Jacoco in TCP server mode");
-                    jacocoTaskExtension.setEnabled(true);
-                    jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
+                    // only apply and configure the jacoco task extension if we're updating the tia DB
+                    if (Boolean.valueOf(tiaTaskExtension.getUpdateDB())) {
+                        LOGGER.debug("Enabling Jacoco in TCP server mode");
+                        jacocoTaskExtension.setEnabled(true);
+                        jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
+                    }
                 }else{
                     testTask.systemProperty("tiaEnabled", false);
-                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.isUpdateDB());
+                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.getUpdateDB());
                 }
             }
         };
@@ -66,9 +76,10 @@ public class TiaSpockGitPluginExtension {
      * @return
      */
     private boolean isEnabled(final TiaSpockGitTaskExtension tiaTaskExtension, Test task){
-        boolean enabled = tiaTaskExtension.isEnabled();
-        boolean updateDB = tiaTaskExtension.isUpdateDB();
-        LOGGER.info("Tia plugin task ext: enabled: " + enabled + ", update DB: " + updateDB);
+        //project.property("tiaEnabled");
+        boolean enabled = Boolean.valueOf(tiaTaskExtension.getEnabled());
+        boolean updateDB = Boolean.valueOf(tiaTaskExtension.getUpdateDB());
+        LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update DB: " + updateDB);
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run

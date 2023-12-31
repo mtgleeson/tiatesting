@@ -8,8 +8,8 @@ public class TiaSpockGitTaskExtension {
     private String sourceFilesDirs;
     private String testFilesDirs;
     private String dbFilePath;
-    private boolean enabled;
-    private boolean updateDB;
+    private String enabled;
+    private String updateDB;
 
     @Input
     public String getProjectDir() {
@@ -57,20 +57,20 @@ public class TiaSpockGitTaskExtension {
     }
 
     @Input
-    public boolean isEnabled() {
+    public String getEnabled() {
         return enabled;
     }
 
-    public void setEnabled(boolean enabled) {
+    public void setEnabled(String enabled) {
         this.enabled = enabled;
     }
 
     @Input
-    public boolean isUpdateDB() {
+    public String getUpdateDB() {
         return updateDB;
     }
 
-    public void setUpdateDB(boolean updateDB) {
+    public void setUpdateDB(String updateDB) {
         this.updateDB = updateDB;
     }
 }
