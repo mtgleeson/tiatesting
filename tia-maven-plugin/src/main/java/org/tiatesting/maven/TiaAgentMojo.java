@@ -83,7 +83,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
         final String oldValue = projectProperties.getProperty(name);
-        final AgentOptions agentOptions = buildAgentOptions();
+        final AgentOptions agentOptions = buildTiaAgentOptions();
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
@@ -110,7 +110,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
          */
     }
 
-    private AgentOptions buildAgentOptions(){
+    private AgentOptions buildTiaAgentOptions(){
         AgentOptions agentOptions = new AgentOptions();
 
         if (getTiaProjectDir() != null && !getTiaProjectDir().isEmpty()){
@@ -151,9 +151,22 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     public String addVMArguments(final String arguments, final File agentJarFile, final AgentOptions agentOptions) {
         final List<String> args = CommandLineSupport.split(arguments);
         final String plainAgent = format("-javaagent:%s", agentJarFile);
+
         for (final Iterator<String> i = args.iterator(); i.hasNext();) {
-            if (i.next().startsWith(plainAgent)) {
+            String arg = i.next();
+
+            // if we already have Tia agent on the surefire argument, remove it. We'll configure it in this plugin.
+            if (arg.startsWith(plainAgent)) {
                 i.remove();
+            }
+
+            // If we're running Tia but not updating the DB, we don't need Jacoco - remove it. When we're running Tia we
+            // have control over Jacoco solely for use by Tia. So it should be safe to remove Jacoco.
+            if (isTiaEnabled() && !isTiaUpdateDB()){
+                if(arg.matches("^-javaagent.*org.jacoco.agent.*")){
+                    getLog().info("Tia is enabled but not updating the DB. Jacoco is not needed. Removing it from the argLine.");
+                    i.remove();
+                }
             }
         }
 
@@ -176,8 +189,8 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     }
 
     File getAgentJarFile() {
-        final Artifact jacocoAgentArtifact = getPluginArtifactMap().get(getAgentArtifactName());
-        return jacocoAgentArtifact.getFile();
+        final Artifact agentArtifact = getPluginArtifactMap().get(getAgentArtifactName());
+        return agentArtifact.getFile();
     }
 
     String getEffectivePropertyName() {

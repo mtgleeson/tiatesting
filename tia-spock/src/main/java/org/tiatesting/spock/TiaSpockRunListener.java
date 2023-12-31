@@ -4,8 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.AbstractRunListener;
 import org.spockframework.runtime.model.ErrorInfo;
-import org.spockframework.runtime.model.FeatureInfo;
-import org.spockframework.runtime.model.IterationInfo;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
