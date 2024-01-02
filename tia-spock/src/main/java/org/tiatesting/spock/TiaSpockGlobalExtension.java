@@ -21,6 +21,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final boolean tiaUpdateDB;
     private final List<String> sourceFilesDirs;
     private final List<String> testFilesDirs;
+    private final boolean checkLocalChanges;
     private final TiaSpockRunListener tiaTestingSpockRunListener;
     private final DataStore dataStore;
     private final SpecificationUtil specificationUtil;
@@ -35,10 +36,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         this.vcsReader = vcsReader;
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        tiaUpdateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
-        log.info("Tia: enabled: {}, update DB: {}", tiaEnabled, tiaUpdateDB);
 
         if (tiaEnabled){
+            tiaUpdateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
             String dbFilePath = System.getProperty("tiaDBFilePath");
             dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName());
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
@@ -47,22 +47,33 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             if (tiaUpdateDB){
                 // the listener is used for collecting coverage and updating the stored test mapping
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore);
+
+                // Don't check for local changes. We shouldn't update the DB using unsubmitted changes.
+                this.checkLocalChanges = false;
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;
+
+                // only check for local changes when not updating the DB.
+                this.checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));
             }
         } else {
+            tiaUpdateDB = false;
             dataStore = null;
             sourceFilesDirs = null;
             testFilesDirs = null;
             this.tiaTestingSpockRunListener = null;
+            this.checkLocalChanges = false;
         }
+
+        log.info("Tia: enabled: {}, update DB: {}", tiaEnabled, tiaUpdateDB);
     }
 
     @Override
     public void start() {
         if (tiaEnabled) {
-            ignoredTests = new TiaSpockTestRunInitializer(vcsReader, dataStore, tiaUpdateDB).getTestsToIgnore(sourceFilesDirs, testFilesDirs);
+            TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore, tiaUpdateDB);
+            ignoredTests = tiaSpockTestRunInitializer.getTestsToIgnore(sourceFilesDirs, testFilesDirs, checkLocalChanges);
         }
     }
 

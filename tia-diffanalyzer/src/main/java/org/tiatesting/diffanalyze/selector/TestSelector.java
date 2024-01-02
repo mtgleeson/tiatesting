@@ -46,10 +46,11 @@ public class TestSelector {
      * @param vcsReader
      * @param sourceFilesDirs
      * @param testFilesDirs
+     * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
      * @return list of test suites to ignore in the current test run.
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirs,
-                                           final List<String> testFilesDirs){
+                                           final List<String> testFilesDirs, final boolean checkLocalChanges){
         StoredMapping storedMapping = dataStore.getStoredMapping();
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
@@ -59,7 +60,7 @@ public class TestSelector {
             return new HashSet<>();
         }
 
-        List<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue());
+        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue(), checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedSourceFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed
@@ -205,10 +206,6 @@ public class TestSelector {
                 }
             }
         });
-
-        //methodTestSuites.forEach( (key, val) -> {
-        //    System.out.println(System.lineSeparator() + "key: " + key + " val: " + System.lineSeparator() + "\t" + val.stream().map( String::valueOf ).collect(Collectors.joining(System.lineSeparator() + "\t", "", "")));
-        //});
 
         return methodTestSuites;
     }

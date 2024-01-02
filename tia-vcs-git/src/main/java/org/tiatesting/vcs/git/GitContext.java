@@ -6,6 +6,9 @@ import org.eclipse.jgit.lib.Repository;
 
 import java.util.Objects;
 
+/**
+ * Object used to hold data about a Git repository being analysed by Tia.
+ */
 public class GitContext {
 
     private final Repository repository;

@@ -60,8 +60,18 @@ public class AgentOptions {
      */
     private static final String DEFAULT_UPDATE_DB = "false";
 
+    /**
+     * Specifies whether Tia should analyse local unsubmitted (staged/shelved) changes when selecting tests.
+     */
+    public static final String CHECK_LOCAL_CHANGES = "checkLocalChanges";
+
+    /**
+     * Specifies the default option for whether Tia should analyse local unsubmitted (staged/shelved) changes when selecting tests.
+     */
+    private static final String DEFAULT_CHECK_LOCAL_CHANGES = "false";
+
     private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS,
-            TEST_FILES_DIRS, UPDATE_DB);
+            TEST_FILES_DIRS, UPDATE_DB, CHECK_LOCAL_CHANGES);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -171,5 +181,13 @@ public class AgentOptions {
 
     public void setUpdateDB(String updateDB) {
         setOption(UPDATE_DB, updateDB);
+    }
+
+    public String getCheckLocalChanges() {
+        return getOption(CHECK_LOCAL_CHANGES, DEFAULT_CHECK_LOCAL_CHANGES);
+    }
+
+    public void setCheckLocalChanges(String checkLocalChanges) {
+        setOption(CHECK_LOCAL_CHANGES, checkLocalChanges);
     }
 }

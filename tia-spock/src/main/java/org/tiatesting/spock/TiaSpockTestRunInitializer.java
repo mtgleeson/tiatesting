@@ -22,8 +22,8 @@ public class TiaSpockTestRunInitializer {
         this.tiaUpdateDB = tiaUpdateDB;
     }
 
-    Set<String> getTestsToIgnore(final List<String> sourceFilesDirs, final List<String> testFilesDirs){
+    Set<String> getTestsToIgnore(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
         TestSelector testSelector = new TestSelector(dataStore);
-        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs);
+        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges);
     }
 }
