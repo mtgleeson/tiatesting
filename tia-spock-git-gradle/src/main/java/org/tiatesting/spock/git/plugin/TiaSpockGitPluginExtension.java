@@ -1,7 +1,6 @@
 package org.tiatesting.spock.git.plugin;
 
 import org.gradle.api.Action;
-import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
@@ -9,17 +8,13 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 
 public class TiaSpockGitPluginExtension {
     private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginExtension.class);
 
-    private Project project;
-
-    public TiaSpockGitPluginExtension(Project project){
-        this.project = project;
+    public TiaSpockGitPluginExtension(){
     }
 
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {
@@ -43,6 +38,7 @@ public class TiaSpockGitPluginExtension {
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
                     testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
+                    testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (Boolean.valueOf(tiaTaskExtension.getUpdateDB())) {
@@ -52,7 +48,6 @@ public class TiaSpockGitPluginExtension {
                     }
                 }else{
                     testTask.systemProperty("tiaEnabled", false);
-                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.getUpdateDB());
                 }
             }
         };

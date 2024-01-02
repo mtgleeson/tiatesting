@@ -10,6 +10,7 @@ public class TiaSpockGitTaskExtension {
     private String dbFilePath;
     private String enabled;
     private String updateDB;
+    private String checkLocalChanges;
 
     @Input
     public String getProjectDir() {
@@ -72,5 +73,14 @@ public class TiaSpockGitTaskExtension {
 
     public void setUpdateDB(String updateDB) {
         this.updateDB = updateDB;
+    }
+
+    @Input
+    public String getCheckLocalChanges() {
+        return checkLocalChanges;
+    }
+
+    public void setCheckLocalChanges(String checkLocalChanges) {
+        this.checkLocalChanges = checkLocalChanges;
     }
 }
