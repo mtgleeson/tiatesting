@@ -2,7 +2,7 @@ package org.tiatesting.core.vcs;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
 
-import java.util.List;
+import java.util.Set;
 
 /**
  * Interface used to define the common version control system read operations used by Tia.
@@ -28,7 +28,8 @@ public interface VCSReader {
      * For each impacted source code file load the file content from both the starting revision and the head revision.
      *
      * @param commitFrom
+     * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
      * @return
      */
-    List<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom);
+    Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, boolean checkLocalChanges);
 }

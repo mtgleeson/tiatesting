@@ -7,7 +7,6 @@ import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.util.*;
@@ -40,7 +39,7 @@ public class FileImpactAnalyzer {
      * @param testFilesDirs
      * @return
      */
-    public Map<String, List<SourceFileDiffContext>> groupImpactedTestFiles(List<SourceFileDiffContext> sourceFileDiffContexts,
+    public Map<String, List<SourceFileDiffContext>> groupImpactedTestFiles(Set<SourceFileDiffContext> sourceFileDiffContexts,
                                                                            final List<String> testFilesDirs){
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = new HashMap<>();
         groupedImpactedFiles.put(SOURCE_FILE_ADDED, new ArrayList<>());

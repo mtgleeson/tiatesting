@@ -19,9 +19,9 @@ public class TiaSpockGitPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         this.project = project;
-        TiaSpockGitPluginExtension tiaExtension = project.getExtensions().create("tia", TiaSpockGitPluginExtension.class, project);
+        TiaSpockGitPluginExtension tiaExtension = project.getExtensions().create("tia", TiaSpockGitPluginExtension.class);
 
-        // if any of the test plugin have Tia enabled and is updating the DB then when need to load/apply the jacoco plugin
+        // if any of the test plugins have Tia enabled and are updating the DB then when need to load/apply the jacoco plugin
         for (final Iterator<Test> i = project.getTasks().withType(Test.class).iterator(); i.hasNext();) {
             Test testTask = i.next();
             String enabledPropName = testTask.getName()+ ".tiaEnabled";
