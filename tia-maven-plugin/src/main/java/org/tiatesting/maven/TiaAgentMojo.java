@@ -175,10 +175,26 @@ public abstract class TiaAgentMojo extends AbstractMojo {
             agentOptions.setVcsClientName(getTiaVcsClientName());
         }
 
-        agentOptions.setCheckLocalChanges(String.valueOf(isTiaCheckLocalChanges()));
+        agentOptions.setCheckLocalChanges(getCheckLocalChanges());
         agentOptions.setUpdateDB(String.valueOf(isTiaUpdateDB()));
 
         return agentOptions;
+    }
+
+    /**
+     * Check if Tia should analyze local staged/shelved changes.
+     * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
+     * committed changes only.
+     *
+     * @return
+     */
+    private String getCheckLocalChanges(){
+        if (isTiaUpdateDB() && isTiaCheckLocalChanges()){
+            getLog().info("Disabling the check for local staged changes as Tia is configured to update the DB.");
+            return Boolean.toString(false);
+        } else{
+            return String.valueOf(isTiaCheckLocalChanges());
+        }
     }
 
     /**
