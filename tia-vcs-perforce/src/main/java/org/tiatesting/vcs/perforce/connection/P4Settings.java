@@ -1,4 +1,4 @@
-package org.tiatesting.vcs.perforce;
+package org.tiatesting.vcs.perforce.connection;
 
 import java.io.BufferedReader;
 import java.io.File;

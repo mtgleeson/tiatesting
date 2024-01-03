@@ -1,14 +1,18 @@
 package org.tiatesting.agent;
 
-import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.description.annotation.AnnotationDescription;
-import net.bytebuddy.matcher.ElementMatchers;
 import org.junit.Ignore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
+import org.tiatesting.core.agent.AgentOptions;
+import org.tiatesting.diffanalyze.selector.TestSelector;
+import org.tiatesting.persistence.DataStore;
+import org.tiatesting.persistence.MapDataStore;
+import org.tiatesting.vcs.perforce.P4Reader;
 
 import java.lang.instrument.Instrumentation;
-import java.util.HashSet;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 public class Agent {
@@ -16,19 +20,17 @@ public class Agent {
     private static final Logger log = LoggerFactory.getLogger(Agent.class);
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
-        Set<String> ignoredTests = new HashSet<>();
-        ignoredTests.add("com.ea.fos.junit.utasft.scenario.user.PreOrderPackTest");
-       // ignoredTests.add("com.example.DoorServiceTest");
+        final AgentOptions agentOptions = new AgentOptions(agentArgs);
+        P4Reader gitReader = new P4Reader(agentOptions.getVcsServerUri(), agentOptions.getVcsUserName(), agentOptions.getVcsPassword(), agentOptions.getVcsClientName());
+        DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
+        List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
+        List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;
+        boolean checkLocalChanges = Boolean.valueOf(agentOptions.getCheckLocalChanges());
+        //boolean updateDB = Boolean.valueOf(agentOptions.getUpdateDB());
 
-        log.info("Ignoring tests: " + ignoredTests);
+        TestSelector testSelector = new TestSelector(dataStore);
+        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, checkLocalChanges);
 
-        AnnotationDescription ignoreDescription = AnnotationDescription.Builder.ofType(Ignore.class)
-                .define("value", "Ignored by TIA testing")
-                .build();
-
-        new AgentBuilder.Default()
-                .type(ElementMatchers.namedOneOf(ignoredTests.toArray(new String[ignoredTests.size()])))
-                .transform((builder, typeDescription, agr3, arg4) -> builder.annotateType(ignoreDescription))
-                .installOn(instrumentation);
+        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
     }
 }
