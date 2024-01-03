@@ -43,6 +43,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             dataStore = new MapDataStore(dbFilePath, vcsReader.getBranchName());
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
+            boolean checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));
 
             if (tiaUpdateDB){
                 // the listener is used for collecting coverage and updating the stored test mapping
@@ -50,12 +51,16 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
                 // Don't check for local changes. We shouldn't update the DB using unsubmitted changes.
                 this.checkLocalChanges = false;
+                if(checkLocalChanges){
+                    // user was trying to check for local changes - let them know they can't
+                    log.warn("Disabling the check for local staged changes as Tia is configured to update the DB.");
+                }
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;
 
                 // only check for local changes when not updating the DB.
-                this.checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));
+                this.checkLocalChanges = checkLocalChanges;
             }
         } else {
             tiaUpdateDB = false;

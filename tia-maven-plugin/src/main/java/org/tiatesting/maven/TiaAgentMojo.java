@@ -190,7 +190,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     private String getCheckLocalChanges(){
         if (isTiaUpdateDB() && isTiaCheckLocalChanges()){
-            getLog().info("Disabling the check for local staged changes as Tia is configured to update the DB.");
+            getLog().warn("Disabling the check for local staged changes as Tia is configured to update the DB.");
             return Boolean.toString(false);
         } else{
             return String.valueOf(isTiaCheckLocalChanges());
