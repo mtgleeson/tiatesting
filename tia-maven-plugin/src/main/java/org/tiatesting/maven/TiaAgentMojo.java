@@ -80,6 +80,30 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     @Parameter(property = "tiaCheckLocalChanges")
     boolean tiaCheckLocalChanges;
 
+    /**
+     * Specifies the server URI of the VCS system.
+     */
+    @Parameter(property = "tiaVcsServerUri")
+    String tiaVcsServerUri;
+
+    /**
+     * Specifies the username for connecting to the VCS system.
+     */
+    @Parameter(property = "tiaVcsUserName")
+    String tiaVcsUserName;
+
+    /**
+     * Specifies the password for connecting to the VCS system.
+     */
+    @Parameter(property = "tiaVcsPassword")
+    String tiaVcsPassword;
+
+    /**
+     * Specifies the client name used when connecting to the VCS system.
+     */
+    @Parameter(property = "tiaVcsClientName")
+    String tiaVcsClientName;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (!isEnabled()){
@@ -91,7 +115,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         final String oldValue = projectProperties.getProperty(name);
         final AgentOptions agentOptions = buildTiaAgentOptions();
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
-        getLog().info(name + " set to " + newValue);
+        getLog().info(name + " set to " + newValue); // TODO Mask the VCS password
         projectProperties.setProperty(name, newValue);
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
@@ -133,6 +157,22 @@ public abstract class TiaAgentMojo extends AbstractMojo {
 
         if (getTiaTestFilesDirs() != null && !getTiaTestFilesDirs().isEmpty()){
             agentOptions.setTestFilesDirs(getTiaTestFilesDirs());
+        }
+
+        if (getTiaVcsServerUri() != null && !getTiaVcsServerUri().isEmpty()){
+            agentOptions.setVcsServerUri(getTiaVcsServerUri());
+        }
+
+        if (getTiaVcsUserName() != null && !getTiaVcsUserName().isEmpty()){
+            agentOptions.setVcsUserName(getTiaVcsUserName());
+        }
+
+        if (getTiaVcsPassword() != null && !getTiaVcsPassword().isEmpty()){
+            agentOptions.setVcsPassword(getTiaVcsPassword());
+        }
+
+        if (getTiaVcsClientName() != null && !getTiaVcsClientName().isEmpty()){
+            agentOptions.setVcsClientName(getTiaVcsClientName());
         }
 
         agentOptions.setCheckLocalChanges(String.valueOf(isTiaCheckLocalChanges()));
@@ -276,5 +316,21 @@ public abstract class TiaAgentMojo extends AbstractMojo {
 
     public boolean isTiaCheckLocalChanges() {
         return tiaCheckLocalChanges;
+    }
+
+    public String getTiaVcsServerUri() {
+        return tiaVcsServerUri;
+    }
+
+    public String getTiaVcsUserName() {
+        return tiaVcsUserName;
+    }
+
+    public String getTiaVcsPassword() {
+        return tiaVcsPassword;
+    }
+
+    public String getTiaVcsClientName() {
+        return tiaVcsClientName;
     }
 }

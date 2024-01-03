@@ -18,6 +18,7 @@ import com.perforce.p4java.option.client.ReconcileFilesOptions;
 import com.perforce.p4java.option.client.ReopenFilesOptions;
 import com.perforce.p4java.option.client.RevertFilesOptions;
 import com.perforce.p4java.server.IOptionsServer;
+import org.tiatesting.vcs.perforce.connection.P4Connection;
 
 public class P4Changelist
 {

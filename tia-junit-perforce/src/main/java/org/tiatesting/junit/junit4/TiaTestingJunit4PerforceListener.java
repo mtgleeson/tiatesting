@@ -2,14 +2,15 @@ package org.tiatesting.junit.junit4;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.vcs.git.GitReader;
+import org.tiatesting.vcs.perforce.P4Reader;
 
 public class TiaTestingJunit4PerforceListener extends TiaTestingJunit4Listener {
 
     private static final Logger log = LoggerFactory.getLogger(TiaTestingJunit4PerforceListener.class);
 
     public TiaTestingJunit4PerforceListener() {
-       super(new GitReader(System.getProperty("tiaProjectDir"))); // TODO
+       super(new P4Reader(System.getProperty("tiaVcsServerUrl"), System.getProperty("tiaVcsUserName"),
+               System.getProperty("tiaVcsPassword"), System.getProperty("tiaVcsClientName")));
     }
 
 }

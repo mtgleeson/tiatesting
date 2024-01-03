@@ -1,4 +1,4 @@
-package org.tiatesting.vcs.perforce;
+package org.tiatesting.vcs.perforce.connection;
 
 import java.security.NoSuchAlgorithmException;
 import javax.crypto.Cipher;

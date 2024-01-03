@@ -70,8 +70,48 @@ public class AgentOptions {
      */
     private static final String DEFAULT_CHECK_LOCAL_CHANGES = "false";
 
+    /**
+     * Specifies the server URI of the VCS system.
+     */
+    public static final String VCS_SERVER_URI = "vcsServerUri";
+
+    /**
+     * Specifies the default server URI of the VCS system.
+     */
+    private static final String DEFAULT_VCS_SERVER_URI = "";
+
+    /**
+     * Specifies the username for connecting to the VCS system.
+     */
+    public static final String VCS_USER_NAME = "vcsUserName";
+
+    /**
+     * Specifies the default username for connecting to the VCS system.
+     */
+    private static final String DEFAULT_VCS_USER_NAME = "";
+
+    /**
+     * Specifies the password for connecting to the VCS system.
+     */
+    public static final String VCS_PASSWORD = "vcsPassword";
+
+    /**
+     * Specifies the default password for connecting to the VCS system.
+     */
+    private static final String DEFAULT_VCS_PASSWORD = "";
+
+    /**
+     * Specifies the client name used when connecting to the VCS system.
+     */
+    public static final String VCS_CLIENT_NAME = "vcsClientName";
+
+    /**
+     * Specifies the default client name used when connecting to the VCS system.
+     */
+    private static final String DEFAULT_VCS_CLIENT_NAME = "";
+
     private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS,
-            TEST_FILES_DIRS, UPDATE_DB, CHECK_LOCAL_CHANGES);
+            TEST_FILES_DIRS, UPDATE_DB, CHECK_LOCAL_CHANGES, VCS_SERVER_URI, VCS_USER_NAME, VCS_PASSWORD, VCS_CLIENT_NAME);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -189,5 +229,37 @@ public class AgentOptions {
 
     public void setCheckLocalChanges(String checkLocalChanges) {
         setOption(CHECK_LOCAL_CHANGES, checkLocalChanges);
+    }
+
+    public String getVcsServerUri() {
+        return getOption(VCS_SERVER_URI, DEFAULT_VCS_SERVER_URI);
+    }
+
+    public void setVcsServerUri(String vcsServerUri) {
+        setOption(VCS_SERVER_URI, vcsServerUri);
+    }
+
+    public String getVcsUserName() {
+        return getOption(VCS_USER_NAME, DEFAULT_VCS_USER_NAME);
+    }
+
+    public void setVcsUserName(String vcsUserName) {
+        setOption(VCS_USER_NAME, vcsUserName);
+    }
+
+    public String getVcsPassword() {
+        return getOption(VCS_PASSWORD, DEFAULT_VCS_PASSWORD);
+    }
+
+    public void setVcsPassword(String vcsPassword) {
+        setOption(VCS_PASSWORD, vcsPassword);
+    }
+
+    public String getVcsClientName() {
+        return getOption(VCS_CLIENT_NAME, DEFAULT_VCS_CLIENT_NAME);
+    }
+
+    public void setVcsClientName(String vcsClientName) {
+        setOption(VCS_CLIENT_NAME, vcsClientName);
     }
 }
