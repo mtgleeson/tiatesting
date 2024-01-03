@@ -1,17 +1,15 @@
-package org.tiatesting.vcs.perforce;
+package org.tiatesting.vcs.perforce.connection;
 
 import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Properties;
 import com.perforce.p4java.client.IClient;
-import com.perforce.p4java.exception.AccessException;
-import com.perforce.p4java.exception.ConnectionException;
-import com.perforce.p4java.exception.P4JavaException;
-import com.perforce.p4java.exception.RequestException;
+import com.perforce.p4java.exception.*;
 import com.perforce.p4java.option.UsageOptions;
 import com.perforce.p4java.server.IOptionsServer;
 import com.perforce.p4java.server.IServerAddress;
 import com.perforce.p4java.server.ServerFactory;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 public class P4Connection
 {
@@ -57,15 +55,18 @@ public class P4Connection
      *
      * @return
      */
-    public boolean start() throws Exception
-    {
+    public void start() throws VCSAnalyzerException {
         if (serverUri == null || serverUri.isEmpty() || password == null || password.isEmpty())
         {
-            throw new Exception("P4 Settings have not been set yet. Can't establish connection.");
+            throw new VCSAnalyzerException("P4 Settings have not been set yet. Can't establish connection.");
         }
 
-        if (server == null || !server.isConnected())
-        {
+        if (server != null && server.isConnected()) {
+            return;
+
+        }
+
+        try {
             server = getOptionsServer(null, null);
 
             server.setUserName(userName);
@@ -73,16 +74,15 @@ public class P4Connection
 
             client = server.getClient(clientName);
 
-            if (client != null)
+            if (client == null)
             {
-                server.setCurrentClient(client);
-                return true;
+                throw new VCSAnalyzerException("Couldn't get the client from the P4 connection.");
             }
 
-            return false;
+            server.setCurrentClient(client);
+        }catch(P4JavaException | URISyntaxException e){
+            throw new VCSAnalyzerException(e);
         }
-
-        return true;
     }
 
     /**
@@ -103,29 +103,18 @@ public class P4Connection
     /**
      * Set the P4 connection settings.
      *
-     * @param settings
+     * @param serverUri
+     * @param userName
+     * @param password
+     * @param clientName
      * @throws Exception
      */
-    public void setP4Settings(Map<String, String> settings) throws Exception
+    public void setP4Settings(final String serverUri, final String userName, final String password, final String clientName)
     {
-        for (Map.Entry<String, String> settingKVpair : settings.entrySet())
-        {
-            switch(settingKVpair.getKey())
-            {
-                case P4Constants.P4PORT:
-                    serverUri = IServerAddress.Protocol.P4JAVA.toString() + "://" + settingKVpair.getValue();
-                    break;
-                case P4Constants.P4USER:
-                    userName = settingKVpair.getValue();
-                    break;
-                case P4Constants.P4CLIENT:
-                    clientName = settingKVpair.getValue();
-                    break;
-                case P4Constants.P4PASSWD:
-                    password = PasswordUtil.decryptPassword(settings.get(P4Settings.P4_SET_RANDOMKEY_CUSTOM_VAR), settingKVpair.getValue());
-                    break;
-            }
-        }
+        this.serverUri = IServerAddress.Protocol.P4JAVA.toString() + "://" + serverUri;
+        this.userName = userName;
+        this.clientName = clientName;
+        this.password = password;
     }
 
     /**

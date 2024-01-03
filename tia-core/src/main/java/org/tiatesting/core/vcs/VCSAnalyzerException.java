@@ -7,6 +7,10 @@ package org.tiatesting.core.vcs;
  */
 public class VCSAnalyzerException extends RuntimeException {
 
+    public VCSAnalyzerException(String message){
+        super(message);
+    }
+
     public VCSAnalyzerException(Exception exception){
         super(exception);
     }
