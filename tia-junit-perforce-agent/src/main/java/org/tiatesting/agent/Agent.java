@@ -21,7 +21,7 @@ public class Agent {
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
-        P4Reader gitReader = new P4Reader(agentOptions.getVcsServerUri(), agentOptions.getVcsUserName(), agentOptions.getVcsPassword(), agentOptions.getVcsClientName());
+        P4Reader gitReader = new P4Reader(true, agentOptions.getVcsServerUri(), agentOptions.getVcsUserName(), agentOptions.getVcsPassword(), agentOptions.getVcsClientName());
         DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
         List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
         List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;

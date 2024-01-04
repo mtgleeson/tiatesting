@@ -1,22 +1,25 @@
 package org.tiatesting.vcs.perforce.connection;
 
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Properties;
 import com.perforce.p4java.client.IClient;
 import com.perforce.p4java.exception.*;
 import com.perforce.p4java.option.UsageOptions;
-import com.perforce.p4java.server.IOptionsServer;
-import com.perforce.p4java.server.IServerAddress;
-import com.perforce.p4java.server.ServerFactory;
+import com.perforce.p4java.server.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
+import org.tiatesting.vcs.perforce.P4Reader;
 
-public class P4Connection
-{
-    private static String serverUri;
-    private static String userName;
-    private static String clientName;
-    private static String password;
+public class P4Connection {
+    private static final Logger log = LoggerFactory.getLogger(P4Connection.class);
+
+    private String serverUri;
+    private String userName;
+    private String clientName;
+    private String password;
 
     private static P4Connection INSTANCE;
 
@@ -56,21 +59,26 @@ public class P4Connection
      * @return
      */
     public void start() throws VCSAnalyzerException {
-        if (serverUri == null || serverUri.isEmpty() || password == null || password.isEmpty())
+        if (serverUri == null || serverUri.isEmpty())
         {
             throw new VCSAnalyzerException("P4 Settings have not been set yet. Can't establish connection.");
         }
 
         if (server != null && server.isConnected()) {
             return;
-
         }
 
         try {
             server = getOptionsServer(null, null);
-
             server.setUserName(userName);
-            server.login(password);
+
+            if (password != null && !password.trim().isEmpty()){
+                // login using the provided password if provided. Otherwise it will
+                // default to using the p4ticket in user home %USERPROFILE%\p4tickets.txt
+                // https://www.perforce.com/manuals/p4sag/Content/P4SAG/superuser.basic.auth.tickets.html
+                // https://www.perforce.com/manuals/p4java/Content/P4Java/p4java.advanced.authentication.html
+                server.login(password);
+            }
 
             client = server.getClient(clientName);
 
@@ -145,7 +153,7 @@ public class P4Connection
      * @throws URISyntaxException thrown if the server URI passed to the server
      * 				factory is syntactically invalid
      */
-    private static IOptionsServer getOptionsServer(Properties props, UsageOptions opts) throws P4JavaException, URISyntaxException {
+    private IOptionsServer getOptionsServer(Properties props, UsageOptions opts) throws P4JavaException, URISyntaxException {
         IOptionsServer server = ServerFactory.getOptionsServer(serverUri, props, opts);
         if (server != null)
         {
