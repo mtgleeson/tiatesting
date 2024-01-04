@@ -1,4 +1,4 @@
-package org.tiatesting.maven;
+package org.tiatesting.core.agent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Internal utility to parse and create command lines arguments.
  */
-final class CommandLineSupport {
+public final class CommandLineSupport {
 
     private static final char BLANK = ' ';
     private static final char QUOTE = '"';
@@ -19,7 +19,7 @@ final class CommandLineSupport {
      *            command line argument
      * @return quoted argument
      */
-    static String quote(final String arg) {
+    public static String quote(final String arg) {
         final StringBuilder escaped = new StringBuilder();
         for (final char c : arg.toCharArray()) {
             if (c == QUOTE || c == SLASH) {
@@ -33,6 +33,11 @@ final class CommandLineSupport {
         return escaped.toString();
     }
 
+    public static String unquote(final String arg){
+        String unquotedArg = arg.replace("\\\\", "\\");
+        return unquotedArg.replace("\\\"", "\"");
+    }
+
     /**
      * Builds a single command line string from the given argument list.
      * Arguments are quoted when necessary.
@@ -41,7 +46,7 @@ final class CommandLineSupport {
      *            command line arguments
      * @return combined command line
      */
-    static String quote(final List<String> args) {
+    public static String quote(final List<String> args) {
         final StringBuilder result = new StringBuilder();
         boolean separate = false;
         for (final String arg : args) {
@@ -62,7 +67,7 @@ final class CommandLineSupport {
      *            combined command line
      * @return list of arguments
      */
-    static List<String> split(final String commandline) {
+    public static List<String> split(final String commandline) {
         if (commandline == null || commandline.length() == 0) {
             return new ArrayList<String>();
         }

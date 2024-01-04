@@ -145,7 +145,8 @@ public class AgentOptions {
                             format("Unknown agent option \"%s\".", key));
                 }
 
-                final String value = entry.substring(pos + 1);
+                String value = entry.substring(pos + 1);
+                value = CommandLineSupport.unquote(value);
                 setOption(key, value);
             }
 

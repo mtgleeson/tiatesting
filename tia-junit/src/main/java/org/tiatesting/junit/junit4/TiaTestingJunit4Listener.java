@@ -49,7 +49,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.vcsReader = vcsReader;
-        this.dataStore = new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName());
+        this.dataStore = enabled ? new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
     }
 
     /**

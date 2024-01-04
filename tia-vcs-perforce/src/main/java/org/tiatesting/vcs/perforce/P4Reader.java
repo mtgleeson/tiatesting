@@ -1,12 +1,21 @@
 package org.tiatesting.vcs.perforce;
 
+import com.perforce.p4java.core.IChangelistSummary;
+import com.perforce.p4java.core.file.FileSpecBuilder;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.P4JavaException;
+import com.perforce.p4java.exception.RequestException;
+import com.perforce.p4java.option.server.GetChangelistsOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class P4Reader implements VCSReader {
@@ -16,10 +25,15 @@ public class P4Reader implements VCSReader {
     //private final GitDiffAnalyzer gitDiffAnalyzer;
     private final P4Context p4Context;
 
-    public P4Reader(final String serverUri, final String userName, final String password, final String clientName) {
-        P4Connection p4Connection = initializeConnection(serverUri, userName, password, clientName);
-        p4Context = new P4Context(p4Connection, readBranchName(p4Connection), readHeadCL(p4Connection));
-        //gitDiffAnalyzer = new GitDiffAnalyzer();
+    public P4Reader(final boolean enabled, final String serverUri, final String userName,
+                    final String password, final String clientName) {
+        if (enabled){
+            P4Connection p4Connection = initializeConnection(serverUri, userName, password, clientName);
+            p4Context = new P4Context(p4Connection, readBranchName(p4Connection), readHeadCL(p4Connection));
+            //gitDiffAnalyzer = new GitDiffAnalyzer();
+        }else{
+            p4Context = null;
+        }
     }
 
     private P4Connection initializeConnection(final String serverUri, final String userName, final String password, final String clientName){
@@ -50,7 +64,10 @@ public class P4Reader implements VCSReader {
     }
 
     private String readBranchName(final P4Connection p4Connection) {
-       return "";
+        String streamName = p4Connection.getClient().getStream();
+        streamName = streamName.replace("//", "");
+        streamName = streamName.replace("/", "-");
+        return streamName;
     }
     /*
         private Repository getFileRepository(final String gitPath){
@@ -64,7 +81,22 @@ public class P4Reader implements VCSReader {
         }
     */
     private String readHeadCL(final P4Connection p4Connection) {
-        return "";
+        GetChangelistsOptions options = new GetChangelistsOptions();
+        options.setMaxMostRecent(1);
+        String workspaceHeadCL = null;
+
+        try {
+            List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
+                    FileSpecBuilder.makeFileSpecList("...#have"), options);
+            if (changeLists.isEmpty()){
+                throw new VCSAnalyzerException("Couldn't find the head changelist for the workspace");
+            }
+            workspaceHeadCL = String.valueOf(changeLists.get(0).getId());
+            log.debug("Head changelist id for the workspace is : {}", workspaceHeadCL);
+        } catch (P4JavaException e) {
+            throw new VCSAnalyzerException(e);
+        }
+        return workspaceHeadCL;
     }
 
 }
