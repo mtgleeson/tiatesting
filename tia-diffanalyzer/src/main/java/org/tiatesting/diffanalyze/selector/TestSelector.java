@@ -60,7 +60,8 @@ public class TestSelector {
             return new HashSet<>();
         }
 
-        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue(), checkLocalChanges);
+        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue(),
+                sourceFilesDirs, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedSourceFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed

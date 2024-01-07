@@ -2,6 +2,7 @@ package org.tiatesting.core.vcs;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -31,5 +32,6 @@ public interface VCSReader {
      * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
      * @return
      */
-    Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, boolean checkLocalChanges);
+    Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
+                                                     final boolean checkLocalChanges);
 }

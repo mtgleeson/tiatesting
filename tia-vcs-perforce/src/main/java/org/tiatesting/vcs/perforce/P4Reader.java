@@ -22,7 +22,7 @@ public class P4Reader implements VCSReader {
 
     private static final Logger log = LoggerFactory.getLogger(P4Reader.class);
 
-    //private final GitDiffAnalyzer gitDiffAnalyzer;
+    private final P4DiffAnalyzer p4DiffAnalyzer;
     private final P4Context p4Context;
 
     public P4Reader(final boolean enabled, final String serverUri, final String userName,
@@ -30,9 +30,10 @@ public class P4Reader implements VCSReader {
         if (enabled){
             P4Connection p4Connection = initializeConnection(serverUri, userName, password, clientName);
             p4Context = new P4Context(p4Connection, readBranchName(p4Connection), readHeadCL(p4Connection));
-            //gitDiffAnalyzer = new GitDiffAnalyzer();
+            p4DiffAnalyzer = new P4DiffAnalyzer();
         }else{
             p4Context = null;
+            p4DiffAnalyzer = null;
         }
     }
 
@@ -48,9 +49,9 @@ public class P4Reader implements VCSReader {
     }
 
     @Override
-    public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, boolean checkLocalChanges) {
-        // TODO return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom, checkLocalChanges);
-        return new HashSet<>();
+    public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
+                                                            final boolean checkLocalChanges) {
+        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, commitFrom, sourceFilesDirs, checkLocalChanges);
     }
 
     @Override
@@ -69,17 +70,7 @@ public class P4Reader implements VCSReader {
         streamName = streamName.replace("/", "-");
         return streamName;
     }
-    /*
-        private Repository getFileRepository(final String gitPath){
-            try {
-                return new FileRepositoryBuilder()
-                        .setGitDir(new File(gitPath)) //"my_repo/.git"
-                        .build();
-            } catch (IOException e) {
-                throw new VCSAnalyzerException(e);
-            }
-        }
-    */
+
     private String readHeadCL(final P4Connection p4Connection) {
         GetChangelistsOptions options = new GetChangelistsOptions();
         options.setMaxMostRecent(1);
