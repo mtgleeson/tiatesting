@@ -70,10 +70,7 @@ public class FileImpactAnalyzer {
 
     private boolean isTestFile(SourceFileDiffContext sourceFileDiffContext, final List<String> testFilesDirs){
         for (String testFilesDir: testFilesDirs){
-            // remove the starting "/" if specified as VCS diff filename doesn't start with a /
-            testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir;
-
-            if (getDiffFilePath(sourceFileDiffContext).contains(testFilesDir)){
+            if (getDiffFilePath(sourceFileDiffContext).startsWith(testFilesDir)){
                 return true;
             }
         }

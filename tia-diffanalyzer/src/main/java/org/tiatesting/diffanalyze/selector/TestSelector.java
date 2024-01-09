@@ -3,15 +3,18 @@ package org.tiatesting.diffanalyze.selector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.*;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
@@ -44,13 +47,13 @@ public class TestSelector {
      * This ensures any new test suites are executed.
      *
      * @param vcsReader
-     * @param sourceFilesDirs
-     * @param testFilesDirs
+     * @param sourceFilesDirNames
+     * @param testFilesDirNames
      * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
      * @return list of test suites to ignore in the current test run.
      */
-    public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirs,
-                                           final List<String> testFilesDirs, final boolean checkLocalChanges){
+    public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                           final List<String> testFilesDirNames, final boolean checkLocalChanges){
         StoredMapping storedMapping = dataStore.getStoredMapping();
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
@@ -60,19 +63,22 @@ public class TestSelector {
             return new HashSet<>();
         }
 
+        List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
+        List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
+
         Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue(),
-                sourceFilesDirs, checkLocalChanges);
-        Map<String, List<SourceFileDiffContext>> groupedImpactedSourceFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
+                sourceFilesDirs, testFilesDirs, checkLocalChanges);
+        Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedSourceFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
+        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(storedMapping, impactedMethods);
 
         // Re-run tests that failed since the last successful full test run.
         addPreviouslyFailedTests(storedMapping, testsToRun);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(groupedImpactedSourceFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
+        addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
@@ -81,11 +87,57 @@ public class TestSelector {
         return testsToIgnore;
     }
 
+    /**
+     * Get the full path names for a given list of directories.
+     * The input directories could be relative paths (from the current path), or full paths.
+     *
+     * @param filePaths should be source code or test file directories configured by the user
+     * @return
+     */
+    private List<String> getFullFilePaths(List<String> filePaths){
+        List<String> fullFilePaths = new ArrayList<>();
+        String currentPath = Paths.get(".").toAbsolutePath().normalize().toString();
+
+        for (String sourceAndTestFilesDir : filePaths){
+            File file = loadFileOnDiskFromPath(currentPath, sourceAndTestFilesDir);
+            if (file != null){
+                try {
+                    fullFilePaths.add(file.getCanonicalPath());
+                } catch (IOException e) {
+                    throw new VCSAnalyzerException(e);
+                }
+            }
+        }
+
+        return fullFilePaths;
+    }
+
+    private File loadFileOnDiskFromPath(String currentPath, String sourceAndTestFilesDir) {
+        // first assume it's a relative path and check if it exists
+        String filePath = sourceAndTestFilesDir.startsWith("/") ? sourceAndTestFilesDir : "/" + sourceAndTestFilesDir;
+        filePath = currentPath + filePath;
+
+        File file = new File(filePath);
+        if (!file.exists()){
+            // relative path not found, assume it's a full path from root and try load it
+            file = new File(sourceAndTestFilesDir);
+            if (!file.exists()){
+                file = null;
+                log.warn("Can't find configured source of test directory on disk: {}", sourceAndTestFilesDir);
+            }
+        }
+
+        return file;
+    }
+
     private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
                                                Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesModified = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
-            testSuitesModified.add(getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs));
+            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs);
+            if (testName != null){
+                testSuitesModified.add(testName);
+            }
         }
 
         log.debug("Selected tests to run from VCS test file changes: {}", testSuitesModified);
@@ -95,7 +147,7 @@ public class TestSelector {
     /**
      * Convert a test filename from a diff context to a full class name if it exists in the known tracked test suites.
      * For example:
-     * Diff filename: src/test/groovy/com/example/DoorServiceSpec.groovy
+     * Diff filename: /usr/project/src/test/groovy/com/example/DoorServiceSpec.groovy
      * Converts to: com.example.DoorServiceSpec
      *
      * @param testFilePath
@@ -109,12 +161,12 @@ public class TestSelector {
 
         for(String testFilesDir : testFilesDirs){
             testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir; // trim leading /
-            if (testFilePath.indexOf(testFilesDir) > -1){
-                testFilePath = testFilePath.substring(testFilePath.indexOf(testFilesDir) + testFilesDir.length());
+            if (testFilePath.startsWith(testFilesDir)){
+                testFilePath = testFilePath.replace(testFilesDir, "");
                 break;
             }
         }
-
+        testFilePath = testFilePath.replaceAll("\\\\", "/"); // if on Windows, change back slash to forward slash
         testFilePath = testFilePath.startsWith("/") ? testFilePath.substring(1, testFilePath.length()) : testFilePath; // trim leading /
         testFilePath = testFilePath.replaceAll("\\/", ".");
 

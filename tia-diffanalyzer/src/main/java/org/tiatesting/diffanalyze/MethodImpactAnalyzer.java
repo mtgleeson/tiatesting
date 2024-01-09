@@ -83,12 +83,14 @@ public class MethodImpactAnalyzer {
     private Set<Integer> getMethodsTrackedForSourceFile(final Map<String, Set<Integer>> sourceFilesTracked,
                                                                     final String originalFilePath,
                                                                     final List<String> sourceFilesDirs){
-        String fileName = "/" + originalFilePath;
+        String fileName = originalFilePath;
 
         for (String sourceFilesDir : sourceFilesDirs){
-            fileName = fileName.replace(sourceFilesDir + "/", "");
+            fileName = fileName.replace(sourceFilesDir, "");
         }
 
+        fileName = fileName.replaceAll("\\\\", "/"); // if Windows, switch to forward slash used in the test mapping
+        fileName = fileName.substring(1); // remove beginning /
         log.trace("File name to lookup tracked classes for methods - {}", fileName);
         return sourceFilesTracked.get(fileName);
     }

@@ -29,9 +29,11 @@ public interface VCSReader {
      * For each impacted source code file load the file content from both the starting revision and the head revision.
      *
      * @param commitFrom
+     * @param sourceFilesDirs the list of source code directories for the source project being analysed
+     * @param testFilesDirs the list of test file directories for the project being analysed
      * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
      * @return
      */
     Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
-                                                     final boolean checkLocalChanges);
+                                                     final List<String> testFilesDirs, final boolean checkLocalChanges);
 }
