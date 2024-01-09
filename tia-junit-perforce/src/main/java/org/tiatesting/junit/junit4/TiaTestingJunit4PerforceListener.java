@@ -9,7 +9,7 @@ public class TiaTestingJunit4PerforceListener extends TiaTestingJunit4Listener {
     private static final Logger log = LoggerFactory.getLogger(TiaTestingJunit4PerforceListener.class);
 
     public TiaTestingJunit4PerforceListener() {
-       super(new P4Reader(Boolean.valueOf(System.getProperty("tiaEnabled")), System.getProperty("tiaVcsServerUrl"),
+       super(new P4Reader(Boolean.valueOf(System.getProperty("tiaEnabled")), System.getProperty("tiaVcsServerUri"),
                System.getProperty("tiaVcsUserName"), System.getProperty("tiaVcsPassword"),
                System.getProperty("tiaVcsClientName")));
     }

@@ -2,10 +2,7 @@ package org.tiatesting.vcs.perforce;
 
 import com.perforce.p4java.core.IChangelistSummary;
 import com.perforce.p4java.core.file.FileSpecBuilder;
-import com.perforce.p4java.exception.AccessException;
-import com.perforce.p4java.exception.ConnectionException;
 import com.perforce.p4java.exception.P4JavaException;
-import com.perforce.p4java.exception.RequestException;
 import com.perforce.p4java.option.server.GetChangelistsOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +11,7 @@ import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,9 +37,6 @@ public class P4Reader implements VCSReader {
 
     private P4Connection initializeConnection(final String serverUri, final String userName, final String password, final String clientName){
         P4Connection p4Connection = P4Connection.getInstance();
-
-        // TODO If serverUri, userName or clientName are null, get settings (except password) from p4 set command. This this as the default.
-
         p4Connection.setP4Settings(serverUri, userName, password, clientName);
         p4Connection.start();
         log.info("Successfully initialized P4 connection to {} with user name {} and client {}", serverUri, userName, clientName);
@@ -50,8 +45,10 @@ public class P4Reader implements VCSReader {
 
     @Override
     public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
-                                                            final boolean checkLocalChanges) {
-        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, commitFrom, sourceFilesDirs, checkLocalChanges);
+                                                            final List<String> testFilesDirs, final boolean checkLocalChanges) {
+        List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
+        sourceAndTestFilesDir.addAll(testFilesDirs);
+        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, commitFrom, sourceAndTestFilesDir, checkLocalChanges);
     }
 
     @Override
