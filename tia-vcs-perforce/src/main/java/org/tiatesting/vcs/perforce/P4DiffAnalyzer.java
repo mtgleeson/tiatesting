@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -41,24 +42,45 @@ public class P4DiffAnalyzer {
      *
      * @param p4Context object used to hold data about a P4 repository being analysed by Tia.
      * @param clFrom the oldest changelist number in the range being analysed
-     * @param sourceFilesDirs the list of source directories for the source project being analysed
+     * @param sourceAndTestFiles the list of source code and test files for the source project being analysed
      * @param checkUnsubmittedChanges should shelved changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(P4Context p4Context, String clFrom, final List<String> sourceFilesDirs,
+    protected Set<SourceFileDiffContext> buildDiffFilesContext(P4Context p4Context, String clFrom,
+                                                               final List<String> sourceAndTestFiles,
                                                                boolean checkUnsubmittedChanges) {
         String clTo = p4Context.getHeadCL();
 
+        List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
+
         // get changes from the previously stored CL number to HEAD
         Set<SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, clFrom, clTo, sourceFilesDirs);
+        sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, clFrom, clTo, sourceAndTestFilesSpecs);
 
         if (checkUnsubmittedChanges){
             // get the local shelved changes compared to local HEAD
-            sourceFileDiffContexts.addAll(getShelvedChanges(p4Context, sourceFilesDirs));
+            sourceFileDiffContexts.addAll(getLocalChanges(p4Context, sourceAndTestFilesSpecs));
         }
 
         return sourceFileDiffContexts;
+    }
+
+    /**
+     * Find the P4 file spec for each source and test file directory. This gives us both the depot path and local path.
+     *
+     * @param p4Connection the Perforce connection being used for the analysis.
+     * @param sourceAndTestFiles the list of source and test directories for the source project being analysed
+     * @return list of p4 file specs representing the source and test directories
+     */
+    private List<IFileSpec> getSourceAndTestFilesSpecs(final P4Connection p4Connection, final List<String> sourceAndTestFiles){
+        List<IFileSpec> fileSpecs;
+        try {
+            fileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceAndTestFiles));
+        } catch (ConnectionException | AccessException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        return fileSpecs;
     }
 
     /**
@@ -68,11 +90,11 @@ public class P4DiffAnalyzer {
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param clTo the newest changelist number in the range being analysed
-     * @param sourceFilesDirs the list of source directories for the source project being analysed
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
     private Set<SourceFileDiffContext> getChangesFromPreviousSubmit(P4Context p4Context, String clFrom, String clTo,
-                                                                    List<String> sourceFilesDirs){
+                                                                    List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
 
         if (clFrom.equals(clTo)){
@@ -80,8 +102,10 @@ public class P4DiffAnalyzer {
             return new HashSet<>();
         }
 
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom, clTo, sourceFilesDirs);
-        log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key -> convertDepotPathToTiaPath(key, sourceFilesDirs)).collect(Collectors.toList()));
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom, clTo,
+                sourceAndTestFilesSpecs);
+        log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
+                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
         readFileContentForVersion(p4Context.getP4Connection(), clFrom, true, sourceFileDiffContexts);
         readFileContentForVersion(p4Context.getP4Connection(), clTo, false, sourceFileDiffContexts);
@@ -95,12 +119,12 @@ public class P4DiffAnalyzer {
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param clTo the newest changelist number in the range being analysed
-     * @param sourceFilesDirs the list of source directories for the source project being analysed
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
     private Map<String, SourceFileDiffContext> getSourceFilesImpactedFromPreviousSubmit(P4Connection p4Connection,
                                                                                         String clFrom, String clTo,
-                                                                                        List<String> sourceFilesDirs){
+                                                                                        List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         log.info("Finding the impacted sources code files in P4 for the changelist range from {} to {}", clFrom, clTo);
 
@@ -111,12 +135,13 @@ public class P4DiffAnalyzer {
         try {
             List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
                     FileSpecBuilder.makeFileSpecList(filePaths), options);
+
             if (changeLists.isEmpty()){
                 log.warn("Couldn't find any changelists for the P4 file paths {}", filePaths);
             }
 
             for (IChangelistSummary changelistSummary : changeLists) {
-                buildDiffContextsForFilesInCL(p4Connection, changelistSummary, sourceFileDiffContexts, sourceFilesDirs);
+                buildDiffContextsForFilesInCL(p4Connection, changelistSummary, sourceFileDiffContexts, sourceAndTestFilesSpecs);
             }
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
@@ -130,14 +155,16 @@ public class P4DiffAnalyzer {
      * For each impacted source code file, load the file content from the starting revision and the head revision.
      *
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
-     * @param sourceFilesDirs the list of source directories for the source project being analysed
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getShelvedChanges(P4Context p4Context, List<String> sourceFilesDirs){
+    private Set<SourceFileDiffContext> getLocalChanges(P4Context p4Context, List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         List<IExtendedFileSpec> changedLocalFiles = getSourceFilesImpactedFromLocalChanges(p4Context.getP4Connection(),
-                sourceFileDiffContexts, sourceFilesDirs);
-        log.info("Source files found with staged changes: {}", sourceFileDiffContexts.keySet().stream().map( key -> convertDepotPathToTiaPath(key, sourceFilesDirs)).collect(Collectors.toList()));
+                sourceFileDiffContexts, sourceAndTestFilesSpecs);
+
+        log.info("Source files found with local changes: {}", sourceFileDiffContexts.keySet().stream().map( key ->
+                convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
         if (!changedLocalFiles.isEmpty()){
             readFileContentForVersion(p4Context.getP4Connection(), p4Context.getHeadCL(), true, sourceFileDiffContexts);
@@ -152,13 +179,13 @@ public class P4DiffAnalyzer {
      *
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param sourceFileDiffContexts the map of source files that were impacted in the diff range
-     * @param sourceFilesDirs the list of source directories for the source project being analysed
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return list of files that have been changes in the local workspace.
      */
     private List<IExtendedFileSpec> getSourceFilesImpactedFromLocalChanges(P4Connection p4Connection,
                                                                            Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                                           List<String> sourceFilesDirs){
-        log.info("Finding the impacted sources code files in P4 for local shelved changes compared to HEAD");
+                                                                           List<IFileSpec> sourceAndTestFilesSpecs){
+        log.info("Finding the impacted sources code files in P4 for local changes compared to HEAD");
         List<IExtendedFileSpec> sourceCodeFiles = new ArrayList<>();
 
         try {
@@ -171,7 +198,8 @@ public class P4DiffAnalyzer {
             if (openedFiles == null || openedFiles.isEmpty()){
                 log.info("No local workspace changes found");
             } else {
-                sourceCodeFiles = (List<IExtendedFileSpec>) buildDiffContextsForFileSpecs(openedFiles, sourceFileDiffContexts, sourceFilesDirs);
+                sourceCodeFiles = (List<IExtendedFileSpec>) buildDiffContextsForFileSpecs(p4Connection, openedFiles, sourceFileDiffContexts,
+                        sourceAndTestFilesSpecs);
             }
 
         } catch (P4JavaException e) {
@@ -183,42 +211,78 @@ public class P4DiffAnalyzer {
 
     private void buildDiffContextsForFilesInCL(P4Connection p4Connection, IChangelistSummary changelistSummary,
                                                Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                               List<String> sourceFilesDirs) {
+                                               List<IFileSpec> sourceAndTestFilesSpecs) {
         try {
             IChangelist changelist = p4Connection.getServer().getChangelist(changelistSummary.getId());
             List<IFileSpec> fileSpecs = changelist.getFiles(false);
-            buildDiffContextsForFileSpecs(fileSpecs, sourceFileDiffContexts, sourceFilesDirs);
+            buildDiffContextsForFileSpecs(p4Connection, fileSpecs, sourceFileDiffContexts, sourceAndTestFilesSpecs);
         } catch (ConnectionException | RequestException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
     }
 
-    private List<? extends IFileSpec> buildDiffContextsForFileSpecs(List<? extends IFileSpec> fileSpecs,
-                                                          Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                          List<String> sourceFilesDirs){
-        List<IFileSpec> sourceCodeFiles = new ArrayList<>();
+    private List<? extends IFileSpec> buildDiffContextsForFileSpecs(P4Connection p4Connection,
+                                                                    List<? extends IFileSpec> fileSpecs,
+                                                                    Map<String, SourceFileDiffContext> sourceFileDiffContexts,
+                                                                    List<IFileSpec> sourceAndTestFilesSpecs){
+        List<IFileSpec> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
+        List<String> openedFileDepotPaths = sourceCodeFiles.stream().map(file -> file.getDepotPathString()).collect(Collectors.toList());
+        Map<String, IFileSpec> localFileSpecs;
 
-        for (IFileSpec fileSpec: fileSpecs){
+        try {
+            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(openedFileDepotPaths));
+            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap( file -> file.getDepotPathString(), Function.identity()));
+        } catch (ConnectionException | AccessException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        for (IFileSpec fileSpec: sourceCodeFiles){
             String depotPath = fileSpec.getDepotPathString();
             FileAction changeType = fileSpec.getAction();
-            String tiaPath = convertDepotPathToTiaPath(depotPath, sourceFilesDirs);
-
-            if (!isFileSourceCode(tiaPath)){
-                continue;
-            }
+            String localPath = localFileSpecs.get(depotPath).getLocalPathString();
 
             if (isFileAdded(changeType)){
                 // if the old path doesn't exist but the new path is source code, a new source file has been added
-                buildDiffContext(null, tiaPath, changeType, sourceFileDiffContexts, depotPath);
+                buildDiffContext(null, localPath, changeType, sourceFileDiffContexts, depotPath);
             } else {
                 // file has been modified or deleted
-                buildDiffContext(tiaPath, null, changeType, sourceFileDiffContexts, depotPath);
+                buildDiffContext(localPath, null, changeType, sourceFileDiffContexts, depotPath);
             }
-
-            sourceCodeFiles.add(fileSpec);
         }
 
         return sourceCodeFiles;
+    }
+
+    private List<IFileSpec> filterValidSourceOrTestFiles(List<? extends IFileSpec> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
+        List<IFileSpec> validSourceOrTestFiles = new ArrayList<>();
+
+        for (IFileSpec fileSpec: allFileSpecs) {
+            String depotPath = fileSpec.getDepotPathString();
+
+            if (isFileSourceCode(depotPath) && isFileInSourceOrTestDir(depotPath, sourceAndTestFilesSpecs)){
+                validSourceOrTestFiles.add(fileSpec);
+            }
+        }
+
+        return validSourceOrTestFiles;
+    }
+
+    /**
+     * Check if the file exists in one of the source code or test file directories. If not, we don't want to proces
+     * the file. The file might below to another application outside the project being analyzed.
+     *
+     * @param depotPath the depot path of the file
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
+     * @return does the file exist in one of the source code or test directories being analysed
+     */
+    private boolean isFileInSourceOrTestDir(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs){
+        for (IFileSpec sourceAndTestFilesSpec: sourceAndTestFilesSpecs){
+            if (depotPath.contains(sourceAndTestFilesSpec.getDepotPathString())){
+                return true;
+            }
+        }
+        log.trace("Skipping file not found in a source or test directory being analysed: {}", depotPath);
+        return false;
     }
 
     /**
@@ -229,17 +293,17 @@ public class P4DiffAnalyzer {
      * src/main/java/com/example/Car.java
      *
      * @param depotPath
-     * @param sourceFilesDirs
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return
      */
-    private String convertDepotPathToTiaPath(String depotPath, List<String> sourceFilesDirs){
+    private String convertDepotPathToTiaPath(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs){
         String tiaMappingPath = depotPath;
 
         if (tiaMappingPath != null){
-            for (String sourceFilesDir : sourceFilesDirs){
-                if (tiaMappingPath.indexOf(sourceFilesDir) > -1){
+            for (IFileSpec sourceAndTestFilesSpec : sourceAndTestFilesSpecs){
+                if (tiaMappingPath.indexOf(sourceAndTestFilesSpec.getDepotPathString()) > -1){
                     // use +1 to remove the leading '/'
-                    tiaMappingPath = tiaMappingPath.substring(tiaMappingPath.indexOf(sourceFilesDir) + 1);
+                    tiaMappingPath = tiaMappingPath.substring(sourceAndTestFilesSpec.getDepotPathString().length() + 1);
                     break;
                 }
             }
@@ -305,7 +369,7 @@ public class P4DiffAnalyzer {
             for (IFileSpec fileSpec : revisionFileSpecs) {
                 InputStream inputStream = fileSpec.getContents(true);
                 if (inputStream == null) {
-                    log.info("No input stream for {}", fileSpec.getDepotPathString());
+                    log.warn("No input stream for {}", fileSpec.getDepotPathString());
                     continue;
                 }
 
