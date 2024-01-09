@@ -226,11 +226,12 @@ public class P4DiffAnalyzer {
                                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                                     List<IFileSpec> sourceAndTestFilesSpecs){
         List<IFileSpec> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
-        List<String> openedFileDepotPaths = sourceCodeFiles.stream().map(file -> file.getDepotPathString()).collect(Collectors.toList());
+        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(file -> file.getDepotPathString()).collect(Collectors.toList());
         Map<String, IFileSpec> localFileSpecs;
 
         try {
-            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(openedFileDepotPaths));
+            // use P4 where command to find out the local paths for the changed files (local or submitted)
+            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceCodeFileDepotPaths));
             localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap( file -> file.getDepotPathString(), Function.identity()));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
