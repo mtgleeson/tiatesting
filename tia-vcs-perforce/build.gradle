@@ -2,6 +2,7 @@ dependencies {
     implementation project(':tia-core')
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
     implementation 'com.perforce:p4java:2023.1.2512805'
+    implementation group: 'commons-io', name: 'commons-io', version: '2.15.1'
 }
 
 publishing {

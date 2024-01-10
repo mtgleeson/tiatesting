@@ -49,7 +49,7 @@ public class TestSelector {
      * @param vcsReader
      * @param sourceFilesDirNames
      * @param testFilesDirNames
-     * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
+     * @param checkLocalChanges should local changes be checked by Tia.
      * @return list of test suites to ignore in the current test run.
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,

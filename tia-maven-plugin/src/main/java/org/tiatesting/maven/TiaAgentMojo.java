@@ -76,7 +76,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     boolean tiaUpdateDB;
 
     /**
-     * Specifies the default option for whether Tia should analyse local unsubmitted (staged/shelved) changes when selecting tests.
+     * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     @Parameter(property = "tiaCheckLocalChanges")
     boolean tiaCheckLocalChanges;
@@ -183,7 +183,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
     }
 
     /**
-     * Check if Tia should analyze local staged/shelved changes.
+     * Check if Tia should analyze local changes.
      * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
      * committed changes only.
      *
@@ -191,7 +191,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     private String getCheckLocalChanges(){
         if (isTiaUpdateDB() && isTiaCheckLocalChanges()){
-            getLog().warn("Disabling the check for local staged changes as Tia is configured to update the DB.");
+            getLog().warn("Disabling the check for local changes as Tia is configured to update the DB.");
             return Boolean.toString(false);
         } else{
             return String.valueOf(isTiaCheckLocalChanges());
