@@ -9,7 +9,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import java.util.Map;
 
 @Mojo(name = "prepare-agent", defaultPhase = LifecyclePhase.INITIALIZE, requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
-public class AgentMojo extends TiaAgentMojo {
+public class AgentMojo extends AbstractTiaAgentMojo {
 
     /**
      * Name of the Tia Test Agent artifact.

@@ -1,11 +1,9 @@
 package org.tiatesting.maven;
 
 import org.apache.maven.artifact.Artifact;
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 
@@ -17,18 +15,12 @@ import java.util.Properties;
 
 import static java.lang.String.format;
 
-public abstract class TiaAgentMojo extends AbstractMojo {
+public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
     /**
      * Name of the property used in maven-surefire-plugin.
      */
     static final String SUREFIRE_ARG_LINE = "argLine";
-
-    /**
-     * Maven project.
-     */
-    @Parameter(property = "project", readonly = true)
-    private MavenProject project;
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -37,73 +29,6 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     @Parameter(property = "jacoco.propertyName")
     String propertyName;
-
-    /**
-     * The file path to the root folder of the project being analyzed.
-     *
-     */
-    @Parameter(property = "tiaProjectDir")
-    String tiaProjectDir;
-
-    /**
-     * The file path for the saved DB containing the previous analysis of the project.
-     */
-    @Parameter(property = "tiaDBFilePath")
-    String tiaDBFilePath;
-
-    /**
-     * The source files directories for the project being analyzed.
-     */
-    @Parameter(property = "tiaSourceFilesDirs")
-    String tiaSourceFilesDirs;
-
-    /**
-     * The test files directories for the project being analyzed.
-     */
-    @Parameter(property = "tiaTestFilesDirs")
-    String tiaTestFilesDirs;
-
-    /**
-     * Is TIA enabled?
-     */
-    @Parameter(property = "tiaEnabled")
-    boolean tiaEnabled;
-
-    /**
-     * Should the TIA DB be updated with this test run?
-     */
-    @Parameter(property = "tiaUpdateDB")
-    boolean tiaUpdateDB;
-
-    /**
-     * Specifies the default option for whether Tia should analyse local changes when selecting tests.
-     */
-    @Parameter(property = "tiaCheckLocalChanges")
-    boolean tiaCheckLocalChanges;
-
-    /**
-     * Specifies the server URI of the VCS system.
-     */
-    @Parameter(property = "tiaVcsServerUri")
-    String tiaVcsServerUri;
-
-    /**
-     * Specifies the username for connecting to the VCS system.
-     */
-    @Parameter(property = "tiaVcsUserName")
-    String tiaVcsUserName;
-
-    /**
-     * Specifies the password for connecting to the VCS system.
-     */
-    @Parameter(property = "tiaVcsPassword")
-    String tiaVcsPassword;
-
-    /**
-     * Specifies the client name used when connecting to the VCS system.
-     */
-    @Parameter(property = "tiaVcsClientName")
-    String tiaVcsClientName;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -191,7 +116,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
      */
     private String getCheckLocalChanges(){
         if (isTiaUpdateDB() && isTiaCheckLocalChanges()){
-            getLog().warn("Disabling the check for local changes as Tia is configured to update the DB.");
+            getLog().info("Disabling the check for local changes as Tia is configured to update the DB.");
             return Boolean.toString(false);
         } else{
             return String.valueOf(isTiaCheckLocalChanges());
@@ -299,55 +224,7 @@ public abstract class TiaAgentMojo extends AbstractMojo {
         return enabled;
     }
 
-    public MavenProject getProject(){
-        return project;
-    }
-
     public String getPropertyName(){
         return propertyName;
-    }
-
-    public String getTiaProjectDir(){
-        return tiaProjectDir;
-    }
-
-    public String getTiaDBFilePath(){
-        return tiaDBFilePath;
-    }
-
-    public String getTiaSourceFilesDirs() {
-        return tiaSourceFilesDirs;
-    }
-
-    public String getTiaTestFilesDirs() {
-        return tiaTestFilesDirs;
-    }
-
-    public boolean isTiaEnabled() {
-        return tiaEnabled;
-    }
-
-    public boolean isTiaUpdateDB() {
-        return tiaUpdateDB;
-    }
-
-    public boolean isTiaCheckLocalChanges() {
-        return tiaCheckLocalChanges;
-    }
-
-    public String getTiaVcsServerUri() {
-        return tiaVcsServerUri;
-    }
-
-    public String getTiaVcsUserName() {
-        return tiaVcsUserName;
-    }
-
-    public String getTiaVcsPassword() {
-        return tiaVcsPassword;
-    }
-
-    public String getTiaVcsClientName() {
-        return tiaVcsClientName;
     }
 }

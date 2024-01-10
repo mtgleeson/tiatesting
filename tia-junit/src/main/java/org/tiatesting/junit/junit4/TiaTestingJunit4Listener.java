@@ -7,14 +7,12 @@ import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
+import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
-import org.tiatesting.report.ReportGenerator;
-import org.tiatesting.report.TextFileReportGenerator;
 
 import java.util.Map;
 import java.util.Set;
@@ -137,8 +135,8 @@ public class TiaTestingJunit4Listener extends RunListener {
                 vcsReader.getHeadCommit());
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
-        ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
-        reportGenerator.generateReport(this.dataStore);
+        //ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
+        //reportGenerator.generateReport(this.dataStore);
     }
 
     private String getTestSuiteName(Description description){

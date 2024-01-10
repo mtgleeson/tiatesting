@@ -3,28 +3,9 @@ dependencies {
     implementation project(':tia-persistence')
     implementation project(':tia-diffanalyzer')
     implementation project(':tia-vcs-git')
-    implementation project(':tia-report')
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
-    //implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '5.13.0.202109080827-r'
-
-    // dependencies for the client of a custom agent
-    //implementation 'com.google.code.gson:gson:2.8.2'
-    //implementation "com.squareup.okhttp3:okhttp:3.9.0"
-
-    // implementation group: 'org.eclipse.jgit', name: 'org.eclipse.jgit', version: '4.8.0.201706111038-r'
-    //implementation group: 'org.javassist', name: 'javassist', version: '3.22.0-GA'
-    //testimplementation group: 'commons-io', name: 'commons-io', version: '2.5'
-    //testimplementation group: 'org.mockito', name: 'mockito-all', version: '1.10.19'
-
-
-
-    //implementation group: 'org.ow2.asm', name: 'asm', version: '9.2'
-    //implementation group: 'org.ow2.asm', name: 'asm-commons', version: '9.2'
-    //implementation group: 'org.ow2.asm', name: 'asm-analysis', version: '9.2'
-    //implementation group: 'org.ow2.asm', name: 'asm-util', version: '9.2'
-    //implementation group: 'org.ow2.asm', name: 'asm-tree', version: '9.2'
 }
 
 
@@ -97,26 +78,3 @@ publishing {
         }
     }
 }
-
-
-/*
-plugins {
-    id 'groovy'
-}
-
-version 'unspecified'
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation 'org.codehaus.groovy:groovy-all:3.0.5'
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
-}
-
-test {
-    useJUnitPlatform()
-}
-*/
