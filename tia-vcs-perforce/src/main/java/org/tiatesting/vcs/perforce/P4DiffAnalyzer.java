@@ -37,28 +37,27 @@ public class P4DiffAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(P4DiffAnalyzer.class);
 
     /**
-     * Build the list of files that have changes either since the previously stored submit, or from shelved changes.
+     * Build the list of files that have changes either since the previously stored submit, or from local changes.
      * Return the list of SourceFileDiffContext.
      *
      * @param p4Context object used to hold data about a P4 repository being analysed by Tia.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param sourceAndTestFiles the list of source code and test files for the source project being analysed
-     * @param checkUnsubmittedChanges should shelved changes be analyzed for test selection
+     * @param checkUnsubmittedChanges should local changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(P4Context p4Context, String clFrom,
+    protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String clFrom,
                                                                final List<String> sourceAndTestFiles,
-                                                               boolean checkUnsubmittedChanges) {
+                                                               final boolean checkUnsubmittedChanges) {
         String clTo = p4Context.getHeadCL();
-
         List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
 
         // get changes from the previously stored CL number to HEAD
         Set<SourceFileDiffContext> sourceFileDiffContexts;
         sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, clFrom, clTo, sourceAndTestFilesSpecs);
 
+        // get the local changes compared to local HEAD
         if (checkUnsubmittedChanges){
-            // get the local shelved changes compared to local HEAD
             sourceFileDiffContexts.addAll(getLocalChanges(p4Context, sourceAndTestFilesSpecs));
         }
 

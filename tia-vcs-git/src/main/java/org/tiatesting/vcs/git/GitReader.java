@@ -12,6 +12,7 @@ import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -34,7 +35,9 @@ public class GitReader implements VCSReader {
     @Override
     public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
                                                             final List<String> testFilesDirs, final boolean checkLocalChanges) {
-        return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom, checkLocalChanges);
+        List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
+        sourceAndTestFilesDir.addAll(testFilesDirs);
+        return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom, sourceAndTestFilesDir, checkLocalChanges);
     }
 
     @Override
