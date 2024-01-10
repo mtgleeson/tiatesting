@@ -9,6 +9,7 @@ import org.tiatesting.core.coverage.TestSuiteTracker;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.time.Instant;
 import java.util.*;
 
 /**
@@ -65,7 +66,7 @@ public class MapDataStore implements DataStore {
         storedMapping.getTestSuitesFailed().removeAll(testSuiteTrackers.keySet());
         storedMapping.getTestSuitesFailed().addAll(testSuitesFailed);
 
-        storedMapping.setLastUpdated(new Date());
+        storedMapping.setLastUpdated(Instant.now());
         //mergedTestMappings.forEach( (testClass, methodsCalled) ->
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
 

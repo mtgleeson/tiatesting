@@ -11,8 +11,6 @@ import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.report.ReportGenerator;
-import org.tiatesting.report.TextFileReportGenerator;
 
 import java.io.IOException;
 import java.util.Map;
@@ -90,8 +88,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
                 testRunMethodsImpacted, vcsReader.getHeadCommit());
 
         // TODO temp. Create a new maven/gradle task/mojo that generates the file
-        ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
-        reportGenerator.generateReport(this.dataStore);
+        //ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
+        //reportGenerator.generateReport(this.dataStore);
     }
 
 }

@@ -85,7 +85,7 @@ public class TiaSpockGitPluginExtension {
             boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
 
             if (hasUserSpecifiedTests){
-                LOGGER.warn("Users has specified tests, disabling Tia");
+                LOGGER.info("Users has specified tests, disabling Tia");
                 enabled = false;
             }
         }
