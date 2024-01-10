@@ -19,6 +19,7 @@ import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
@@ -38,21 +39,24 @@ public class GitDiffAnalyzer {
      *
      * @param gitContext object used to hold data about a Git repository being analysed by Tia.
      * @param commitFrom the oldest commit number in the range being analysed
+     * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @param checkLocalChanges should the staged changes
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(GitContext gitContext, String commitFrom,
-                                                               boolean checkLocalChanges) {
+    protected Set<SourceFileDiffContext> buildDiffFilesContext(final GitContext gitContext, final String commitFrom,
+                                                               final List<String> sourceAndTestDirs,
+                                                               final boolean checkLocalChanges) {
         ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
         ObjectId commitToObjectId = gitContext.getHeadObjectId();
 
         // get changes from the previously stored commit to HEAD
         Set<SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getChangesFromPreviousCommit(gitContext, commitFromObjectId, commitToObjectId);
+        sourceFileDiffContexts = getChangesFromPreviousCommit(gitContext, commitFromObjectId, commitToObjectId,
+                sourceAndTestDirs);
 
         if (checkLocalChanges){
             // get the local staged changes compared to local HEAD
-            sourceFileDiffContexts.addAll(getStagedChanges(gitContext));
+            sourceFileDiffContexts.addAll(getStagedChanges(gitContext, sourceAndTestDirs));
         }
 
         return sourceFileDiffContexts;
@@ -65,13 +69,14 @@ public class GitDiffAnalyzer {
      * @param gitContext object used to hold data about a Git repository being analysed by Tia.
      * @param commitFrom the oldest commit number in the range being analysed
      * @param commitTo the newest commit number in the range being analysed
+     * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getChangesFromPreviousCommit(GitContext gitContext,
-                                                                     ObjectId commitFrom,
-                                                                     ObjectId commitTo){
+    private Set<SourceFileDiffContext> getChangesFromPreviousCommit(GitContext gitContext, ObjectId commitFrom,
+                                                                    ObjectId commitTo, List<String> sourceAndTestDirs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousCommit(gitContext.getRepository(), commitFrom, commitTo);
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousCommit(gitContext.getRepository(), commitFrom,
+                commitTo, sourceAndTestDirs);
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet());
 
         readFileContentForVersion(gitContext.getRepository(), commitFrom, true, sourceFileDiffContexts);
@@ -86,11 +91,12 @@ public class GitDiffAnalyzer {
      * @param repository the Git repository being analysed
      * @param commitFrom the oldest commit number in the range being analysed
      * @param commitTo the newest commit number in the range being analysed
+     * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
     private Map<String, SourceFileDiffContext> getSourceFilesImpactedFromPreviousCommit(Repository repository,
-                                                                                        ObjectId commitFrom,
-                                                                                        ObjectId commitTo){
+                                                                                        ObjectId commitFrom, ObjectId commitTo,
+                                                                                        List<String> sourceAndTestDirs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         log.info("Finding the impacted sources code files in Git for the commit range from {} to {}",
                 commitFrom.getName(), commitTo.getName());
@@ -99,7 +105,7 @@ public class GitDiffAnalyzer {
             diffFormatter.setRepository(repository);
 
             for (DiffEntry diffEntry : diffFormatter.scan(commitFrom, commitTo)) {
-                buildDiffContextsFromDiffEntries(diffEntry, sourceFileDiffContexts);
+                buildDiffContextsFromDiffEntries(diffEntry, sourceFileDiffContexts, getProjectPath(repository), sourceAndTestDirs);
             }
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);
@@ -113,11 +119,12 @@ public class GitDiffAnalyzer {
      * For each impacted source code file, load the file content from the starting revision and the head revision.
      *
      * @param gitContext object used to hold data about a Git repository being analysed by Tia.
+     * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getStagedChanges(GitContext gitContext){
+    private Set<SourceFileDiffContext> getStagedChanges(GitContext gitContext, List<String> sourceAndTestDirs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getSourceFilesImpactedFromStagedChanges(gitContext.getRepository());
+        sourceFileDiffContexts = getSourceFilesImpactedFromStagedChanges(gitContext.getRepository(), sourceAndTestDirs);
         log.info("Source files found with staged changes: {}", sourceFileDiffContexts.keySet());
 
         readFileContentForVersion(gitContext.getRepository(), gitContext.getHeadObjectId(), true, sourceFileDiffContexts);
@@ -130,9 +137,11 @@ public class GitDiffAnalyzer {
      * Get all source files impacted by local uncommitted changes compared to local HEAD.
      *
      * @param repository the Git repository being analysed
+     * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private  Map<String, SourceFileDiffContext> getSourceFilesImpactedFromStagedChanges(Repository repository){
+    private  Map<String, SourceFileDiffContext> getSourceFilesImpactedFromStagedChanges(Repository repository,
+                                                                                        List<String> sourceAndTestDirs){
         log.info("Finding the impacted sources code files in Git for local uncommited changes to HEAD");
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         AbstractTreeIterator commitTreeIterator = prepareTreeParser( repository,  Constants.HEAD );
@@ -141,7 +150,7 @@ public class GitDiffAnalyzer {
         try (DiffFormatter diffFormatter = new DiffFormatter(null)) {
             diffFormatter.setRepository(repository);
             for (DiffEntry diffEntry : diffFormatter.scan( commitTreeIterator, workTreeIterator )){
-                buildDiffContextsFromDiffEntries(diffEntry, sourceFileDiffContexts);
+                buildDiffContextsFromDiffEntries(diffEntry, sourceFileDiffContexts, getProjectPath(repository), sourceAndTestDirs);
             }
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);
@@ -150,18 +159,24 @@ public class GitDiffAnalyzer {
         return sourceFileDiffContexts;
     }
 
-    private void buildDiffContextsFromDiffEntries(DiffEntry diffEntry, Map<String, SourceFileDiffContext> sourceFileDiffContexts) {
+    private void buildDiffContextsFromDiffEntries(DiffEntry diffEntry, Map<String, SourceFileDiffContext> sourceFileDiffContexts,
+                                                  String projectPath, List<String> sourceAndTestDirs) {
         String diffOldPath = diffEntry.getOldPath();
         String diffNewPath = diffEntry.getNewPath();
         DiffEntry.ChangeType changeType = diffEntry.getChangeType();
         log.trace("Found diff entry: old path: {}, new path: {}, change type: {}", diffOldPath, diffNewPath, changeType);
 
-        if (isFileSourceCode(diffOldPath)){
+        String localOldPath = diffOldPath.contains(File.separator) ? diffOldPath : diffOldPath.replaceAll("\\\\", File.separator);
+        localOldPath = projectPath + File.separator + localOldPath;
+        String localNewPath = diffNewPath.contains(File.separator) ? diffNewPath : diffNewPath.replaceAll("\\\\", File.separator);
+        localNewPath = projectPath + File.separator + localNewPath;
+
+        if (isValidSourceOrTestFile(localOldPath, sourceAndTestDirs)){
             // file has been modified or deleted
-            buildDiffContext(diffOldPath, diffNewPath, changeType, sourceFileDiffContexts, diffOldPath);
-        } else if (isFileSourceCode(diffNewPath)){
+            buildDiffContext(localOldPath, localNewPath, changeType, sourceFileDiffContexts, diffOldPath);
+        } else if (isValidSourceOrTestFile(localNewPath, sourceAndTestDirs)){
             // if the old path doesn't exist but the new path is source code, a new source file has been added
-            buildDiffContext(diffOldPath, diffNewPath, changeType, sourceFileDiffContexts, diffNewPath);
+            buildDiffContext(localOldPath, localNewPath, changeType, sourceFileDiffContexts, diffNewPath);
         }
     }
 
@@ -328,5 +343,35 @@ public class GitDiffAnalyzer {
     private boolean isFileSourceCode(String fileName) {
         return fileName.toLowerCase().endsWith("." + JAVA_FILE_EXT) ||
                 fileName.toLowerCase().endsWith("." + GROOVY_FILE_EXT);
+    }
+
+    /**
+     * Return the full path to the directory of the project.
+     *
+     * @param repository
+     * @return
+     */
+    private String getProjectPath(Repository repository){
+        String projectPathFull;
+        try {
+            projectPathFull = repository.getDirectory().getParentFile().getCanonicalPath();
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
+        return projectPathFull;
+    }
+
+    private boolean isValidSourceOrTestFile(String fileFullPath, List<String> sourceAndTestDirs){
+        return isFileSourceCode(fileFullPath) && isFileInSourceOrTestDir(fileFullPath, sourceAndTestDirs);
+    }
+
+    private boolean isFileInSourceOrTestDir(String fileFullPath, List<String> sourceAndTestDirs){
+        for (String sourceAndTestDir: sourceAndTestDirs){
+            if (fileFullPath.contains(sourceAndTestDir)){
+                return true;
+            }
+        }
+        log.trace("Skipping file not found in a source or test directory being analysed: {}", fileFullPath);
+        return false;
     }
 }

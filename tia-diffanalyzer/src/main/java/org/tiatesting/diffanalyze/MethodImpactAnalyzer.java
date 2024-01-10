@@ -81,8 +81,8 @@ public class MethodImpactAnalyzer {
     }
 
     private Set<Integer> getMethodsTrackedForSourceFile(final Map<String, Set<Integer>> sourceFilesTracked,
-                                                                    final String originalFilePath,
-                                                                    final List<String> sourceFilesDirs){
+                                                        final String originalFilePath,
+                                                        final List<String> sourceFilesDirs){
         String fileName = originalFilePath;
 
         for (String sourceFilesDir : sourceFilesDirs){

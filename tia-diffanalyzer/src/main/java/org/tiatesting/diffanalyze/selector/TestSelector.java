@@ -160,7 +160,6 @@ public class TestSelector {
         testFilePath = testFilePath.replaceAll("\\." + GROOVY_FILE_EXT, "");
 
         for(String testFilesDir : testFilesDirs){
-            testFilesDir = testFilesDir.startsWith("/") ? testFilesDir.substring(1, testFilesDir.length()) : testFilesDir; // trim leading /
             if (testFilePath.startsWith(testFilesDir)){
                 testFilePath = testFilePath.replace(testFilesDir, "");
                 break;
