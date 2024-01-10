@@ -43,12 +43,12 @@ public class P4DiffAnalyzer {
      * @param p4Context object used to hold data about a P4 repository being analysed by Tia.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param sourceAndTestFiles the list of source code and test files for the source project being analysed
-     * @param checkUnsubmittedChanges should local changes be analyzed for test selection
+     * @param checkLocalChanges should local changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
     protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String clFrom,
                                                                final List<String> sourceAndTestFiles,
-                                                               final boolean checkUnsubmittedChanges) {
+                                                               final boolean checkLocalChanges) {
         String clTo = p4Context.getHeadCL();
         List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
 
@@ -57,7 +57,7 @@ public class P4DiffAnalyzer {
         sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, clFrom, clTo, sourceAndTestFilesSpecs);
 
         // get the local changes compared to local HEAD
-        if (checkUnsubmittedChanges){
+        if (checkLocalChanges){
             sourceFileDiffContexts.addAll(getLocalChanges(p4Context, sourceAndTestFilesSpecs));
         }
 
@@ -150,7 +150,7 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Find all the source code files that have been changed locally & staged compared to HEAD.
+     * Find all the source code files that have been changed locally compared to HEAD.
      * For each impacted source code file, load the file content from the starting revision and the head revision.
      *
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.

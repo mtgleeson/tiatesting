@@ -31,7 +31,7 @@ public interface VCSReader {
      * @param commitFrom
      * @param sourceFilesDirs the list of source code directories for the source project being analysed
      * @param testFilesDirs the list of test file directories for the project being analysed
-     * @param checkLocalChanges should local unsubmitted changes be checked by Tia. These need to staged/shelved.
+     * @param checkLocalChanges should local changes be checked by Tia.
      * @return
      */
     Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,

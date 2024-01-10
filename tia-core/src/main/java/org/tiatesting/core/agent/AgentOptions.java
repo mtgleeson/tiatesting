@@ -61,12 +61,12 @@ public class AgentOptions {
     private static final String DEFAULT_UPDATE_DB = "false";
 
     /**
-     * Specifies whether Tia should analyse local unsubmitted (staged/shelved) changes when selecting tests.
+     * Specifies whether Tia should analyse local changes when selecting tests.
      */
     public static final String CHECK_LOCAL_CHANGES = "checkLocalChanges";
 
     /**
-     * Specifies the default option for whether Tia should analyse local unsubmitted (staged/shelved) changes when selecting tests.
+     * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     private static final String DEFAULT_CHECK_LOCAL_CHANGES = "false";
 
