@@ -1,10 +1,10 @@
 package org.tiatesting.persistence;
 
-import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.*;
 
 public class StoredMapping implements Serializable {
@@ -35,9 +35,9 @@ public class StoredMapping implements Serializable {
     private Map<Integer, MethodImpactTracker> methodsTracked = new HashMap<>();
 
     /**
-     * THe date and time the stored mapping was last updated.
+     * The date and time the stored mapping was last updated.
      */
-    private Date lastUpdated;
+    private Instant lastUpdated;
 
     public String getCommitValue() {
         return commitValue;
@@ -63,11 +63,11 @@ public class StoredMapping implements Serializable {
         this.testSuitesFailed = testSuitesFailed;
     }
 
-    public Date getLastUpdated() {
+    public Instant getLastUpdated() {
         return lastUpdated;
     }
 
-    public void setLastUpdated(Date lastUpdated) {
+    public void setLastUpdated(Instant lastUpdated) {
         this.lastUpdated = lastUpdated;
     }
 

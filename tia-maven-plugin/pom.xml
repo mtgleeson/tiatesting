@@ -28,6 +28,16 @@
             <version>1.1.0</version>
         </dependency>
         <dependency>
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-report</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-persistence</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
             <version>3.6.3</version>

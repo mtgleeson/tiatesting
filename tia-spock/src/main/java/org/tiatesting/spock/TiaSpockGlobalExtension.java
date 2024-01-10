@@ -53,7 +53,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 this.checkLocalChanges = false;
                 if(checkLocalChanges){
                     // user was trying to check for local changes - let them know they can't
-                    log.warn("Disabling the check for local changes as Tia is configured to update the DB.");
+                    log.info("Disabling the check for local changes as Tia is configured to update the DB.");
                 }
             } else {
                 // not updating the DB, no need to use the Spock listener
