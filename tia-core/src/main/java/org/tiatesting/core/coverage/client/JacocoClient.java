@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.sourcefile.FileExtensions;
 
 import java.io.File;
 import java.io.IOException;
@@ -155,7 +156,7 @@ public class JacocoClient {
     private void loadClasses(){
         String classesDirsStr = System.getProperty("tiaClassFilesDirs");
         List<String> classesDirs = classesDirsStr != null ? Arrays.asList(classesDirsStr.split(",")) : null;
-        String classExtension = ".class";
+        String classExtension = "." + FileExtensions.CLASS_FILE_EXT;
 
         for (String classesDir: classesDirs){
             classesDir = getProjectDir() + classesDir;
