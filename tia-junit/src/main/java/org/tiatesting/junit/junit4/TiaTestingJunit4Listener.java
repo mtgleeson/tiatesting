@@ -185,12 +185,8 @@ public class TiaTestingJunit4Listener extends RunListener {
                     // convert from the full file system path for the class files into the class name
                     .map(p -> p.toString())
                     .filter(f -> f.toLowerCase().endsWith(classFileExt))
-                    .map(p ->
-                            p.replace(testClassesDir, "")
-                                    .replace(classFileExt, "")
-                                    .replace(File.separator, ".")
-                                    .substring((p.startsWith(File.separator) ? 1 : 0))
-                    )
+                    .map(p -> p.replace(testClassesDir, "").replace(classFileExt, ""))
+                    .map(p -> p.substring((p.startsWith(File.separator) ? 1 : 0)).replace(File.separator, "."))
                     .collect(Collectors.toSet());
         } catch (IOException e) {
             throw new RuntimeException(e);
