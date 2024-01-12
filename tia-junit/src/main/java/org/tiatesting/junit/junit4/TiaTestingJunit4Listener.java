@@ -6,6 +6,7 @@ import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -120,12 +122,47 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         String testSuiteName = getTestSuiteName(description);
         log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
-        TestSuiteTracker testSuiteTracker = new TestSuiteTracker(testSuiteName);
-        testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
         CoverageResult coverageResult = this.coverageClient.collectCoverage();
-        testSuiteTracker.setClassesImpacted(coverageResult.getClassesInvoked());
-        this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
+        List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
+
+        // if the test suite is a parameterized test, we may already have a testSuiteTracker for the parent class
+        // group the coverage for all parameterized tests into its parent class
+        TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
+        if (testSuiteTracker == null){
+            addNewTestSuiteTracker(testSuiteName, classImpactTrackers);
+        }else {
+            addClassTrackersToExistingTestSuiteTracker(classImpactTrackers, testSuiteTracker);
+        }
+
         testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+    }
+
+    private static void addClassTrackersToExistingTestSuiteTracker(List<ClassImpactTracker> classImpactTrackers,
+                                                                   TestSuiteTracker testSuiteTracker) {
+        // merge parameterized class coverage
+        for (ClassImpactTracker newClassImpactTracker : classImpactTrackers){
+            // check if the class is already tracked for the test suite
+            boolean classTrackerAdded = false;
+            for (ClassImpactTracker classImpactTracker : testSuiteTracker.getClassesImpacted()){
+                if (classImpactTracker.getSourceFilename().equals(newClassImpactTracker.getSourceFilename())){
+                    classImpactTracker.getMethodsImpacted().addAll(newClassImpactTracker.getMethodsImpacted());
+                    classTrackerAdded = true;
+                    break;
+                }
+            }
+
+            if (!classTrackerAdded){
+                testSuiteTracker.getClassesImpacted().add(newClassImpactTracker);
+            }
+        }
+    }
+
+    private void addNewTestSuiteTracker(String testSuiteName, List<ClassImpactTracker> classImpactTrackers) {
+        TestSuiteTracker testSuiteTracker;
+        testSuiteTracker = new TestSuiteTracker(testSuiteName);
+        testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
+        testSuiteTracker.setClassesImpacted(classImpactTrackers);
+        this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
     }
 
     /**
@@ -147,7 +184,12 @@ public class TiaTestingJunit4Listener extends RunListener {
     }
 
     private String getTestSuiteName(Description description){
-        return description.getClassName();
+        if (description.getTestClass() == null && !description.getChildren().isEmpty()){
+            //parameterized test, get the name of the class containing the test being executed rather than the generated parameter classes
+            return description.getChildren().get(0).getClassName();
+        }else {
+            return description.getClassName();
+        }
     }
 
     /**
