@@ -44,11 +44,11 @@ public class P4Reader implements VCSReader {
     }
 
     @Override
-    public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
+    public Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                             final List<String> testFilesDirs, final boolean checkLocalChanges) {
         List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
         sourceAndTestFilesDir.addAll(testFilesDirs);
-        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, commitFrom, sourceAndTestFilesDir, checkLocalChanges);
+        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
     }
 
     @Override

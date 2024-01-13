@@ -41,12 +41,12 @@ public class P4DiffAnalyzer {
      * Return the list of SourceFileDiffContext.
      *
      * @param p4Context object used to hold data about a P4 repository being analysed by Tia.
-     * @param clFrom the oldest changelist number in the range being analysed
+     * @param baseCl the current changelist stored in the mapping
      * @param sourceAndTestFiles the list of source code and test files for the source project being analysed
      * @param checkLocalChanges should local changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String clFrom,
+    protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String baseCl,
                                                                final List<String> sourceAndTestFiles,
                                                                final boolean checkLocalChanges) {
         String clTo = p4Context.getHeadCL();
@@ -54,7 +54,7 @@ public class P4DiffAnalyzer {
 
         // get changes from the previously stored CL number to HEAD
         Set<SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, clFrom, clTo, sourceAndTestFilesSpecs);
+        sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, baseCl, clTo, sourceAndTestFilesSpecs);
 
         // get the local changes compared to local HEAD
         if (checkLocalChanges){
@@ -87,26 +87,27 @@ public class P4DiffAnalyzer {
      * For each impacted source code file, load the file content from the starting revision and the head revision.
      *
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
-     * @param clFrom the oldest changelist number in the range being analysed
+     * @param baseCl the current changelist stored in the mapping
      * @param clTo the newest changelist number in the range being analysed
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getChangesFromPreviousSubmit(P4Context p4Context, String clFrom, String clTo,
+    private Set<SourceFileDiffContext> getChangesFromPreviousSubmit(P4Context p4Context, String baseCl, String clTo,
                                                                     List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
 
-        if (clFrom.equals(clTo)){
+        if (baseCl.equals(clTo)){
             log.info("Workspace Head is at the same version tracked by Tia, no submitted differences to check for.");
             return new HashSet<>();
         }
 
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom, clTo,
+        Integer clFrom = Integer.valueOf(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom.toString(), clTo,
                 sourceAndTestFilesSpecs);
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
-        readFileContentForVersion(p4Context.getP4Connection(), clFrom, true, sourceFileDiffContexts);
+        readFileContentForVersion(p4Context.getP4Connection(), baseCl, true, sourceFileDiffContexts);
         readFileContentForVersion(p4Context.getP4Connection(), clTo, false, sourceFileDiffContexts);
 
         return new HashSet<>(sourceFileDiffContexts.values());

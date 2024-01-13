@@ -33,11 +33,11 @@ public class GitReader implements VCSReader {
     }
 
     @Override
-    public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
+    public Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                             final List<String> testFilesDirs, final boolean checkLocalChanges) {
         List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
         sourceAndTestFilesDir.addAll(testFilesDirs);
-        return gitDiffAnalyzer.buildDiffFilesContext(gitContext, commitFrom, sourceAndTestFilesDir, checkLocalChanges);
+        return gitDiffAnalyzer.buildDiffFilesContext(gitContext, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
     }
 
     @Override
