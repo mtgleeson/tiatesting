@@ -72,10 +72,11 @@ public class P4Reader implements VCSReader {
         GetChangelistsOptions options = new GetChangelistsOptions();
         options.setMaxMostRecent(1);
         String workspaceHeadCL = null;
+        String workspacePath = p4Connection.getClient().getStream() + "/...#have";
 
         try {
             List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
-                    FileSpecBuilder.makeFileSpecList("...#have"), options);
+                    FileSpecBuilder.makeFileSpecList(workspacePath), options);
             if (changeLists.isEmpty()){
                 throw new VCSAnalyzerException("Couldn't find the head changelist for the workspace");
             }
