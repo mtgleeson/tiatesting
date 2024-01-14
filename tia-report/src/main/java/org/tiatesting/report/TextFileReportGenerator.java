@@ -12,6 +12,8 @@ import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -40,14 +42,18 @@ public class TextFileReportGenerator implements ReportGenerator{
         }
 
         try(Writer writer = Files.newBufferedWriter(Paths.get("tia-test-mapping-" + filenameExt + ".txt"))) {
-            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", Locale.ENGLISH).withZone(ZoneId.systemDefault());
+            Locale locale = Locale.getDefault();
+            NumberFormat nf = NumberFormat.getPercentInstance(locale);
+            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
             LocalDateTime localDate = LocalDateTime.now();
             writer.write("Test Mapping Report generated at " + dtf.format(localDate) + System.lineSeparator());
             writer.write("Test mapping valid for commit number: " + storedMapping.getCommitValue() + System.lineSeparator());
             writer.write("Number of tests classes with mappings: " + storedMapping.getTestSuitesTracked().keySet().size()
                     + System.lineSeparator());
-            writer.write("Tia DB last updated: " + dtf.format(storedMapping.getLastUpdated()) + System.lineSeparator()
-                    + System.lineSeparator());
+            writer.write("Tia DB last updated: " + dtf.format(storedMapping.getLastUpdated()) + System.lineSeparator());
+            writer.write("Number of runs: " + storedMapping.getNumRuns() + System.lineSeparator());
+            writer.write("Average run time (sec): " + (new DecimalFormat("#,###").format((storedMapping.getTotalRunTime() / storedMapping.getNumRuns()))
+                    + System.lineSeparator() + System.lineSeparator()));
 
             writer.write("Failed tests:");
             if (storedMapping.getTestSuitesFailed().size() == 0){

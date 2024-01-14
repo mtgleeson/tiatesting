@@ -28,10 +28,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
+    private final Set<String> selectedTests;
     private final SpecificationUtil specificationUtil;
     private boolean stopStepRan;
 
-    public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore){
+    public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests){
         this.coverageClient = new JacocoClient();
         this.coverageClient.initialize();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
@@ -41,6 +42,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.specificationUtil = new SpecificationUtil();
         this.vcsReader = vcsReader;
         this.dataStore = dataStore;
+        this.selectedTests = selectedTests;
     }
 
     @Override
@@ -84,12 +86,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the test mapping.");
-        this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, runnerTestSuites,
-                testRunMethodsImpacted, vcsReader.getHeadCommit());
-
-        // TODO temp. Create a new maven/gradle task/mojo that generates the file
-        //ReportGenerator reportGenerator = new TextFileReportGenerator(this.vcsReader.getBranchName());
-        //reportGenerator.generateReport(this.dataStore);
+        this.dataStore.persistTestMapping(this.testSuiteTrackers, this.testSuitesFailed, runnerTestSuites, selectedTests,
+                testRunMethodsImpacted, vcsReader.getHeadCommit(), 0l);
     }
 
 }

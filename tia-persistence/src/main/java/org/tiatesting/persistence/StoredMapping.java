@@ -39,6 +39,30 @@ public class StoredMapping implements Serializable {
      */
     private Instant lastUpdated;
 
+    /**
+     * The total number of test runs that have been executed using Tia.
+     */
+    private long numRuns;
+
+    /**
+     * The total amount of time in seconds for all executions of test runs using Tia. Use to calculate the average run time.
+     */
+    private long totalRunTime;
+
+    /**
+     * Increment the number of test runs executed using Tia by 1.
+     */
+    public void incrementNumRuns(){
+        this.numRuns++;
+    }
+
+    /**
+     * Increment the total run time by a given amount.
+     */
+    public void incrementTotalRunTime(long additionalRunTime){
+        this.totalRunTime += additionalRunTime;
+    }
+
     public String getCommitValue() {
         return commitValue;
     }
@@ -77,6 +101,22 @@ public class StoredMapping implements Serializable {
 
     public void setMethodsTracked(Map<Integer, MethodImpactTracker> methodsTracked) {
         this.methodsTracked = methodsTracked;
+    }
+
+    public long getNumRuns() {
+        return numRuns;
+    }
+
+    public void setNumRuns(long numRuns) {
+        this.numRuns = numRuns;
+    }
+
+    public long getTotalRunTime() {
+        return totalRunTime;
+    }
+
+    public void setTotalRunTime(long totalRunTime) {
+        this.totalRunTime = totalRunTime;
     }
 
     @Override
