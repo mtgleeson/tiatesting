@@ -333,9 +333,17 @@ public class P4DiffAnalyzer {
                                            Map<String, SourceFileDiffContext> sourceFileDiffContexts) {
         try {
             List<String> filePaths = new ArrayList<>();
-            for (String depotPaths : sourceFileDiffContexts.keySet()){
-                filePaths.add(depotPaths + "@" + cl);
-            }
+            sourceFileDiffContexts.forEach((depotPath, sourceFileDiffContext) -> {
+                // don't try read the original content for files that were added
+                if (forOriginal && sourceFileDiffContext.getChangeType() != ChangeType.ADD){
+                    filePaths.add(depotPath + "@" + cl);
+                }
+
+                // don't try read the new content for files that were deleted
+                if (!forOriginal && sourceFileDiffContext.getChangeType() != ChangeType.DELETE){
+                    filePaths.add(depotPath + "@" + cl);
+                }
+            });
 
             List<IFileSpec> searchFileSpecs = FileSpecBuilder.makeFileSpecList(filePaths);
             List<IFileSpec> revisionFileSpecs = p4Connection.getServer().getDepotFiles(searchFileSpecs, false);
