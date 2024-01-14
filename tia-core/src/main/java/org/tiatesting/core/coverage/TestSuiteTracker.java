@@ -34,6 +34,36 @@ public class TestSuiteTracker implements Serializable {
      */
     private List<ClassImpactTracker> classesImpacted = new ArrayList<>();
 
+    /**
+     * The number if times this test suite was run.
+     */
+    private long numRuns;
+
+    /**
+     * The total amount of time in seconds this test has run across all executions. Use to calculate the average run time.
+     */
+    private long totalRunTime;
+
+    /**
+     * The total number of successful runs.
+     */
+    private long numSuccessRuns;
+
+    /**
+     * The total number of fail runs.
+     */
+    private long numFailRuns;
+
+    /**
+     * Increment the stats of this tracked test suite by the specified amounts.
+     */
+    public void incrementStats(long newRuns, long additionalRunTime, long newSuccessRuns, long newFailRuns){
+        this.numRuns += newRuns;
+        this.totalRunTime += additionalRunTime;
+        this.numSuccessRuns += newSuccessRuns;
+        this.numFailRuns += newFailRuns;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -69,5 +99,49 @@ public class TestSuiteTracker implements Serializable {
 
     public void setClassesImpacted(List<ClassImpactTracker> classesImpacted) {
         this.classesImpacted = classesImpacted;
+    }
+
+    public long getNumRuns() {
+        return numRuns;
+    }
+
+    public void setNumRuns(long numRuns) {
+        this.numRuns = numRuns;
+    }
+
+    public long getTotalRunTime() {
+        return totalRunTime;
+    }
+
+    public void setTotalRunTime(long totalRunTime) {
+        this.totalRunTime = totalRunTime;
+    }
+
+    public long getNumSuccessRuns() {
+        return numSuccessRuns;
+    }
+
+    public void setNumSuccessRuns(long numSuccessRuns) {
+        this.numSuccessRuns = numSuccessRuns;
+    }
+
+    public long getNumFailRuns() {
+        return numFailRuns;
+    }
+
+    public void setNumFailRuns(long numFailRuns) {
+        this.numFailRuns = numFailRuns;
+    }
+
+    @Override
+    public String toString() {
+        return "TestSuiteTracker{" +
+                "name='" + name + '\'' +
+                ", sourceFilename='" + sourceFilename + '\'' +
+                ", numRuns=" + numRuns +
+                ", totalRunTime=" + totalRunTime +
+                ", numSuccessRuns=" + numSuccessRuns +
+                ", numFailRuns=" + numFailRuns +
+                '}';
     }
 }

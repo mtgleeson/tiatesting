@@ -7,6 +7,8 @@ import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.persistence.StoredMapping;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -14,11 +16,14 @@ import java.util.stream.Collectors;
 
 public abstract class AbstractInfoMojo extends AbstractTiaMojo {
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    public void execute() {
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new MapDataStore(getTiaDBFilePath(), vcsReader.getBranchName());
         StoredMapping storedMapping = dataStore.getStoredMapping();
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", Locale.ENGLISH).withZone(ZoneId.systemDefault());
+
+        Locale locale = Locale.getDefault();
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
+
         StringBuilder sb = new StringBuilder();
         sb.append(System.lineSeparator());
         sb.append("Tia Info:" + System.lineSeparator());
@@ -28,6 +33,8 @@ public abstract class AbstractInfoMojo extends AbstractTiaMojo {
                 + System.lineSeparator());
         sb.append("Number of source methods tracked for tests: " + storedMapping.getMethodsTracked().keySet().size()
                 + System.lineSeparator());
+        sb.append("Number of runs: " + storedMapping.getNumRuns() + System.lineSeparator());
+        sb.append("Average run time (sec): " + (new DecimalFormat("#,###").format((storedMapping.getTotalRunTime() / storedMapping.getNumRuns())) + System.lineSeparator()));
         sb.append("Pending failed tests: " + System.lineSeparator() + storedMapping.getTestSuitesFailed().stream().map(test ->
                 "\t" + test).collect(Collectors.joining(System.lineSeparator())));
         getLog().info(sb.toString());

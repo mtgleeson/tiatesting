@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -83,8 +84,26 @@ public class TestSelector {
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
 
+        // Set the selected tests to run as a System property so it's available for the test runners
+        setSelectedTestsSystemProperty(testsToRun);
+
         log.debug("Ignoring tests: {}", testsToIgnore);
         return testsToIgnore;
+    }
+
+    /**
+     * Set the selected tests to run as a System property so it's available for the test runners.
+     * The test runners should rely on the ignore tests to drive which tests to exclude.
+     * But the test runner will need to know which existing tests Tia is aware of that it selected to run as part
+     * of tracking previously failed tests that have now been ignored. We can't always rely on the test runner to fire
+     * for ignored tests (there's an issue with using the Surefire "groups" property not firing Ignored tests with junit).
+     *
+     * @param testsToRun
+     */
+    private void setSelectedTestsSystemProperty(Set<String> testsToRun){
+        String selectedTestsSystemProp = String.join(",", testsToRun);
+        log.trace("Setting system property for tiaSelectedTests: {}", selectedTestsSystemProp);
+        System.setProperty("tiaSelectedTests", selectedTestsSystemProp);
     }
 
     /**
@@ -140,7 +159,7 @@ public class TestSelector {
             }
         }
 
-        log.debug("Selected tests to run from VCS test file changes: {}", testSuitesModified);
+        log.info("Selected tests to run from VCS test file changes: {}", testSuitesModified);
         testsToRun.addAll(testSuitesModified);
     }
 
@@ -200,7 +219,7 @@ public class TestSelector {
             testsToRun.addAll(methodTestSuites.get(methodImpacted));
         });
 
-        log.debug("Selected tests to run from VCS source changes: {}", testsToRun);
+        log.info("Selected tests to run from VCS source changes: {}", testsToRun);
         return testsToRun;
     }
 
