@@ -8,31 +8,35 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.util.Set;
 
-public class TiaSpockGitPluginExtension {
-    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginExtension.class);
+public class TiaSpockGitPluginTestExtension {
+    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginTestExtension.class);
 
-    public TiaSpockGitPluginExtension(){
+    public TiaSpockGitPluginTestExtension(){
     }
 
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {
         String taskName = task.getName();
         LOGGER.debug("Applying Tia to " + taskName);
-        TiaSpockGitTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaSpockGitTaskExtension.class);
+        TiaBaseTaskExtension tiaProjectExtension = task.getProject().getExtensions().findByType(TiaBaseTaskExtension.class);
+        TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
         JacocoTaskExtension jacocoTaskExtension = task.getExtensions().findByType(JacocoTaskExtension.class);
 
         Action<Task> action = new Action<Task>() {
             @Override
             public void execute(Task task) {
                 Test testTask = (Test)task;
+                populateTestTaskExtension(tiaProjectExtension, tiaTaskExtension);
                 boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
 
                 if (isTiaEnabled){
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", true);
-                    testTask.systemProperty("tiaUpdateDB", tiaTaskExtension.getUpdateDB());
+                    testTask.systemProperty("tiaUpdateDBMapping", tiaTaskExtension.getUpdateDBMapping());
+                    testTask.systemProperty("tiaUpdateDBStats", tiaTaskExtension.getUpdateDBStats());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
@@ -41,7 +45,7 @@ public class TiaSpockGitPluginExtension {
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
-                    if (Boolean.valueOf(tiaTaskExtension.getUpdateDB())) {
+                    if (Boolean.valueOf(tiaTaskExtension.getUpdateDBMapping())) {
                         LOGGER.debug("Enabling Jacoco in TCP server mode");
                         jacocoTaskExtension.setEnabled(true);
                         jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
@@ -53,6 +57,53 @@ public class TiaSpockGitPluginExtension {
         };
 
         task.doFirst(action);
+    }
+
+    /**
+     * Override the task extension object properties with the project object extension.
+     *
+     * This allows the user to define the Tia configuration at the project level, and override it for each test task
+     * configuration type like 'test' and 'integrationTest'.
+     *
+     * @param tiaProjectExt
+     * @param tiaTaskExt
+     */
+    private void populateTestTaskExtension(TiaBaseTaskExtension tiaProjectExt, TiaBaseTaskExtension tiaTaskExt){
+        if (tiaTaskExt.getEnabled() == null){
+            tiaTaskExt.setEnabled(tiaProjectExt.getEnabled());
+        }
+
+        if (tiaTaskExt.getUpdateDBMapping() == null){
+            tiaTaskExt.setUpdateDBMapping(tiaProjectExt.getUpdateDBMapping());
+        }
+
+        if (tiaTaskExt.getUpdateDBStats() == null){
+            tiaTaskExt.setUpdateDBStats(tiaProjectExt.getUpdateDBStats());
+        }
+
+        if (tiaTaskExt.getProjectDir() == null){
+            tiaTaskExt.setProjectDir(tiaProjectExt.getProjectDir());
+        }
+
+        if (tiaTaskExt.getClassFilesDirs() == null){
+            tiaTaskExt.setClassFilesDirs(tiaProjectExt.getClassFilesDirs());
+        }
+
+        if (tiaTaskExt.getSourceFilesDirs() == null){
+            tiaTaskExt.setSourceFilesDirs(tiaProjectExt.getSourceFilesDirs());
+        }
+
+        if (tiaTaskExt.getTestFilesDirs() == null){
+            tiaTaskExt.setTestFilesDirs(tiaProjectExt.getTestFilesDirs());
+        }
+
+        if (tiaTaskExt.getDbFilePath() == null){
+            tiaTaskExt.setDbFilePath(tiaProjectExt.getDbFilePath());
+        }
+
+        if (tiaTaskExt.getCheckLocalChanges() == null){
+            tiaTaskExt.setCheckLocalChanges(tiaProjectExt.getCheckLocalChanges());
+        }
     }
 
     /**
@@ -70,11 +121,12 @@ public class TiaSpockGitPluginExtension {
      * @param task
      * @return
      */
-    private boolean isEnabled(final TiaSpockGitTaskExtension tiaTaskExtension, Test task){
-        //project.property("tiaEnabled");
+    private boolean isEnabled(final TiaBaseTaskExtension tiaTaskExtension, Test task){
         boolean enabled = Boolean.valueOf(tiaTaskExtension.getEnabled());
-        boolean updateDB = Boolean.valueOf(tiaTaskExtension.getUpdateDB());
-        LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update DB: " + updateDB);
+        boolean updateDBMapping = Boolean.valueOf(tiaTaskExtension.getUpdateDBMapping());
+        boolean updateDBStats = Boolean.valueOf(tiaTaskExtension.getUpdateDBStats());
+        LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping: " + updateDBMapping
+                + ", update stats: " + updateDBStats);
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run
