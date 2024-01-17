@@ -23,7 +23,7 @@ import java.util.Map;
 /**
  * Generate a text file report containing the test mappings.
  */
-public class TextFileReportGenerator implements ReportGenerator{
+public class TextFileReportGenerator implements ReportGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(TextFileReportGenerator.class);
     private final String filenameExt;
@@ -33,13 +33,9 @@ public class TextFileReportGenerator implements ReportGenerator{
     }
 
     @Override
-    public void generateReport(DataStore dataStore) {
+    public String generateReport(DataStore dataStore) {
         long startTime = System.currentTimeMillis();
-        StoredMapping storedMapping = dataStore.getStoredMapping();
-
-        if (storedMapping == null){
-            storedMapping = dataStore.getStoredMapping();
-        }
+        StoredMapping storedMapping = dataStore.getStoredMapping(true);
 
         try(Writer writer = Files.newBufferedWriter(Paths.get("tia-test-mapping-" + filenameExt + ".txt"))) {
             Locale locale = Locale.getDefault();
@@ -47,12 +43,15 @@ public class TextFileReportGenerator implements ReportGenerator{
             DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
             LocalDateTime localDate = LocalDateTime.now();
             writer.write("Test Mapping Report generated at " + dtf.format(localDate) + System.lineSeparator());
-            writer.write("Test mapping valid for commit number: " + storedMapping.getCommitValue() + System.lineSeparator());
+            String lastCommit = storedMapping.getCommitValue() != null ? storedMapping.getCommitValue() : "N/A";
+            writer.write("Test mapping valid for commit number: " + lastCommit + System.lineSeparator());
             writer.write("Number of tests classes with mappings: " + storedMapping.getTestSuitesTracked().keySet().size()
                     + System.lineSeparator());
-            writer.write("Tia DB last updated: " + dtf.format(storedMapping.getLastUpdated()) + System.lineSeparator());
+            String dbLastUpdated = storedMapping.getLastUpdated()!= null ? dtf.format(storedMapping.getLastUpdated()) : "N/A";
+            writer.write("Tia DB last updated: " + (dbLastUpdated) + System.lineSeparator());
             writer.write("Number of runs: " + storedMapping.getNumRuns() + System.lineSeparator());
-            writer.write("Average run time (sec): " + (new DecimalFormat("#,###").format((storedMapping.getTotalRunTime() / storedMapping.getNumRuns()))
+            double avgRunTime = storedMapping.getNumRuns() > 0 ? (storedMapping.getTotalRunTime() / storedMapping.getNumRuns()) : 0;
+            writer.write("Average run time (sec): " + (new DecimalFormat("#,###").format((avgRunTime))
                     + System.lineSeparator() + System.lineSeparator()));
 
             writer.write("Failed tests:");
@@ -98,5 +97,6 @@ public class TextFileReportGenerator implements ReportGenerator{
         }
 
         log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
+        return null;
     }
 }

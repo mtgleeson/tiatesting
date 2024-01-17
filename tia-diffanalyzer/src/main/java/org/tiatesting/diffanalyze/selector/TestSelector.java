@@ -55,7 +55,7 @@ public class TestSelector {
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        StoredMapping storedMapping = dataStore.getStoredMapping();
+        StoredMapping storedMapping = dataStore.getStoredMapping(true);
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {

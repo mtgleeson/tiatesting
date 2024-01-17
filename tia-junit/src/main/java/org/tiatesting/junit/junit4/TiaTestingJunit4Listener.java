@@ -48,15 +48,18 @@ public class TiaTestingJunit4Listener extends RunListener {
     The set of tests selected to run by Tia.
      */
     private Set<String> selectedTests;
-    private final boolean enabled; // is the Tia Junit4Listener enabled for updating the test mapping?
-
+    private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
+    private final boolean updateDBMapping;
+    private final boolean updateDBStats;
     private long testRunStartTime;
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
+        this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
+        this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
         this.enabled = isEnabled();
         this.coverageClient = new JacocoClient();
 
-        if (enabled){
+        if (enabled && updateDBMapping){
             this.coverageClient.initialize();
         }
 
@@ -79,8 +82,8 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     private boolean isEnabled(){
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        boolean updateDB = Boolean.parseBoolean(System.getProperty("tiaUpdateDB"));
-        log.info("Tia Junit4Listener: enabled: {}, update DB: {}", enabled, updateDB);
+        log.info("Tia Junit4Listener: enabled: {}, update mapping: {}, update stats: {}",
+                enabled, updateDBMapping, updateDBStats);
 
         /**
          * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
@@ -94,10 +97,14 @@ public class TiaTestingJunit4Listener extends RunListener {
             }
         }
 
-        return enabled && updateDB;
+        // only enable the Tia JUnit runner is TIa is enabled and we're updating the mapping and/or updating the stats
+        return enabled && (updateDBMapping || updateDBStats);
     }
 
     public void testRunStarted(Description description) throws Exception {
+        if (!enabled){
+            return;
+        }
         testRunStartTime = System.currentTimeMillis();
     }
 
@@ -108,15 +115,19 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         String testSuiteName = getTestSuiteName(description);
         runnerTestSuites.add(testSuiteName);
-
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
+
+        // parameterized tests are run multiple times per param set. We group into 1 test suote tracker and may have already been created
         if (testSuiteTracker == null){
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
             testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
-            testSuiteTracker.setNumRuns(1); // assume it will run. Explicitly set to 0 if ignored.
-            testSuiteTracker.setNumSuccessRuns(1); // assume it will succeed. Explicitly set to false on failure.
-            testSuiteTracker.setTotalRunTime(System.currentTimeMillis()); // track the start of the test run, do it in this object to keep the class thread safe
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
+
+            if (updateDBStats){
+                testSuiteTracker.setNumRuns(1); // assume it will run. Explicitly set to 0 if ignored.
+                testSuiteTracker.setNumSuccessRuns(1); // assume it will succeed. Explicitly set to false on failure.
+                testSuiteTracker.setTotalRunTime(System.currentTimeMillis()); // track the start of the test run, do it in this object to keep the class thread safe
+            }
         }
     }
 
@@ -124,14 +135,19 @@ public class TiaTestingJunit4Listener extends RunListener {
         if (!enabled){
             return;
         }
-        // reset the stats - the tests wasn't run
-        TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(getTestSuiteName(description));
-        testSuiteTracker.setNumRuns(0);
-        testSuiteTracker.setNumSuccessRuns(0);
-        testSuiteTracker.setNumFailRuns(0);
+
+        String testSuiteName = getTestSuiteName(description);
 
         // track the test was run by the runner (even though it was ignored)
-        runnerTestSuites.add(getTestSuiteName(description));
+        runnerTestSuites.add(testSuiteName);
+
+        if (updateDBStats) {
+            // reset the stats - the tests wasn't run
+            TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
+            testSuiteTracker.setNumRuns(0);
+            testSuiteTracker.setNumSuccessRuns(0);
+            testSuiteTracker.setNumFailRuns(0);
+        }
     }
 
     @Override
@@ -141,14 +157,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
         
         this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
-        updateTrackerForFailedRun(getTestSuiteName(failure.getDescription()));
-    }
-
-    private void updateTrackerForFailedRun(String testSuiteName) {
-        // reset the stats - the tests wasn't run
-        TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
-        testSuiteTracker.setNumSuccessRuns(0);
-        testSuiteTracker.setNumFailRuns(1);
+        updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
 
     @Override
@@ -158,7 +167,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
-        updateTrackerForFailedRun(getTestSuiteName(failure.getDescription()));
+        updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
 
     /**
@@ -176,14 +185,48 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         String testSuiteName = getTestSuiteName(description);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
-        testSuiteTracker.setTotalRunTime(calcTestSuiteRuntime(testSuiteTracker));
 
-        log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
-        CoverageResult coverageResult = this.coverageClient.collectCoverage();
-        List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
-        addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
+        if (updateDBStats){
+            testSuiteTracker.setTotalRunTime(calcTestSuiteRuntime(testSuiteTracker));
+        }
 
-        testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+        if (updateDBMapping) {
+            log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
+            CoverageResult coverageResult = this.coverageClient.collectCoverage();
+            List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
+            addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
+
+            testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+        }
+    }
+
+    /**
+     * Called when all tests have finished.
+     *
+     * @param result
+     * @throws Exception
+     */
+    @Override
+    public void testRunFinished(Result result) {
+        if (!enabled){
+            return;
+        }
+
+        log.info("Test run finished. Persisting the DB.");
+
+        if (updateDBMapping){
+            runnerTestSuites = getRunnerTestSuites();
+            this.dataStore.updateTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
+                    testRunMethodsImpacted, vcsReader.getHeadCommit(), true);
+        }
+
+        if (updateDBStats){
+            long totalRunTime = System.currentTimeMillis() - this.testRunStartTime;
+            boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
+            this.dataStore.updateStats(testSuiteTrackers, totalRunTime, getLatestDB);
+        }
+
+        this.dataStore.persistStoreMapping();
     }
 
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
@@ -217,25 +260,6 @@ public class TiaTestingJunit4Listener extends RunListener {
                 testSuiteTracker.getClassesImpacted().add(newClassImpactTracker);
             }
         }
-    }
-
-    /**
-     * Called when all tests have finished.
-     *
-     * @param result
-     * @throws Exception
-     */
-    @Override
-    public void testRunFinished(Result result) {
-        if (!enabled){
-            return;
-        }
-
-        log.info("Test run finished. Persisting the test mapping.");
-        runnerTestSuites = getRunnerTestSuites();
-        long totalRunTime = System.currentTimeMillis() - this.testRunStartTime;
-        this.dataStore.persistTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
-                testRunMethodsImpacted, vcsReader.getHeadCommit(), totalRunTime);
     }
 
     private String getTestSuiteName(Description description){
@@ -305,5 +329,14 @@ public class TiaTestingJunit4Listener extends RunListener {
             this.selectedTests = new HashSet<>();
         }
         log.trace("Reading system property tiaSelectedTests: {}", selectedTests);
+    }
+
+    private void updateTrackerStatsForFailedRun(String testSuiteName) {
+        if (updateDBStats) {
+            // reset the stats - the tests wasn't run
+            TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
+            testSuiteTracker.setNumSuccessRuns(0);
+            testSuiteTracker.setNumFailRuns(1);
+        }
     }
 }
