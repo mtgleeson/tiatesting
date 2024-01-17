@@ -44,11 +44,11 @@ public class P4Reader implements VCSReader {
     }
 
     @Override
-    public Set<SourceFileDiffContext> buildDiffFilesContext(final String commitFrom, final List<String> sourceFilesDirs,
+    public Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                             final List<String> testFilesDirs, final boolean checkLocalChanges) {
         List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
         sourceAndTestFilesDir.addAll(testFilesDirs);
-        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, commitFrom, sourceAndTestFilesDir, checkLocalChanges);
+        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
     }
 
     @Override
@@ -72,10 +72,11 @@ public class P4Reader implements VCSReader {
         GetChangelistsOptions options = new GetChangelistsOptions();
         options.setMaxMostRecent(1);
         String workspaceHeadCL = null;
+        String workspacePath = p4Connection.getClient().getStream() + "/...#have";
 
         try {
             List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
-                    FileSpecBuilder.makeFileSpecList("...#have"), options);
+                    FileSpecBuilder.makeFileSpecList(workspacePath), options);
             if (changeLists.isEmpty()){
                 throw new VCSAnalyzerException("Couldn't find the head changelist for the workspace");
             }
