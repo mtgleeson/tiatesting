@@ -12,8 +12,6 @@ public abstract class AbstractInfoMojo extends AbstractTiaMojo {
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new MapDataStore(getTiaDBFilePath(), vcsReader.getBranchName());
         ReportGenerator reportGenerator = new InfoReportGenerator();
-        reportGenerator.generateReport(dataStore);
+        getLog().info(reportGenerator.generateReport(dataStore));
     }
-
-    public abstract VCSReader getVCSReader();
 }

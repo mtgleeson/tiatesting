@@ -1,6 +1,7 @@
 package org.tiatesting.spock.git.plugin;
 
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.plugins.JavaPlugin;
@@ -11,6 +12,7 @@ import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.vcs.git.GitReader;
 
 import java.util.Iterator;
+import java.util.List;
 
 public class TiaSpockGitPlugin extends TiaBasePlugin {
 
@@ -22,7 +24,16 @@ public class TiaSpockGitPlugin extends TiaBasePlugin {
     public void apply(Project project) {
         super.apply(project);
         this.project = project;
-        applyPluginToTestTasks(project);
+
+        // only apply the Spock Git Plugin to the test tasks if the user is executing a test task
+        List<String> taskNames =  project.getGradle().getStartParameter().getTaskNames();
+        for (Iterator<Test> it = project.getTasks().withType(Test.class).iterator(); it.hasNext(); ) {
+            Task task = it.next();
+            if (taskNames.contains(task.getName())){
+                applyPluginToTestTasks(project);
+                break;
+            }
+        }
     }
 
     @Override

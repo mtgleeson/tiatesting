@@ -19,6 +19,4 @@ public abstract class AbstractTextReportMojo extends AbstractTiaMojo {
         reportGenerator.generateReport(dataStore);
     }
 
-    public abstract VCSReader getVCSReader();
-
 }

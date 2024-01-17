@@ -3,6 +3,7 @@ package org.tiatesting.maven;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.tiatesting.core.vcs.VCSReader;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -136,4 +137,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     public String getTiaVcsClientName() {
         return tiaVcsClientName;
     }
+
+    public abstract VCSReader getVCSReader();
 }
