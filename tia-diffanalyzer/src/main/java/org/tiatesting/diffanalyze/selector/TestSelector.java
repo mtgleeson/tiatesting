@@ -56,6 +56,42 @@ public class TestSelector {
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
         StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
+                storedMapping);
+
+                // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
+        Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
+
+        // Set the selected tests to run as a System property so it's available for the test runners
+        setSelectedTestsSystemProperty(testsToRun);
+
+        log.debug("Ignoring tests: {}", testsToIgnore);
+        return testsToIgnore;
+    }
+
+    /**
+     * Get the selected tests to run based on the changes to VCS since the last submit tracked by Tia.
+     * It will add any previously failed tests tracked by Tia and any test files that have had changes since the last
+     * commit.
+     * Note: this represents the list of tests to run that Tia is aware of. There may be new test files in changes that
+     * have been analysed that will be executed by the test runner in addition to this list of tests.
+     *
+     * @param vcsReader
+     * @param sourceFilesDirNames
+     * @param testFilesDirNames
+     * @param checkLocalChanges
+     * @return
+     */
+    public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                        final List<String> testFilesDirNames, final boolean checkLocalChanges){
+        StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
+                storedMapping);
+    }
+
+    private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                         final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                         final StoredMapping storedMapping){
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
@@ -81,14 +117,7 @@ public class TestSelector {
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
 
-        // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
-        Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
-
-        // Set the selected tests to run as a System property so it's available for the test runners
-        setSelectedTestsSystemProperty(testsToRun);
-
-        log.debug("Ignoring tests: {}", testsToIgnore);
-        return testsToIgnore;
+        return testsToRun;
     }
 
     /**

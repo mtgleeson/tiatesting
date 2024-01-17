@@ -10,6 +10,7 @@ dependencies {
     implementation project(':tia-core')
     implementation project(':tia-persistence')
     implementation project(':tia-report')
+    implementation project(':tia-diffanalyzer')
 
     //testImplementation platform('org.junit:junit-bom:5.9.1')
     //testImplementation 'org.junit.jupiter:junit-jupiter'

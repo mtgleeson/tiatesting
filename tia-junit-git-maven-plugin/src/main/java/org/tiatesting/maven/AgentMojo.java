@@ -5,6 +5,7 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
+import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.Map;
 
@@ -28,5 +29,10 @@ public class AgentMojo extends AbstractTiaAgentMojo {
 
     public Map<String, Artifact> getPluginArtifactMap() {
         return pluginArtifactMap;
+    }
+
+    @Override
+    public VCSReader getVCSReader() {
+        return null; // not used
     }
 }
