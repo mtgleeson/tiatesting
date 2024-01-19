@@ -56,10 +56,14 @@ public class TestSelector {
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
         StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        if (!hasStoredMapping(storedMapping)){
+            return new HashSet<>(); // run all tests - don't ignore any
+        }
+
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
                 storedMapping);
 
-                // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
+        // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
 
         // Set the selected tests to run as a System property so it's available for the test runners
@@ -67,6 +71,18 @@ public class TestSelector {
 
         log.debug("Ignoring tests: {}", testsToIgnore);
         return testsToIgnore;
+    }
+
+    private boolean hasStoredMapping(StoredMapping storedMapping){
+        log.info("Stored DB commit: " + storedMapping.getCommitValue());
+
+        if (storedMapping.getCommitValue() == null) {
+            // If no stored commit value found it means Tia hasn't previously run. We need to run all tests, don't ignore any.
+            log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -92,14 +108,6 @@ public class TestSelector {
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                          final StoredMapping storedMapping){
-        log.info("Stored DB commit: " + storedMapping.getCommitValue());
-
-        if (storedMapping.getCommitValue() == null) {
-            // If no stored commit value found it means Tia hasn't previously run. We need to run all tests, don't ignore any.
-            log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
-            return new HashSet<>();
-        }
-
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
