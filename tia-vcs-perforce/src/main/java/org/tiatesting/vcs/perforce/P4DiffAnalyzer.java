@@ -376,6 +376,13 @@ public class P4DiffAnalyzer {
                                                      boolean forOriginal) {
         try {
             for (IFileSpec fileSpec : revisionFileSpecs) {
+                if (fileSpec.getDepotPathString() == null){
+                    // The file doesn't exist in the CL. This could be due to the file being deleted in the original CL
+                    // as well in the new CL (i.e. a merge CL bringing the delete into the stream where it was already deleted).
+                    log.warn("No file found in P4 for the CL. Looking up the original:  {}", forOriginal);
+                    continue;
+                }
+
                 InputStream inputStream = fileSpec.getContents(true);
                 if (inputStream == null) {
                     log.warn("No input stream for {}", fileSpec.getDepotPathString());
