@@ -12,6 +12,7 @@ import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
+import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.MapDataStore;
@@ -52,6 +53,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
     private long testRunStartTime;
+    private TestStats testRunStats = new TestStats();
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
@@ -124,9 +126,11 @@ public class TiaTestingJunit4Listener extends RunListener {
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
 
             if (updateDBStats){
-                testSuiteTracker.setNumRuns(1); // assume it will run. Explicitly set to 0 if ignored.
-                testSuiteTracker.setNumSuccessRuns(1); // assume it will succeed. Explicitly set to false on failure.
-                testSuiteTracker.setTotalRunTime(System.currentTimeMillis()); // track the start of the test run, do it in this object to keep the class thread safe
+                // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
+                testSuiteTracker.getTestStats().setNumRuns(1);
+                testSuiteTracker.getTestStats().setNumSuccessRuns(1);
+                // track the start of the test run, do it in the test suite object to keep the class thread safe
+                testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
             }
         }
     }
@@ -144,9 +148,9 @@ public class TiaTestingJunit4Listener extends RunListener {
         if (updateDBStats) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
-            testSuiteTracker.setNumRuns(0);
-            testSuiteTracker.setNumSuccessRuns(0);
-            testSuiteTracker.setNumFailRuns(0);
+            testSuiteTracker.getTestStats().setNumRuns(0);
+            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
+            testSuiteTracker.getTestStats().setNumFailRuns(0);
         }
     }
 
@@ -187,7 +191,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         if (updateDBStats){
-            testSuiteTracker.setTotalRunTime(calcTestSuiteRuntime(testSuiteTracker));
+            testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
         }
 
         if (updateDBMapping) {
@@ -221,18 +225,33 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         if (updateDBStats){
-            long totalRunTime = System.currentTimeMillis() - this.testRunStartTime;
+            updateStatsForTestRun();
             boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, totalRunTime, getLatestDB);
+            this.dataStore.updateStats(testSuiteTrackers, testRunStats, getLatestDB);
         }
 
         this.dataStore.persistStoreMapping();
     }
 
+    private void updateStatsForTestRun(){
+        testRunStats.setNumRuns(1);
+        testRunStats.setAvgRunTime(System.currentTimeMillis() - this.testRunStartTime);
+
+        // check if all the test suites succeeded
+        int numTestSuitesRun = testSuiteTrackers.keySet().size();
+        int numTestSuitesSucceeded = testSuiteTrackers.values().stream()
+                .reduce(0, (partialSum, element) ->
+                        partialSum + (element.getTestStats().getNumSuccessRuns() > 0 ? 1: 0), Integer::sum);
+        boolean allTestsSucceeded = numTestSuitesRun == numTestSuitesSucceeded;
+
+        testRunStats.setNumSuccessRuns(allTestsSucceeded ? 1: 0);
+        testRunStats.setNumFailRuns((allTestsSucceeded ? 0 : 1));
+    }
+
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
-        long totalRunTime = System.currentTimeMillis() - testSuiteTracker.getTotalRunTime();
-        totalRunTime = totalRunTime > 1000 ? (totalRunTime / 1000) : 1;
-        return totalRunTime;
+        long runTime = System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
+        runTime = runTime > 1000 ? (runTime / 1000) : 1;
+        return runTime;
     }
 
     /**
@@ -331,8 +350,8 @@ public class TiaTestingJunit4Listener extends RunListener {
         if (updateDBStats) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
-            testSuiteTracker.setNumSuccessRuns(0);
-            testSuiteTracker.setNumFailRuns(1);
+            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
+            testSuiteTracker.getTestStats().setNumFailRuns(1);
         }
     }
 }

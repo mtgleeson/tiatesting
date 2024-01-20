@@ -1,5 +1,6 @@
 package org.tiatesting.persistence;
 
+import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
@@ -39,28 +40,15 @@ public class StoredMapping implements Serializable {
      */
     private Instant lastUpdated;
 
-    /**
-     * The total number of test runs that have been executed using Tia.
-     */
-    private long numRuns;
+    private TestStats testStats = new TestStats();
 
     /**
-     * The total amount of time in seconds for all executions of test runs using Tia. Use to calculate the average run time.
+     * Increment the stats for Tia.
+     *
+     * @param testStats
      */
-    private long totalRunTime;
-
-    /**
-     * Increment the number of test runs executed using Tia by 1.
-     */
-    public void incrementNumRuns(){
-        this.numRuns++;
-    }
-
-    /**
-     * Increment the total run time by a given amount.
-     */
-    public void incrementTotalRunTime(long additionalRunTime){
-        this.totalRunTime += additionalRunTime;
+    public void incrementStats(final TestStats testStats){
+        this.testStats.incrementStats(testStats);
     }
 
     public String getCommitValue() {
@@ -103,20 +91,12 @@ public class StoredMapping implements Serializable {
         this.methodsTracked = methodsTracked;
     }
 
-    public long getNumRuns() {
-        return numRuns;
+    public TestStats getTestStats() {
+        return testStats;
     }
 
-    public void setNumRuns(long numRuns) {
-        this.numRuns = numRuns;
-    }
-
-    public long getTotalRunTime() {
-        return totalRunTime;
-    }
-
-    public void setTotalRunTime(long totalRunTime) {
-        this.totalRunTime = totalRunTime;
+    public void setTestStats(TestStats testStats) {
+        this.testStats = testStats;
     }
 
     @Override

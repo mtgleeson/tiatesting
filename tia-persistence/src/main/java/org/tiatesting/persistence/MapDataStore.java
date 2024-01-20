@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.stats.TestStats;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
@@ -79,14 +80,10 @@ public class MapDataStore implements DataStore {
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
     }
 
-    public void updateStats(final Map<String, TestSuiteTracker> testSuiteTrackers, final long totalRunTimeMs,
+    public void updateStats(final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats,
                             boolean getLatestStoredDB){
         StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
-
-        // update the num runs and total Tia test run time
-        long totalRunTimeSec = totalRunTimeMs > 1000 ? (totalRunTimeMs / 1000) : 1;
-        storedMapping.incrementTotalRunTime(totalRunTimeSec);
-        storedMapping.incrementNumRuns();
+        storedMapping.incrementStats(testRunStats);
 
         // update the test mapping
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
@@ -233,8 +230,7 @@ public class MapDataStore implements DataStore {
             TestSuiteTracker storedTestSuiteTracker = storedTestSuiteTrackers.get(testSuiteName);
 
             if (storedTestSuiteTracker != null){
-                storedTestSuiteTracker.incrementStats(newTestSuiteTracker.getNumRuns(), newTestSuiteTracker.getTotalRunTime(),
-                        newTestSuiteTracker.getNumSuccessRuns(), newTestSuiteTracker.getNumFailRuns());
+                storedTestSuiteTracker.incrementStats(newTestSuiteTracker.getTestStats());
             } else {
                 mergedTestMappings.put(testSuiteName, newTestSuiteTracker);
             }
