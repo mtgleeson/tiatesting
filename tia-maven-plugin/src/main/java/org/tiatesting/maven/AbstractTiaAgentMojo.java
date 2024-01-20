@@ -102,7 +102,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         }
 
         agentOptions.setCheckLocalChanges(getCheckLocalChanges());
-        agentOptions.setUpdateDB(String.valueOf(isTiaUpdateDB()));
+        agentOptions.setUpdateDBMapping(String.valueOf(isTiaUpdateDBMapping()));
+        agentOptions.setUpdateDBStats(String.valueOf(isTiaUpdateDBStats()));
 
         return agentOptions;
     }
@@ -115,8 +116,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * @return
      */
     private String getCheckLocalChanges(){
-        if (isTiaUpdateDB() && isTiaCheckLocalChanges()){
-            getLog().info("Disabling the check for local changes as Tia is configured to update the DB.");
+        if (isTiaUpdateDBMapping() && isTiaCheckLocalChanges()){
+            getLog().info("Disabling the check for local changes as Tia is configured to update the mapping in the DB.");
             return Boolean.toString(false);
         } else{
             return String.valueOf(isTiaCheckLocalChanges());
@@ -149,9 +150,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                 i.remove();
             }
 
-            // If we're running Tia but not updating the DB, we don't need Jacoco - remove it. When we're running Tia we
+            // If we're running Tia but not updating the DB test mapping, we don't need Jacoco - remove it. When we're running Tia we
             // have control over Jacoco solely for use by Tia. So it should be safe to remove Jacoco.
-            if (isTiaEnabled() && !isTiaUpdateDB()){
+            if (isTiaEnabled() && !isTiaUpdateDBMapping()){
                 if(arg.matches("^-javaagent.*org.jacoco.agent.*")){
                     getLog().info("Tia is enabled but not updating the DB. Jacoco is not needed. Removing it from the argLine.");
                     i.remove();
@@ -205,8 +206,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     private boolean isEnabled(){
         boolean enabled = isTiaEnabled();
-        boolean updateDB = isTiaUpdateDB();
-        getLog().info("Tia AgentMojo: enabled: " + enabled + ", update DB: " + updateDB);
+        getLog().info("Tia AgentMojo: enabled: " + enabled + ", update mapping: " + isTiaUpdateDBMapping() +
+                ", update stats: " + isTiaUpdateDBMapping());
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run

@@ -13,4 +13,5 @@ include 'tia-spock'
 include 'tia-diffanalyzer'
 include 'tia-report'
 include 'tia-spock-git-gradle'
+include 'tia-gradle'
 

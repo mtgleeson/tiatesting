@@ -5,12 +5,16 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.ClassImpactTracker;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.stats.TestStats;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.time.Instant;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * DataStore implementation based on a plain Java Map and being persisted to a file on disk.
@@ -25,6 +29,9 @@ public class MapDataStore implements DataStore {
     private final String mappingFilename;
     private final String dataStorePath;
 
+    // local cached copy of the DB
+    private StoredMapping storedMapping;
+
     public MapDataStore(String dataStorePath, String mappingFilenameSuffix){
         this.dataStorePath = dataStorePath;
         this.mappingFilenameSuffix = mappingFilenameSuffix;
@@ -32,18 +39,20 @@ public class MapDataStore implements DataStore {
     }
 
     @Override
-    public StoredMapping getStoredMapping() {
-        return readTestMappingFromDisk();
+    public StoredMapping getStoredMapping(boolean readLatestDBFromDisk) {
+        if (this.storedMapping == null || readLatestDBFromDisk){
+            this.storedMapping = readTestMappingFromDisk();
+        }
+        return this.storedMapping;
     }
 
     @Override
-    public boolean persistTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
-                                      final Set<String> runnerTestSuites, final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
-                                      final String commitValue) {
-        long startTime = System.currentTimeMillis();
-
+    public void updateTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
+                                  final Set<String> runnerTestSuites, final Set<String> selectedTests,
+                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
+                                  final String commitValue, boolean getLatestStoredDB) {
         // always get the latest test mapping before updating in case another process has updated the file since it was last read.
-        StoredMapping storedMapping = readTestMappingFromDisk();
+        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
         log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
@@ -61,15 +70,29 @@ public class MapDataStore implements DataStore {
         removeDeletedTestSuites(storedMapping, runnerTestSuites);
 
         // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
-        // scenarios where the test suite is split into multiple processes which can be updating the stored TIA DB.
-        // First, remove all the test suites that were executed in this run, and then add back any that failed.
-        storedMapping.getTestSuitesFailed().removeAll(testSuiteTrackers.keySet());
+        // scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
+        // First, remove all the existing test suites that were selected for this run, and then add back any that failed.
+        storedMapping.getTestSuitesFailed().removeAll(selectedTests);
         storedMapping.getTestSuitesFailed().addAll(testSuitesFailed);
 
         storedMapping.setLastUpdated(Instant.now());
         //mergedTestMappings.forEach( (testClass, methodsCalled) ->
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+    }
 
+    public void updateStats(final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats,
+                            boolean getLatestStoredDB){
+        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
+        storedMapping.incrementStats(testRunStats);
+
+        // update the test mapping
+        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
+        Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingStats(testSuiteTrackersOnDisk, testSuiteTrackers);
+        storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
+    }
+
+    public boolean persistStoreMapping(){
+        long startTime = System.currentTimeMillis();
         boolean savedToDisk = writeTestMappingToDisk(storedMapping);
         log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));
         return savedToDisk;
@@ -161,30 +184,58 @@ public class MapDataStore implements DataStore {
             }
         }
 
-        // update the method details for all methods stored in the DB with the latest method line numbers in case they
-        // have changed due to source code changes (even if the method wasn't executed from the test run).
-        //for (Integer methodId : methodTrackerFromTestRun.keySet()){
-        //    if (newMethodTracker.containsKey(methodId)){
-        //        newMethodTracker.put(methodId, methodTrackerFromTestRun.get(methodId));
-        //    }
-       // }
-
         return newMethodTracker;
     }
 
     /**
-     * Update the stored test suite trackers absed on the results from the current test run.
+     * Update the stored test suite trackers based on the results from the current test run.
      * For each test suite, set the new tracker including the new test to source code mappings.
-     * If the test suite has an existing tracker then update it to use the new traker.
+     * If the test suite has an existing tracker then update it to use the new tracker.
      *
-     * @param oldTestSuiteTrackers
+     * @param storedTestSuiteTrackers
      * @param newTestSuiteTrackers
      * @return mergedTestMappings
      */
-    private Map<String, TestSuiteTracker> mergeTestMappingMaps(final Map<String, TestSuiteTracker> oldTestSuiteTrackers,
-                                                                       final Map<String, TestSuiteTracker> newTestSuiteTrackers){
-        Map<String, TestSuiteTracker> mergedTestMappings = new HashMap<>(oldTestSuiteTrackers);
-        newTestSuiteTrackers.forEach((key, value) -> mergedTestMappings.merge(key, value, (v1, v2) -> v2));
+    private Map<String, TestSuiteTracker> mergeTestMappingMaps(final Map<String, TestSuiteTracker> storedTestSuiteTrackers,
+                                                               final Map<String, TestSuiteTracker> newTestSuiteTrackers){
+        Map<String, TestSuiteTracker> mergedTestMappings = new HashMap<>(storedTestSuiteTrackers);
+
+        newTestSuiteTrackers.forEach((testSuiteName, newTestSuiteTracker) -> {
+            TestSuiteTracker storedTestSuiteTracker = storedTestSuiteTrackers.get(testSuiteName);
+
+            if (storedTestSuiteTracker != null){
+                storedTestSuiteTracker.setClassesImpacted(newTestSuiteTracker.getClassesImpacted());
+            } else {
+                mergedTestMappings.put(testSuiteName, newTestSuiteTracker);
+            }
+        });
+
+        return mergedTestMappings;
+    }
+
+    /**
+     * Update the stored test suite trackers based on the results from the current test run.
+     * For each test suite, set the new tracker including the new test to source code mappings.
+     * If the test suite has an existing tracker then update it to use the new tracker.
+     *
+     * @param storedTestSuiteTrackers
+     * @param newTestSuiteTrackers
+     * @return mergedTestMappings
+     */
+    private Map<String, TestSuiteTracker> mergeTestMappingStats(final Map<String, TestSuiteTracker> storedTestSuiteTrackers,
+                                                                final Map<String, TestSuiteTracker> newTestSuiteTrackers){
+        Map<String, TestSuiteTracker> mergedTestMappings = new HashMap<>(storedTestSuiteTrackers);
+
+        newTestSuiteTrackers.forEach((testSuiteName, newTestSuiteTracker) -> {
+            TestSuiteTracker storedTestSuiteTracker = storedTestSuiteTrackers.get(testSuiteName);
+
+            if (storedTestSuiteTracker != null){
+                storedTestSuiteTracker.incrementStats(newTestSuiteTracker.getTestStats());
+            } else {
+                mergedTestMappings.put(testSuiteName, newTestSuiteTracker);
+            }
+        });
+
         return mergedTestMappings;
     }
 

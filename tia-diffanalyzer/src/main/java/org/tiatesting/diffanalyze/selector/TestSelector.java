@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -54,15 +55,59 @@ public class TestSelector {
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        StoredMapping storedMapping = dataStore.getStoredMapping();
+        StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        if (!hasStoredMapping(storedMapping)){
+            return new HashSet<>(); // run all tests - don't ignore any
+        }
+
+        Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
+                storedMapping);
+
+        // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
+        Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
+
+        // Set the selected tests to run as a System property so it's available for the test runners
+        setSelectedTestsSystemProperty(testsToRun);
+
+        log.debug("Ignoring tests: {}", testsToIgnore);
+        return testsToIgnore;
+    }
+
+    private boolean hasStoredMapping(StoredMapping storedMapping){
         log.info("Stored DB commit: " + storedMapping.getCommitValue());
 
         if (storedMapping.getCommitValue() == null) {
             // If no stored commit value found it means Tia hasn't previously run. We need to run all tests, don't ignore any.
             log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
-            return new HashSet<>();
+            return false;
         }
 
+        return true;
+    }
+
+    /**
+     * Get the selected tests to run based on the changes to VCS since the last submit tracked by Tia.
+     * It will add any previously failed tests tracked by Tia and any test files that have had changes since the last
+     * commit.
+     * Note: this represents the list of tests to run that Tia is aware of. There may be new test files in changes that
+     * have been analysed that will be executed by the test runner in addition to this list of tests.
+     *
+     * @param vcsReader
+     * @param sourceFilesDirNames
+     * @param testFilesDirNames
+     * @param checkLocalChanges
+     * @return
+     */
+    public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                        final List<String> testFilesDirNames, final boolean checkLocalChanges){
+        StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
+                storedMapping);
+    }
+
+    private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                         final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                         final StoredMapping storedMapping){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -80,11 +125,22 @@ public class TestSelector {
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
 
-        // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
-        Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
+        return testsToRun;
+    }
 
-        log.debug("Ignoring tests: {}", testsToIgnore);
-        return testsToIgnore;
+    /**
+     * Set the selected tests to run as a System property so it's available for the test runners.
+     * The test runners should rely on the ignore tests to drive which tests to exclude.
+     * But the test runner will need to know which existing tests Tia is aware of that it selected to run as part
+     * of tracking previously failed tests that have now been ignored. We can't always rely on the test runner to fire
+     * for ignored tests (there's an issue with using the Surefire "groups" property not firing Ignored tests with junit).
+     *
+     * @param testsToRun
+     */
+    private void setSelectedTestsSystemProperty(Set<String> testsToRun){
+        String selectedTestsSystemProp = String.join(",", testsToRun);
+        log.trace("Setting system property for tiaSelectedTests: {}", selectedTestsSystemProp);
+        System.setProperty("tiaSelectedTests", selectedTestsSystemProp);
     }
 
     /**
@@ -140,7 +196,7 @@ public class TestSelector {
             }
         }
 
-        log.debug("Selected tests to run from VCS test file changes: {}", testSuitesModified);
+        log.info("Selected tests to run from VCS test file changes: {}", testSuitesModified);
         testsToRun.addAll(testSuitesModified);
     }
 
@@ -200,7 +256,7 @@ public class TestSelector {
             testsToRun.addAll(methodTestSuites.get(methodImpacted));
         });
 
-        log.debug("Selected tests to run from VCS source changes: {}", testsToRun);
+        log.info("Selected tests to run from VCS source changes: {}", testsToRun);
         return testsToRun;
     }
 

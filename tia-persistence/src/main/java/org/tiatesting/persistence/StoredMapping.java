@@ -1,5 +1,6 @@
 package org.tiatesting.persistence;
 
+import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 
@@ -39,6 +40,17 @@ public class StoredMapping implements Serializable {
      */
     private Instant lastUpdated;
 
+    private TestStats testStats = new TestStats();
+
+    /**
+     * Increment the stats for Tia.
+     *
+     * @param testStats
+     */
+    public void incrementStats(final TestStats testStats){
+        this.testStats.incrementStats(testStats);
+    }
+
     public String getCommitValue() {
         return commitValue;
     }
@@ -77,6 +89,14 @@ public class StoredMapping implements Serializable {
 
     public void setMethodsTracked(Map<Integer, MethodImpactTracker> methodsTracked) {
         this.methodsTracked = methodsTracked;
+    }
+
+    public TestStats getTestStats() {
+        return testStats;
+    }
+
+    public void setTestStats(TestStats testStats) {
+        this.testStats = testStats;
     }
 
     @Override
