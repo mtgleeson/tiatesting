@@ -1,9 +1,11 @@
 package org.tiatesting.report;
 
+import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
 
 import java.text.DecimalFormat;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -20,21 +22,30 @@ public class InfoReportGenerator implements ReportGenerator {
 
         Locale locale = Locale.getDefault();
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
+        String lineSep = System.lineSeparator();
 
-        StringBuilder sb = new StringBuilder();
-        sb.append(System.lineSeparator());
-        sb.append("Tia Info:" + System.lineSeparator());
-        sb.append("DB last updated: " + (storedMapping.getLastUpdated()!= null ? dtf.format(storedMapping.getLastUpdated()) : "N/A") + System.lineSeparator());
-        sb.append("Test mapping valid for commit number: " + storedMapping.getCommitValue() + System.lineSeparator());
-        sb.append("Number of tests classes with mappings: " + storedMapping.getTestSuitesTracked().keySet().size()
-                + System.lineSeparator());
-        sb.append("Number of source methods tracked for tests: " + storedMapping.getMethodsTracked().keySet().size()
-                + System.lineSeparator());
-        sb.append("Number of runs: " + storedMapping.getNumRuns() + System.lineSeparator());
-        double avgRunTime = storedMapping.getNumRuns() > 0 ? (storedMapping.getTotalRunTime() / storedMapping.getNumRuns()) : 0;
-        sb.append("Average run time (sec): " + (new DecimalFormat("#,###").format(avgRunTime) + System.lineSeparator()));
-        sb.append("Pending failed tests: " + System.lineSeparator() + storedMapping.getTestSuitesFailed().stream().map(test ->
-                "\t" + test).collect(Collectors.joining(System.lineSeparator())));
+        StringBuilder sb = new StringBuilder(lineSep);
+        sb.append("Tia Info:" + lineSep);
+        sb.append("DB last updated: " + (storedMapping.getLastUpdated()!= null ? dtf.format(storedMapping.getLastUpdated()) : "N/A") + lineSep);
+        sb.append("Test mapping valid for commit number: " + storedMapping.getCommitValue() + lineSep + lineSep);
+
+        sb.append("Number of tests classes with mappings: " + storedMapping.getTestSuitesTracked().keySet().size() + lineSep);
+        sb.append("Number of source methods tracked for tests: " + storedMapping.getMethodsTracked().keySet().size() + lineSep);
+
+        TestStats stats = storedMapping.getTestStats();
+        double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
+        double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
+        DecimalFormat avgFormat = new DecimalFormat("###.#");
+
+        sb.append("Number of runs: " + stats.getNumRuns() + lineSep);
+        sb.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
+        sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
+
+        String failedTests = storedMapping.getTestSuitesFailed().stream().map(test ->
+                "\t" + test).collect(Collectors.joining(lineSep));
+        failedTests = (failedTests != null && !failedTests.isEmpty()) ? failedTests : "none";
+        sb.append("Pending failed tests: " + failedTests);
 
         return sb.toString();
     }

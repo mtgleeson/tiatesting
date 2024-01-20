@@ -1,5 +1,7 @@
 package org.tiatesting.core.coverage;
 
+import org.tiatesting.core.stats.TestStats;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,42 +36,15 @@ public class TestSuiteTracker implements Serializable {
      */
     private List<ClassImpactTracker> classesImpacted = new ArrayList<>();
 
-    /**
-     * The number if times this test suite was run.
-     */
-    private long numRuns;
-
-    /**
-     * The total amount of time in seconds this test has run across all executions. Use to calculate the average run time.
-     */
-    private long totalRunTime;
-
-    /**
-     * The total number of successful runs.
-     */
-    private long numSuccessRuns;
-
-    /**
-     * The total number of fail runs.
-     */
-    private long numFailRuns;
+    private TestStats testStats = new TestStats();
 
     /**
      * Increment the stats of this tracked test suite by the specified amounts.
+     *
+     * @param testStats
      */
-    public void incrementStats(long newRuns, long additionalRunTime, long newSuccessRuns, long newFailRuns){
-        this.numRuns += newRuns;
-        this.totalRunTime += additionalRunTime;
-        this.numSuccessRuns += newSuccessRuns;
-        this.numFailRuns += newFailRuns;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        TestSuiteTracker that = (TestSuiteTracker) o;
-        return Objects.equals(sourceFilename, that.sourceFilename);
+    public void incrementStats(final TestStats testStats){
+        this.testStats.incrementStats(testStats);
     }
 
     public String getName() {
@@ -78,11 +53,6 @@ public class TestSuiteTracker implements Serializable {
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(sourceFilename);
     }
 
     public String getSourceFilename() {
@@ -101,36 +71,25 @@ public class TestSuiteTracker implements Serializable {
         this.classesImpacted = classesImpacted;
     }
 
-    public long getNumRuns() {
-        return numRuns;
+    public TestStats getTestStats() {
+        return testStats;
     }
 
-    public void setNumRuns(long numRuns) {
-        this.numRuns = numRuns;
+    public void setTestStats(TestStats testStats) {
+        this.testStats = testStats;
     }
 
-    public long getTotalRunTime() {
-        return totalRunTime;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        TestSuiteTracker that = (TestSuiteTracker) o;
+        return Objects.equals(sourceFilename, that.sourceFilename);
     }
 
-    public void setTotalRunTime(long totalRunTime) {
-        this.totalRunTime = totalRunTime;
-    }
-
-    public long getNumSuccessRuns() {
-        return numSuccessRuns;
-    }
-
-    public void setNumSuccessRuns(long numSuccessRuns) {
-        this.numSuccessRuns = numSuccessRuns;
-    }
-
-    public long getNumFailRuns() {
-        return numFailRuns;
-    }
-
-    public void setNumFailRuns(long numFailRuns) {
-        this.numFailRuns = numFailRuns;
+    @Override
+    public int hashCode() {
+        return Objects.hash(sourceFilename);
     }
 
     @Override
@@ -138,10 +97,8 @@ public class TestSuiteTracker implements Serializable {
         return "TestSuiteTracker{" +
                 "name='" + name + '\'' +
                 ", sourceFilename='" + sourceFilename + '\'' +
-                ", numRuns=" + numRuns +
-                ", totalRunTime=" + totalRunTime +
-                ", numSuccessRuns=" + numSuccessRuns +
-                ", numFailRuns=" + numFailRuns +
+                ", classesImpacted=" + classesImpacted +
+                ", testStats=" + testStats +
                 '}';
     }
 }
