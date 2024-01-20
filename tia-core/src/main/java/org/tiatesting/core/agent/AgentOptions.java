@@ -51,14 +51,23 @@ public class AgentOptions {
     private static final String DEFAULT_TEST_FILES_DIRS = ".";
 
     /**
-     * Specifies whether the Tia database is being updated in the test run.
+     * Specifies whether the test suite mappings in the Tia database is being updated in this test run.
      */
-    public static final String UPDATE_DB = "updateDB";
+    public static final String UPDATE_DB_MAPPING = "updateDBMapping";
+    /**
+     * Specifies the default option for whether the test suite mappings in the Tia database is being updated in this test run.
+     */
+    private static final String DEFAULT_UPDATE_DB_MAPPING = "false";
 
     /**
-     * Specifies the default option for whether the Tia database is being updated in the test run.
+     * Specifies whether the test run stats in the Tia database is being updated in this test run.
      */
-    private static final String DEFAULT_UPDATE_DB = "false";
+    public static final String UPDATE_DB_STATS = "updateDBStats";
+
+    /**
+     * Specifies the default option for whether the test run stats in the Tia database is being updated in this test run.
+     */
+    private static final String DEFAULT_UPDATE_DB_STATS = "true";
 
     /**
      * Specifies whether Tia should analyse local changes when selecting tests.
@@ -111,7 +120,8 @@ public class AgentOptions {
     private static final String DEFAULT_VCS_CLIENT_NAME = "";
 
     private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS,
-            TEST_FILES_DIRS, UPDATE_DB, CHECK_LOCAL_CHANGES, VCS_SERVER_URI, VCS_USER_NAME, VCS_PASSWORD, VCS_CLIENT_NAME);
+            TEST_FILES_DIRS, UPDATE_DB_MAPPING, UPDATE_DB_STATS, CHECK_LOCAL_CHANGES, VCS_SERVER_URI, VCS_USER_NAME,
+            VCS_PASSWORD, VCS_CLIENT_NAME);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -216,12 +226,20 @@ public class AgentOptions {
         setOption(TEST_FILES_DIRS, testFilesDirs);
     }
 
-    public String getUpdateDB() {
-        return getOption(UPDATE_DB, DEFAULT_UPDATE_DB);
+    public String getUpdateDBMapping() {
+        return getOption(UPDATE_DB_MAPPING, DEFAULT_UPDATE_DB_MAPPING);
     }
 
-    public void setUpdateDB(String updateDB) {
-        setOption(UPDATE_DB, updateDB);
+    public void setUpdateDBMapping(String updateDBMapping) {
+        setOption(UPDATE_DB_MAPPING, updateDBMapping);
+    }
+
+    public String getUpdateDBStats() {
+        return getOption(UPDATE_DB_STATS, DEFAULT_UPDATE_DB_STATS);
+    }
+
+    public void setUpdateDBStats(String updateDBStats) {
+        setOption(UPDATE_DB_STATS, updateDBStats);
     }
 
     public String getCheckLocalChanges() {

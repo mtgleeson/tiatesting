@@ -14,12 +14,10 @@ public class TiaSpockTestRunInitializer {
 
     private final VCSReader vcsReader;
     private final DataStore dataStore;
-    private final boolean tiaUpdateDB;
 
-    public TiaSpockTestRunInitializer(final VCSReader vcsReader, final DataStore dataStore, final boolean tiaUpdateDB){
+    public TiaSpockTestRunInitializer(final VCSReader vcsReader, final DataStore dataStore){
         this.vcsReader = vcsReader;
         this.dataStore = dataStore;
-        this.tiaUpdateDB = tiaUpdateDB;
     }
 
     Set<String> getTestsToIgnore(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
