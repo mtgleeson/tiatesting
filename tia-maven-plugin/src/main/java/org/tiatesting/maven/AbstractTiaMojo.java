@@ -1,10 +1,9 @@
 package org.tiatesting.maven;
 
 import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.tiatesting.core.vcs.VCSReader;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -46,10 +45,16 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     boolean tiaEnabled;
 
     /**
-     * Should the TIA DB be updated with this test run?
+     * Should the mapping data in the TIA DB be updated with this test run?
      */
-    @Parameter(property = "tiaUpdateDB")
-    boolean tiaUpdateDB;
+    @Parameter(property = "tiaUpdateDBMapping")
+    boolean tiaUpdateDBMapping;
+
+    /**
+     * Should the stats data in the TIA DB be updated with this test run?
+     */
+    @Parameter(property = "tiaUpdateDBStats")
+    boolean tiaUpdateDBStats;
 
     /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
@@ -105,8 +110,12 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaEnabled;
     }
 
-    public boolean isTiaUpdateDB() {
-        return tiaUpdateDB;
+    public boolean isTiaUpdateDBMapping() {
+        return tiaUpdateDBMapping;
+    }
+
+    public boolean isTiaUpdateDBStats() {
+        return tiaUpdateDBStats;
     }
 
     public boolean isTiaCheckLocalChanges() {
@@ -128,4 +137,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     public String getTiaVcsClientName() {
         return tiaVcsClientName;
     }
+
+    public abstract VCSReader getVCSReader();
 }

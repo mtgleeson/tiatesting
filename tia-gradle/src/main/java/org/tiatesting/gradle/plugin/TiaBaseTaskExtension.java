@@ -1,15 +1,16 @@
-package org.tiatesting.spock.git.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.tasks.Input;
 
-public class TiaSpockGitTaskExtension {
+public class TiaBaseTaskExtension {
     private String projectDir;
     private String classFilesDirs;
     private String sourceFilesDirs;
     private String testFilesDirs;
     private String dbFilePath;
     private String enabled;
-    private String updateDB;
+    private String updateDBMapping;
+    private String updateDBStats;
     private String checkLocalChanges;
 
     @Input
@@ -67,12 +68,20 @@ public class TiaSpockGitTaskExtension {
     }
 
     @Input
-    public String getUpdateDB() {
-        return updateDB;
+    public String getUpdateDBMapping() {
+        return updateDBMapping;
     }
 
-    public void setUpdateDB(String updateDB) {
-        this.updateDB = updateDB;
+    public String getUpdateDBStats() {
+        return updateDBStats;
+    }
+
+    public void setUpdateDBStats(String updateDBStats) {
+        this.updateDBStats = updateDBStats;
+    }
+
+    public void setUpdateDBMapping(String updateDBMapping) {
+        this.updateDBMapping = updateDBMapping;
     }
 
     @Input

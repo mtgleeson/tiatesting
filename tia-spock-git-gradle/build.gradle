@@ -2,7 +2,7 @@ apply plugin: 'java-gradle-plugin'
 
 gradlePlugin {
     plugins {
-        simplePlugin {
+        spockGitPlugin {
             id = 'org.tiatesting.spock.git'
             implementationClass = 'org.tiatesting.spock.git.plugin.TiaSpockGitPlugin'
         }
@@ -13,23 +13,7 @@ dependencies {
     implementation project(':tia-core')
     implementation project(':tia-spock')
     implementation project(':tia-vcs-git')
+    implementation project(':tia-gradle')
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
 }
-
-/*
-version 'unspecified'
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
-}
-
-test {
-    useJUnitPlatform()
-}
- */
