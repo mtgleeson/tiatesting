@@ -9,6 +9,7 @@ import org.tiatesting.core.coverage.MethodImpactTracker;
 import org.tiatesting.core.coverage.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 
@@ -61,9 +62,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         testSuiteTrackers.put(specName, testSuiteTracker);
 
         if (updateDBStats){
-            testSuiteTracker.setNumRuns(1); // assume it will run. Explicitly set to 0 if ignored.
-            testSuiteTracker.setNumSuccessRuns(1); // assume it will succeed. Explicitly set to false on failure.
-            testSuiteTracker.setTotalRunTime(System.currentTimeMillis()); // track the start of the test run, do it in this object to keep the class thread safe
+            // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
+            testSuiteTracker.getTestStats().setNumRuns(1);
+            testSuiteTracker.getTestStats().setNumSuccessRuns(1);
+            // track the start of the test run, do it in the test suite object to keep the class thread safe
+            testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
         }
     }
 
@@ -83,9 +86,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
         if (updateDBStats) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(specName);
-            testSuiteTracker.setNumRuns(0);
-            testSuiteTracker.setNumSuccessRuns(0);
-            testSuiteTracker.setNumFailRuns(0);
+            testSuiteTracker.getTestStats().setNumRuns(0);
+            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
+            testSuiteTracker.getTestStats().setNumFailRuns(0);
         }
     }
 
@@ -101,7 +104,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestSuiteTracker testSuiteTracker = testSuiteTrackers.get(specName);
 
         if (updateDBStats){
-            testSuiteTracker.setTotalRunTime(calcTestSuiteRuntime(testSuiteTracker));
+            testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
         }
 
         if (updateDBMapping) {
@@ -132,26 +135,44 @@ public class TiaSpockRunListener extends AbstractRunListener {
         }
 
         if (updateDBStats){
-            long totalRunTime = System.currentTimeMillis() - testRunStartTime;
+            TestStats testRunStats = updateStatsForTestRun(testRunStartTime);
             boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, totalRunTime, getLatestDB);
+            this.dataStore.updateStats(testSuiteTrackers, testRunStats, getLatestDB);
         }
 
         this.dataStore.persistStoreMapping();
     }
 
+    private TestStats updateStatsForTestRun(final long testRunStartTime){
+        TestStats testRunStats = new TestStats();
+        testRunStats.setNumRuns(1);
+        testRunStats.setAvgRunTime(System.currentTimeMillis() - testRunStartTime);
+
+        // check if all the test suites succeeded
+        int numTestSuitesRun = testSuiteTrackers.keySet().size();
+        int numTestSuitesSucceeded = testSuiteTrackers.values().stream()
+                .reduce(0, (partialSum, element) ->
+                        partialSum + (element.getTestStats().getNumSuccessRuns() > 0 ? 1: 0), Integer::sum);
+        boolean allTestsSucceeded = numTestSuitesRun == numTestSuitesSucceeded;
+
+        testRunStats.setNumSuccessRuns(allTestsSucceeded ? 1: 0);
+        testRunStats.setNumFailRuns((allTestsSucceeded ? 0 : 1));
+
+        return testRunStats;
+    }
+
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
-        long totalRunTime = System.currentTimeMillis() - testSuiteTracker.getTotalRunTime();
-        totalRunTime = totalRunTime > 1000 ? (totalRunTime / 1000) : 1;
-        return totalRunTime;
+        long runTime = System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
+        runTime = runTime > 1000 ? (runTime / 1000) : 1;
+        return runTime;
     }
 
     private void updateTrackerStatsForFailedRun(String specName) {
         if (updateDBStats) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(specName);
-            testSuiteTracker.setNumSuccessRuns(0);
-            testSuiteTracker.setNumFailRuns(1);
+            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
+            testSuiteTracker.getTestStats().setNumFailRuns(1);
         }
     }
 }
