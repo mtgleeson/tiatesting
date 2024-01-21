@@ -12,6 +12,7 @@ import org.tiatesting.report.InfoReportGenerator;
 import org.tiatesting.report.ReportGenerator;
 import org.tiatesting.report.TextFileReportGenerator;
 
+import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -24,7 +25,6 @@ import java.util.stream.Collectors;
 public abstract class TiaBasePlugin implements Plugin<Project> {
 
     private static final Logger LOGGER = Logging.getLogger(TiaBasePlugin.class);
-
 
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
@@ -50,7 +50,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
             final DataStore dataStore = new MapDataStore(getDbFilePath(), getVCSReader().getBranchName());
-            ReportGenerator reportGenerator = new TextFileReportGenerator(getVCSReader().getBranchName());
+            ReportGenerator reportGenerator = new TextFileReportGenerator(getVCSReader().getBranchName(), getReportOutputDir());
             reportGenerator.generateReport(dataStore);
             System.out.println("Text report generated successfully");
         });
@@ -109,6 +109,14 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public String getCheckLocalChanges() {
         return tiaTaskExtension.getCheckLocalChanges();
+    }
+
+    public File getReportOutputDir() {
+        if (tiaTaskExtension.getReportOutputDir() != null){
+            return new File(tiaTaskExtension.getReportOutputDir());
+        }else{
+            return new File(project.getBuildDir().getPath() + File.separator + "tia");
+        }
     }
 
 }

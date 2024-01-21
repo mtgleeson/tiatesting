@@ -8,14 +8,13 @@ import org.tiatesting.persistence.MapDataStore;
 import org.tiatesting.report.ReportGenerator;
 import org.tiatesting.report.TextFileReportGenerator;
 
-public abstract class AbstractTextReportMojo extends AbstractTiaMojo {
+public abstract class AbstractTextReportMojo extends AbstractReportMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
 
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new MapDataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-
-        ReportGenerator reportGenerator = new TextFileReportGenerator(vcsReader.getBranchName());
+        ReportGenerator reportGenerator = new TextFileReportGenerator(vcsReader.getBranchName(), getTiaReportOutputDir());
         reportGenerator.generateReport(dataStore);
     }
 
