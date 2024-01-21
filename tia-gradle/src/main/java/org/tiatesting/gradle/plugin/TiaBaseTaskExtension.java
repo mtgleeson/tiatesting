@@ -11,10 +11,10 @@ public class TiaBaseTaskExtension {
     private String sourceFilesDirs;
     private String testFilesDirs;
     private String dbFilePath;
-    private String enabled;
-    private String updateDBMapping;
-    private String updateDBStats;
-    private String checkLocalChanges;
+    private Boolean enabled;
+    private Boolean updateDBMapping;
+    private Boolean updateDBStats;
+    private Boolean checkLocalChanges;
     private File reportOutputDir;
 
     @Input
@@ -63,37 +63,37 @@ public class TiaBaseTaskExtension {
     }
 
     @Input
-    public String getEnabled() {
+    public Boolean getEnabled() {
         return enabled;
     }
 
-    public void setEnabled(String enabled) {
+    public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
     }
 
     @Input
-    public String getUpdateDBMapping() {
+    public Boolean getUpdateDBMapping() {
         return updateDBMapping;
     }
 
-    public String getUpdateDBStats() {
+    public Boolean getUpdateDBStats() {
         return updateDBStats;
     }
 
-    public void setUpdateDBStats(String updateDBStats) {
+    public void setUpdateDBStats(Boolean updateDBStats) {
         this.updateDBStats = updateDBStats;
     }
 
-    public void setUpdateDBMapping(String updateDBMapping) {
+    public void setUpdateDBMapping(Boolean updateDBMapping) {
         this.updateDBMapping = updateDBMapping;
     }
 
     @Input
-    public String getCheckLocalChanges() {
+    public Boolean getCheckLocalChanges() {
         return checkLocalChanges;
     }
 
-    public void setCheckLocalChanges(String checkLocalChanges) {
+    public void setCheckLocalChanges(Boolean checkLocalChanges) {
         this.checkLocalChanges = checkLocalChanges;
     }
 

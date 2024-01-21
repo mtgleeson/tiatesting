@@ -45,7 +45,7 @@ public class TiaSpockGitPluginTestExtension {
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
-                    if (Boolean.valueOf(tiaTaskExtension.getUpdateDBMapping())) {
+                    if (tiaTaskExtension.getUpdateDBMapping()) {
                         LOGGER.debug("Enabling Jacoco in TCP server mode");
                         jacocoTaskExtension.setEnabled(true);
                         jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
@@ -122,9 +122,9 @@ public class TiaSpockGitPluginTestExtension {
      * @return
      */
     private boolean isEnabled(final TiaBaseTaskExtension tiaTaskExtension, Test task){
-        boolean enabled = Boolean.valueOf(tiaTaskExtension.getEnabled());
-        boolean updateDBMapping = Boolean.valueOf(tiaTaskExtension.getUpdateDBMapping());
-        boolean updateDBStats = Boolean.valueOf(tiaTaskExtension.getUpdateDBStats());
+        boolean enabled = tiaTaskExtension.getEnabled() != null ? tiaTaskExtension.getEnabled() : false;
+        boolean updateDBMapping = tiaTaskExtension.getUpdateDBMapping() != null ? tiaTaskExtension.getUpdateDBMapping() : false;
+        boolean updateDBStats = tiaTaskExtension.getUpdateDBStats() != null ? tiaTaskExtension.getUpdateDBStats() : false;
         LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping: " + updateDBMapping
                 + ", update stats: " + updateDBStats);
 
