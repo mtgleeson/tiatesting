@@ -12,6 +12,7 @@ public class TiaBaseTaskExtension {
     private String updateDBMapping;
     private String updateDBStats;
     private String checkLocalChanges;
+    private String reportOutputDir;
 
     @Input
     public String getProjectDir() {
@@ -92,4 +93,14 @@ public class TiaBaseTaskExtension {
     public void setCheckLocalChanges(String checkLocalChanges) {
         this.checkLocalChanges = checkLocalChanges;
     }
+
+    @Input
+    public String getReportOutputDir() {
+        return reportOutputDir;
+    }
+
+    public void setReportOutputDir(String reportOutputDir) {
+        this.reportOutputDir = reportOutputDir;
+    }
+
 }
