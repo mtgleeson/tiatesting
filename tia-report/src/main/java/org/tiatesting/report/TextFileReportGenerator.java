@@ -8,10 +8,12 @@ import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;
@@ -27,27 +29,37 @@ public class TextFileReportGenerator implements ReportGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(TextFileReportGenerator.class);
     private final String filenameExt;
+    private final File reportOutputDir;
 
-    public TextFileReportGenerator(String filenameExt){
+    public TextFileReportGenerator(String filenameExt, File reportOutputDir){
         this.filenameExt = filenameExt;
+        this.reportOutputDir = reportOutputDir;
     }
 
     @Override
     public String generateReport(DataStore dataStore) {
+        createOutputDir();
+
         long startTime = System.currentTimeMillis();
         StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        Path reportPath = Paths.get(reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt");
 
-        try (Writer writer = Files.newBufferedWriter(Paths.get("tia-test-mapping-" + filenameExt + ".txt"))) {
+        try (Writer writer = Files.newBufferedWriter(reportPath)) {
             writeCoreTiaReportData(writer, storedMapping);
             writeFailedTests(writer, storedMapping);
             writeMethodIndex(writer, storedMapping);
             writeTestSuiteMapping(writer, storedMapping);
-        }catch (UncheckedIOException | IOException ex) {
-            log.error("An error occurred generating the text report", ex);
+        }catch (UncheckedIOException | IOException e) {
+            log.error("An error occurred generating the text report", e);
+            throw new ReportException(e);
         }
 
         log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
         return null;
+    }
+
+    private void createOutputDir() {
+        reportOutputDir.mkdirs();
     }
 
     private void writeTestSuiteMapping(Writer writer, StoredMapping storedMapping) throws IOException {
