@@ -1,6 +1,9 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.OutputDirectory;
+
+import java.io.File;
 
 public class TiaBaseTaskExtension {
     private String projectDir;
@@ -12,7 +15,7 @@ public class TiaBaseTaskExtension {
     private String updateDBMapping;
     private String updateDBStats;
     private String checkLocalChanges;
-    private String reportOutputDir;
+    private File reportOutputDir;
 
     @Input
     public String getProjectDir() {
@@ -95,11 +98,12 @@ public class TiaBaseTaskExtension {
     }
 
     @Input
-    public String getReportOutputDir() {
+    @OutputDirectory
+    public File getReportOutputDir() {
         return reportOutputDir;
     }
 
-    public void setReportOutputDir(String reportOutputDir) {
+    public void setReportOutputDir(File reportOutputDir) {
         this.reportOutputDir = reportOutputDir;
     }
 
