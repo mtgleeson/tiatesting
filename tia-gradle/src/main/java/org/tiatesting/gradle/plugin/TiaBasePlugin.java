@@ -95,19 +95,19 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         return tiaTaskExtension.getDbFilePath();
     }
 
-    public String getEnabled() {
+    public Boolean getEnabled() {
         return tiaTaskExtension.getEnabled();
     }
 
-    public String getUpdateDBMapping() {
+    public Boolean getUpdateDBMapping() {
         return tiaTaskExtension.getUpdateDBMapping();
     }
 
-    public String getUpdateDBStats() {
+    public Boolean getUpdateDBStats() {
         return tiaTaskExtension.getUpdateDBStats();
     }
 
-    public String getCheckLocalChanges() {
+    public Boolean getCheckLocalChanges() {
         return tiaTaskExtension.getCheckLocalChanges();
     }
 
