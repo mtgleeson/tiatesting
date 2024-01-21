@@ -113,7 +113,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public File getReportOutputDir() {
         if (tiaTaskExtension.getReportOutputDir() != null){
-            return new File(tiaTaskExtension.getReportOutputDir());
+            return tiaTaskExtension.getReportOutputDir();
         }else{
             return new File(project.getBuildDir().getPath() + File.separator + "tia");
         }
