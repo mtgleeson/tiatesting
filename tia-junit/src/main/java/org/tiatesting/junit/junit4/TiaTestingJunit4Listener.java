@@ -103,6 +103,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         return enabled && (updateDBMapping || updateDBStats);
     }
 
+    @Override
     public void testRunStarted(Description description) throws Exception {
         if (!enabled){
             return;
@@ -110,6 +111,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         testRunStartTime = System.currentTimeMillis();
     }
 
+    @Override
     public void testSuiteStarted(Description description) throws Exception {
         if (!enabled){
             return;
@@ -135,23 +137,21 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
     }
 
+    @Override
     public void testIgnored(Description description) throws Exception {
         if (!enabled){
             return;
         }
 
         String testSuiteName = getTestSuiteName(description);
-
-        // track the test was run by the runner (even though it was ignored)
+        // track the test suite was run by the runner
         runnerTestSuites.add(testSuiteName);
 
-        if (updateDBStats) {
-            // reset the stats - the tests wasn't run
-            TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
-            testSuiteTracker.getTestStats().setNumRuns(0);
-            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
-            testSuiteTracker.getTestStats().setNumFailRuns(0);
-        }
+        /*
+        Note, we don't need to reset stats for Ignore:
+        1. when the test suite is ignored, only this method is called, testsuitestarted is not called so no stats were created.
+        2. when at least 1 test in the suite is ignored, this will get called, but we want to increment the run stats as Tia did not ignore the suite.
+         */
     }
 
     @Override
