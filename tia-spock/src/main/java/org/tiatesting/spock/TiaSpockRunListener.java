@@ -83,13 +83,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         String specName = specificationUtil.getSpecName(spec);
         log.info(specName + " was skipped!");
 
-        if (updateDBStats) {
-            // reset the stats - the tests wasn't run
-            TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(specName);
-            testSuiteTracker.getTestStats().setNumRuns(0);
-            testSuiteTracker.getTestStats().setNumSuccessRuns(0);
-            testSuiteTracker.getTestStats().setNumFailRuns(0);
-        }
+        /*
+        Note, we don't need to reset stats for Ignore:
+        1. when the test file spec is ignored, this method is not called.
+        2. when at least 1 test in the suite is ignored, this method is not called either.
+         */
     }
 
     @Override
