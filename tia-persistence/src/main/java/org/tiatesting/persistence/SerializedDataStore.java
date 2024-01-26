@@ -15,25 +15,25 @@ public class SerializedDataStore implements DataStore {
 
     private static final Logger log = LoggerFactory.getLogger(SerializedDataStore.class);
 
-    private final String mappingFilenamePrefix = "tia-testmapping";
-    private final String mappingFilenameSuffix;
-    private final String mappingFilenameExt = "ser";
-    private final String mappingFilename;
+    private final String dataFilenamePrefix = "tia-data";
+    private final String dataFilenameSuffix;
+    private final String dataFilenameExt = "ser";
+    private final String dataFilename;
     private final String dataStorePath;
 
     // local cached copy of the DB
     private TiaData tiaData;
 
-    public SerializedDataStore(String dataStorePath, String mappingFilenameSuffix){
+    public SerializedDataStore(String dataStorePath, String dataFilenameSuffix){
         this.dataStorePath = dataStorePath;
-        this.mappingFilenameSuffix = mappingFilenameSuffix;
-        this.mappingFilename = buildMappingFilename();
+        this.dataFilenameSuffix = dataFilenameSuffix;
+        this.dataFilename = buildTiaDataFilename();
     }
 
     @Override
     public TiaData getTiaData(boolean readFromDisk) {
         if (this.tiaData == null || readFromDisk){
-            this.tiaData = readTestMappingFromDisk();
+            this.tiaData = readTiaDataFromDisk();
         }
         return this.tiaData;
     }
@@ -41,27 +41,27 @@ public class SerializedDataStore implements DataStore {
     @Override
     public boolean persistTiaData(final TiaData tiaData){
         long startTime = System.currentTimeMillis();
-        boolean savedToDisk = writeTestMappingToDisk(tiaData);
-        log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));
+        boolean savedToDisk = writeTiaDataToDisk(tiaData);
+        log.debug("Time to save the Tia data to disk (ms): " + (System.currentTimeMillis() - startTime));
         return savedToDisk;
     }
 
     /**
-     * Read the serialized test mapping file from disk.
+     * Read the serialized Tia data file from disk.
      * If the file on disk doesn't exist then create a new {@link TiaData} object
      *
      * @return
      */
-    private TiaData readTestMappingFromDisk(){
+    private TiaData readTiaDataFromDisk(){
         TiaData tiaData;
 
         try {
-            FileInputStream fis = new FileInputStream(dataStorePath + "/" + mappingFilename);
+            FileInputStream fis = new FileInputStream(dataStorePath + "/" + dataFilename);
             ObjectInputStream ois = new ObjectInputStream(fis);
             tiaData = (TiaData) ois.readObject();
             ois.close();
         } catch (FileNotFoundException e){
-            log.debug(dataStorePath + "/" + mappingFilename + " doesn't currently exist.");
+            log.debug(dataStorePath + "/" + dataFilename + " doesn't currently exist.");
             tiaData = new TiaData();
         } catch (ClassNotFoundException | IOException e) {
             log.error("An error occurred", e);
@@ -71,12 +71,12 @@ public class SerializedDataStore implements DataStore {
         return tiaData;
     }
 
-    private String buildMappingFilename(){
-        return mappingFilenamePrefix + "-" + mappingFilenameSuffix + "." + mappingFilenameExt;
+    private String buildTiaDataFilename(){
+        return dataFilenamePrefix + "-" + dataFilenameSuffix + "." + dataFilenameExt;
     }
 
     /**
-     * Serialize the contents of the store mapping object to a file on disk.
+     * Serialize the contents of the Tia data object to a file on disk.
      * Lock the file on disk to avoid concurrent writes from other JVMs.
      * The lock strategy channel.lock() will wait for if another process already has a
      * lock in place.
@@ -84,19 +84,19 @@ public class SerializedDataStore implements DataStore {
      * @param tiaData
      * @return
      */
-    private boolean writeTestMappingToDisk(final TiaData tiaData){
+    private boolean writeTiaDataToDisk(final TiaData tiaData){
         boolean savedToDisk = true;
-        final String fullMappingFilename = dataStorePath + "/" + mappingFilename;
+        final String fullTiaDataFilename = dataStorePath + "/" + dataFilename;
 
-        try (FileOutputStream fileOutputStream = new FileOutputStream(fullMappingFilename);
+        try (FileOutputStream fileOutputStream = new FileOutputStream(fullTiaDataFilename);
              FileChannel channel = fileOutputStream.getChannel();
              FileLock lock = channel.lock()) {
             ObjectOutputStream out = new ObjectOutputStream(fileOutputStream);
             out.writeObject(tiaData);
-            log.info("Serialized data is saved in " + fullMappingFilename);
+            log.info("Serialized data is saved in " + fullTiaDataFilename);
         } catch (IOException e) {
             savedToDisk = false;
-            log.error("Serialized data failed to saved to disk for " + fullMappingFilename);
+            log.error("Serialized data failed to saved to disk for " + fullTiaDataFilename);
             e.printStackTrace();
         }
 
