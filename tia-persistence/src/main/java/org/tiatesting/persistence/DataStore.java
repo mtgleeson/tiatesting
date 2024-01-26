@@ -29,8 +29,8 @@ public interface DataStore {
      * @return was the test mapping data saved successfully
      */
     void updateTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
-                              final Set<String> runnerTestSuites, final Set<String> selectedTests,
-                              final Map<Integer, MethodImpactTracker> methodTrackers, final String commitValue, boolean getLatestStoredDB);
+                           final Set<String> runnerTestSuites, final Set<String> selectedTests,
+                           final Map<Integer, MethodImpactTracker> methodTrackers, final String commitValue, boolean getLatestStoredDB);
 
     /**
      * Update the stats stored in the stored mapping. Note, this doesn't persist the changes.
