@@ -1,7 +1,7 @@
 package org.tiatesting.core.coverage.result;
 
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
 
 import java.util.*;
 

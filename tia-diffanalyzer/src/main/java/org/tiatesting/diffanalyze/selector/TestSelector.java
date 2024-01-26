@@ -2,8 +2,8 @@ package org.tiatesting.diffanalyze.selector;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
@@ -16,7 +16,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;

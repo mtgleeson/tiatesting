@@ -2,9 +2,9 @@ package org.tiatesting.diffanalyze;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.persistence.StoredMapping;
