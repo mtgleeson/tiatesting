@@ -6,7 +6,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.StoredMapping;
+import org.tiatesting.core.model.StoredMapping;
 
 import java.io.File;
 import java.io.IOException;
