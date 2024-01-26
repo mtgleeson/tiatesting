@@ -7,7 +7,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.persistence.StoredMapping;
+import org.tiatesting.core.model.StoredMapping;
 
 import java.util.*;
 import java.util.stream.Collectors;

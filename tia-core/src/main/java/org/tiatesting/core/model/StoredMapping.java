@@ -1,8 +1,6 @@
-package org.tiatesting.persistence;
+package org.tiatesting.core.model;
 
 import org.tiatesting.core.stats.TestStats;
-import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.TestSuiteTracker;
 
 import java.io.Serializable;
 import java.time.Instant;
