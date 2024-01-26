@@ -17,11 +17,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * DataStore implementation based on a plain Java Map and being persisted to a file on disk.
+ * DataStore implementation based on a plain Java Object and being persisted to a file on disk.
  */
-public class MapDataStore implements DataStore {
+public class SerializedDataStore implements DataStore {
 
-    private static final Logger log = LoggerFactory.getLogger(MapDataStore.class);
+    private static final Logger log = LoggerFactory.getLogger(SerializedDataStore.class);
 
     private final String mappingFilenamePrefix = "tia-testmapping";
     private final String mappingFilenameSuffix;
@@ -32,7 +32,7 @@ public class MapDataStore implements DataStore {
     // local cached copy of the DB
     private StoredMapping storedMapping;
 
-    public MapDataStore(String dataStorePath, String mappingFilenameSuffix){
+    public SerializedDataStore(String dataStorePath, String mappingFilenameSuffix){
         this.dataStorePath = dataStorePath;
         this.mappingFilenameSuffix = mappingFilenameSuffix;
         this.mappingFilename = buildMappingFilename();

@@ -15,7 +15,7 @@ import org.tiatesting.core.sourcefile.FileExtensions;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.MapDataStore;
+import org.tiatesting.persistence.SerializedDataStore;
 
 import java.io.File;
 import java.io.IOException;
@@ -70,7 +70,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.vcsReader = vcsReader;
-        this.dataStore = enabled ? new MapDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        this.dataStore = enabled ? new SerializedDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
         this.testClassesDir = System.getProperty("testClassesDir");
         setSelectedTests();
     }
