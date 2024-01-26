@@ -10,7 +10,7 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.core.model.StoredMapping;
+import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
 import java.io.IOException;
@@ -54,16 +54,16 @@ public class TestSelector {
      */
     public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        StoredMapping storedMapping = dataStore.getStoredMapping(true);
-        if (!hasStoredMapping(storedMapping)){
+        TiaData tiaData = dataStore.getTiaData(true);
+        if (!hasStoredMapping(tiaData)){
             return new HashSet<>(); // run all tests - don't ignore any
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                storedMapping);
+                tiaData);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
-        Set<String> testsToIgnore = getTestsToIgnore(storedMapping, testsToRun);
+        Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
 
         // Set the selected tests to run as a System property so it's available for the test runners
         setSelectedTestsSystemProperty(testsToRun);
@@ -72,10 +72,10 @@ public class TestSelector {
         return testsToIgnore;
     }
 
-    private boolean hasStoredMapping(StoredMapping storedMapping){
-        log.info("Stored DB commit: " + storedMapping.getCommitValue());
+    private boolean hasStoredMapping(TiaData tiaData){
+        log.info("Stored DB commit: " + tiaData.getCommitValue());
 
-        if (storedMapping.getCommitValue() == null) {
+        if (tiaData.getCommitValue() == null) {
             // If no stored commit value found it means Tia hasn't previously run. We need to run all tests, don't ignore any.
             log.info("No stored commit value found. Tia hasn't previously run. Running all tests.");
             return false;
@@ -99,30 +99,30 @@ public class TestSelector {
      */
     public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                         final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        StoredMapping storedMapping = dataStore.getStoredMapping(true);
+        TiaData tiaData = dataStore.getTiaData(true);
         return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                storedMapping);
+                tiaData);
     }
 
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
-                                         final StoredMapping storedMapping){
+                                         final TiaData tiaData){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
-        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedMapping.getCommitValue(),
+        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(tiaData.getCommitValue(),
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(SOURCE_FILE_MODIFIED), storedMapping, sourceFilesDirs);
-        Set<String> testsToRun = findTestSuitesForImpactedMethods(storedMapping, impactedMethods);
+        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(SOURCE_FILE_MODIFIED), tiaData, sourceFilesDirs);
+        Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
 
         // Re-run tests that failed since the last successful full test run.
-        addPreviouslyFailedTests(storedMapping, testsToRun);
+        addPreviouslyFailedTests(tiaData, testsToRun);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), storedMapping, testsToRun, testFilesDirs);
+        addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
 
         return testsToRun;
     }
@@ -185,11 +185,11 @@ public class TestSelector {
         return file;
     }
 
-    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, StoredMapping storedMapping,
+    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, TiaData tiaData,
                                                Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesModified = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
-            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), storedMapping.getTestSuitesTracked(), testFilesDirs);
+            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), tiaData.getTestSuitesTracked(), testFilesDirs);
             if (testName != null){
                 testSuitesModified.add(testName);
             }
@@ -231,24 +231,24 @@ public class TestSelector {
      * For the source files that have changed, do a diff to find the methods that have changed.
      *
      * @param sourceFileDiffContexts
-     * @param storedMapping
+     * @param tiaData
      * @param sourceFilesDirs
      * @return set of method (hashcodes) that are impacted by the diff changes
      */
     private Set<Integer> findMethodsImpacted(List<SourceFileDiffContext> sourceFileDiffContexts,
-                                             StoredMapping storedMapping, List<String> sourceFilesDirs){
-        return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, storedMapping, sourceFilesDirs);
+                                             TiaData tiaData, List<String> sourceFilesDirs){
+        return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, tiaData, sourceFilesDirs);
     }
 
     /**
      * Build the list of test suites that need to be run based on the tracked methods that have been changed.
      *
-     * @param storedMapping
+     * @param tiaData
      * @param methodsImpacted
      * @return the tests that should be executed based on the methods changed in the source code.
      */
-    private Set<String> findTestSuitesForImpactedMethods(StoredMapping storedMapping, Set<Integer> methodsImpacted){
-        Map<Integer, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(storedMapping);
+    private Set<String> findTestSuitesForImpactedMethods(TiaData tiaData, Set<Integer> methodsImpacted){
+        Map<Integer, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(tiaData);
 
         Set<String> testsToRun = new HashSet<>();
         methodsImpacted.forEach( ( methodImpacted ) -> {
@@ -262,12 +262,12 @@ public class TestSelector {
     /**
      * Add the tests that failed on the previous run - force them to be re-run.
      *
-     * @param storedMapping
+     * @param tiaData
      * @param testsToRun
      */
-    private void addPreviouslyFailedTests(StoredMapping storedMapping, Set<String> testsToRun){
-        testsToRun.addAll(storedMapping.getTestSuitesFailed());
-        log.info("Running previously failed tests: {}", storedMapping.getTestSuitesFailed());
+    private void addPreviouslyFailedTests(TiaData tiaData, Set<String> testsToRun){
+        testsToRun.addAll(tiaData.getTestSuitesFailed());
+        log.info("Running previously failed tests: {}", tiaData.getTestSuitesFailed());
     }
 
     /**
@@ -275,14 +275,14 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
-     * @param storedMapping
+     * @param tiaData
      * @param testsToRun
      * @return
      */
-    private Set<String> getTestsToIgnore(StoredMapping storedMapping, Set<String> testsToRun){
+    private Set<String> getTestsToIgnore(TiaData tiaData, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
 
-        storedMapping.getTestSuitesTracked().keySet().forEach( (testSuite) -> {
+        tiaData.getTestSuitesTracked().keySet().forEach( (testSuite) -> {
             if (!testsToRun.contains(testSuite)){
                 testsToIgnore.add(testSuite);
             }
@@ -296,13 +296,13 @@ public class TestSelector {
      * Use this for convenience lookup when finding the list of test suites to ignore for previously tracked methods
      * that have been changed in the diff.
      *
-     * @param storedMapping keyed by method name, value is a list of test suites
+     * @param tiaData keyed by method name, value is a list of test suites
      * @return
      */
-    private Map<Integer, Set<String>> buildMethodToTestSuiteMap(StoredMapping storedMapping){
+    private Map<Integer, Set<String>> buildMethodToTestSuiteMap(TiaData tiaData){
         Map<Integer, Set<String>> methodTestSuites = new HashMap<>();
 
-        storedMapping.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
+        tiaData.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
                 for (Integer methodTrackedHashCode : classImpacted.getMethodsImpacted()) {
                     if (methodTestSuites.get(methodTrackedHashCode) == null) {
