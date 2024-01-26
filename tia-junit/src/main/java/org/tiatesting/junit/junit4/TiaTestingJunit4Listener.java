@@ -134,6 +134,11 @@ public class TiaTestingJunit4Listener extends RunListener {
                 // track the start of the test run, do it in the test suite object to keep the class thread safe
                 testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
             }
+        } else {
+            // If surefire is configured to re-run failed tests, it will use the same instance of this class and it
+            // will execute new test runs. Each time a test suite is run, remove it from the failed list in case
+            // it was previously run, failed, and is being re-run.
+            this.testSuitesFailed.remove(testSuiteName);
         }
     }
 
@@ -216,7 +221,7 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        log.info("Test run finished. Persisting the DB.");
+        log.info("Test run finished. Persisting the DB. testRunStats: {}", testRunStats);
 
         if (updateDBMapping){
             runnerTestSuites = getRunnerTestSuites();
@@ -225,15 +230,23 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         if (updateDBStats){
-            updateStatsForTestRun();
+            TestStats testStats = getStatsForTestRun();
             boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, testRunStats, getLatestDB);
+            this.dataStore.updateStats(testSuiteTrackers, testStats, getLatestDB);
         }
 
         this.dataStore.persistStoreMapping();
     }
 
-    private void updateStatsForTestRun(){
+    private TestStats getStatsForTestRun(){
+        if (testRunStats.getNumRuns() > 0){
+            // Don't increment the stats for this test run if we have already done so.
+            // This happens when a failed test is configured by Surefire etc to be re-run.
+            // For the re-runs, we don't count those in the stats as we only want to track
+            // how many times Tia was used for selecting tests.
+            return new TestStats();
+        }
+
         testRunStats.setNumRuns(1);
         testRunStats.setAvgRunTime(System.currentTimeMillis() - this.testRunStartTime);
 
@@ -246,6 +259,8 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         testRunStats.setNumSuccessRuns(allTestsSucceeded ? 1: 0);
         testRunStats.setNumFailRuns((allTestsSucceeded ? 0 : 1));
+
+        return testRunStats;
     }
 
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
