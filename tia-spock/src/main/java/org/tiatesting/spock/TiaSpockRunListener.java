@@ -12,6 +12,7 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
+import org.tiatesting.persistence.StoredMapping;
 
 import java.io.IOException;
 import java.util.Map;
@@ -126,19 +127,21 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
+        StoredMapping updatedStoredMapping = null;
 
         if (updateDBMapping){
-            this.dataStore.updateTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
-                    testRunMethodsImpacted, vcsReader.getHeadCommit(), true);
+            updatedStoredMapping = dataStore.getStoredMapping(true);
+            dataStore.updateTestMapping(updatedStoredMapping, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
+                    selectedTests, testRunMethodsImpacted, vcsReader.getHeadCommit());
         }
 
         if (updateDBStats){
             TestStats testRunStats = updateStatsForTestRun(testRunStartTime);
-            boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, testRunStats, getLatestDB);
+            updatedStoredMapping = updateDBMapping ? updatedStoredMapping : dataStore.getStoredMapping(true);
+            dataStore.updateStats(updatedStoredMapping, testSuiteTrackers, testRunStats);
         }
 
-        this.dataStore.persistStoreMapping();
+        dataStore.persistStoreMapping(updatedStoredMapping);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){

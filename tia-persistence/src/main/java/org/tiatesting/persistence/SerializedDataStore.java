@@ -47,12 +47,10 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
-    public void updateTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
+    public void updateTestMapping(final StoredMapping storedMapping, final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
                                   final Set<String> runnerTestSuites, final Set<String> selectedTests,
                                   final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
-                                  final String commitValue, boolean getLatestStoredDB) {
-        // always get the latest test mapping before updating in case another process has updated the file since it was last read.
-        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
+                                  final String commitValue) {
         log.info("Persisting commit value: " + commitValue);
         storedMapping.setCommitValue(commitValue);
 
@@ -80,9 +78,8 @@ public class SerializedDataStore implements DataStore {
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
     }
 
-    public void updateStats(final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats,
-                            boolean getLatestStoredDB){
-        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
+    @Override
+    public void updateStats(final StoredMapping storedMapping, final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats){
         storedMapping.incrementStats(testRunStats);
 
         // update the test mapping
@@ -91,7 +88,8 @@ public class SerializedDataStore implements DataStore {
         storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
     }
 
-    public boolean persistStoreMapping(){
+    @Override
+    public boolean persistStoreMapping(final StoredMapping storedMapping){
         long startTime = System.currentTimeMillis();
         boolean savedToDisk = writeTestMappingToDisk(storedMapping);
         log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));

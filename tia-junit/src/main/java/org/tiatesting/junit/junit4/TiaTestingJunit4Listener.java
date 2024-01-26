@@ -16,6 +16,7 @@ import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.SerializedDataStore;
+import org.tiatesting.persistence.StoredMapping;
 
 import java.io.File;
 import java.io.IOException;
@@ -222,20 +223,22 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         log.info("Test run finished. Persisting the DB. testRunStats: {}", testRunStats);
+        StoredMapping updatedStoredMapping = null;
 
         if (updateDBMapping){
+            updatedStoredMapping = dataStore.getStoredMapping(true);
             runnerTestSuites = getRunnerTestSuites();
-            this.dataStore.updateTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
-                    testRunMethodsImpacted, vcsReader.getHeadCommit(), true);
+            dataStore.updateTestMapping(updatedStoredMapping, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
+                    selectedTests, testRunMethodsImpacted, vcsReader.getHeadCommit());
         }
 
         if (updateDBStats){
             TestStats testStats = getStatsForTestRun();
-            boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, testStats, getLatestDB);
+            updatedStoredMapping = updateDBMapping ? updatedStoredMapping : dataStore.getStoredMapping(true);
+            dataStore.updateStats(updatedStoredMapping, testSuiteTrackers, testStats);
         }
 
-        this.dataStore.persistStoreMapping();
+        dataStore.persistStoreMapping(updatedStoredMapping);
     }
 
     private TestStats getStatsForTestRun(){
