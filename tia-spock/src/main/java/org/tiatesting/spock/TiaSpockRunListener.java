@@ -10,9 +10,10 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.core.model.StoredMapping;
+import org.tiatesting.core.model.TiaData;
 
 import java.io.IOException;
 import java.util.Map;
@@ -23,6 +24,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     private static final Logger log = LoggerFactory.getLogger(TiaSpockRunListener.class);
 
+    private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final VCSReader vcsReader;
@@ -38,6 +40,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final boolean updateDBMapping, final boolean updateDBStats){
+        this.testRunnerService = new TestRunnerService();
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
@@ -127,21 +130,21 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
-        StoredMapping updatedStoredMapping = null;
+        TiaData updatedTiaData = null;
 
         if (updateDBMapping){
-            updatedStoredMapping = dataStore.getStoredMapping(true);
-            dataStore.updateTestMapping(updatedStoredMapping, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
+            updatedTiaData = dataStore.getTiaData(true);
+            testRunnerService.updateTestMapping(updatedTiaData, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                     selectedTests, testRunMethodsImpacted, vcsReader.getHeadCommit());
         }
 
         if (updateDBStats){
             TestStats testRunStats = updateStatsForTestRun(testRunStartTime);
-            updatedStoredMapping = updateDBMapping ? updatedStoredMapping : dataStore.getStoredMapping(true);
-            dataStore.updateStats(updatedStoredMapping, testSuiteTrackers, testRunStats);
+            updatedTiaData = updateDBMapping ? updatedTiaData : dataStore.getTiaData(true);
+            testRunnerService.updateStats(updatedTiaData, testSuiteTrackers, testRunStats);
         }
 
-        dataStore.persistStoreMapping(updatedStoredMapping);
+        dataStore.persistTiaData(updatedTiaData);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){
