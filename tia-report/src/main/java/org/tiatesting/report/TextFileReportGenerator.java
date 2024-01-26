@@ -2,8 +2,8 @@ package org.tiatesting.report;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.StoredMapping;
