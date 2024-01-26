@@ -7,7 +7,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.core.model.StoredMapping;
+import org.tiatesting.core.model.TiaData;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -81,14 +81,14 @@ public class FileImpactAnalyzer {
      *
      *
      * @param sourceFileDiffContexts
-     * @param storedMapping
+     * @param tiaData
      * @param sourceFilesDirs Locations of the source files for the project being tested
      */
     public Set<Integer> getMethodsForFilesChanged(final List<SourceFileDiffContext> sourceFileDiffContexts,
-                                                  final StoredMapping storedMapping, final List<String> sourceFilesDirs){
+                                                  final TiaData tiaData, final List<String> sourceFilesDirs){
         Set<Integer> methodsInvokedByChanges = new HashSet<>();
-        Map<String, Set<Integer>> sourceFilesTracked = buildTrackedSourceFileMethods(storedMapping);
-        Map<Integer, MethodImpactTracker> methodImpactTrackers = storedMapping.getMethodsTracked();
+        Map<String, Set<Integer>> sourceFilesTracked = buildTrackedSourceFileMethods(tiaData);
+        Map<Integer, MethodImpactTracker> methodImpactTrackers = tiaData.getMethodsTracked();
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
@@ -107,13 +107,13 @@ public class FileImpactAnalyzer {
      * Build a convenience map showing a list of impacted methods for each impacted source file (ignore test suite information).
      * Used for convenience in analyzing the diff files: Tracked Source File: List<MethodImpactTracker>
      *
-     * @param storedMapping
+     * @param tiaData
      * @return
      */
-    private static Map<String, Set<Integer>> buildTrackedSourceFileMethods(final StoredMapping storedMapping){
+    private static Map<String, Set<Integer>> buildTrackedSourceFileMethods(final TiaData tiaData){
         Map<String, Set<Integer>> sourceFilesTracked = new HashMap<>();
 
-        for (TestSuiteTracker testSuiteTracker : storedMapping.getTestSuitesTracked().values()){
+        for (TestSuiteTracker testSuiteTracker : tiaData.getTestSuitesTracked().values()){
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
                 String sourceFilename = classImpacted.getSourceFilename();
 
