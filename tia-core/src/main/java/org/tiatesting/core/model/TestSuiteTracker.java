@@ -1,4 +1,4 @@
-package org.tiatesting.core.coverage;
+package org.tiatesting.core.model;
 
 import org.tiatesting.core.stats.TestStats;
 

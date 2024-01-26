@@ -7,8 +7,8 @@ import org.jacoco.core.runtime.RemoteControlReader;
 import org.jacoco.core.runtime.RemoteControlWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
 
