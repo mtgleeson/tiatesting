@@ -2,10 +2,9 @@ package org.tiatesting.report;
 
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.StoredMapping;
+import org.tiatesting.core.model.StoredMapping;
 
 import java.text.DecimalFormat;
-import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;

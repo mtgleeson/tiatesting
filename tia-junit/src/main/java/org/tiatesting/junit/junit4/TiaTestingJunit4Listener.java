@@ -16,7 +16,7 @@ import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.SerializedDataStore;
-import org.tiatesting.persistence.StoredMapping;
+import org.tiatesting.core.model.StoredMapping;
 
 import java.io.File;
 import java.io.IOException;
