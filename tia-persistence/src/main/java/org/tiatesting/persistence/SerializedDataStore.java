@@ -65,7 +65,7 @@ public class SerializedDataStore implements DataStore {
             tiaData = new TiaData();
         } catch (ClassNotFoundException | IOException e) {
             log.error("An error occurred", e);
-            throw new RuntimeException(e);
+            throw new TiaPersistenceException(e);
         }
 
         return tiaData;
@@ -97,7 +97,7 @@ public class SerializedDataStore implements DataStore {
         } catch (IOException e) {
             savedToDisk = false;
             log.error("Serialized data failed to saved to disk for " + fullTiaDataFilename);
-            e.printStackTrace();
+            throw new TiaPersistenceException(e);
         }
 
         return savedToDisk;

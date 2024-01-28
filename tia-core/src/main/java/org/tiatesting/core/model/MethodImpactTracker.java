@@ -7,7 +7,7 @@ public class MethodImpactTracker implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * This is the full package.class name + method name + medthod signature.
+     * This is the full package.class name + method name + method signature.
      * For example: com/example/HandleService.getHandleModel.(Ljava/lang/Long;)Ljava/lang/String
      */
     private final String methodName;
