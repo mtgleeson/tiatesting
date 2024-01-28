@@ -66,6 +66,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         testSuiteTrackers.put(specName, testSuiteTracker);
 
         if (updateDBStats){
+            log.info("setting num runs for test suite {}", testSuiteTracker.getName());
             // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
             testSuiteTracker.getTestStats().setNumRuns(1);
             testSuiteTracker.getTestStats().setNumSuccessRuns(1);
@@ -166,9 +167,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     }
 
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
-        long runTime = System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
-        runTime = runTime > 1000 ? (runTime / 1000) : 1;
-        return runTime;
+        return System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
     }
 
     private void updateTrackerStatsForFailedRun(String specName) {
