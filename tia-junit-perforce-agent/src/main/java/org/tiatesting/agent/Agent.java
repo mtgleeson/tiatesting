@@ -7,7 +7,7 @@ import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.MapDataStore;
+import org.tiatesting.persistence.SerializedDataStore;
 import org.tiatesting.vcs.perforce.P4Reader;
 
 import java.lang.instrument.Instrumentation;
@@ -22,7 +22,7 @@ public class Agent {
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
         P4Reader gitReader = new P4Reader(true, agentOptions.getVcsServerUri(), agentOptions.getVcsUserName(), agentOptions.getVcsPassword(), agentOptions.getVcsClientName());
-        DataStore dataStore = new MapDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
+        DataStore dataStore = new SerializedDataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
         List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
         List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;
         boolean checkLocalChanges = Boolean.valueOf(agentOptions.getCheckLocalChanges());
