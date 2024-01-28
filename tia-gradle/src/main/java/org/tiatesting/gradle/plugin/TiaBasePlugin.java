@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.SerializedDataStore;
+import org.tiatesting.persistence.h2.H2DataStore;
 import org.tiatesting.report.InfoReportGenerator;
 import org.tiatesting.report.ReportGenerator;
 import org.tiatesting.report.TextFileReportGenerator;
@@ -40,7 +40,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public void createInfoTask() {
         project.task("tia-info").doLast(task -> {
-            final DataStore dataStore = new SerializedDataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             ReportGenerator reportGenerator = new InfoReportGenerator();
             System.out.println(reportGenerator.generateReport(dataStore));
         });
@@ -49,7 +49,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            final DataStore dataStore = new SerializedDataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             ReportGenerator reportGenerator = new TextFileReportGenerator(getVCSReader().getBranchName(), getReportOutputDir());
             reportGenerator.generateReport(dataStore);
             System.out.println("Text report generated successfully");
@@ -63,13 +63,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia:");
-            final DataStore dataStore = new SerializedDataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
             boolean checkLocalChanges = Boolean.valueOf(getCheckLocalChanges());
             TestSelector testSelector = new TestSelector(dataStore);
             Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, checkLocalChanges);
-            System.out.println("Selected tests to run: " + testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n", ":\t", "")));
+            String lineSep = System.lineSeparator();
+            System.out.println("Selected tests to run: " + lineSep + "\t" + testsToRun.stream().map(String::valueOf).collect(
+                    Collectors.joining(lineSep + "\t", "", "")));
         });
     }
 

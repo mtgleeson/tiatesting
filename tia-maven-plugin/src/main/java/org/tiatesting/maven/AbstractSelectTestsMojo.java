@@ -3,7 +3,7 @@ package org.tiatesting.maven;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.selector.TestSelector;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.MapDataStore;
+import org.tiatesting.persistence.h2.H2DataStore;
 
 import java.util.Arrays;
 import java.util.List;
@@ -19,7 +19,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     public void execute() {
         System.out.println("Displaying the tests selected by Tia:");
         final VCSReader vcsReader = getVCSReader();
-        final DataStore dataStore = new MapDataStore(getTiaDBFilePath(), vcsReader.getBranchName());
+        final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
         List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
         List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
 

@@ -6,7 +6,7 @@ import org.spockframework.runtime.extension.IGlobalExtension;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.SerializedDataStore;
+import org.tiatesting.persistence.h2.H2DataStore;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -49,7 +49,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
             String dbFilePath = System.getProperty("tiaDBFilePath");
-            dataStore = new SerializedDataStore(dbFilePath, vcsReader.getBranchName());
+            dataStore = new H2DataStore(dbFilePath, vcsReader.getBranchName());
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
             boolean checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));

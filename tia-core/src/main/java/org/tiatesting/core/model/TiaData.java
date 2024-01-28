@@ -15,6 +15,11 @@ public class TiaData implements Serializable {
     private String commitValue;
 
     /**
+     * The date and time the stored mapping was last updated.
+     */
+    private Instant lastUpdated;
+
+    /**
      * The saved mapping of impacted classes/methods for each test suite.
      */
     private Map<String, TestSuiteTracker> testSuitesTracked = new HashMap<>();
@@ -32,11 +37,6 @@ public class TiaData implements Serializable {
      * We can use the method hashcode to look up the method details from this map.
      */
     private Map<Integer, MethodImpactTracker> methodsTracked = new HashMap<>();
-
-    /**
-     * The date and time the stored mapping was last updated.
-     */
-    private Instant lastUpdated;
 
     private TestStats testStats = new TestStats();
 

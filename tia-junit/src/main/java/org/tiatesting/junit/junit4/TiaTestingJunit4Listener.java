@@ -6,18 +6,18 @@ import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.coverage.client.JacocoClient;
+import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.coverage.client.JacocoClient;
-import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.sourcefile.FileExtensions;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.SerializedDataStore;
-import org.tiatesting.core.model.TiaData;
+import org.tiatesting.persistence.h2.H2DataStore;
 
 import java.io.File;
 import java.io.IOException;
@@ -74,7 +74,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.vcsReader = vcsReader;
-        this.dataStore = enabled ? new SerializedDataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        this.dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
         this.testClassesDir = System.getProperty("testClassesDir");
         setSelectedTests();
     }
