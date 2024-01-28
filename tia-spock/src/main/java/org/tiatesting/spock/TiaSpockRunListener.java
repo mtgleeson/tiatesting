@@ -5,13 +5,15 @@ import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.AbstractRunListener;
 import org.spockframework.runtime.model.ErrorInfo;
 import org.spockframework.runtime.model.SpecInfo;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.persistence.DataStore;
+import org.tiatesting.core.model.TiaData;
 
 import java.io.IOException;
 import java.util.Map;
@@ -22,6 +24,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     private static final Logger log = LoggerFactory.getLogger(TiaSpockRunListener.class);
 
+    private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final VCSReader vcsReader;
@@ -37,6 +40,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final boolean updateDBMapping, final boolean updateDBStats){
+        this.testRunnerService = new TestRunnerService();
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
@@ -126,19 +130,21 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
+        TiaData updatedTiaData = null;
 
         if (updateDBMapping){
-            this.dataStore.updateTestMapping(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
-                    testRunMethodsImpacted, vcsReader.getHeadCommit(), true);
+            updatedTiaData = dataStore.getTiaData(true);
+            testRunnerService.updateTestMapping(updatedTiaData, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
+                    selectedTests, testRunMethodsImpacted, vcsReader.getHeadCommit());
         }
 
         if (updateDBStats){
             TestStats testRunStats = updateStatsForTestRun(testRunStartTime);
-            boolean getLatestDB = !updateDBMapping; // don't re-read the DB from disk if we've already loaded it for updating the mapping
-            this.dataStore.updateStats(testSuiteTrackers, testRunStats, getLatestDB);
+            updatedTiaData = updateDBMapping ? updatedTiaData : dataStore.getTiaData(true);
+            testRunnerService.updateStats(updatedTiaData, testSuiteTrackers, testRunStats);
         }
 
-        this.dataStore.persistStoreMapping();
+        dataStore.persistTiaData(updatedTiaData);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){

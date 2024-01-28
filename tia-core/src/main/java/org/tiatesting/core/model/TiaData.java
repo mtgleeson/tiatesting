@@ -1,14 +1,12 @@
-package org.tiatesting.persistence;
+package org.tiatesting.core.model;
 
 import org.tiatesting.core.stats.TestStats;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.coverage.TestSuiteTracker;
 
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
 
-public class StoredMapping implements Serializable {
+public class TiaData implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
@@ -103,7 +101,7 @@ public class StoredMapping implements Serializable {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        StoredMapping that = (StoredMapping) o;
+        TiaData that = (TiaData) o;
         return Objects.equals(commitValue, that.commitValue) && Objects.equals(lastUpdated, that.lastUpdated);
     }
 

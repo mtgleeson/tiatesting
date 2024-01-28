@@ -1,101 +1,79 @@
-package org.tiatesting.persistence;
+package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.coverage.ClassImpactTracker;
-import org.tiatesting.core.coverage.MethodImpactTracker;
-import org.tiatesting.core.coverage.TestSuiteTracker;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.stats.TestStats;
 
-import java.io.*;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * DataStore implementation based on a plain Java Map and being persisted to a file on disk.
- */
-public class MapDataStore implements DataStore {
+public class TestRunnerService {
 
-    private static final Logger log = LoggerFactory.getLogger(MapDataStore.class);
+    private static final Logger log = LoggerFactory.getLogger(TestRunnerService.class);
 
-    private final String mappingFilenamePrefix = "tia-testmapping";
-    private final String mappingFilenameSuffix;
-    private final String mappingFilenameExt = "ser";
-    private final String mappingFilename;
-    private final String dataStorePath;
-
-    // local cached copy of the DB
-    private StoredMapping storedMapping;
-
-    public MapDataStore(String dataStorePath, String mappingFilenameSuffix){
-        this.dataStorePath = dataStorePath;
-        this.mappingFilenameSuffix = mappingFilenameSuffix;
-        this.mappingFilename = buildMappingFilename();
-    }
-
-    @Override
-    public StoredMapping getStoredMapping(boolean readLatestDBFromDisk) {
-        if (this.storedMapping == null || readLatestDBFromDisk){
-            this.storedMapping = readTestMappingFromDisk();
-        }
-        return this.storedMapping;
-    }
-
-    @Override
-    public void updateTestMapping(final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
+    /**
+     * Persist the mapping of the methods called by each test class.
+     *
+     * @param tiaData
+     * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
+     * @param testSuitesFailed the list of test suites that contained a failure or error
+     * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
+     * @param selectedTests the tests selected to run by Tia
+     * @param methodTrackersFromTestRun a map of all source code methods that were covered by any of the test suites executed in the test run
+     * @param commitValue the new commit value the test run was executed against
+     * @return was the test mapping data saved successfully
+     */
+    public void updateTestMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
                                   final Set<String> runnerTestSuites, final Set<String> selectedTests,
-                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
-                                  final String commitValue, boolean getLatestStoredDB) {
-        // always get the latest test mapping before updating in case another process has updated the file since it was last read.
-        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
+                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun, final String commitValue) {
         log.info("Persisting commit value: " + commitValue);
-        storedMapping.setCommitValue(commitValue);
+        tiaData.setCommitValue(commitValue);
 
         // update the test mapping
-        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
+        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = tiaData.getTestSuitesTracked();
         Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
-        storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
+        tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
 
         // update the tracked methods
-        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = storedMapping.getMethodsTracked();
+        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = tiaData.getMethodsTracked();
         Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun, mergedTestSuiteTrackers);
-        storedMapping.setMethodsTracked(updatedMethodTrackers);
+        tiaData.setMethodsTracked(updatedMethodTrackers);
 
         // remove any test suites that have been deleted
-        removeDeletedTestSuites(storedMapping, runnerTestSuites);
+        removeDeletedTestSuites(tiaData, runnerTestSuites);
 
         // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
         // scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
         // First, remove all the existing test suites that were selected for this run, and then add back any that failed.
-        storedMapping.getTestSuitesFailed().removeAll(selectedTests);
-        storedMapping.getTestSuitesFailed().addAll(testSuitesFailed);
+        tiaData.getTestSuitesFailed().removeAll(selectedTests);
+        tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
 
-        storedMapping.setLastUpdated(Instant.now());
+        tiaData.setLastUpdated(Instant.now());
         //mergedTestMappings.forEach( (testClass, methodsCalled) ->
         //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
     }
 
-    public void updateStats(final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats,
-                            boolean getLatestStoredDB){
-        StoredMapping storedMapping = getStoredMapping(getLatestStoredDB);
-        storedMapping.incrementStats(testRunStats);
+    /**
+     * Update the stats stored in the stored mapping. Note, this doesn't persist the changes.
+     *
+     * @param tiaData
+     * @param testSuiteTrackers the test suites with updated stats from the current test run
+     * @param testRunStats the stats for the test run
+     */
+    public void updateStats(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats){
+        tiaData.incrementStats(testRunStats);
 
         // update the test mapping
-        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = storedMapping.getTestSuitesTracked();
+        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = tiaData.getTestSuitesTracked();
         Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingStats(testSuiteTrackersOnDisk, testSuiteTrackers);
-        storedMapping.setTestSuitesTracked(mergedTestSuiteTrackers);
-    }
-
-    public boolean persistStoreMapping(){
-        long startTime = System.currentTimeMillis();
-        boolean savedToDisk = writeTestMappingToDisk(storedMapping);
-        log.debug("Time to save the mapping to disk (ms): " + (System.currentTimeMillis() - startTime));
-        return savedToDisk;
+        tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
     }
 
     /**
@@ -103,12 +81,12 @@ public class MapDataStore implements DataStore {
      * A test suite is determined to be deleted if it was not in the list of test suites executed by the test runner,
      * but it was previously tracked by Tia and stored in the DB.
      *
-     * @param storedMapping
+     * @param tiaData
      * @param runnerTestSuites
      */
-    private void removeDeletedTestSuites(final StoredMapping storedMapping, final Set<String> runnerTestSuites){
+    private void removeDeletedTestSuites(final TiaData tiaData, final Set<String> runnerTestSuites){
         Set<String> deletedTestSuites = new HashSet<>();
-        for (String testSuiteTracked : storedMapping.getTestSuitesTracked().keySet()){
+        for (String testSuiteTracked : tiaData.getTestSuitesTracked().keySet()){
             if (!runnerTestSuites.contains(testSuiteTracked)){
                 deletedTestSuites.add(testSuiteTracked);
             }
@@ -116,37 +94,8 @@ public class MapDataStore implements DataStore {
 
         if (!deletedTestSuites.isEmpty()) {
             log.info("Removing the following deleted test suites from the persisted mapping: {}", deletedTestSuites);
-            storedMapping.getTestSuitesTracked().keySet().removeAll(deletedTestSuites);
+            tiaData.getTestSuitesTracked().keySet().removeAll(deletedTestSuites);
         }
-    }
-
-    /**
-     * Read the serialized test mapping file from disk.
-     * If the file on disk doesn't exist then create a new {@link StoredMapping} object
-     *
-     * @return
-     */
-    private StoredMapping readTestMappingFromDisk(){
-        StoredMapping storedMapping;
-
-        try {
-            FileInputStream fis = new FileInputStream(dataStorePath + "/" + mappingFilename);
-            ObjectInputStream ois = new ObjectInputStream(fis);
-            storedMapping = (StoredMapping) ois.readObject();
-            ois.close();
-        } catch (FileNotFoundException e){
-            log.debug(dataStorePath + "/" + mappingFilename + " doesn't currently exist.");
-            storedMapping = new StoredMapping();
-        } catch (ClassNotFoundException | IOException e) {
-            log.error("An error occurred", e);
-            throw new RuntimeException(e);
-        }
-
-        return storedMapping;
-    }
-
-    private String buildMappingFilename(){
-        return mappingFilenamePrefix + "-" + mappingFilenameSuffix + "." + mappingFilenameExt;
     }
 
     /**
@@ -237,33 +186,5 @@ public class MapDataStore implements DataStore {
         });
 
         return mergedTestMappings;
-    }
-
-    /**
-     * Serialize the contents of the store mapping object to a file on disk.
-     * Lock the file on disk to avoid concurrent writes from other JVMs.
-     * The lock strategy channel.lock() will wait for if another process already has a
-     * lock in place.
-     *
-     * @param storedMapping
-     * @return
-     */
-    private boolean writeTestMappingToDisk(final StoredMapping storedMapping){
-        boolean savedToDisk = true;
-        final String fullMappingFilename = dataStorePath + "/" + mappingFilename;
-
-        try (FileOutputStream fileOutputStream = new FileOutputStream(fullMappingFilename);
-             FileChannel channel = fileOutputStream.getChannel();
-             FileLock lock = channel.lock()) {
-            ObjectOutputStream out = new ObjectOutputStream(fileOutputStream);
-            out.writeObject(storedMapping);
-            log.info("Serialized data is saved in " + fullMappingFilename);
-        } catch (IOException e) {
-            savedToDisk = false;
-            log.error("Serialized data failed to saved to disk for " + fullMappingFilename);
-            e.printStackTrace();
-        }
-
-        return savedToDisk;
     }
 }
