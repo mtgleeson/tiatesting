@@ -7,6 +7,7 @@ import org.tiatesting.core.model.TiaData;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.util.Set;
 
 /**
  * DataStore implementation based on a plain Java Object and being persisted to a file on disk.
@@ -36,6 +37,26 @@ public class SerializedDataStore implements DataStore {
             this.tiaData = readTiaDataFromDisk();
         }
         return this.tiaData;
+    }
+
+    @Override
+    public TiaData getTiaCore() {
+        return getTiaData(true);
+    }
+
+    @Override
+    public int getNumTestSuites() {
+        return getTiaData(false).getTestSuitesTracked().size();
+    }
+
+    @Override
+    public int getNumSourceMethods() {
+        return getTiaData(false).getMethodsTracked().size();
+    }
+
+    @Override
+    public Set<String> getTestSuitesFailed() {
+        return getTiaData(false).getTestSuitesFailed();
     }
 
     @Override

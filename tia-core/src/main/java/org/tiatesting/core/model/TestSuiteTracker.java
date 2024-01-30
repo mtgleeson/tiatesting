@@ -19,6 +19,8 @@ public class TestSuiteTracker implements Serializable {
         this.name = name;
     }
 
+    private long id;
+
     /**
      * Name of the test suite being tracked.
      */
@@ -45,6 +47,14 @@ public class TestSuiteTracker implements Serializable {
      */
     public void incrementStats(final TestStats testStats){
         this.testStats.incrementStats(testStats);
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setId(long id) {
+        this.id = id;
     }
 
     public String getName() {
