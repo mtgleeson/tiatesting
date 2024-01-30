@@ -239,8 +239,14 @@ public class H2DataStore implements DataStore {
 
         Statement statement = connection.createStatement();
 
-        String deleteSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
-        statement.executeUpdate(deleteSql);
+        // delete the existing source class and methods before inserting the new data from the test run
+        String deleteClassMethodSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID +
+                " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS +
+                " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId + ")";
+        statement.executeUpdate(deleteClassMethodSql);
+
+        String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
+        statement.executeUpdate(deleteClassSql);
 
         for (ClassImpactTracker sourceClass : sourceClasses){
             String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS + " (" +
@@ -261,10 +267,6 @@ public class H2DataStore implements DataStore {
         if (sourceMethodIds.isEmpty()){
             return;
         }
-
-        Statement statement = connection.createStatement();
-        String deleteSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID + " = " + testSuiteClassId;
-        statement.executeUpdate(deleteSql);
 
         String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS_METHOD + " (" +
                 COL_TIA_SOURCE_CLASS_ID + ", " +
