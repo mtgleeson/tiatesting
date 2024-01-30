@@ -1,6 +1,7 @@
 package org.tiatesting.agent;
 
 import org.junit.Ignore;
+import org.omg.CORBA.SystemException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
