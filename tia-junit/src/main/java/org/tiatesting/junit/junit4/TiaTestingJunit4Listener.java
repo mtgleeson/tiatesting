@@ -225,7 +225,7 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        log.info("Test run finished. Persisting the DB. testRunStats: {}", testRunStats);
+        log.info("Test run finished. Persisting the DB.");
         TiaData updatedTiaData = null;
 
         if (updateDBMapping){

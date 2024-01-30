@@ -15,6 +15,7 @@ import javax.sql.DataSource;
 import javax.swing.plaf.nimbus.State;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.ForkJoinPool;
 
 public class H2DataStore implements DataStore {
     private static final String COL_COMMIT_VALUE = "commit_value";
@@ -56,6 +57,98 @@ public class H2DataStore implements DataStore {
     @Override
     public TiaData getTiaData(boolean readFromDisk) {
         return readTiaDataFromDB();
+    }
+
+    @Override
+    public TiaData getTiaCore(){
+        TiaData tiaData;
+        Connection connection = getConnection();
+
+        try {
+            tiaData = getCoreData(connection);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return tiaData;
+    }
+
+    @Override
+    public int getNumTestSuites(){
+        int numTestSuites = 0;
+        Connection connection = getConnection();
+
+        try {
+            String sql = "SELECT COUNT(*) FROM " + TABLE_TIA_TEST_SUITE;
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
+
+            if (resultSet.next()){
+                numTestSuites = resultSet.getInt(1);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return numTestSuites;
+    }
+
+    @Override
+    public int getNumSourceMethods(){
+        int numSourceMethods = 0;
+        Connection connection = getConnection();
+
+        try {
+            String sql = "SELECT COUNT(*) FROM " + TABLE_TIA_SOURCE_METHOD;
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
+
+            if (resultSet.next()){
+                numSourceMethods = resultSet.getInt(1);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return numSourceMethods;
+    }
+
+    @Override
+    public Set<String> getTestSuitesFailed(){
+        Set<String> testSuitesFailed;
+        Connection connection = getConnection();
+
+        try {
+            testSuitesFailed = getTestSuitesFailed(connection);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return testSuitesFailed;
     }
 
     @Override
@@ -247,10 +340,32 @@ public class H2DataStore implements DataStore {
                 createTiaDB();
                 return tiaData;
             } else {
+                long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
+                log.info("SQL query time for core: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                startQueryTime = System.currentTimeMillis();
                 tiaData.setTestSuitesTracked(getTestSuitesData(connection));
+                log.info("SQL query time for test suites: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                startQueryTime = System.currentTimeMillis();
                 tiaData.setTestSuitesFailed(getTestSuitesFailed(connection));
+                log.info("SQL query time for failed tests: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                startQueryTime = System.currentTimeMillis();
                 tiaData.setMethodsTracked(getMethodsTracked(connection));
+                log.info("SQL query time for methods tracked: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+
+/*
+                startQueryTime = System.currentTimeMillis();
+                String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS;
+                Statement statement = connection.createStatement();
+                ResultSet resultSet = statement.executeQuery(sql);
+                log.info("SQL query time for all source classes: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+
+                startQueryTime = System.currentTimeMillis();
+                sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS_METHOD;
+                Statement statement2 = connection.createStatement();
+                ResultSet resultSet2 = statement2.executeQuery(sql);
+                log.info("SQL query time for all source class methods: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+*/
                 return tiaData;
             }
         } catch (SQLException e) {
@@ -320,34 +435,70 @@ public class H2DataStore implements DataStore {
 
         while(resultSet.next()){
             TestSuiteTracker testSuite = new TestSuiteTracker();
+            testSuite.setId(resultSet.getLong(COL_ID));
             testSuite.setName(resultSet.getString(COL_NAME));
             testSuite.setSourceFilename(resultSet.getString(COL_SOURCE_FILENAME));
             testSuite.getTestStats().setNumRuns(resultSet.getLong(COL_NUM_RUNS));
             testSuite.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
             testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
             testSuite.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
-            testSuite.setClassesImpacted(getSourceClasses(connection, resultSet.getLong(COL_ID)));
             testSuites.put(testSuite.getName(), testSuite);
         }
+
+        testSuites.values().parallelStream().forEach( testSuite -> {
+            try {
+                testSuite.setClassesImpacted(getSourceClasses(connection, testSuite.getId()));
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        });
 
         return testSuites;
     }
 
     private List<ClassImpactTracker> getSourceClasses(Connection connection, long testSuiteId) throws SQLException {
         List<ClassImpactTracker> sourceClasses = new ArrayList<>();
-        String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
+        long startQueryTime = System.currentTimeMillis();
+        String sql = "SELECT " + COL_ID + ", " + COL_SOURCE_FILENAME + ", " + COL_TIA_SOURCE_METHOD_ID +
+                " FROM " + TABLE_TIA_SOURCE_CLASS +
+                " JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " TSCM " +
+                    "ON " + TABLE_TIA_SOURCE_CLASS + "." + COL_ID + " = TSCM." + COL_TIA_SOURCE_CLASS_ID +
+                " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId +
+                " ORDER BY " + TABLE_TIA_SOURCE_CLASS + "." + COL_ID;
+
+        connection = getConnection();
         Statement statement = connection.createStatement();
         ResultSet resultSet = statement.executeQuery(sql);
+        long currentSourceClassId = 0;
+        ClassImpactTracker sourceClass = null;
 
-        while(resultSet.next()){
-            ClassImpactTracker sourceClass = new ClassImpactTracker(resultSet.getString(COL_SOURCE_FILENAME),
-                    getSourceClassMethods(connection, resultSet.getLong(COL_ID)));
+        while (resultSet.next()){
+            long sourceClassId = resultSet.getLong(COL_ID);
+
+            if (sourceClassId != currentSourceClassId){
+                if (sourceClass != null){
+                    sourceClasses.add(sourceClass);
+                }
+                String classSourceFilename = resultSet.getString(COL_SOURCE_FILENAME);
+                Set<Integer> sourceClassMethods = new HashSet<>();
+                sourceClass = new ClassImpactTracker(classSourceFilename, sourceClassMethods);
+                currentSourceClassId = sourceClassId;
+            }
+
+            sourceClass.getMethodsImpacted().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
+        }
+
+        connection.close();
+
+        // add the last source class
+        if (sourceClass != null){
             sourceClasses.add(sourceClass);
         }
 
         return sourceClasses;
     }
 
+    /*
     private Set<Integer> getSourceClassMethods(Connection connection, long sourceClassId) throws SQLException {
         Set<Integer> sourceClassMethods = new HashSet<>();
         String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID + " = " + sourceClassId;
@@ -360,7 +511,7 @@ public class H2DataStore implements DataStore {
 
         return sourceClassMethods;
     }
-
+*/
     private void createTiaDB(){
         log.info("Creating the Tia DB");
         String createCoreTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_CORE + " (" +
@@ -454,6 +605,6 @@ public class H2DataStore implements DataStore {
     }
 
     private String buildJdbcUrl(){
-        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix;
+        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";AUTO_SERVER=TRUE";
     }
 }

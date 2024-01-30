@@ -4,14 +4,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.stats.TestStats;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.io.Writer;
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -19,8 +20,7 @@ import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Generate a text file report containing the test mappings.
@@ -42,19 +42,28 @@ public class TextFileReportGenerator implements ReportGenerator {
 
         long startTime = System.currentTimeMillis();
         TiaData tiaData = dataStore.getTiaData(true);
-        Path reportPath = Paths.get(reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt");
+        log.info("Data retrieved. Writing the report...");
 
-        try (Writer writer = Files.newBufferedWriter(reportPath)) {
-            writeCoreTiaReportData(writer, tiaData);
-            writeFailedTests(writer, tiaData);
-            writeMethodIndex(writer, tiaData);
-            writeTestSuiteMapping(writer, tiaData);
-        }catch (UncheckedIOException | IOException e) {
-            log.error("An error occurred generating the text report", e);
-            throw new ReportException(e);
+        StringBuilder reportBuilder = new StringBuilder();
+        try {
+            writeCoreTiaReportData(reportBuilder, tiaData);
+            writeFailedTests(reportBuilder, tiaData);
+            writeMethodIndex(reportBuilder, tiaData);
+            writeTestSuiteMapping(reportBuilder, tiaData);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
 
-        log.debug("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
+        String file = reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt";
+        try (RandomAccessFile writer = new RandomAccessFile(file, "rw");
+             FileChannel channel = writer.getChannel()){
+            ByteBuffer buff = ByteBuffer.wrap(reportBuilder.toString().getBytes(StandardCharsets.UTF_8));
+            channel.write(buff);
+        } catch (IOException  e) {
+            throw new RuntimeException(e);
+        }
+
+        log.info("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
         return null;
     }
 
@@ -62,76 +71,77 @@ public class TextFileReportGenerator implements ReportGenerator {
         reportOutputDir.mkdirs();
     }
 
-    private void writeTestSuiteMapping(Writer writer, TiaData tiaData) throws IOException {
+    private void writeTestSuiteMapping(StringBuilder reportBuilder, TiaData tiaData) throws IOException {
         String lineSep = System.lineSeparator();
         Map<Integer, MethodImpactTracker> methodImpactTrackers = tiaData.getMethodsTracked();
-        writer.write(lineSep + lineSep + "Test class mapping:");
+        reportBuilder.append(lineSep + lineSep + "Test class mapping:");
+        Map<String, StringBuilder> stringBuilders = new TreeMap<>();
 
-        tiaData.getTestSuitesTracked().forEach((testClass, testSuiteTracker) -> {
-            try {
-                String fileTestEntry = lineSep + lineSep + testClass;
-                for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()){
-                    for (Integer methodId : classImpacted.getMethodsImpacted()){
-                        MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodId);
-                        fileTestEntry += lineSep + "\t" + methodImpactTracker.getMethodName() +
-                                " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
-                    }
+        tiaData.getTestSuitesTracked().entrySet().parallelStream().forEach(entry -> {
+            String testSuite = entry.getKey();
+            TestSuiteTracker testSuiteTracker = entry.getValue();
+            StringBuilder builder = new StringBuilder();
+            String fileTestEntry = lineSep + lineSep + testSuite;
+            Collections.sort(testSuiteTracker.getClassesImpacted(), Comparator.comparing(ClassImpactTracker::getSourceFilename));
+
+            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()){
+                for (Integer methodId : classImpacted.getMethodsImpacted()){
+                    MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodId);
+                    fileTestEntry += lineSep + "\t" + methodImpactTracker.getMethodName() +
+                            " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
                 }
-                writer.write(fileTestEntry);
             }
-            catch (IOException ex) {
-                log.error("An error occurred", ex);
-            }
+
+            builder.append(fileTestEntry);
+            stringBuilders.put(testSuite, builder);
         });
+
+        stringBuilders.values().forEach(builder  -> reportBuilder.append(builder.toString()));
     }
 
-    private void writeMethodIndex(Writer writer, TiaData tiaData) throws IOException {
+    private void writeMethodIndex(StringBuilder reportBuilder, TiaData tiaData) throws IOException {
         String lineSep = System.lineSeparator();
         Map<Integer, MethodImpactTracker> methodImpactTrackers = tiaData.getMethodsTracked();
-        writer.write(lineSep + lineSep + "Methods index:");
+        reportBuilder.append(lineSep + lineSep + "Methods index:");
         methodImpactTrackers.forEach((methodId, methodImpactTracker) -> {
-            try {
-                writer.write((lineSep + "\t" + methodId + ": " + methodImpactTracker.getMethodName() +
-                        " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd()));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            reportBuilder.append((lineSep + "\t" + methodId + ": " + methodImpactTracker.getMethodName() +
+                    " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd()));
         });
     }
 
-    private void writeFailedTests(Writer writer, TiaData tiaData) throws IOException {
+    private void writeFailedTests(StringBuilder reportBuilder, TiaData tiaData) throws IOException {
         String lineSep = System.lineSeparator();
-        writer.write("Failed tests:");
+        reportBuilder.append("Failed tests:");
         if (tiaData.getTestSuitesFailed().size() == 0){
-            writer.write(" none");
+            reportBuilder.append(" none");
         } else {
             for (String failedTestClass: tiaData.getTestSuitesFailed()){
-                writer.write(lineSep + "\t" + failedTestClass);
+                reportBuilder.append(lineSep + "\t" + failedTestClass);
             }
         }
     }
 
-    private void writeCoreTiaReportData(Writer writer, TiaData tiaData) throws IOException {
+    private void writeCoreTiaReportData(StringBuilder reportBuilder, TiaData tiaData) throws IOException {
         Locale locale = Locale.getDefault();
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
         LocalDateTime localDate = LocalDateTime.now();
 
         String lineSep = System.lineSeparator();
-        writer.write("Test Mapping Report generated at " + dtf.format(localDate) + lineSep);
+        reportBuilder.append("Test Mapping Report generated at " + dtf.format(localDate) + lineSep);
         String lastCommit = tiaData.getCommitValue() != null ? tiaData.getCommitValue() : "N/A";
-        writer.write("Test mapping valid for commit number: " + lastCommit + lineSep);
-        writer.write("Number of tests classes with mappings: " + tiaData.getTestSuitesTracked().keySet().size() + lineSep);
+        reportBuilder.append("Test mapping valid for commit number: " + lastCommit + lineSep);
+        reportBuilder.append("Number of tests classes with mappings: " + tiaData.getTestSuitesTracked().keySet().size() + lineSep);
         String dbLastUpdated = tiaData.getLastUpdated()!= null ? dtf.format(tiaData.getLastUpdated()) : "N/A";
-        writer.write("Tia DB last updated: " + (dbLastUpdated) + lineSep);
+        reportBuilder.append("Tia DB last updated: " + (dbLastUpdated) + lineSep);
 
         TestStats stats = tiaData.getTestStats();
         double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
         double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
-        writer.write("Number of runs: " + stats.getNumRuns() + lineSep);
-        writer.write("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
-        writer.write("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)"  + lineSep);
-        writer.write("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
+        reportBuilder.append("Number of runs: " + stats.getNumRuns() + lineSep);
+        reportBuilder.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        reportBuilder.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)"  + lineSep);
+        reportBuilder.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
     }
 }

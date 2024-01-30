@@ -47,7 +47,7 @@ public class TestRunnerService {
         tiaData.setMethodsTracked(updatedMethodTrackers);
 
         // remove any test suites that have been deleted
-        removeDeletedTestSuites(tiaData, runnerTestSuites);
+        removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
 
         // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
         // scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
@@ -81,12 +81,12 @@ public class TestRunnerService {
      * A test suite is determined to be deleted if it was not in the list of test suites executed by the test runner,
      * but it was previously tracked by Tia and stored in the DB.
      *
-     * @param tiaData
+     * @param testSuitesInDB
      * @param runnerTestSuites
      */
-    private void removeDeletedTestSuites(final TiaData tiaData, final Set<String> runnerTestSuites){
+    private void removeDeletedTestSuites(final Map<String, TestSuiteTracker> testSuitesInDB, final Set<String> runnerTestSuites){
         Set<String> deletedTestSuites = new HashSet<>();
-        for (String testSuiteTracked : tiaData.getTestSuitesTracked().keySet()){
+        for (String testSuiteTracked : testSuitesInDB.keySet()){
             if (!runnerTestSuites.contains(testSuiteTracked)){
                 deletedTestSuites.add(testSuiteTracked);
             }
@@ -94,7 +94,7 @@ public class TestRunnerService {
 
         if (!deletedTestSuites.isEmpty()) {
             log.info("Removing the following deleted test suites from the persisted mapping: {}", deletedTestSuites);
-            tiaData.getTestSuitesTracked().keySet().removeAll(deletedTestSuites);
+            testSuitesInDB.keySet().removeAll(deletedTestSuites);
         }
     }
 

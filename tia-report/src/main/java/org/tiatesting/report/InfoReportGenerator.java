@@ -8,6 +8,7 @@ import java.text.DecimalFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -17,8 +18,7 @@ import java.util.stream.Collectors;
 public class InfoReportGenerator implements ReportGenerator {
     @Override
     public String generateReport(DataStore dataStore) {
-        TiaData tiaData = dataStore.getTiaData(true);
-
+        TiaData tiaData = dataStore.getTiaCore();
         Locale locale = Locale.getDefault();
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
         String lineSep = System.lineSeparator();
@@ -28,8 +28,10 @@ public class InfoReportGenerator implements ReportGenerator {
         sb.append("DB last updated: " + (tiaData.getLastUpdated()!= null ? dtf.format(tiaData.getLastUpdated()) : "N/A") + lineSep);
         sb.append("Test mapping valid for commit number: " + tiaData.getCommitValue() + lineSep + lineSep);
 
-        sb.append("Number of tests classes with mappings: " + tiaData.getTestSuitesTracked().keySet().size() + lineSep);
-        sb.append("Number of source methods tracked for tests: " + tiaData.getMethodsTracked().keySet().size() + lineSep);
+        int numTestSuites = dataStore.getNumTestSuites();
+        sb.append("Number of tests classes with mappings: " + numTestSuites + lineSep);
+        int numSourceMethods = dataStore.getNumSourceMethods();
+        sb.append("Number of source methods tracked for tests: " + numSourceMethods + lineSep);
 
         TestStats stats = tiaData.getTestStats();
         double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
@@ -41,7 +43,8 @@ public class InfoReportGenerator implements ReportGenerator {
         sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
         sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
 
-        String failedTests = tiaData.getTestSuitesFailed().stream().map(test ->
+        Set<String> getTestSuitesFailed = dataStore.getTestSuitesFailed();
+        String failedTests = getTestSuitesFailed.stream().map(test ->
                 "\t" + test).collect(Collectors.joining(lineSep));
         failedTests = (failedTests != null && !failedTests.isEmpty()) ? failedTests : "none";
         sb.append("Pending failed tests: " + failedTests);
