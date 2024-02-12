@@ -27,13 +27,6 @@ public class TestSuiteTracker implements Serializable {
     private String name;
 
     /**
-     * The name of the source file associated with the test suite class.
-     * Note: the format is package/filename. It does not include the full path from the root of the filesystem.
-     * For example: com/example/MyTestSuite.java
-     */
-    private String sourceFilename;
-
-    /**
      * The saved mapping of impacted classes/methods for each test suite.
      */
     private List<ClassImpactTracker> classesImpacted = new ArrayList<>();
@@ -65,14 +58,6 @@ public class TestSuiteTracker implements Serializable {
         this.name = name;
     }
 
-    public String getSourceFilename() {
-        return sourceFilename;
-    }
-
-    public void setSourceFilename(String sourceFilename) {
-        this.sourceFilename = sourceFilename;
-    }
-
     public List<ClassImpactTracker> getClassesImpacted() {
         return classesImpacted;
     }
@@ -94,19 +79,18 @@ public class TestSuiteTracker implements Serializable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TestSuiteTracker that = (TestSuiteTracker) o;
-        return Objects.equals(sourceFilename, that.sourceFilename);
+        return Objects.equals(name, that.name);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sourceFilename);
+        return Objects.hash(name);
     }
 
     @Override
     public String toString() {
         return "TestSuiteTracker{" +
                 "name='" + name + '\'' +
-                ", sourceFilename='" + sourceFilename + '\'' +
                 ", classesImpacted=" + classesImpacted +
                 ", testStats=" + testStats +
                 '}';
