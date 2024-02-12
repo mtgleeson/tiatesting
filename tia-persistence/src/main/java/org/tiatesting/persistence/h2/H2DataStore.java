@@ -212,14 +212,12 @@ public class H2DataStore implements DataStore {
         for (TestSuiteTracker testSuite : testSuites){
             String mergeSql = "MERGE INTO " + TABLE_TIA_TEST_SUITE + " (" +
                     COL_NAME + ", " +
-                    COL_SOURCE_FILENAME + ", " +
                     COL_NUM_RUNS + ", " +
                     COL_AVG_RUN_TIME + ", " +
                     COL_NUM_SUCCESS_RUNS + ", " +
                     COL_NUM_FAIL_RUNS + ") " +
-                    "KEY (" + COL_SOURCE_FILENAME + ") VALUES ('" +
-                    testSuite.getName() + "', '" +
-                    testSuite.getSourceFilename() + "', " +
+                    "KEY (" + COL_NAME + ") VALUES ('" +
+                    testSuite.getName() + "', " +
                     testSuite.getTestStats().getNumRuns() + ", " +
                     testSuite.getTestStats().getAvgRunTime() + ", " +
                     testSuite.getTestStats().getNumSuccessRuns() + ", " +
@@ -439,7 +437,6 @@ public class H2DataStore implements DataStore {
             TestSuiteTracker testSuite = new TestSuiteTracker();
             testSuite.setId(resultSet.getLong(COL_ID));
             testSuite.setName(resultSet.getString(COL_NAME));
-            testSuite.setSourceFilename(resultSet.getString(COL_SOURCE_FILENAME));
             testSuite.getTestStats().setNumRuns(resultSet.getLong(COL_NUM_RUNS));
             testSuite.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
             testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));

@@ -62,7 +62,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
     public void beforeSpec(SpecInfo spec) {
         String specName = specificationUtil.getSpecName(spec);
         TestSuiteTracker testSuiteTracker = new TestSuiteTracker(specName);
-        testSuiteTracker.setSourceFilename(specificationUtil.getSpecSourceFileName(spec));
         testSuiteTrackers.put(specName, testSuiteTracker);
 
         if (updateDBStats){

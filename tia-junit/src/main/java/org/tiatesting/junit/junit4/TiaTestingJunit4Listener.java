@@ -128,7 +128,6 @@ public class TiaTestingJunit4Listener extends RunListener {
         // parameterized tests are run multiple times per param set. We group into 1 test suote tracker and may have already been created
         if (testSuiteTracker == null){
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
-            testSuiteTracker.setSourceFilename(testSuiteName.replaceAll("\\.", "/"));
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
 
             if (updateDBStats){
