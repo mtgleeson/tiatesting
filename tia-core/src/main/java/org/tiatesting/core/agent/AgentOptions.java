@@ -9,119 +9,17 @@ import java.util.regex.Pattern;
 import static java.lang.String.format;
 
 public class AgentOptions {
-
     /**
-     * Specifies the file path for the project being analyzed.
+     * Specifies the path for the file containing the list of tests to ignore.
      */
-    public static final String PROJECT_DIR = "projectDir";
+    public static final String IGNORE_TESTS_FILE = "ignoreTestsFile";
 
     /**
      * Specifies the default file path for the project being analyzed.
      */
-    private static final String DEFAULT_PROJECT_DIR = ".";
+    private static final String DEFAULT_IGNORE_TESTS_FILE = ".";
 
-    /**
-     * Specifies the file path for to the saved DB containing the previous analysis of the project.
-     */
-    public static final String DB_FILE_PATH = "dbFilePath";
-
-    /**
-     * Specifies the default file path for to the saved DB containing the previous analysis of the project.
-     */
-    private static final String DEFAULT_DB_FILE_PATH = ".";
-
-    /**
-     * Specifies the source files path for the project being analyzed.
-     */
-    public static final String SOURCE_FILES_DIRS = "sourceFilesDir";
-
-    /**
-     * Specifies the default source files path for the project being analyzed.
-     */
-    private static final String DEFAULT_SOURCE_FILES_DIRS = ".";
-
-    /**
-     * Specifies the test files path for the project being analyzed.
-     */
-    public static final String TEST_FILES_DIRS = "testFilesDir";
-
-    /**
-     * Specifies the default test files path for the project being analyzed.
-     */
-    private static final String DEFAULT_TEST_FILES_DIRS = ".";
-
-    /**
-     * Specifies whether the test suite mappings in the Tia database is being updated in this test run.
-     */
-    public static final String UPDATE_DB_MAPPING = "updateDBMapping";
-    /**
-     * Specifies the default option for whether the test suite mappings in the Tia database is being updated in this test run.
-     */
-    private static final String DEFAULT_UPDATE_DB_MAPPING = "false";
-
-    /**
-     * Specifies whether the test run stats in the Tia database is being updated in this test run.
-     */
-    public static final String UPDATE_DB_STATS = "updateDBStats";
-
-    /**
-     * Specifies the default option for whether the test run stats in the Tia database is being updated in this test run.
-     */
-    private static final String DEFAULT_UPDATE_DB_STATS = "true";
-
-    /**
-     * Specifies whether Tia should analyse local changes when selecting tests.
-     */
-    public static final String CHECK_LOCAL_CHANGES = "checkLocalChanges";
-
-    /**
-     * Specifies the default option for whether Tia should analyse local changes when selecting tests.
-     */
-    private static final String DEFAULT_CHECK_LOCAL_CHANGES = "false";
-
-    /**
-     * Specifies the server URI of the VCS system.
-     */
-    public static final String VCS_SERVER_URI = "vcsServerUri";
-
-    /**
-     * Specifies the default server URI of the VCS system.
-     */
-    private static final String DEFAULT_VCS_SERVER_URI = "";
-
-    /**
-     * Specifies the username for connecting to the VCS system.
-     */
-    public static final String VCS_USER_NAME = "vcsUserName";
-
-    /**
-     * Specifies the default username for connecting to the VCS system.
-     */
-    private static final String DEFAULT_VCS_USER_NAME = "";
-
-    /**
-     * Specifies the password for connecting to the VCS system.
-     */
-    public static final String VCS_PASSWORD = "vcsPassword";
-
-    /**
-     * Specifies the default password for connecting to the VCS system.
-     */
-    private static final String DEFAULT_VCS_PASSWORD = "";
-
-    /**
-     * Specifies the client name used when connecting to the VCS system.
-     */
-    public static final String VCS_CLIENT_NAME = "vcsClientName";
-
-    /**
-     * Specifies the default client name used when connecting to the VCS system.
-     */
-    private static final String DEFAULT_VCS_CLIENT_NAME = "";
-
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(PROJECT_DIR, DB_FILE_PATH, SOURCE_FILES_DIRS,
-            TEST_FILES_DIRS, UPDATE_DB_MAPPING, UPDATE_DB_STATS, CHECK_LOCAL_CHANGES, VCS_SERVER_URI, VCS_USER_NAME,
-            VCS_PASSWORD, VCS_CLIENT_NAME);
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -194,91 +92,12 @@ public class AgentOptions {
         return sb.toString();
     }
 
-    public String getProjectDir() {
-        return getOption(PROJECT_DIR, DEFAULT_PROJECT_DIR);
+    public String getIgnoreTestsFile() {
+        return getOption(IGNORE_TESTS_FILE, DEFAULT_IGNORE_TESTS_FILE);
     }
 
-    public void setProjectDir(String projectDir) {
-        setOption(PROJECT_DIR, projectDir);
+    public void setIgnoreTestsFile(String ignoreTestsFile) {
+        setOption(IGNORE_TESTS_FILE, ignoreTestsFile);
     }
 
-    public String getDBFilePath() {
-        return getOption(DB_FILE_PATH, DEFAULT_DB_FILE_PATH);
-    }
-
-    public void setDBFilePath(String dbFilePath) {
-        setOption(DB_FILE_PATH, dbFilePath);
-    }
-
-    public String getSourceFilesDirs() {
-        return getOption(SOURCE_FILES_DIRS, DEFAULT_SOURCE_FILES_DIRS);
-    }
-
-    public void setSourceFilesDirs(String sourceFilesDirs) {
-        setOption(SOURCE_FILES_DIRS, sourceFilesDirs);
-    }
-
-    public String getTestFilesDirs() {
-        return getOption(TEST_FILES_DIRS, DEFAULT_TEST_FILES_DIRS);
-    }
-
-    public void setTestFilesDirs(String testFilesDirs) {
-        setOption(TEST_FILES_DIRS, testFilesDirs);
-    }
-
-    public String getUpdateDBMapping() {
-        return getOption(UPDATE_DB_MAPPING, DEFAULT_UPDATE_DB_MAPPING);
-    }
-
-    public void setUpdateDBMapping(String updateDBMapping) {
-        setOption(UPDATE_DB_MAPPING, updateDBMapping);
-    }
-
-    public String getUpdateDBStats() {
-        return getOption(UPDATE_DB_STATS, DEFAULT_UPDATE_DB_STATS);
-    }
-
-    public void setUpdateDBStats(String updateDBStats) {
-        setOption(UPDATE_DB_STATS, updateDBStats);
-    }
-
-    public String getCheckLocalChanges() {
-        return getOption(CHECK_LOCAL_CHANGES, DEFAULT_CHECK_LOCAL_CHANGES);
-    }
-
-    public void setCheckLocalChanges(String checkLocalChanges) {
-        setOption(CHECK_LOCAL_CHANGES, checkLocalChanges);
-    }
-
-    public String getVcsServerUri() {
-        return getOption(VCS_SERVER_URI, DEFAULT_VCS_SERVER_URI);
-    }
-
-    public void setVcsServerUri(String vcsServerUri) {
-        setOption(VCS_SERVER_URI, vcsServerUri);
-    }
-
-    public String getVcsUserName() {
-        return getOption(VCS_USER_NAME, DEFAULT_VCS_USER_NAME);
-    }
-
-    public void setVcsUserName(String vcsUserName) {
-        setOption(VCS_USER_NAME, vcsUserName);
-    }
-
-    public String getVcsPassword() {
-        return getOption(VCS_PASSWORD, DEFAULT_VCS_PASSWORD);
-    }
-
-    public void setVcsPassword(String vcsPassword) {
-        setOption(VCS_PASSWORD, vcsPassword);
-    }
-
-    public String getVcsClientName() {
-        return getOption(VCS_CLIENT_NAME, DEFAULT_VCS_CLIENT_NAME);
-    }
-
-    public void setVcsClientName(String vcsClientName) {
-        setOption(VCS_CLIENT_NAME, vcsClientName);
-    }
 }

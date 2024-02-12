@@ -6,12 +6,15 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
+import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.diffanalyze.selector.TestSelector;
+import org.tiatesting.persistence.DataStore;
+import org.tiatesting.persistence.h2.H2DataStore;
 
 import java.io.File;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.*;
 
 import static java.lang.String.format;
 
@@ -21,6 +24,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * Name of the property used in maven-surefire-plugin.
      */
     static final String SUREFIRE_ARG_LINE = "argLine";
+    private static final String IGNORED_TESTS_FILENAME = "ignored-tests.txt";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -41,8 +45,10 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         final String oldValue = projectProperties.getProperty(name);
         final AgentOptions agentOptions = buildTiaAgentOptions();
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
-        getLog().info(name + " set to " + newValue); // TODO Mask the VCS password
+        getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
+
+        selectTests();
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
         // I can update the configuration for the surefire plugin but the change don't seem to get read.
@@ -66,45 +72,51 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
          */
     }
 
+    private void selectTests(){
+        VCSReader gitReader = getVCSReader();
+        DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName());
+        long startQueryTime = System.currentTimeMillis();
+
+        List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+        List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+
+        TestSelector testSelector = new TestSelector(dataStore);
+        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
+getLog().error("testsToIgnore312: " + testsToIgnore);
+        FileWriter fileWriter = null;
+        try {
+            String ignoredTestsFilename = getIgnoreTestsFilename();
+            File file = new File(ignoredTestsFilename);
+            file.getParentFile().mkdirs();
+            fileWriter = new FileWriter(file);
+
+            if (testsToIgnore.isEmpty()){
+                fileWriter.write("");
+            }else{
+                for (String str : testsToIgnore) {
+                    fileWriter.write(str + System.lineSeparator());
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            try {
+                fileWriter.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        getLog().warn("Finished reading tia db from mojo: " + (System.currentTimeMillis() - startQueryTime) / 1000);
+    }
+
+    private String getIgnoreTestsFilename(){
+        return getTiaBuildDir() + "/" + IGNORED_TESTS_FILENAME;
+    }
+
     private AgentOptions buildTiaAgentOptions(){
         AgentOptions agentOptions = new AgentOptions();
-
-        if (getTiaProjectDir() != null && !getTiaProjectDir().isEmpty()){
-            agentOptions.setProjectDir(getTiaProjectDir());
-        }
-
-        if (getTiaDBFilePath() != null && !getTiaDBFilePath().isEmpty()){
-            agentOptions.setDBFilePath(getTiaDBFilePath());
-        }
-
-        if (getTiaSourceFilesDirs() != null && !getTiaSourceFilesDirs().isEmpty()){
-            agentOptions.setSourceFilesDirs(getTiaSourceFilesDirs());
-        }
-
-        if (getTiaTestFilesDirs() != null && !getTiaTestFilesDirs().isEmpty()){
-            agentOptions.setTestFilesDirs(getTiaTestFilesDirs());
-        }
-
-        if (getTiaVcsServerUri() != null && !getTiaVcsServerUri().isEmpty()){
-            agentOptions.setVcsServerUri(getTiaVcsServerUri());
-        }
-
-        if (getTiaVcsUserName() != null && !getTiaVcsUserName().isEmpty()){
-            agentOptions.setVcsUserName(getTiaVcsUserName());
-        }
-
-        if (getTiaVcsPassword() != null && !getTiaVcsPassword().isEmpty()){
-            agentOptions.setVcsPassword(getTiaVcsPassword());
-        }
-
-        if (getTiaVcsClientName() != null && !getTiaVcsClientName().isEmpty()){
-            agentOptions.setVcsClientName(getTiaVcsClientName());
-        }
-
-        agentOptions.setCheckLocalChanges(getCheckLocalChanges());
-        agentOptions.setUpdateDBMapping(String.valueOf(isTiaUpdateDBMapping()));
-        agentOptions.setUpdateDBStats(String.valueOf(isTiaUpdateDBStats()));
-
+        agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
         return agentOptions;
     }
 
@@ -115,12 +127,12 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      *
      * @return
      */
-    private String getCheckLocalChanges(){
+    private boolean isCheckLocalChanges(){
         if (isTiaUpdateDBMapping() && isTiaCheckLocalChanges()){
             getLog().info("Disabling the check for local changes as Tia is configured to update the mapping in the DB.");
-            return Boolean.toString(false);
+            return false;
         } else{
-            return String.valueOf(isTiaCheckLocalChanges());
+            return isTiaCheckLocalChanges();
         }
     }
 
