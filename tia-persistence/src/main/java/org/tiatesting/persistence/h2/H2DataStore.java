@@ -1,6 +1,7 @@
 package org.tiatesting.persistence.h2;
 
 
+import org.h2.jdbcx.JdbcConnectionPool;
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,7 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.persistence.DataStore;
 import org.tiatesting.persistence.TiaPersistenceException;
 
+import javax.sql.ConnectionPoolDataSource;
 import javax.sql.DataSource;
 import javax.swing.plaf.nimbus.State;
 import java.sql.*;
@@ -51,6 +53,7 @@ public class H2DataStore implements DataStore {
         this.dataStorePath = dataStorePath;
         this.dbNameSuffix = dbNameSuffix;
         this.jdbcURL = buildJdbcUrl();
+
         log.info("Using H2 as the Tia datastore with the connection: {}", this.jdbcURL);
     }
 
@@ -604,6 +607,8 @@ public class H2DataStore implements DataStore {
     }
 
     private String buildJdbcUrl(){
-        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";AUTO_SERVER=TRUE";
+        long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
+        long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
+        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE= " + cacheSizeKB + ";AUTO_SERVER=TRUE";
     }
 }
