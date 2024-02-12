@@ -158,7 +158,6 @@ public class TestRunnerService {
                 TestSuiteTracker newTestSuiteTrackerToAdd = new TestSuiteTracker();
                 // Add a new test suite tracker but don't add the stats, this gets updated separately
                 newTestSuiteTrackerToAdd.setName(newTestSuiteTracker.getName());
-                newTestSuiteTrackerToAdd.setSourceFilename(newTestSuiteTracker.getSourceFilename());
                 newTestSuiteTrackerToAdd.setClassesImpacted(newTestSuiteTracker.getClassesImpacted());
                 mergedTestMappings.put(testSuiteName, newTestSuiteTrackerToAdd);
             }
