@@ -6,6 +6,7 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.vcs.git.GitReader;
 
 import java.util.Map;
 
@@ -33,6 +34,6 @@ public class AgentMojo extends AbstractTiaAgentMojo {
 
     @Override
     public VCSReader getVCSReader() {
-        return null; // not used
+        return new GitReader(getTiaProjectDir());
     }
 }

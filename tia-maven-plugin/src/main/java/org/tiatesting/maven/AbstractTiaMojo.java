@@ -13,6 +13,9 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     @Parameter(property = "project", readonly = true)
     private MavenProject project;
 
+    @Parameter(property = "tiaBuildDir", defaultValue = "${project.build.directory}/tia")
+    String tiaBuildDir;
+
     /**
      * The file path to the root folder of the project being analyzed.
      *
@@ -88,6 +91,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public MavenProject getProject(){
         return project;
+    }
+
+    public String getTiaBuildDir() {
+        return tiaBuildDir;
     }
 
     public String getTiaProjectDir(){
