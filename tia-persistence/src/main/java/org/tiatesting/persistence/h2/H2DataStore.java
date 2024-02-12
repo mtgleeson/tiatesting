@@ -589,7 +589,7 @@ public class H2DataStore implements DataStore {
         try {
             DataSource dataSource = this.establishDataSource();
             connection = dataSource.getConnection() ;
-            log.trace("Connected to the embedded H2 database {}", jdbcURL);
+            log.info("Connected to the embedded H2 database {}", jdbcURL);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
@@ -609,6 +609,7 @@ public class H2DataStore implements DataStore {
     private String buildJdbcUrl(){
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
         long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
-        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE= " + cacheSizeKB + ";AUTO_SERVER=TRUE";
+        //return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE= " + cacheSizeKB + ";AUTO_SERVER=TRUE"; // using AUTO_SERVER adds about 15secs when it connects to the DB in the JVM for the first time, not sure if its needed?
+        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE= " + cacheSizeKB;
     }
 }

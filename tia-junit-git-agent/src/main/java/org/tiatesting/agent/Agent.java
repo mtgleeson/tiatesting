@@ -5,15 +5,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.agent.instrumentation.IgnoreTestInstrumentor;
 import org.tiatesting.core.agent.AgentOptions;
-import org.tiatesting.diffanalyze.selector.TestSelector;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.h2.H2DataStore;
-import org.tiatesting.vcs.git.GitReader;
 
+import java.io.IOException;
 import java.lang.instrument.Instrumentation;
-import java.util.Arrays;
-import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Agent {
 
@@ -21,17 +20,13 @@ public class Agent {
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
-
-        //final Agent agent = Agent.getInstance(agentOptions);
-
-        GitReader gitReader = new GitReader(agentOptions.getProjectDir());
-        DataStore dataStore = new H2DataStore(agentOptions.getDBFilePath(), gitReader.getBranchName());
-        List<String> sourceFilesDirs = agentOptions.getSourceFilesDirs() != null ? Arrays.asList(agentOptions.getSourceFilesDirs().split(",")) : null;
-        List<String> testFilesDirs = agentOptions.getTestFilesDirs() != null ? Arrays.asList(agentOptions.getTestFilesDirs().split(",")) : null;
-        boolean checkLocalChanges = Boolean.valueOf(agentOptions.getCheckLocalChanges());
-        //boolean updateDB = Boolean.valueOf(agentOptions.getUpdateDB());
-        TestSelector testSelector = new TestSelector(dataStore);
-        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, checkLocalChanges);
+        Set<String> testsToIgnore;
+        try (Stream<String> lines = Files.lines(Paths.get(agentOptions.getIgnoreTestsFile()))) {
+            testsToIgnore = lines.collect(Collectors.toSet());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        log.info("Ignoring test!!: {}", testsToIgnore);
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
     }
 

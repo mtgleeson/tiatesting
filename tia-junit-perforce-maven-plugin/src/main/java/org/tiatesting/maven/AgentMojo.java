@@ -44,43 +44,12 @@ public class AgentMojo extends AbstractTiaAgentMojo {
 
     @Override
     public VCSReader getVCSReader() {
-        return null; // not used
+        return new P4Reader(true, getTiaVcsServerUri(), getTiaVcsUserName(), getTiaVcsPassword(), getTiaVcsClientName());
     }
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         super.execute();
-        /*
-        P4Reader gitReader = new P4Reader(true, getTiaVcsServerUri(), getTiaVcsUserName(), getTiaVcsPassword(), getTiaVcsClientName());
-        DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName());
-System.setProperty("hellow", "yesnoa");
-        long startQueryTime = System.currentTimeMillis();
-        getLog().info("reading tia db from mojo");
-
-        List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-        List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-
-        TestSelector testSelector = new TestSelector(dataStore);
-        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isTiaCheckLocalChanges());
-
-        FileWriter fileWriter = null;
-        try {
-            fileWriter = new FileWriter("E:\\p4\\fos\\mgleeson_streams_devfuture\\apps\\ut\\utas\\tests\\functional\\junit\\target\\tia\\ignored-tests.txt");
-            for (String str : testsToIgnore) {
-                fileWriter.write(str + System.lineSeparator());
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } finally {
-            try {
-                fileWriter.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        getLog().info("finished reading tia db from mojo: " + (System.currentTimeMillis() - startQueryTime) / 1000);
-         */
     }
 
 
