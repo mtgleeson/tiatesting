@@ -48,7 +48,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
 
-        selectTests();
+        Set<String> testsToIgnore = selectTestsToIgnore();
+        writeIgnoredTestsToFile(testsToIgnore);
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
         // I can update the configuration for the surefire plugin but the change don't seem to get read.
@@ -72,7 +73,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
          */
     }
 
-    private void selectTests(){
+    private Set<String> selectTestsToIgnore() {
         VCSReader gitReader = getVCSReader();
         DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName());
         long startQueryTime = System.currentTimeMillis();
@@ -82,7 +83,11 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
         TestSelector testSelector = new TestSelector(dataStore);
         Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
-getLog().error("testsToIgnore312: " + testsToIgnore);
+        getLog().warn("Finished reading tia db from mojo: " + (System.currentTimeMillis() - startQueryTime) / 1000);
+        return testsToIgnore;
+    }
+
+    private void writeIgnoredTestsToFile(Set<String> testsToIgnore){
         FileWriter fileWriter = null;
         try {
             String ignoredTestsFilename = getIgnoreTestsFilename();
@@ -106,8 +111,6 @@ getLog().error("testsToIgnore312: " + testsToIgnore);
                 throw new RuntimeException(e);
             }
         }
-
-        getLog().warn("Finished reading tia db from mojo: " + (System.currentTimeMillis() - startQueryTime) / 1000);
     }
 
     private String getIgnoreTestsFilename(){
