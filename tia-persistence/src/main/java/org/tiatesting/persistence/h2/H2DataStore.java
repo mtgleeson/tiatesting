@@ -345,16 +345,16 @@ public class H2DataStore implements DataStore {
             } else {
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
-                log.info("SQL query time for core: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                log.trace("SQL query time for core: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setTestSuitesTracked(getTestSuitesData(connection));
-                log.info("SQL query time for test suites: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                log.trace("SQL query time for test suites: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setTestSuitesFailed(getTestSuitesFailed(connection));
-                log.info("SQL query time for failed tests: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                log.trace("SQL query time for failed tests: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setMethodsTracked(getMethodsTracked(connection));
-                log.info("SQL query time for methods tracked: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                log.trace("SQL query time for methods tracked: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
 
 /*
                 startQueryTime = System.currentTimeMillis();
@@ -589,7 +589,7 @@ public class H2DataStore implements DataStore {
         try {
             DataSource dataSource = this.establishDataSource();
             connection = dataSource.getConnection() ;
-            log.info("Connected to the embedded H2 database {}", jdbcURL);
+            log.trace("Connected to the embedded H2 database {}", jdbcURL);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
