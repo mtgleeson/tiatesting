@@ -1,7 +1,5 @@
 package org.tiatesting.core.model;
 
-import org.tiatesting.core.stats.TestStats;
-
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
