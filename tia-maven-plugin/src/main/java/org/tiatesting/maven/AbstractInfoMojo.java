@@ -3,8 +3,8 @@ package org.tiatesting.maven;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.report.InfoReportGenerator;
-import org.tiatesting.report.ReportGenerator;
+import org.tiatesting.core.report.InfoReportGenerator;
+import org.tiatesting.core.report.ReportGenerator;
 
 public abstract class AbstractInfoMojo extends AbstractTiaMojo {
     @Override

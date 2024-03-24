@@ -1,4 +1,4 @@
-package org.tiatesting.agent.instrumentation;
+package org.tiatesting.core.agent.instrumentation;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.annotation.AnnotationDescription;

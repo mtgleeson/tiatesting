@@ -234,7 +234,7 @@ public class H2DataStore implements DataStore {
             }
         }
 
-        log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
+        log.trace("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     @Override
@@ -254,7 +254,7 @@ public class H2DataStore implements DataStore {
             }
         }
 
-        log.debug("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
+        log.trace("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     @Override
@@ -274,7 +274,7 @@ public class H2DataStore implements DataStore {
             }
         }
 
-        log.debug("Time to save the methods tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
+        log.trace("Time to save the methods tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     @Override
@@ -294,7 +294,7 @@ public class H2DataStore implements DataStore {
             }
         }
 
-        log.debug("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
+        log.trace("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     private void persistTiaCore(Connection connection, TiaData tiaData) throws SQLException {
@@ -320,7 +320,7 @@ public class H2DataStore implements DataStore {
                     ", " + COL_NUM_FAIL_RUNS + "=" + tiaData.getTestStats().getNumFailRuns();
         }
 
-        log.debug("Persisting Tia core data: {}", sql);
+        log.trace("Persisting Tia core data: {}", sql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(sql);
     }
@@ -346,7 +346,7 @@ public class H2DataStore implements DataStore {
                     testSuite.getTestStats().getNumSuccessRuns() + ", " +
                     testSuite.getTestStats().getNumFailRuns() + ")";
 
-            log.debug("Persisting test suites: {}", mergeSql);
+            log.trace("Persisting test suites: {}", mergeSql);
             statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
 
             // only update the source classes mapping for the test suite if mapping data exists for this test run
@@ -369,11 +369,11 @@ public class H2DataStore implements DataStore {
         String deleteClassMethodSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID +
                 " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS +
                 " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId + ")";
-        log.debug("Deleting test suite class methods: {}", deleteClassMethodSql);
+        log.trace("Deleting test suite class methods: {}", deleteClassMethodSql);
         statement.executeUpdate(deleteClassMethodSql);
 
         String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
-        log.debug("Deleting test suite class: {}", deleteClassSql);
+        log.trace("Deleting test suite class: {}", deleteClassSql);
         statement.executeUpdate(deleteClassSql);
 
         for (ClassImpactTracker sourceClass : sourceClasses){
@@ -384,7 +384,7 @@ public class H2DataStore implements DataStore {
                     testSuiteId + ", '" +
                     sourceClass.getSourceFilename() + "')";
 
-            log.debug("Persisting test suite class: {}", insertSql);
+            log.trace("Persisting test suite class: {}", insertSql);
             statement.executeUpdate(insertSql, Statement.RETURN_GENERATED_KEYS);
             ResultSet rs = statement.getGeneratedKeys();
             rs.next();
@@ -411,7 +411,7 @@ public class H2DataStore implements DataStore {
             ps.addBatch();
         }
 
-        log.debug("Persisting test suite class methods: {}", insertSql);
+        log.trace("Persisting test suite class methods: {}", insertSql);
         ps.executeBatch();
     }
 
@@ -421,7 +421,7 @@ public class H2DataStore implements DataStore {
         }
 
         String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_TEST_SUITES_FAILED;
-        log.debug("Truncating failed test suites: {}", truncateSql);
+        log.trace("Truncating failed test suites: {}", truncateSql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(truncateSql);
 
@@ -436,7 +436,7 @@ public class H2DataStore implements DataStore {
         String insertSql = insertSqlBuilder.toString();
         insertSql = insertSql.substring(0, insertSql.length()-1);
 
-        log.debug("Persisting failed test suites: {}", insertSql);
+        log.trace("Persisting failed test suites: {}", insertSql);
         statement.executeUpdate(insertSql);
     }
 
@@ -446,7 +446,7 @@ public class H2DataStore implements DataStore {
         }
 
         String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
-        log.debug("Truncating indexed source methods: {}", truncateSql);
+        log.trace("Truncating indexed source methods: {}", truncateSql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(truncateSql);
 
@@ -469,7 +469,7 @@ public class H2DataStore implements DataStore {
         String insertSql = insertSqlBuilder.toString();
         insertSql = insertSql.substring(0, insertSql.length()-1);
 
-        log.debug("Persisting indexed source methods: {}", insertSql);
+        log.trace("Persisting indexed source methods: {}", insertSql);
         statement.executeUpdate(insertSql);
     }
 
