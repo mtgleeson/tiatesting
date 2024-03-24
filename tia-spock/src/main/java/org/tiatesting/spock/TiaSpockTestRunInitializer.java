@@ -3,9 +3,9 @@ package org.tiatesting.spock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
 import java.util.List;
 

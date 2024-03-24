@@ -1,4 +1,4 @@
-package org.tiatesting.diffanalyze;
+package org.tiatesting.core.diff.diffanalyze;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;

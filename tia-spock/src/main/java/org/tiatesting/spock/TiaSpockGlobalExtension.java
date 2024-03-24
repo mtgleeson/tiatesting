@@ -7,15 +7,13 @@ import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class TiaSpockGlobalExtension implements IGlobalExtension {
 

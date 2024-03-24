@@ -1,4 +1,4 @@
-package org.tiatesting.diffanalyze.selector;
+package org.tiatesting.core.diff.diffanalyze.selector;
 
 import java.util.Objects;
 import java.util.Set;

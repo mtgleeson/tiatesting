@@ -1,7 +1,6 @@
 dependencies {
     implementation project(':tia-agent')
     implementation project(':tia-core')
-    implementation project(':tia-diffanalyzer')
     implementation project(':tia-vcs-perforce')
     implementation group: 'junit', name: 'junit', version: '4.13.2'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
