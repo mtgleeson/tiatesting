@@ -1,4 +1,4 @@
-package org.tiatesting.diffanalyze;
+package org.tiatesting.core.diff.diffanalyze;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
