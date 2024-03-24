@@ -1,14 +1,14 @@
-package org.tiatesting.diffanalyze.selector;
+package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
+import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.diffanalyze.FileImpactAnalyzer;
-import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 
@@ -19,7 +19,6 @@ import java.util.*;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.JAVA_FILE_EXT;
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
-import static org.tiatesting.diffanalyze.FileImpactAnalyzer.*;
 
 public class TestSelector {
 
@@ -112,14 +111,14 @@ public class TestSelector {
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(SOURCE_FILE_MODIFIED), tiaData, sourceFilesDirs);
+        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED), tiaData, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
 
         // Re-run tests that failed since the last successful full test run.
         addPreviouslyFailedTests(tiaData, testsToRun);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
+        addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
 
         return testsToRun;
     }
