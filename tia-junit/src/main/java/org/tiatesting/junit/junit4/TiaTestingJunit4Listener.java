@@ -14,7 +14,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.sourcefile.FileExtensions;
-import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
