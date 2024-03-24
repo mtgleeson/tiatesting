@@ -8,9 +8,9 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.report.InfoReportGenerator;
-import org.tiatesting.report.ReportGenerator;
-import org.tiatesting.report.TextFileReportGenerator;
+import org.tiatesting.core.report.InfoReportGenerator;
+import org.tiatesting.core.report.ReportGenerator;
+import org.tiatesting.core.report.TextFileReportGenerator;
 
 import java.io.File;
 import java.util.Arrays;

@@ -1,4 +1,4 @@
-package org.tiatesting.core.stats;
+package org.tiatesting.core.model;
 
 import java.io.Serializable;
 

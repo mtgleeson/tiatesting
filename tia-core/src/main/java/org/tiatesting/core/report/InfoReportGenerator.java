@@ -1,6 +1,6 @@
-package org.tiatesting.report;
+package org.tiatesting.core.report;
 
-import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 

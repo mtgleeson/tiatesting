@@ -6,7 +6,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.model.TestStats;
 
 import java.time.Instant;
 import java.util.HashMap;

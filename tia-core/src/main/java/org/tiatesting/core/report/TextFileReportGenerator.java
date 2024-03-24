@@ -1,11 +1,11 @@
-package org.tiatesting.report;
+package org.tiatesting.core.report;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 

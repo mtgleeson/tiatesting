@@ -1,4 +1,4 @@
-package org.tiatesting.report;
+package org.tiatesting.core.report;
 
 /**
  * Represents any issue when generating reports.

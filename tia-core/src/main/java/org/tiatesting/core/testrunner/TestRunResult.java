@@ -2,7 +2,7 @@ package org.tiatesting.core.testrunner;
 
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.model.TestStats;
 
 import java.util.Map;
 import java.util.Set;
