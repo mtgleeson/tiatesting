@@ -8,16 +8,13 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
-            <option value="$PROJECT_DIR$/tia-agent" />
             <option value="$PROJECT_DIR$/tia-core" />
-            <option value="$PROJECT_DIR$/tia-diffanalyzer" />
             <option value="$PROJECT_DIR$/tia-gradle" />
             <option value="$PROJECT_DIR$/tia-junit" />
             <option value="$PROJECT_DIR$/tia-junit-git" />
             <option value="$PROJECT_DIR$/tia-junit-git-agent" />
             <option value="$PROJECT_DIR$/tia-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-junit-perforce-agent" />
-            <option value="$PROJECT_DIR$/tia-report" />
             <option value="$PROJECT_DIR$/tia-spock" />
             <option value="$PROJECT_DIR$/tia-spock-git-gradle" />
             <option value="$PROJECT_DIR$/tia-vcs-git" />

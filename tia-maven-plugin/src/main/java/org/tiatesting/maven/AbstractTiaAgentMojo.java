@@ -7,10 +7,10 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
 import java.io.File;
 import java.io.FileWriter;

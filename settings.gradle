@@ -1,5 +1,4 @@
 rootProject.name = 'tia'
-include 'tia-agent'
 include 'tia-junit-perforce-agent'
 include 'tia-junit-git-agent'
 include 'tia-junit-git'
