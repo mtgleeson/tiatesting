@@ -1,7 +1,7 @@
 package org.tiatesting.report;
 
 import org.tiatesting.core.stats.TestStats;
-import org.tiatesting.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 
 import java.text.DecimalFormat;

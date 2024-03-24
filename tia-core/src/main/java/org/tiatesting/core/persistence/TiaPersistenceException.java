@@ -1,4 +1,4 @@
-package org.tiatesting.persistence;
+package org.tiatesting.core.persistence;
 
 /**
  * Represents any issue when dealing with the persistence layer of Tia.

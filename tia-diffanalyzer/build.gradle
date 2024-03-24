@@ -1,6 +1,5 @@
 dependencies {
     implementation project(':tia-core')
-    implementation project(':tia-persistence')
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
     implementation "io.github.java-diff-utils:java-diff-utils:4.5"
 }
