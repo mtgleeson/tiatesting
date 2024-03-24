@@ -8,8 +8,9 @@ import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.selector.TestSelector;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.diffanalyze.selector.TestSelectorResult;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -25,6 +26,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     static final String SUREFIRE_ARG_LINE = "argLine";
     private static final String IGNORED_TESTS_FILENAME = "ignored-tests.txt";
+    private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -48,8 +50,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
 
-        Set<String> testsToIgnore = selectTestsToIgnore();
-        writeIgnoredTestsToFile(testsToIgnore);
+        TestSelectorResult testSelectorResult = getTestSelectorResult();
+        writeIgnoredTestsToFile(testSelectorResult.getTestsToIgnore());
+        writeSelectedTestsToFile(testSelectorResult.getTestsToRun());
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
         // I can update the configuration for the surefire plugin but the change don't seem to get read.
@@ -73,7 +76,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
          */
     }
 
-    private Set<String> selectTestsToIgnore() {
+    private TestSelectorResult getTestSelectorResult() {
         VCSReader gitReader = getVCSReader();
         DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName());
         long startQueryTime = System.currentTimeMillis();
@@ -82,23 +85,33 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
 
         TestSelector testSelector = new TestSelector(dataStore);
-        Set<String> testsToIgnore = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
-        getLog().warn("Finished reading tia db from mojo: " + (System.currentTimeMillis() - startQueryTime) / 1000);
-        return testsToIgnore;
+        TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
+        getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
+        return testSelectorResult;
     }
 
     private void writeIgnoredTestsToFile(Set<String> testsToIgnore){
+        String ignoredTestsFilename = getIgnoreTestsFilename();
+        writeTestsToFile(ignoredTestsFilename, testsToIgnore);
+    }
+
+    private void writeSelectedTestsToFile(Set<String> selectedTests){
+        String selectedTestsFilename = getSelectedTestsFilename();
+        writeTestsToFile(selectedTestsFilename, selectedTests);
+    }
+
+    private void writeTestsToFile(String filename, Set<String> tests){
         FileWriter fileWriter = null;
         try {
-            String ignoredTestsFilename = getIgnoreTestsFilename();
-            File file = new File(ignoredTestsFilename);
+
+            File file = new File(filename);
             file.getParentFile().mkdirs();
             fileWriter = new FileWriter(file);
 
-            if (testsToIgnore.isEmpty()){
+            if (tests.isEmpty()){
                 fileWriter.write("");
             }else{
-                for (String str : testsToIgnore) {
+                for (String str : tests) {
                     fileWriter.write(str + System.lineSeparator());
                 }
             }
@@ -117,9 +130,14 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         return getTiaBuildDir() + "/" + IGNORED_TESTS_FILENAME;
     }
 
+    private String getSelectedTestsFilename(){
+        return getTiaBuildDir() + "/" + SELECTED_TESTS_FILENAME;
+    }
+
     private AgentOptions buildTiaAgentOptions(){
         AgentOptions agentOptions = new AgentOptions();
         agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
+        agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
         return agentOptions;
     }
 

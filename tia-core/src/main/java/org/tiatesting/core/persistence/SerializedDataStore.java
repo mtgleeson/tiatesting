@@ -1,12 +1,17 @@
-package org.tiatesting.persistence;
+package org.tiatesting.core.persistence;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -45,6 +50,29 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
+    public Map<String, TestSuiteTracker> getTestSuitesTracked() {
+        return getTiaData(false).getTestSuitesTracked();
+    }
+
+    @Override
+    public Map<Integer, MethodImpactTracker> getMethodsTracked() {
+        return getTiaData(false).getMethodsTracked();
+    }
+
+    @Override
+    public Set<Integer> getUniqueMethodIdsTracked() {
+        Set<Integer> methodsImpactedAfterTestRun = new HashSet<>();
+
+        for (TestSuiteTracker testSuiteTracker : getTiaData(false).getTestSuitesTracked().values()){
+            for (ClassImpactTracker classImpactTracker : testSuiteTracker.getClassesImpacted()){
+                methodsImpactedAfterTestRun.addAll(classImpactTracker.getMethodsImpacted());
+            }
+        }
+
+        return methodsImpactedAfterTestRun;
+    }
+
+    @Override
     public int getNumTestSuites() {
         return getTiaData(false).getTestSuitesTracked().size();
     }
@@ -60,11 +88,37 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
-    public boolean persistTiaData(final TiaData tiaData){
+    public void persistCoreData(TiaData tiaData) {
         long startTime = System.currentTimeMillis();
-        boolean savedToDisk = writeTiaDataToDisk(tiaData);
-        log.debug("Time to save the Tia data to disk (ms): " + (System.currentTimeMillis() - startTime));
-        return savedToDisk;
+        writeTiaDataToDisk(tiaData);
+        log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    @Override
+    public void persistTestSuitesFailed(Set<String> testSuitesFailed) {
+        TiaData tiaData = getTiaData(false);
+        tiaData.setTestSuitesFailed(testSuitesFailed);
+        long startTime = System.currentTimeMillis();
+        writeTiaDataToDisk(tiaData);
+        log.info("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    @Override
+    public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) {
+        TiaData tiaData = getTiaData(false);
+        tiaData.setMethodsTracked(methodsTracked);
+        long startTime = System.currentTimeMillis();
+        writeTiaDataToDisk(tiaData);
+        log.info("Time to save the methods tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    @Override
+    public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) {
+        TiaData tiaData = getTiaData(false);
+        tiaData.setTestSuitesTracked(testSuites);
+        long startTime = System.currentTimeMillis();
+        writeTiaDataToDisk(tiaData);
+        log.info("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     /**

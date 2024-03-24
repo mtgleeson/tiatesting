@@ -5,8 +5,9 @@ import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.extension.IGlobalExtension;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.diffanalyze.selector.TestSelectorResult;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -33,15 +34,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
      */
     private Set<String> runnerTestSuites = ConcurrentHashMap.newKeySet();
-    /*
-    The set of tests selected to run by Tia.
-     */
-    private final Set<String> selectedTests;
-    private final VCSReader vcsReader;
     private long testRunStartTime;
 
     public TiaSpockGlobalExtension(final VCSReader vcsReader){
-        this.vcsReader = vcsReader;
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
 
@@ -53,16 +48,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
             boolean checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));
-            selectedTests = setSelectedTests();
-
-            if (tiaUpdateDBMapping || tiaUpdateDBStats){
-                // the listener is used for collecting coverage and updating the stored test mapping
-                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, selectedTests,
-                        tiaUpdateDBMapping, tiaUpdateDBStats);
-            } else {
-                // not updating the DB, no need to use the Spock listener
-                this.tiaTestingSpockRunListener = null;
-            }
 
             if (tiaUpdateDBMapping && checkLocalChanges){
                 // Don't check for local changes. We shouldn't update the DB mapping using unsubmitted changes.
@@ -74,6 +59,19 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // only check for local changes when not updating the DB.
                 this.checkLocalChanges = checkLocalChanges;
             }
+
+            TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
+            TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs, this.checkLocalChanges);
+            ignoredTests = testSelectorResult.getTestsToIgnore();
+
+            if (tiaUpdateDBMapping || tiaUpdateDBStats){
+                // the listener is used for collecting coverage and updating the stored test mapping
+                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testSelectorResult.getTestsToRun(),
+                        tiaUpdateDBMapping, tiaUpdateDBStats);
+            } else {
+                // not updating the DB, no need to use the Spock listener
+                this.tiaTestingSpockRunListener = null;
+            }
         } else {
             tiaUpdateDBMapping = false;
             tiaUpdateDBStats = false;
@@ -82,7 +80,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             testFilesDirs = null;
             this.tiaTestingSpockRunListener = null;
             this.checkLocalChanges = false;
-            selectedTests = new HashSet<>();
         }
 
         log.info("Tia: enabled: {}, update mapping: {}, update stats: {}", tiaEnabled, tiaUpdateDBMapping, tiaUpdateDBStats);
@@ -91,8 +88,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void start() {
         if (tiaEnabled) {
-            TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
-            ignoredTests = tiaSpockTestRunInitializer.getTestsToIgnore(sourceFilesDirs, testFilesDirs, checkLocalChanges);
             testRunStartTime = System.currentTimeMillis();
         }
     }
@@ -118,12 +113,4 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         }
     }
 
-    private Set<String> setSelectedTests(){
-        String selectedTestsStr = System.getProperty("tiaSelectedTests");
-        if (selectedTestsStr != null && !selectedTestsStr.trim().isEmpty()){
-            log.trace("Reading system property tiaSelectedTests: {}", selectedTestsStr);
-            return Stream.of(selectedTestsStr.split(",")).collect(Collectors.toSet());
-        }
-        return new HashSet<>();
-    }
 }

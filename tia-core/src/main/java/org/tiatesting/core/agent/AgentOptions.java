@@ -19,7 +19,17 @@ public class AgentOptions {
      */
     private static final String DEFAULT_IGNORE_TESTS_FILE = ".";
 
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE);
+    /**
+     * Specifies the path for the file containing the list of tests that were selected to run by Tia.
+     */
+    public static final String SELECTED_TESTS_FILE = "selectedTestsFile";
+
+    /**
+     * Specifies the default file path for the project being analyzed.
+     */
+    private static final String DEFAULT_SELECTED_TESTS_FILE = ".";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -100,4 +110,11 @@ public class AgentOptions {
         setOption(IGNORE_TESTS_FILE, ignoreTestsFile);
     }
 
+    public String getSelectedTestsFile() {
+        return getOption(SELECTED_TESTS_FILE, DEFAULT_SELECTED_TESTS_FILE);
+    }
+
+    public void setSelectedTestsFile(String selectedTestsFile) {
+        setOption(SELECTED_TESTS_FILE, selectedTestsFile);
+    }
 }

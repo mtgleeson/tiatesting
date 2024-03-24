@@ -6,16 +6,13 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.stats.TestStats;
-import org.tiatesting.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -57,6 +54,7 @@ public class TextFileReportGenerator implements ReportGenerator {
         String file = reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt";
         try (RandomAccessFile writer = new RandomAccessFile(file, "rw");
              FileChannel channel = writer.getChannel()){
+            writer.setLength(0); // remove contents if the file already exists
             ByteBuffer buff = ByteBuffer.wrap(reportBuilder.toString().getBytes(StandardCharsets.UTF_8));
             channel.write(buff);
         } catch (IOException  e) {

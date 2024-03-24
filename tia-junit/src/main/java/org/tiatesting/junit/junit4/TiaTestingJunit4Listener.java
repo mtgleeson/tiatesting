@@ -11,13 +11,13 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.sourcefile.FileExtensions;
 import org.tiatesting.core.stats.TestStats;
+import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.h2.H2DataStore;
 
 import java.io.File;
 import java.io.IOException;
@@ -59,7 +59,6 @@ public class TiaTestingJunit4Listener extends RunListener {
     private TestStats testRunStats = new TestStats();
 
     public TiaTestingJunit4Listener(VCSReader vcsReader) {
-        this.testRunnerService = new TestRunnerService();
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
         this.enabled = isEnabled();
@@ -75,6 +74,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.vcsReader = vcsReader;
         this.dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
         setSelectedTests();
     }
@@ -225,22 +225,11 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         log.info("Test run finished. Persisting the DB.");
-        TiaData updatedTiaData = null;
-
-        if (updateDBMapping){
-            updatedTiaData = dataStore.getTiaData(true);
-            runnerTestSuites = getRunnerTestSuites();
-            testRunnerService.updateTestMapping(updatedTiaData, testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                    selectedTests, testRunMethodsImpacted, vcsReader.getHeadCommit());
-        }
-
-        if (updateDBStats){
-            TestStats testStats = getStatsForTestRun();
-            updatedTiaData = updateDBMapping ? updatedTiaData : dataStore.getTiaData(true);
-            testRunnerService.updateStats(updatedTiaData, testSuiteTrackers, testStats);
-        }
-
-        dataStore.persistTiaData(updatedTiaData);
+        runnerTestSuites = getRunnerTestSuites();
+        TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
+        TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
+                selectedTests, testRunMethodsImpacted, testStats);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, vcsReader.getHeadCommit(), testRunResult);
     }
 
     private TestStats getStatsForTestRun(){
