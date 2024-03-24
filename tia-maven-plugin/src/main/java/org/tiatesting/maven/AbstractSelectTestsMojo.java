@@ -1,7 +1,7 @@
 package org.tiatesting.maven;
 
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 
