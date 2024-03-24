@@ -1,5 +1,6 @@
 dependencies {
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation group: 'com.h2database', name: 'h2', version: '2.2.224'
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
     implementation "io.github.java-diff-utils:java-diff-utils:4.5"
 }

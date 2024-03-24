@@ -4,10 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.selector.TestSelector;
-import org.tiatesting.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.diffanalyze.selector.TestSelectorResult;
 
 import java.util.List;
-import java.util.Set;
 
 public class TiaSpockTestRunInitializer {
     private static final Logger log = LoggerFactory.getLogger(TiaSpockTestRunInitializer.class);
@@ -20,7 +20,7 @@ public class TiaSpockTestRunInitializer {
         this.dataStore = dataStore;
     }
 
-    Set<String> getTestsToIgnore(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
+    TestSelectorResult selectTests(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
         TestSelector testSelector = new TestSelector(dataStore);
         return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges);
     }

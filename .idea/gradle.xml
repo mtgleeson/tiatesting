@@ -17,7 +17,6 @@
             <option value="$PROJECT_DIR$/tia-junit-git-agent" />
             <option value="$PROJECT_DIR$/tia-junit-perforce" />
             <option value="$PROJECT_DIR$/tia-junit-perforce-agent" />
-            <option value="$PROJECT_DIR$/tia-persistence" />
             <option value="$PROJECT_DIR$/tia-report" />
             <option value="$PROJECT_DIR$/tia-spock" />
             <option value="$PROJECT_DIR$/tia-spock-git-gradle" />

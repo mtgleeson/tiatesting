@@ -9,7 +9,7 @@ import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.diffanalyze.MethodImpactAnalyzer;
-import org.tiatesting.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
@@ -52,11 +52,11 @@ public class TestSelector {
      * @param checkLocalChanges should local changes be checked by Tia.
      * @return list of test suites to ignore in the current test run.
      */
-    public Set<String> selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+    public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
         TiaData tiaData = dataStore.getTiaData(true);
         if (!hasStoredMapping(tiaData)){
-            return new HashSet<>(); // run all tests - don't ignore any
+            return new TestSelectorResult(new HashSet<>(), new HashSet<>()); // run all tests - don't ignore any
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
@@ -65,11 +65,8 @@ public class TestSelector {
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
 
-        // Set the selected tests to run as a System property so it's available for the test runners
-        setSelectedTestsSystemProperty(testsToRun);
-
         log.debug("Ignoring tests: {}", testsToIgnore);
-        return testsToIgnore;
+        return new TestSelectorResult(testsToRun, testsToIgnore);
     }
 
     private boolean hasStoredMapping(TiaData tiaData){
@@ -125,21 +122,6 @@ public class TestSelector {
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
 
         return testsToRun;
-    }
-
-    /**
-     * Set the selected tests to run as a System property so it's available for the test runners.
-     * The test runners should rely on the ignore tests to drive which tests to exclude.
-     * But the test runner will need to know which existing tests Tia is aware of that it selected to run as part
-     * of tracking previously failed tests that have now been ignored. We can't always rely on the test runner to fire
-     * for ignored tests (there's an issue with using the Surefire "groups" property not firing Ignored tests with junit).
-     *
-     * @param testsToRun
-     */
-    private void setSelectedTestsSystemProperty(Set<String> testsToRun){
-        String selectedTestsSystemProp = String.join(",", testsToRun);
-        log.trace("Setting system property for tiaSelectedTests: {}", selectedTestsSystemProp);
-        System.setProperty("tiaSelectedTests", selectedTestsSystemProp);
     }
 
     /**

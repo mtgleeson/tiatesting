@@ -2,10 +2,10 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.stats.TestStats;
 
 import java.time.Instant;
@@ -18,62 +18,109 @@ public class TestRunnerService {
 
     private static final Logger log = LoggerFactory.getLogger(TestRunnerService.class);
 
-    /**
-     * Persist the mapping of the methods called by each test class.
-     *
-     * @param tiaData
-     * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
-     * @param testSuitesFailed the list of test suites that contained a failure or error
-     * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
-     * @param selectedTests the tests selected to run by Tia
-     * @param methodTrackersFromTestRun a map of all source code methods that were covered by any of the test suites executed in the test run
-     * @param commitValue the new commit value the test run was executed against
-     * @return was the test mapping data saved successfully
-     */
-    public void updateTestMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers, final Set<String> testSuitesFailed,
-                                  final Set<String> runnerTestSuites, final Set<String> selectedTests,
-                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun, final String commitValue) {
-        log.info("Persisting commit value: " + commitValue);
-        tiaData.setCommitValue(commitValue);
+    private final DataStore dataStore;
 
-        // update the test mapping
-        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = tiaData.getTestSuitesTracked();
-        Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
-        tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
+    public TestRunnerService(final DataStore dataStore){
+        this.dataStore = dataStore;
+    }
 
-        // update the tracked methods
-        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = tiaData.getMethodsTracked();
-        Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun, mergedTestSuiteTrackers);
-        tiaData.setMethodsTracked(updatedMethodTrackers);
+    public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
+                                   final String commitValue, final TestRunResult testRunResult){
+        log.info("Persisting core data with commit value: " + commitValue);
+        TiaData tiaData = dataStore.getTiaCore();
+        updateTiaCoreData(tiaData, commitValue, updateDBStats, testRunResult.getTestStats());
+        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(), updateDBMapping, updateDBStats);
 
-        // remove any test suites that have been deleted
-        removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
-
-        // The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
-        // scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
-        // First, remove all the existing test suites that were selected for this run, and then add back any that failed.
-        tiaData.getTestSuitesFailed().removeAll(selectedTests);
-        tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
-
-        tiaData.setLastUpdated(Instant.now());
-        //mergedTestMappings.forEach( (testClass, methodsCalled) ->
-        //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+        if (updateDBMapping){
+            updateMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
+            updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+        }
     }
 
     /**
-     * Update the stats stored in the stored mapping. Note, this doesn't persist the changes.
      *
      * @param tiaData
-     * @param testSuiteTrackers the test suites with updated stats from the current test run
-     * @param testRunStats the stats for the test run
+     * @param commitValue the new commit value the test run was executed against
+     * @param updateDBStats should the test stats be updated for the test run
+     * @param testStats the stats for the test run
      */
-    public void updateStats(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers, final TestStats testRunStats){
-        tiaData.incrementStats(testRunStats);
+    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final boolean updateDBStats,
+                                   final TestStats testStats){
+        tiaData.setCommitValue(commitValue);
+        tiaData.setLastUpdated(Instant.now());
 
-        // update the test mapping
-        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = tiaData.getTestSuitesTracked();
-        Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingStats(testSuiteTrackersOnDisk, testSuiteTrackers);
-        tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
+        if (updateDBStats){
+            tiaData.incrementStats(testStats);
+        }
+
+        dataStore.persistCoreData(tiaData);
+    }
+
+    /**
+     * Update the test suite mapping to source code in the DB.
+     * Remove any deleted test suites from the DB.
+     *
+     * Also update the stats for the test suites if configured for the test run.
+     *
+     * @param tiaData
+     * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
+     * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
+     * @param updateDBMapping should the test suite to source code mapping be updated for the test run
+     * @param updateDBStats should the test stats be updated for the test run
+     */
+    private void updateTestSuiteMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers,
+                                        final Set<String> runnerTestSuites, final boolean updateDBMapping, final boolean updateDBStats){
+
+        Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = dataStore.getTestSuitesTracked();
+        tiaData.setTestSuitesTracked(testSuiteTrackersOnDisk);
+
+        if (updateDBMapping){
+            Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
+            tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
+
+            //mergedTestMappings.forEach( (testClass, methodsCalled) ->
+            //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+
+            // remove any test suites that have been deleted
+            removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
+        }
+
+        if (updateDBStats){
+            Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers);
+            tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
+        }
+
+        dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+    }
+
+    /**
+     * Note, make sure this method is called after updateTestSuiteMapping. It relies on querying the DB for the list of
+     * updated source class method ids.
+     *
+     * @param tiaData
+     * @param methodTrackersFromTestRun a map of all source code methods that were covered by any of the test suites executed in the test run
+     */
+    private void updateMethodsTracked(final TiaData tiaData, final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun){
+        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
+        Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun);
+        tiaData.setMethodsTracked(updatedMethodTrackers);
+        dataStore.persistSourceMethods(updatedMethodTrackers);
+    }
+
+    /**
+     *  The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
+     *  scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
+     *  First, remove all the existing test suites that were selected for this run, and then add back any that failed.
+     *
+     * @param tiaData
+     * @param selectedTests the tests selected to run by Tia
+     * @param testSuitesFailed the list of test suites that contained a failure or error
+     */
+    private void updateTestSuitesFailed(final TiaData tiaData, final Set<String> selectedTests, final Set<String> testSuitesFailed){
+        tiaData.setTestSuitesFailed(dataStore.getTestSuitesFailed());
+        tiaData.getTestSuitesFailed().removeAll(selectedTests);
+        tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
+        dataStore.persistTestSuitesFailed(tiaData.getTestSuitesFailed());
     }
 
     /**
@@ -103,26 +150,21 @@ public class TestRunnerService {
      *
      * @param methodTrackerOnDisk current method tracker persisted on disk
      * @param methodTrackerFromTestRun methods called from the current test run
-     * @param testSuiteTrackers updated test suite tracker to be persisted
      */
     private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
-                                                                  final Map<Integer, MethodImpactTracker> methodTrackerFromTestRun,
-                                                                  final Map<String, TestSuiteTracker> testSuiteTrackers){
+                                                                  final Map<Integer, MethodImpactTracker> methodTrackerFromTestRun){
 
         // Set containing the combined method ids using the updated test mapping after the test run
-        Set<Integer> methodsImpactedAfterTestRun = new HashSet<>();
+        Set<Integer> methodsImpactedAfterTestRun = dataStore.getUniqueMethodIdsTracked();
 
-        // collect a set of all methods called from the updated test mapping
-        for (TestSuiteTracker testSuiteTracker : testSuiteTrackers.values()){
-            for (ClassImpactTracker classImpactTracker : testSuiteTracker.getClassesImpacted()){
-                methodsImpactedAfterTestRun.addAll(classImpactTracker.getMethodsImpacted());
-            }
-        }
 
-        // add all methods called from the test mapping to the method tracker index. The method tracker will now
-        // have the correct list of methods. But the methods will have the details associated before the test run
-        // which will potentially have incorrect line numbers. This happens when a method(s) exist in a source file that
-        // had its line numbers changes due to a source file change, but the methods weren't executed in the test run.
+        // We have the updated list of method ids. But the stored method data will have the details associated before the test run
+        // which will potentially have incorrect line numbers. This happens for 2 reasons.
+        // 1. This happens when a method(s) exist in a source file that had its line numbers changes due to a source file change.
+        // 2. We also need to account for other methods that had their lines numbers updated but weren't executed in the test,
+        // i.e. new lines of code were added to a method, this causes that method to be executed in this test run. But, the methods in
+        // the file below this will all be pushed down and have updated line numbers. So we need to update those indexed
+        // methods in the DB as well.
         Map<Integer, MethodImpactTracker> newMethodTracker = new HashMap<>();
 
         for (Integer methodImpactedId : methodsImpactedAfterTestRun){

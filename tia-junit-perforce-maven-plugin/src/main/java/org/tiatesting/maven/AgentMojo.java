@@ -8,17 +8,9 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.diffanalyze.selector.TestSelector;
-import org.tiatesting.persistence.DataStore;
-import org.tiatesting.persistence.h2.H2DataStore;
 import org.tiatesting.vcs.perforce.P4Reader;
 
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @Mojo(name = "prepare-agent", defaultPhase = LifecyclePhase.INITIALIZE, requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
 public class AgentMojo extends AbstractTiaAgentMojo {

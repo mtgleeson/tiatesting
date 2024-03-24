@@ -1,6 +1,5 @@
 dependencies {
     implementation project(':tia-core')
-    implementation project(':tia-persistence')
     implementation project(':tia-diffanalyzer')
     implementation project(':tia-vcs-git')
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
