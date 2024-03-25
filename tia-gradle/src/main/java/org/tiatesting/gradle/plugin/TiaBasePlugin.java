@@ -62,15 +62,21 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
-            System.out.println("Displaying the tests selected by Tia:");
+            System.out.println("Displaying the tests selected by Tia.");
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
             TestSelector testSelector = new TestSelector(dataStore);
             Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
             String lineSep = System.lineSeparator();
-            System.out.println("Selected tests to run: " + lineSep + "\t" + testsToRun.stream().map(String::valueOf).collect(
-                    Collectors.joining(lineSep + "\t", "", "")));
+
+            System.out.println("Selected tests to run: ");
+            if (testsToRun.isEmpty()){
+                System.out.println("none");
+            } else {
+                System.out.println("\t" + testsToRun.stream().map(String::valueOf).collect(
+                        Collectors.joining(lineSep + "\t", "", "")));
+            }
         });
     }
 
