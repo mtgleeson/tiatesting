@@ -66,13 +66,27 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
-            boolean checkLocalChanges = Boolean.valueOf(getCheckLocalChanges());
             TestSelector testSelector = new TestSelector(dataStore);
-            Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, checkLocalChanges);
+            Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
             String lineSep = System.lineSeparator();
             System.out.println("Selected tests to run: " + lineSep + "\t" + testsToRun.stream().map(String::valueOf).collect(
                     Collectors.joining(lineSep + "\t", "", "")));
         });
+    }
+
+    /**
+     * Check if Tia should analyze local changes.
+     * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
+     * committed changes only.
+     *
+     * @return
+     */
+    private boolean isCheckLocalChanges(){
+        if (Boolean.valueOf(getUpdateDBMapping())){
+            return false;
+        } else{
+            return Boolean.valueOf(getCheckLocalChanges());
+        }
     }
 
     public abstract VCSReader getVCSReader();
