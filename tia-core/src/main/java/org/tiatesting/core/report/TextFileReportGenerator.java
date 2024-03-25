@@ -39,7 +39,8 @@ public class TextFileReportGenerator implements ReportGenerator {
 
         long startTime = System.currentTimeMillis();
         TiaData tiaData = dataStore.getTiaData(true);
-        log.info("Data retrieved. Writing the report...");
+        String fileName = reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt";
+        log.info("Data retrieved. Writing the report to {}", fileName);
 
         StringBuilder reportBuilder = new StringBuilder();
         try {
@@ -51,8 +52,7 @@ public class TextFileReportGenerator implements ReportGenerator {
             throw new RuntimeException(e);
         }
 
-        String file = reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt";
-        try (RandomAccessFile writer = new RandomAccessFile(file, "rw");
+        try (RandomAccessFile writer = new RandomAccessFile(fileName, "rw");
              FileChannel channel = writer.getChannel()){
             writer.setLength(0); // remove contents if the file already exists
             ByteBuffer buff = ByteBuffer.wrap(reportBuilder.toString().getBytes(StandardCharsets.UTF_8));
@@ -62,7 +62,7 @@ public class TextFileReportGenerator implements ReportGenerator {
         }
 
         log.info("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
-        return null;
+        return fileName;
     }
 
     private void createOutputDir() {
