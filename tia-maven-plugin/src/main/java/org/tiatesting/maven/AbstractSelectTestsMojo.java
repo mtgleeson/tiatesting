@@ -25,9 +25,13 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
 
         TestSelector testSelector = new TestSelector(dataStore);
         Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
+        System.out.println("Selected tests to run: ");
 
-        System.out.println("Selected tests to run: " +
-                testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n\t", "\n\t", "")));
+        if (testsToRun.isEmpty()){
+            System.out.println("none");
+        } else {
+            System.out.println(testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n\t", "\t", "")));
+        }
     }
 
     /**
