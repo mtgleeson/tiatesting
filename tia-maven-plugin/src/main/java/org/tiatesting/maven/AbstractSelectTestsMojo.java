@@ -24,9 +24,24 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
 
         TestSelector testSelector = new TestSelector(dataStore);
-        Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isTiaCheckLocalChanges());
+        Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
 
         System.out.println("Selected tests to run: " +
                 testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n\t", "\n\t", "")));
+    }
+
+    /**
+     * Check if Tia should analyze local changes.
+     * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
+     * committed changes only.
+     *
+     * @return
+     */
+    private boolean isCheckLocalChanges(){
+        if (isTiaUpdateDBMapping()){
+            return false;
+        } else{
+            return isTiaCheckLocalChanges();
+        }
     }
 }
