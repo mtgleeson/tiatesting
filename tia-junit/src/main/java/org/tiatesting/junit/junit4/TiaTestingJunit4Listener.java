@@ -125,7 +125,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         runnerTestSuites.add(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
-        // parameterized tests are run multiple times per param set. We group into 1 test suote tracker and may have already been created
+        // parameterized tests are run multiple times per param set. We group into 1 test suite tracker and may have already been created
         if (testSuiteTracker == null){
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
@@ -198,7 +198,8 @@ public class TiaTestingJunit4Listener extends RunListener {
         String testSuiteName = getTestSuiteName(description);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
-        if (updateDBStats){
+        // for paramterized tests suites, only calculate the runtime for the overall test suite, not the individual param tests
+        if (updateDBStats && !isParameterizedTest(description)){
             testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
         }
 
@@ -258,9 +259,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     }
 
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
-        long runTime = System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
-        runTime = runTime > 1000 ? (runTime / 1000) : 1;
-        return runTime;
+        return System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
     }
 
     /**
@@ -291,12 +290,23 @@ public class TiaTestingJunit4Listener extends RunListener {
     }
 
     private String getTestSuiteName(Description description){
-        if (description.getTestClass() == null && !description.getChildren().isEmpty()){
+        if (isParameterizedTest(description) && !description.getChildren().isEmpty()){
             //parameterized test, get the name of the class containing the test being executed rather than the generated parameter classes
             return description.getChildren().get(0).getClassName();
         }else {
             return description.getClassName();
         }
+    }
+
+    /**
+     * Parameterized tests don't have a test class, it's null.
+     * The overall test suite containing the param tests will have a test class.
+     *
+     * @param description
+     * @return
+     */
+    private boolean isParameterizedTest(Description description){
+        return description.getTestClass() == null;
     }
 
     /**
