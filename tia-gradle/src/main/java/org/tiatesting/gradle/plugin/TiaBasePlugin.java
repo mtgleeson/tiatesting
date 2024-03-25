@@ -51,8 +51,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             System.out.println("Starting text report generation");
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             ReportGenerator reportGenerator = new TextFileReportGenerator(getVCSReader().getBranchName(), getReportOutputDir());
-            reportGenerator.generateReport(dataStore);
-            System.out.println("Text report generated successfully");
+            String fileName = reportGenerator.generateReport(dataStore);
+            System.out.println("Text report generated successfully at " + fileName);
         });
     }
 
