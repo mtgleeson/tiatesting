@@ -407,7 +407,7 @@ public class P4DiffAnalyzer {
     }
 
     private boolean isFileAdded(FileAction changeType){
-        return changeType == FileAction.ADD || changeType == FileAction.MOVE_ADD || changeType == FileAction.ADDED;
+        return convertP4ChangeType(changeType) == ChangeType.ADD;
     }
 
     private ChangeType convertP4ChangeType(FileAction p4ChangeType){
@@ -415,10 +415,10 @@ public class P4DiffAnalyzer {
             case ADD:
             case MOVE_ADD:
             case ADDED:
+            case BRANCH:
                 return ChangeType.ADD;
             case EDIT:
             case INTEGRATE:
-            case BRANCH:
             case EDIT_FROM:
             case EDIT_IGNORED:
             case UPDATED:
