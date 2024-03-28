@@ -26,9 +26,15 @@ public class TestRunnerService {
 
     public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
                                    final String commitValue, final TestRunResult testRunResult){
-        log.info("Persisting core data with commit value: " + commitValue);
+        if (updateDBMapping){
+            log.info("Persisting core data with commit value: " + commitValue);
+        }
+        if (updateDBStats){
+            log.info("Persisting updated stats from the test run.");
+        }
+
         TiaData tiaData = dataStore.getTiaCore();
-        updateTiaCoreData(tiaData, commitValue, updateDBStats, testRunResult.getTestStats());
+        updateTiaCoreData(tiaData, commitValue, updateDBMapping, updateDBStats, testRunResult.getTestStats());
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(), updateDBMapping, updateDBStats);
 
         if (updateDBMapping){
@@ -41,13 +47,16 @@ public class TestRunnerService {
      *
      * @param tiaData
      * @param commitValue the new commit value the test run was executed against
+     * @param updateDBMapping should the test to source code mapping be updated in the DB for the test run
      * @param updateDBStats should the test stats be updated for the test run
      * @param testStats the stats for the test run
      */
-    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final boolean updateDBStats,
-                                   final TestStats testStats){
-        tiaData.setCommitValue(commitValue);
-        tiaData.setLastUpdated(Instant.now());
+    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final boolean updateDBMapping,
+                                   final boolean updateDBStats, final TestStats testStats){
+        if (updateDBMapping) {
+            tiaData.setCommitValue(commitValue);
+            tiaData.setLastUpdated(Instant.now());
+        }
 
         if (updateDBStats){
             tiaData.incrementStats(testStats);

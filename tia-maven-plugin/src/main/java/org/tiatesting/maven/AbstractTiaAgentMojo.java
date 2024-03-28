@@ -240,7 +240,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private boolean isEnabled(){
         boolean enabled = isTiaEnabled();
         getLog().info("Tia AgentMojo: enabled: " + enabled + ", update mapping: " + isTiaUpdateDBMapping() +
-                ", update stats: " + isTiaUpdateDBMapping());
+                ", update stats: " + isTiaUpdateDBStats());
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run
