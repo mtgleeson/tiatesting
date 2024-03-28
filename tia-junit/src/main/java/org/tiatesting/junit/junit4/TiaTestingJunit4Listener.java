@@ -221,7 +221,8 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     @Override
     public void testRunFinished(Result result) {
-        if (!enabled){
+        if (!enabled || (!updateDBMapping && !updateDBStats)){
+            // not enabled, or not updating the DB in any way
             return;
         }
 

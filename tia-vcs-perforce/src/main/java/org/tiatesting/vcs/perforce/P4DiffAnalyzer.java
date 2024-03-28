@@ -44,7 +44,7 @@ public class P4DiffAnalyzer {
      * @param baseCl the current changelist stored in the mapping
      * @param sourceAndTestFiles the list of source code and test files for the source project being analysed
      * @param checkLocalChanges should local changes be analyzed for test selection
-     * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
+     * @return set of SourceFileDiffContext for the files impacted in the given commit range to head
      */
     protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String baseCl,
                                                                final List<String> sourceAndTestFiles,
@@ -101,8 +101,8 @@ public class P4DiffAnalyzer {
             return new HashSet<>();
         }
 
-        Integer clFrom = Integer.valueOf(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom.toString(), clTo,
+        int clFrom = Integer.parseInt(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), Integer.toString(clFrom), clTo,
                 sourceAndTestFilesSpecs);
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
@@ -137,7 +137,7 @@ public class P4DiffAnalyzer {
                     FileSpecBuilder.makeFileSpecList(filePaths), options);
 
             if (changeLists.isEmpty()){
-                log.warn("Couldn't find any changelists for the P4 file paths {}", filePaths);
+                log.warn("Couldn't find any change lists for the P4 file paths {}", filePaths);
             }
 
             for (IChangelistSummary changelistSummary : changeLists) {
@@ -168,7 +168,7 @@ public class P4DiffAnalyzer {
 
         if (!changedLocalFiles.isEmpty()){
             readFileContentForVersion(p4Context.getP4Connection(), p4Context.getHeadCL(), true, sourceFileDiffContexts);
-            loadLocalFileContentIntoDiffContext(changedLocalFiles, sourceFileDiffContexts, false);
+            loadLocalFileContentIntoDiffContext(changedLocalFiles, sourceFileDiffContexts);
         }
 
         return new HashSet<>(sourceFileDiffContexts.values());
@@ -226,13 +226,13 @@ public class P4DiffAnalyzer {
                                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                                     List<IFileSpec> sourceAndTestFilesSpecs){
         List<IFileSpec> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
-        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(file -> file.getDepotPathString()).collect(Collectors.toList());
+        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(IFileSpec::getDepotPathString).collect(Collectors.toList());
         Map<String, IFileSpec> localFileSpecs;
 
         try {
             // use P4 where command to find out the local paths for the changed files (local or submitted)
             List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceCodeFileDepotPaths));
-            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap( file -> file.getDepotPathString(), Function.identity()));
+            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap(IFileSpec::getDepotPathString, Function.identity()));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -269,7 +269,7 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Check if the file exists in one of the source code or test file directories. If not, we don't want to proces
+     * Check if the file exists in one of the source code or test file directories. If not, we don't want to process
      * the file. The file might below to another application outside the project being analyzed.
      *
      * @param depotPath the depot path of the file
@@ -293,16 +293,16 @@ public class P4DiffAnalyzer {
      * to
      * src/main/java/com/example/Car.java
      *
-     * @param depotPath
+     * @param depotPath the path in the P4 depot of the file
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
-     * @return
+     * @return the path in the format used by Tia
      */
     private String convertDepotPathToTiaPath(String depotPath, List<IFileSpec> sourceAndTestFilesSpecs){
         String tiaMappingPath = depotPath;
 
         if (tiaMappingPath != null){
             for (IFileSpec sourceAndTestFilesSpec : sourceAndTestFilesSpecs){
-                if (tiaMappingPath.indexOf(sourceAndTestFilesSpec.getDepotPathString()) > -1){
+                if (tiaMappingPath.contains(sourceAndTestFilesSpec.getDepotPathString())){
                     // use +1 to remove the leading '/'
                     tiaMappingPath = tiaMappingPath.substring(sourceAndTestFilesSpec.getDepotPathString().length() + 1);
                     break;
@@ -323,7 +323,7 @@ public class P4DiffAnalyzer {
     /**
      * Read the content of a list of source files at a given version.
      * Read the content for each of the given source files and load it into a map to be used later for diffing.
-     *
+     * <p>
      * p4Connection the Perforce connection being used for the analysis.
      * @param cl the id of the changelist revision we are reading the file content for
      * @param forOriginal is the file content being read used as the 'before' in the diff?
@@ -359,13 +359,12 @@ public class P4DiffAnalyzer {
     }
 
     private void loadLocalFileContentIntoDiffContext(List<IExtendedFileSpec> sourceCodeFiles,
-                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                     boolean forOriginal){
+                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts){
         for (IExtendedFileSpec fileSpec : sourceCodeFiles){
             File file = new File(fileSpec.getOriginalPathString());
             try {
                 String fileContent = FileUtils.readFileToString(file, "UTF-8");
-                loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, fileSpec.getDepotPathString(), fileContent);
+                loadFileContentIntoDiffContext(sourceFileDiffContexts, false, fileSpec.getDepotPathString(), fileContent);
             } catch (IOException e) {
                 throw new VCSAnalyzerException(e);
             }
@@ -378,7 +377,7 @@ public class P4DiffAnalyzer {
             for (IFileSpec fileSpec : revisionFileSpecs) {
                 if (fileSpec.getDepotPathString() == null){
                     // The file doesn't exist in the CL. This could be due to the file being deleted in the original CL
-                    // as well in the new CL (i.e. a merge CL bringing the delete into the stream where it was already deleted).
+                    // as well in the new CL (i.e. a merge CL bringing a delete action into the stream where it was already deleted).
                     log.warn("No file found in P4 for the CL. Looking up the original:  {}", forOriginal);
                     continue;
                 }
@@ -389,7 +388,7 @@ public class P4DiffAnalyzer {
                     continue;
                 }
 
-                String fileContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8.name());
+                String fileContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
                 loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, fileSpec.getDepotPathString(), fileContent);
             }
         } catch (P4JavaException | IOException e) {
@@ -439,8 +438,8 @@ public class P4DiffAnalyzer {
      * Check if a file is a source code file.
      * i.e. Is it a Java  or Groovy file.
      *
-     * @param fileName
-     * @return
+     * @param fileName the name of the file being checked if it's a source code file
+     * @return if the given filename is a source code file
      */
     private boolean isFileSourceCode(String fileName) {
         return fileName.toLowerCase().endsWith("." + JAVA_FILE_EXT) ||
