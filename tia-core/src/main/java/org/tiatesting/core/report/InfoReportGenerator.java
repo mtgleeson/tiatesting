@@ -47,7 +47,7 @@ public class InfoReportGenerator implements ReportGenerator {
         String failedTests = getTestSuitesFailed.stream().map(test ->
                 "\t" + test).collect(Collectors.joining(lineSep));
         failedTests = (failedTests != null && !failedTests.isEmpty()) ? failedTests : "none";
-        sb.append("Pending failed tests: " + failedTests);
+        sb.append("Pending failed tests: " + lineSep + failedTests);
 
         return sb.toString();
     }
