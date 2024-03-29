@@ -107,9 +107,10 @@ public class P4DiffAnalyzer {
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
-        readFileContentForVersion(p4Context.getP4Connection(), baseCl, true, sourceFileDiffContexts);
-        readFileContentForVersion(p4Context.getP4Connection(), clTo, false, sourceFileDiffContexts);
-
+        if (!sourceFileDiffContexts.isEmpty()) {
+            readFileContentForVersion(p4Context.getP4Connection(), baseCl, true, sourceFileDiffContexts);
+            readFileContentForVersion(p4Context.getP4Connection(), clTo, false, sourceFileDiffContexts);
+        }
         return new HashSet<>(sourceFileDiffContexts.values());
     }
 
@@ -378,8 +379,8 @@ public class P4DiffAnalyzer {
             for (IFileSpec fileSpec : revisionFileSpecs) {
                 if (fileSpec.getDepotPathString() == null){
                     // The file doesn't exist in the CL. This could be due to the file being deleted in the original CL
-                    // as well in the new CL (i.e. a merge CL bringing the delete into the stream where it was already deleted).
-                    log.warn("No file found in P4 for the CL. Looking up the original:  {}, ", forOriginal);
+                    // as well in the new CL (i.e. a merge CL bringing the delete action into the stream where it was already deleted).
+                    log.info("No file found in P4 for the CL. Looking up the original:  {}", forOriginal);
                     continue;
                 }
 
