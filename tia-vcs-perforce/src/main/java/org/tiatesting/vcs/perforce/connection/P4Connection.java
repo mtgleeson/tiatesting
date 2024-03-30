@@ -1,17 +1,23 @@
 package org.tiatesting.vcs.perforce.connection;
 
-import java.io.IOException;
-import java.net.URISyntaxException;
-import java.util.Map;
-import java.util.Properties;
 import com.perforce.p4java.client.IClient;
-import com.perforce.p4java.exception.*;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.P4JavaException;
+import com.perforce.p4java.exception.RequestException;
 import com.perforce.p4java.option.UsageOptions;
-import com.perforce.p4java.server.*;
+import com.perforce.p4java.server.IOptionsServer;
+import com.perforce.p4java.server.IServerAddress;
+import com.perforce.p4java.server.ServerFactory;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
-import org.tiatesting.vcs.perforce.P4Reader;
+
+import java.net.URISyntaxException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 public class P4Connection {
     private static final Logger log = LoggerFactory.getLogger(P4Connection.class);
@@ -99,17 +105,21 @@ public class P4Connection {
      * @throws ConnectionException
      * @throws AccessException
      */
-    public void stop() throws ConnectionException, AccessException
-    {
+    public void stop(){
         if (server != null && server.isConnected())
         {
-            server.disconnect();
+            try {
+                server.disconnect();
+            } catch (ConnectionException | AccessException e) {
+                throw new VCSAnalyzerException(e);
+            }
             server = null;
         }
     }
 
     /**
-     * Set the P4 connection settings.
+     * Set the P4 connection settings. If either of the serverUri, userName or clientName is not set,
+     * try read it from the users workspace using the "p4 set" command.
      *
      * @param serverUri
      * @param userName
@@ -119,10 +129,53 @@ public class P4Connection {
      */
     public void setP4Settings(final String serverUri, final String userName, final String password, final String clientName)
     {
+        Map<String, String> p4Settings = new HashMap<>();
+        if (StringUtils.isBlank(serverUri) || StringUtils.isBlank(userName) || StringUtils.isBlank(clientName)){
+            p4Settings = P4Settings.executeP4SetCommand();
+        }
+        setServerUri(serverUri, p4Settings.get(P4Constants.P4PORT));
+        setUserName(userName, p4Settings.get(P4Constants.P4USER));
+        setPassword(password);
+        setClientName(clientName, p4Settings.get(P4Constants.P4CLIENT));
+    }
+
+    /**
+     * Set the P4 server URI. If the server URI defined in the Tia configuration is not set, then use the value
+     * from the P4 Set command.
+     * @param configuredServerUri
+     * @param p4SettingServerUri
+     */
+    private void setServerUri(final String configuredServerUri, String p4SettingServerUri){
+        String serverUri = StringUtils.isBlank(configuredServerUri) ? p4SettingServerUri : configuredServerUri;
         this.serverUri = IServerAddress.Protocol.P4JAVA.toString() + "://" + serverUri;
-        this.userName = userName;
-        this.clientName = clientName;
+    }
+
+    /**
+     * Set the P4 username. If the username defined in the Tia configuration is not set, then use the value
+     * from the P4 Set command.
+     * @param username
+     * @param p4SettingUsername
+     */
+    private void setUserName(final String username, String p4SettingUsername){
+        this.userName = StringUtils.isBlank(username) ? p4SettingUsername : username;
+    }
+
+    /**
+     * Set the P4 password defined in the Tia configuration.
+     * @param password
+     */
+    private void setPassword(final String password){
         this.password = password;
+    }
+
+    /**
+     * Set the P4 client name. If the client name defined in the Tia configuration is not set, then use the value
+     * from the P4 Set command.
+     * @param clientName
+     * @param p4SettingClientName
+     */
+    private void setClientName(final String clientName, String p4SettingClientName){
+        this.clientName = StringUtils.isBlank(clientName) ? p4SettingClientName : clientName;
     }
 
     /**

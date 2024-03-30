@@ -41,6 +41,12 @@ public class GitReader implements VCSReader {
     }
 
     @Override
+    public void close() {
+        log.debug("Closing the Git Repository resource");
+        gitContext.getRepository().close();
+    }
+
+    @Override
     public String getHeadCommit(){
         return gitContext.getHeadObjectId().getName();
     }
