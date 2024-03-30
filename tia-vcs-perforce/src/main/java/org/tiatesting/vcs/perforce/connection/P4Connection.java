@@ -214,4 +214,16 @@ public class P4Connection {
         }
         return server;
     }
+
+    public String getServerUri() {
+        return serverUri;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public String getClientName() {
+        return clientName;
+    }
 }
