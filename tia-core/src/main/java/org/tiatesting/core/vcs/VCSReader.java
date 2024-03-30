@@ -36,4 +36,9 @@ public interface VCSReader {
      */
     Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                      final List<String> testFilesDirs, final boolean checkLocalChanges);
+
+    /**
+     * Do any clean up action when no further interactions with the VCS are needed.
+     */
+    void close();
 }

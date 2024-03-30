@@ -15,4 +15,7 @@ public class VCSAnalyzerException extends RuntimeException {
         super(exception);
     }
 
+    public VCSAnalyzerException(String message, Exception exception){
+        super(message, exception);
+    }
 }

@@ -52,6 +52,12 @@ public class P4Reader implements VCSReader {
     }
 
     @Override
+    public void close() {
+        log.debug("Closing the P4 connection resource");
+        p4Context.getP4Connection().stop();
+    }
+
+    @Override
     public String getHeadCommit(){
         return p4Context.getHeadCL();
     }

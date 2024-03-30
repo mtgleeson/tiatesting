@@ -27,7 +27,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
-    private final VCSReader vcsReader;
+    private final String headCommit;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
@@ -47,12 +47,13 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.specificationUtil = new SpecificationUtil();
-        this.vcsReader = vcsReader;
         this.dataStore = dataStore;
         this.selectedTests = selectedTests;
         this.updateDBMapping = updateDBMapping;
         this.updateDBStats = updateDBStats;
+        this.headCommit = vcsReader.getHeadCommit();
 
+        vcsReader.close();
         if (updateDBMapping){
             this.coverageClient.initialize();
         }
@@ -133,7 +134,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats);
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, vcsReader.getHeadCommit(), testRunResult);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){
