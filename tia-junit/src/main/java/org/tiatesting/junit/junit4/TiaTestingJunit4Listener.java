@@ -39,7 +39,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
-    private final VCSReader vcsReader;
+    private final String headCommit;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private Set<String> testSuitesFailed;
@@ -72,10 +72,11 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
-        this.vcsReader = vcsReader;
+        this.headCommit = vcsReader.getHeadCommit();
         this.dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
+        vcsReader.close();
         setSelectedTests();
     }
 
@@ -231,7 +232,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats);
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, vcsReader.getHeadCommit(), testRunResult);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
     }
 
     private TestStats getStatsForTestRun(){

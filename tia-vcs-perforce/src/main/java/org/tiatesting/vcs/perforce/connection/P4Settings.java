@@ -1,19 +1,9 @@
 package org.tiatesting.vcs.perforce.connection;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
-import org.apache.commons.lang3.StringUtils;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
+
+import java.io.*;
+import java.util.*;
 
 public class P4Settings
 {
@@ -128,11 +118,13 @@ public class P4Settings
         File file = new File(filePath);
         file.createNewFile();
 
-        String p4vars = executeP4SetCommand();
-        try (PrintWriter out = new PrintWriter(file.getName()))
-        {
-            out.println(p4vars);
-        }
+        Map<String, String> p4vars = executeP4SetCommand();
+        // TODO create a String from the map that resembles the p4 set command.
+        // i.e. join each key with the value and then plan each map entry on a new line
+        //try (PrintWriter out = new PrintWriter(file.getName()))
+        //{
+        //    out.println(p4vars);
+        //}
 
         return file;
     }
@@ -142,7 +134,7 @@ public class P4Settings
      *
      * @return
      */
-    private static String executeP4SetCommand() throws Exception
+    public static Map<String, String> executeP4SetCommand()
     {
         final String command = P4Constants.P4_SET;
 
@@ -154,7 +146,7 @@ public class P4Settings
 
             final Process process = builder.start();
             final BufferedReader bufReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            Collection<String> lines = new ArrayList<String>();
+            Map<String, String> p4SetArgs = new HashMap<>();
             String line;
             while (true)
             {
@@ -163,20 +155,31 @@ public class P4Settings
                 {
                     break;
                 }
-                if (requiredSettingsFromP4set.stream().anyMatch(line::contains))
-                {
-                    String setting = line.endsWith(P4_SET_VAR_UNWANTED_SUFFIX) ? line.substring(0, line.indexOf(P4_SET_VAR_UNWANTED_SUFFIX)) : line;
-                    lines.add(setting);
+
+                for (String p4Setting: requiredSettingsFromP4set){
+                    boolean p4SettingExtracted = extractP4Setting(p4Setting, line, p4SetArgs);
+                    if (p4SettingExtracted){
+                        break;
+                    }
                 }
             }
-            String p4vars = StringUtils.join(lines, "\n");
-            System.out.println(p4vars);
             bufReader.close();
-            return p4vars;
+            return p4SetArgs;
         }
         catch (IOException e)
         {
-            throw new Exception("Failed to execute command: " + command, e);
+            throw new VCSAnalyzerException("Failed to execute command: " + command, e);
         }
+    }
+
+    private static boolean extractP4Setting(String p4Setting, String line, Map<String, String> p4SetArgs) {
+        if (line.contains(p4Setting))
+        {
+            String setting = line.endsWith(P4_SET_VAR_UNWANTED_SUFFIX) ? line.substring(0, line.indexOf(P4_SET_VAR_UNWANTED_SUFFIX)) : line;
+            setting = setting.replace(p4Setting + "=", "");
+            p4SetArgs.put(p4Setting, setting);
+            return true;
+        }
+        return false;
     }
 }
