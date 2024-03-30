@@ -39,7 +39,8 @@ public class P4Reader implements VCSReader {
         P4Connection p4Connection = P4Connection.getInstance();
         p4Connection.setP4Settings(serverUri, userName, password, clientName);
         p4Connection.start();
-        log.info("Successfully initialized P4 connection to {} with user name {} and client {}", serverUri, userName, clientName);
+        log.info("Successfully initialized P4 connection to {} with user name {} and client {}", p4Connection.getServerUri(),
+                p4Connection.getUserName(), p4Connection.getClientName());
         return p4Connection;
     }
 
