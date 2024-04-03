@@ -297,6 +297,37 @@ public class H2DataStore implements DataStore {
         log.trace("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    @Override
+    public void deleteTestSuites(final Set<String> testSuites){
+        long startTime = System.currentTimeMillis();
+        Connection connection = getConnection();
+
+        try {
+            deleteTestSuites(connection, testSuites);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        log.trace("Time to delete the removed test suites from disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    private void deleteTestSuites(Connection connection, final Set<String> testSuites) throws SQLException {
+        Statement statement = connection.createStatement();
+
+        for (String testSuite : testSuites){
+            String deleteTestSuiteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = '" + testSuite +"'";
+            log.info("Deleting test suite: {}", deleteTestSuiteSql);
+
+            statement.executeUpdate(deleteTestSuiteSql);
+        }
+    }
+
     private void persistTiaCore(Connection connection, TiaData tiaData) throws SQLException {
         TiaData existingTiaCore = getCoreData(connection);
         String sql;

@@ -120,6 +120,8 @@ public class TestSelector {
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
 
+        // Add newly added test files to the run list.
+        addNewTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), tiaData, testsToRun, testFilesDirs);
         return testsToRun;
     }
 
@@ -169,15 +171,28 @@ public class TestSelector {
     private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, TiaData tiaData,
                                                Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesModified = new HashSet<>();
+
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
-            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), tiaData.getTestSuitesTracked(), testFilesDirs);
-            if (testName != null){
+            String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), testFilesDirs);
+            if (tiaData.getTestSuitesTracked().containsKey(testName)){
                 testSuitesModified.add(testName);
             }
         }
 
         log.info("Selected tests to run from VCS test file changes: {}", testSuitesModified);
         testsToRun.addAll(testSuitesModified);
+    }
+
+    private void addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, TiaData tiaData,
+                                          Set<String> testsToRun, List<String> testFilesDirs){
+        Set<String> testSuitesAdded = new HashSet<>();
+        for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
+            String testName = getTestNameFromFilePath(sourceFileDiffContext.getNewFilePath(), testFilesDirs);
+            testSuitesAdded.add(testName);
+        }
+
+        log.info("Selected tests to run from new test files: {}", testSuitesAdded);
+        testsToRun.addAll(testSuitesAdded);
     }
 
     /**
@@ -187,11 +202,10 @@ public class TestSelector {
      * Converts to: com.example.DoorServiceSpec
      *
      * @param testFilePath
-     * @param testSuitesTrackers
      * @param testFilesDirs
      * @return
      */
-    private String getTestNameFromFilePath(String testFilePath, Map<String, TestSuiteTracker> testSuitesTrackers, List<String> testFilesDirs){
+    private String getTestNameFromFilePath(String testFilePath, List<String> testFilesDirs){
         testFilePath = testFilePath.replaceAll("\\." + JAVA_FILE_EXT, "");
         testFilePath = testFilePath.replaceAll("\\." + GROOVY_FILE_EXT, "");
 
@@ -205,7 +219,7 @@ public class TestSelector {
         testFilePath = testFilePath.startsWith("/") ? testFilePath.substring(1, testFilePath.length()) : testFilePath; // trim leading /
         testFilePath = testFilePath.replaceAll("\\/", ".");
 
-        return testSuitesTrackers.containsKey(testFilePath)? testFilePath : null;
+        return testFilePath;
     }
 
     /**
