@@ -87,4 +87,11 @@ public interface DataStore {
      * @param testSuites
      */
     void persistTestSuites(final Map<String, TestSuiteTracker> testSuites);
+
+    /**
+     * Delete the given test suites from disk.
+     *
+     * @param testSuites
+     */
+    void deleteTestSuites(final Set<String> testSuites);
 }

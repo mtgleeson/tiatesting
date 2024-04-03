@@ -121,6 +121,11 @@ public class SerializedDataStore implements DataStore {
         log.info("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    @Override
+    public void deleteTestSuites(Set<String> testSuites) {
+        // do nothing, the deleted test suites will be serialized in persistTestSuites(testSuites);
+    }
+
     /**
      * Read the serialized Tia data file from disk.
      * If the file on disk doesn't exist then create a new {@link TiaData} object
