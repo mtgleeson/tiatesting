@@ -151,6 +151,7 @@ public class TestRunnerService {
         if (!deletedTestSuites.isEmpty()) {
             log.info("Removing the following deleted test suites from the persisted mapping: {}", deletedTestSuites);
             testSuitesInDB.keySet().removeAll(deletedTestSuites);
+            dataStore.deleteTestSuites(deletedTestSuites);
         }
     }
 

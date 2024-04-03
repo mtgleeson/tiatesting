@@ -86,4 +86,14 @@ public class SourceFileDiffContext {
     public int hashCode() {
         return Objects.hash(oldFilePath, newFilePath, changeType, sourceContentOriginal, sourceContentNew);
     }
+
+    @Override
+    public String toString() {
+        return "SourceFileDiffContext{" +
+                "oldFilePath='" + oldFilePath + '\'' +
+                ", newFilePath='" + newFilePath + '\'' +
+                ", changeType=" + changeType +
+                '}';
+    }
+    
 }
