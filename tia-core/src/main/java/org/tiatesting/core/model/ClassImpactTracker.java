@@ -1,5 +1,7 @@
 package org.tiatesting.core.model;
 
+import org.tiatesting.core.sourcefile.FileExtensions;
+
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.Set;
@@ -31,6 +33,12 @@ public class ClassImpactTracker implements Serializable {
 
     public String getSourceFilename() {
         return sourceFilename;
+    }
+
+    public String getSourceFilenameForDisplay() {
+        return sourceFilename.replaceAll("/", ".")
+                .replaceAll("." + FileExtensions.JAVA_FILE_EXT, "")
+                .replaceAll("." + FileExtensions.GROOVY_FILE_EXT, "");
     }
 
     public Set<Integer> getMethodsImpacted() {

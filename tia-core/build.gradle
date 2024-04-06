@@ -5,6 +5,7 @@ dependencies {
     implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
     implementation "io.github.java-diff-utils:java-diff-utils:4.5"
+    implementation 'com.j2html:j2html:1.6.0'
 }
 
 publishing {
