@@ -127,8 +127,11 @@ public class TestRunnerService {
      */
     private void updateTestSuitesFailed(final TiaData tiaData, final Set<String> selectedTests, final Set<String> testSuitesFailed){
         tiaData.setTestSuitesFailed(dataStore.getTestSuitesFailed());
+        log.warn("tiaData.getTestSuitesFailed(): {}", tiaData.getTestSuitesFailed());
         tiaData.getTestSuitesFailed().removeAll(selectedTests);
+        log.warn("selectedTests: {}", selectedTests);
         tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
+        log.warn("testSuitesFailed1: {}", testSuitesFailed);
         dataStore.persistTestSuitesFailed(tiaData.getTestSuitesFailed());
     }
 
