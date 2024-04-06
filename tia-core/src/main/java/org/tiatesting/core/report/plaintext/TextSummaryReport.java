@@ -1,15 +1,14 @@
-package org.tiatesting.core.report;
+package org.tiatesting.core.report.plaintext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.ClassImpactTracker;
-import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.model.*;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.report.ReportUtils;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -19,26 +18,21 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-/**
- * Generate a text file report containing the test mappings.
- */
-public class TextFileReportGenerator implements ReportGenerator {
+public class TextSummaryReport {
 
-    private static final Logger log = LoggerFactory.getLogger(TextFileReportGenerator.class);
+    private static final Logger log = LoggerFactory.getLogger(TextSummaryReport.class);
     private final String filenameExt;
     private final File reportOutputDir;
 
-    public TextFileReportGenerator(String filenameExt, File reportOutputDir){
+    public TextSummaryReport(String filenameExt, File reportOutputDir){
         this.filenameExt = filenameExt;
-        this.reportOutputDir = reportOutputDir;
+        this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "text");;
     }
 
-    @Override
-    public String generateReport(DataStore dataStore) {
+    public String generateSummaryReport(TiaData tiaData) {
         createOutputDir();
 
         long startTime = System.currentTimeMillis();
-        TiaData tiaData = dataStore.getTiaData(true);
         String fileName = reportOutputDir + File.separator + "tia-test-mapping-" + filenameExt + ".txt";
         log.info("Data retrieved. Writing the report to {}", fileName);
 
@@ -61,7 +55,7 @@ public class TextFileReportGenerator implements ReportGenerator {
             throw new RuntimeException(e);
         }
 
-        log.info("Time to write the text report (ms): " + (System.currentTimeMillis() - startTime));
+        log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
         return fileName;
     }
 

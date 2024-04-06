@@ -4,13 +4,15 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.logging.Logging;
 import org.slf4j.Logger;
+import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.report.html.HtmlReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.report.InfoReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
-import org.tiatesting.core.report.TextFileReportGenerator;
+import org.tiatesting.core.report.plaintext.TextReportGenerator;
 
 import java.io.File;
 import java.util.Arrays;
@@ -35,14 +37,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
         createInfoTask();
         createTextReportTask();
+        createHtmlReportTask();
         createSelectTestsTask();
     }
 
     public void createInfoTask() {
         project.task("tia-info").doLast(task -> {
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
-            ReportGenerator reportGenerator = new InfoReportGenerator();
-            System.out.println(reportGenerator.generateReport(dataStore));
+            InfoReportGenerator reportGenerator = new InfoReportGenerator();
+            System.out.println(reportGenerator.generateSummaryReport(dataStore));
         });
     }
 
@@ -50,9 +53,23 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
-            ReportGenerator reportGenerator = new TextFileReportGenerator(getVCSReader().getBranchName(), getReportOutputDir());
-            String fileName = reportGenerator.generateReport(dataStore);
-            System.out.println("Text report generated successfully at " + fileName);
+            TiaData tiaData = dataStore.getTiaData(true);
+            File reportOutputDir = getReportOutputDir();
+            ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
+            reportGenerator.generateReports(tiaData);
+            System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+        });
+    }
+
+    public void createHtmlReportTask() {
+        project.task("tia-html-report").doLast(task -> {
+            System.out.println("Starting HTML report generation");
+            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
+            TiaData tiaData = dataStore.getTiaData(true);
+            File reportOutputDir = getReportOutputDir();
+            ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
+            reportGenerator.generateReports(tiaData);
+            System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
         });
     }
 
@@ -137,7 +154,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         if (tiaTaskExtension.getReportOutputDir() != null){
             return tiaTaskExtension.getReportOutputDir();
         }else{
-            return new File(project.getBuildDir().getPath() + File.separator + "tia");
+            return new File(project.getBuildDir().getPath() + File.separator + "tia/reports");
         }
     }
 

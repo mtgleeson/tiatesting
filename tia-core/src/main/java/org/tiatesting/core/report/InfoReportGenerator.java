@@ -15,9 +15,8 @@ import java.util.stream.Collectors;
  * Generate core information about the stored DB and output it to the user.
  * This is intended as a quick snapshot as to the state of the stored DB for Tia.
  */
-public class InfoReportGenerator implements ReportGenerator {
-    @Override
-    public String generateReport(DataStore dataStore) {
+public class InfoReportGenerator {
+    public String generateSummaryReport(DataStore dataStore) {
         TiaData tiaData = dataStore.getTiaCore();
         Locale locale = Locale.getDefault();
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss zzz", locale).withZone(ZoneId.systemDefault());
