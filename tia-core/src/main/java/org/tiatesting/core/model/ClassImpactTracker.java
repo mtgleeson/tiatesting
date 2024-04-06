@@ -57,4 +57,12 @@ public class ClassImpactTracker implements Serializable {
     public int hashCode() {
         return Objects.hash(sourceFilename, methodsImpacted);
     }
+
+    @Override
+    public String toString() {
+        return "ClassImpactTracker{" +
+                "sourceFilename='" + sourceFilename + '\'' +
+                ", methodsImpacted=" + methodsImpacted +
+                '}';
+    }
 }

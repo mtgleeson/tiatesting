@@ -85,6 +85,9 @@ public class JacocoClient {
 
     private CoverageResult collectMethodsCalled(IBundleCoverage bundleCoverage){
         CoverageResult coverageResult = new CoverageResult();
+        // track classes by source name - we could have multiple coverage results for the same class when there are nested and inner classes.
+        // we want to combine these into one class impact tracker for the source file.
+        Map<String, ClassImpactTracker> classImpactTrackers = new HashMap<>();
 
         bundleCoverage.getPackages().forEach( bundlePackage -> {
 
@@ -95,8 +98,12 @@ public class JacocoClient {
                         String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
                         log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
 
-                        Set<Integer> methodsImpactedForClass = new HashSet<>();
-                        coverageResult.getClassesInvoked().add(new ClassImpactTracker(sourceFilename, methodsImpactedForClass));
+                        ClassImpactTracker classImpactTracker = classImpactTrackers.get(sourceFilename);
+                        Set<Integer> methodsImpactedForClass = classImpactTracker == null ? new HashSet<>() : classImpactTracker.getMethodsImpacted();
+
+                        if (classImpactTracker == null){
+                            classImpactTrackers.put(sourceFilename, new ClassImpactTracker(sourceFilename, methodsImpactedForClass));
+                        }
 
                         bundleClass.getMethods().forEach( method -> {
                             String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
@@ -113,6 +120,8 @@ public class JacocoClient {
                 });
             }
         });
+
+        coverageResult.getClassesInvoked().addAll(classImpactTrackers.values());
 
         return coverageResult;
     }
