@@ -1,5 +1,7 @@
 package org.tiatesting.core.model;
 
+import org.tiatesting.core.sourcefile.FileExtensions;
+
 import java.io.Serializable;
 import java.util.Objects;
 
@@ -30,6 +32,10 @@ public class MethodImpactTracker implements Serializable {
 
     public int getLineNumberEnd() {
         return lineNumberEnd;
+    }
+
+    public String getNameForDisplay() {
+        return methodName.replaceAll("/", ".");
     }
 
     @Override
