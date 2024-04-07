@@ -48,25 +48,25 @@ public class HtmlTestSuiteReport {
                                 thead(
                                         tr(
                                                 th("Name"),
-                                                th("Num classes").attr(numberDataType),
-                                                th("Num runs").attr(numberDataType),
                                                 th("Avg run time (ms)").attr(numberDataType),
+                                                th("Num runs").attr(numberDataType),
                                                 th("Num successes").attr(numberDataType),
                                                 th("Success %").attr(numberDataType),
                                                 th("Num fails").attr(numberDataType),
-                                                th("Fail %").attr(numberDataType)
+                                                th("Fail %").attr(numberDataType),
+                                                th("Num classes").attr(numberDataType)
                                         )
                                 ), tbody(
                                            each(tiaData.getTestSuitesTracked().values(), testSuiteTracker ->
                                                 tr(
                                                         td(a(testSuiteTracker.getName()).attr("href=\"" + testSuiteTracker.getName() + ".html\"")),
-                                                        td(String.valueOf(testSuiteTracker.getClassesImpacted().size())),
-                                                        td(String.valueOf(testSuiteTracker.getTestStats().getNumRuns())),
                                                         td(String.valueOf(testSuiteTracker.getTestStats().getAvgRunTime())),
+                                                        td(String.valueOf(testSuiteTracker.getTestStats().getNumRuns())),
                                                         td(String.valueOf(testSuiteTracker.getTestStats().getNumSuccessRuns())),
                                                         td(getAvgSuccess(testSuiteTracker.getTestStats())),
                                                         td(String.valueOf(testSuiteTracker.getTestStats().getNumFailRuns())),
-                                                        td(getAvgFail(testSuiteTracker.getTestStats()))
+                                                        td(getAvgFail(testSuiteTracker.getTestStats())),
+                                                        td(String.valueOf(testSuiteTracker.getClassesImpacted().size()))
                                                 )
                                            )
                                 )
