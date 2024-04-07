@@ -57,7 +57,7 @@ public class HtmlSourceMethodReport {
                     ), body(
                             header(
                                     h2("Test Suite: " + testSuiteTracker.getName()),
-                                    h3("Source Methods For Class: " + classImpactTracker.getSourceFilenameForDisplay()+ ".html")
+                                    h3("Source Methods For Class: " + classImpactTracker.getSourceFilenameForDisplay())
                             ),
                             div(
                                     p(
@@ -67,12 +67,16 @@ public class HtmlSourceMethodReport {
                             table(attrs("#tiaSourceMethodTable"),
                                     thead(
                                             tr(
-                                                    th("Name")
+                                                    th("Name"),
+                                                    th("Line start").attr(numberDataType),
+                                                    th("Line end").attr(numberDataType)
                                             )
                                     ), tbody(
                                             each(classImpactTracker.getMethodsImpacted(), methodImpactTracker ->
                                                     tr(
-                                                            td(tiaData.getMethodsTracked().get(methodImpactTracker).getMethodName())
+                                                            td(tiaData.getMethodsTracked().get(methodImpactTracker).getMethodName()),
+                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodImpactTracker).getLineNumberStart())),
+                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodImpactTracker).getLineNumberEnd()))
                                                     )
                                             )
                                     )
