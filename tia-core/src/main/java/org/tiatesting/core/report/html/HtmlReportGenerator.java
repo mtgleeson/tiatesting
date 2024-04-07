@@ -21,7 +21,6 @@ public class HtmlReportGenerator implements ReportGenerator {
     public void generateReports(TiaData tiaData) {
         generateSummaryReport(tiaData);
         generateTestSuiteReport(tiaData);
-        generateSourceClassReport(tiaData);
         generateSourceMethodReport(tiaData);
     }
 
@@ -35,13 +34,6 @@ public class HtmlReportGenerator implements ReportGenerator {
     public String generateTestSuiteReport(TiaData tiaData) {
         HtmlTestSuiteReport htmlTestSuiteReport = new HtmlTestSuiteReport(filenameExt, reportOutputDir);
         htmlTestSuiteReport.generateTestSuiteReport(tiaData);
-        return null;
-    }
-
-    @Override
-    public String generateSourceClassReport(TiaData tiaData) {
-        HtmlSourceClassReport htmlSourceClassReport = new HtmlSourceClassReport(filenameExt, reportOutputDir);
-        htmlSourceClassReport.generateSourceClassReport(tiaData);
         return null;
     }
 

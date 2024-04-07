@@ -38,7 +38,7 @@ public class TextReportGenerator implements ReportGenerator {
     public void generateReports(TiaData tiaData) {
         generateSummaryReport(tiaData);
         generateTestSuiteReport(tiaData);
-        generateSourceClassReport(tiaData);
+        generateSourceMethodReport(tiaData);
     }
 
     @Override
@@ -49,12 +49,6 @@ public class TextReportGenerator implements ReportGenerator {
 
     @Override
     public String generateTestSuiteReport(TiaData tiaData) {
-        // TODO
-        return null;
-    }
-
-    @Override
-    public String generateSourceClassReport(TiaData tiaData) {
         // TODO
         return null;
     }
