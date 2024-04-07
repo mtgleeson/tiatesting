@@ -31,13 +31,6 @@ public interface ReportGenerator {
     String generateTestSuiteReport(TiaData tiaData);
 
     /**
-     * Generate the report for the source classes tracked by Tia.
-     * @param tiaData
-     * @return
-     */
-    String generateSourceClassReport(TiaData tiaData);
-
-    /**
      *  Generate the report for the source methods tracked by Tia.
      * @param tiaData
      * @return
