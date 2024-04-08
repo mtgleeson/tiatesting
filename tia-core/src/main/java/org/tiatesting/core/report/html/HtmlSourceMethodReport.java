@@ -76,7 +76,9 @@ public class HtmlSourceMethodReport {
                             "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
-                            "\tpaging: false\n" +
+                            "\tpaging: true,\n" +
+                            "\tperPage: 20,\n" +
+                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
                             "})")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
@@ -90,8 +92,8 @@ public class HtmlSourceMethodReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the test suites reports to {}", reportOutputDir.getAbsoluteFile());
 
-        methodToTestSuites.forEach((methodTrackedHashCode, classTestSuite) -> {
-            writeTestSuitesReportFiles(tiaData, methodTrackedHashCode, classTestSuite);
+        methodToTestSuites.entrySet().parallelStream().forEach(entry -> {
+            writeTestSuitesReportFiles(tiaData, entry.getKey(), entry.getValue());
         });
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
@@ -150,7 +152,9 @@ public class HtmlSourceMethodReport {
                             "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
-                            "\tpaging: false\n" +
+                            "\tpaging: true,\n" +
+                            "\tperPage: 20,\n" +
+                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
                             "})")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
