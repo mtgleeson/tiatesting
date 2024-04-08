@@ -62,7 +62,7 @@ public class HtmlSourceMethodReport {
                                     ), tbody(
                                             each(methodToTestSuites, mapEntry ->
                                                     tr(
-                                                            td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay()).attr("href=\"" + tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay() + ".html\"")),
+                                                            td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay()).attr("href=\"" + mapEntry.getKey() + ".html\"")),
                                                             td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberStart())),
                                                             td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberEnd())),
                                                             td(mapEntry.getValue().getClassImpactTracker().getSourceFilenameForDisplay()),
@@ -73,6 +73,7 @@ public class HtmlSourceMethodReport {
                             )
                     ),
                     script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodsTable\", {\n" +
+                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
@@ -98,7 +99,7 @@ public class HtmlSourceMethodReport {
 
     private void writeTestSuitesReportFiles(TiaData tiaData, Integer methodTrackedHashCode, ClassTestSuite classTestSuite){
         MethodImpactTracker methodImpactTracker = tiaData.getMethodsTracked().get(methodTrackedHashCode);
-        String fileName = reportOutputDir + File.separator + methodImpactTracker.getNameForDisplay() + ".html";
+        String fileName = reportOutputDir + File.separator + methodTrackedHashCode + ".html";
         fileName = fileName.replaceAll("<", "").replaceAll(">", "");
 
         try {
@@ -146,6 +147,7 @@ public class HtmlSourceMethodReport {
                             )
                     ),
                     script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", {\n" +
+                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +

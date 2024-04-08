@@ -81,6 +81,7 @@ public class HtmlTestSuiteReport {
                             )
                     ),
                     script("const dataTable = new simpleDatatables.DataTable(\"#tiaTable\", {\n" +
+                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
@@ -142,6 +143,7 @@ public class HtmlTestSuiteReport {
                             )
                     ),
                     script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceClassTable\", {\n" +
+                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
@@ -207,6 +209,7 @@ public class HtmlTestSuiteReport {
                             )
                     ),
                     script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", {\n" +
+                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
