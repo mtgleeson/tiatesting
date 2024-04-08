@@ -84,7 +84,9 @@ public class HtmlTestSuiteReport {
                             "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
-                            "\tpaging: false\n" +
+                            "\tpaging: true,\n" +
+                            "\tperPage: 20,\n" +
+                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
                             "})")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
@@ -98,7 +100,7 @@ public class HtmlTestSuiteReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the source class reports to {}", reportOutputDir.getAbsoluteFile());
 
-        tiaData.getTestSuitesTracked().values().forEach(testSuiteTracker -> {
+        tiaData.getTestSuitesTracked().values().parallelStream().forEach(testSuiteTracker -> {
             writeSourceClassHtmlToFile(testSuiteTracker);
         });
 
@@ -146,7 +148,9 @@ public class HtmlTestSuiteReport {
                             "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
-                            "\tpaging: false\n" +
+                            "\tpaging: true,\n" +
+                            "\tperPage: 20,\n" +
+                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
                             "})")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
@@ -158,7 +162,7 @@ public class HtmlTestSuiteReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the source method reports to {}", reportOutputDir.getAbsoluteFile());
 
-        tiaData.getTestSuitesTracked().values().forEach(testSuiteTracker -> {
+        tiaData.getTestSuitesTracked().values().parallelStream().forEach(testSuiteTracker -> {
             testSuiteTracker.getClassesImpacted().forEach(classImpactTracker -> {
                 writeSourceClassHtmlToFile(tiaData, testSuiteTracker, classImpactTracker);
             });
@@ -212,7 +216,9 @@ public class HtmlTestSuiteReport {
                             "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
                             "\tsearchable: true,\n" +
                             "\tfixedHeight: true,\n" +
-                            "\tpaging: false\n" +
+                            "\tpaging: true,\n" +
+                            "\tperPage: 20,\n" +
+                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
                             "})")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
