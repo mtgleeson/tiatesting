@@ -3,7 +3,7 @@ package org.tiatesting.core.report.html;
 import static j2html.TagCreator.*;
 
 import j2html.Config;
-import j2html.rendering.IndentedHtml;
+import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -85,7 +85,7 @@ public class HtmlTestSuiteReport {
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
                             "})")
-            ).render(IndentedHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -146,7 +146,7 @@ public class HtmlTestSuiteReport {
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
                             "})")
-            ).render(IndentedHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -211,7 +211,7 @@ public class HtmlTestSuiteReport {
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
                             "})")
-            ).render(IndentedHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
