@@ -1,7 +1,7 @@
 package org.tiatesting.core.report.html;
 
 import j2html.Config;
-import j2html.rendering.IndentedHtml;
+import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.*;
@@ -77,7 +77,7 @@ public class HtmlSourceMethodReport {
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
                             "})")
-            ).render(IndentedHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -99,6 +99,7 @@ public class HtmlSourceMethodReport {
     private void writeTestSuitesReportFiles(TiaData tiaData, Integer methodTrackedHashCode, ClassTestSuite classTestSuite){
         MethodImpactTracker methodImpactTracker = tiaData.getMethodsTracked().get(methodTrackedHashCode);
         String fileName = reportOutputDir + File.separator + methodImpactTracker.getNameForDisplay() + ".html";
+        fileName = fileName.replaceAll("<", "").replaceAll(">", "");
 
         try {
             FileWriter writer = new FileWriter(fileName);
@@ -149,7 +150,7 @@ public class HtmlSourceMethodReport {
                             "\tfixedHeight: true,\n" +
                             "\tpaging: false\n" +
                             "})")
-            ).render(IndentedHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
