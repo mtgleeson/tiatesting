@@ -228,7 +228,7 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
-            runnerTestSuites.put(testSuiteName, previousRuns++);
+            runnerTestSuites.put(testSuiteName, previousRuns+1);
         }
     }
 
