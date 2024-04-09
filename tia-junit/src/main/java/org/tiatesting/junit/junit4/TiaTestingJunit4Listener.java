@@ -46,8 +46,9 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final String testClassesDir;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
+    Track how many times the test suite was executed (hit the finish hook, this doesn't happen for ignored tests).
      */
-    private Set<String> runnerTestSuites;
+    private Map<String, Integer> runnerTestSuites;
     /*
     The set of tests selected to run by Tia.
      */
@@ -70,7 +71,7 @@ public class TiaTestingJunit4Listener extends RunListener {
 
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
-        this.runnerTestSuites = ConcurrentHashMap.newKeySet();
+        this.runnerTestSuites = new ConcurrentHashMap<>();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
         this.dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
@@ -123,7 +124,6 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         String testSuiteName = getTestSuiteName(description);
-        runnerTestSuites.add(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         // parameterized tests are run multiple times per param set. We group into 1 test suite tracker and may have already been created
@@ -137,7 +137,9 @@ public class TiaTestingJunit4Listener extends RunListener {
                 // track the start of the test run, do it in the test suite object to keep the class thread safe
                 testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
             }
-        } else {
+        }
+
+        if (runnerTestSuites.containsKey(testSuiteName)){
             // If surefire is configured to re-run failed tests, it will use the same instance of this class and it
             // will execute new test runs. Each time a test suite is run, remove it from the failed list in case
             // it was previously run, failed, and is being re-run.
@@ -153,8 +155,8 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         String testSuiteName = getTestSuiteName(description);
-        // track the test suite was run by the runner
-        runnerTestSuites.add(testSuiteName);
+        // track the test suite was run by the runner but not executed (0 executions)
+        runnerTestSuites.put(testSuiteName, 0);
 
         /*
         Note, we don't need to reset stats for Ignore:
@@ -202,8 +204,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         if (updateDBStats){
-            boolean testSuiteFirstRun = testSuiteTracker.getTestStats().getNumRuns() == 0;
-            testSuiteTracker.getTestStats().setNumRuns(1);
+            boolean testSuiteFirstRun = !runnerTestSuites.containsKey(testSuiteName) || runnerTestSuites.get(testSuiteName) == 0;
 
             /*
                 Only calc the test suite run time for the first attempt. If a test fails, it might be configured to re-run at which
@@ -212,6 +213,7 @@ public class TiaTestingJunit4Listener extends RunListener {
                 Also, for parameterized tests suites, only calculate the runtime for the overall test suite, not the individual param tests
              */
             if (testSuiteFirstRun && !isParameterizedTest(description)){
+                testSuiteTracker.getTestStats().setNumRuns(1);
                 testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
             }
         }
@@ -221,8 +223,12 @@ public class TiaTestingJunit4Listener extends RunListener {
             CoverageResult coverageResult = this.coverageClient.collectCoverage();
             List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
             addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
-
             testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+        }
+
+        if (!isParameterizedTest(description)){
+            int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
+            runnerTestSuites.put(testSuiteName, previousRuns++);
         }
     }
 
@@ -240,12 +246,16 @@ public class TiaTestingJunit4Listener extends RunListener {
         }
 
         log.info("Test run finished. Persisting the DB.");
-        runnerTestSuites = getRunnerTestSuites();
+        Set<String> runnerTestSuites = getRunnerTestSuites();
         TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
         log.warn("testSuitesFailed: {}", testSuitesFailed);
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
+
+        // clear the trackers in case there are test failures and it's configured to retry so there's another test run.
+        // we don't want to keep the stats from the first test run for the subsequent test runs.
+        testSuiteTrackers.clear();
     }
 
     private TestStats getStatsForTestRun(){
@@ -342,7 +352,7 @@ public class TiaTestingJunit4Listener extends RunListener {
      */
     private Set<String> getRunnerTestSuites(){
         if (testClassesDir == null){
-            return runnerTestSuites;
+            return runnerTestSuites.keySet();
         }
 
         Path path = Paths.get(testClassesDir);
