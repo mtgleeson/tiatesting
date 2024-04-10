@@ -123,10 +123,17 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
+        if (isParameterizedTest(description)){
+            // only do the test suite started logic for test suite files, not individual parameterized tests.
+            // when surefire runs, before executing the test suites, testSuiteStarted and testSuiteFinished get fired
+            // but with null description.getClass (and so isParameterizedTest() will be true). We don't want to execute
+            // testSuiteStarted for this very first test run fire, or for true parameterized tests.
+            return;
+        }
+
         String testSuiteName = getTestSuiteName(description);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
-        // parameterized tests are run multiple times per param set. We group into 1 test suite tracker and may have already been created
         if (testSuiteTracker == null){
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
@@ -222,6 +229,7 @@ public class TiaTestingJunit4Listener extends RunListener {
             testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
         }
 
+        // only track the test has run once all the individual param tests have completed and its executing testSuiteFinished for the overall test suite
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
             runnerTestSuites.put(testSuiteName, previousRuns+1);
