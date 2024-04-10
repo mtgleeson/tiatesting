@@ -134,8 +134,11 @@ public class TiaTestingJunit4Listener extends RunListener {
             if (updateDBStats){
                 // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
                 testSuiteTracker.getTestStats().setNumSuccessRuns(1);
-                // track the start of the test run, do it in the test suite object to keep the class thread safe
-                testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
+
+                if (shouldCalcTestSuiteAvgTime(description, testSuiteName)){
+                    // track the start of the test run, do it in the test suite object to keep the class thread safe
+                    testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
+                }
             }
         }
 
@@ -204,16 +207,9 @@ public class TiaTestingJunit4Listener extends RunListener {
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         if (updateDBStats){
-            boolean testSuiteFirstRun = !runnerTestSuites.containsKey(testSuiteName) || runnerTestSuites.get(testSuiteName) == 0;
+            testSuiteTracker.getTestStats().setNumRuns(1);
 
-            /*
-                Only calc the test suite run time for the first attempt. If a test fails, it might be configured to re-run at which
-                point it only runs the individual tests that failed (not the whole test suite) so the run time is a lot smaller.
-                We want the run time for the whole test suite - the first attempt.
-                Also, for parameterized tests suites, only calculate the runtime for the overall test suite, not the individual param tests
-             */
-            if (testSuiteFirstRun && !isParameterizedTest(description)){
-                testSuiteTracker.getTestStats().setNumRuns(1);
+            if (shouldCalcTestSuiteAvgTime(description, testSuiteName)){
                 testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
             }
         }
@@ -285,6 +281,21 @@ public class TiaTestingJunit4Listener extends RunListener {
 
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
         return System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
+    }
+
+    /**
+     * Only calc the test suite run time for the first attempt. If a test fails, it might be configured to re-run at which
+     * point it only runs the individual tests that failed (not the whole test suite) so the run time is a lot smaller.
+     * We want the run time for the whole test suite - the first attempt.
+     * Also, for parameterized tests suites, only calculate the runtime for the overall test suite, not the individual param tests.
+     *
+     * @param description
+     * @param testSuiteName
+     * @return
+     */
+    private boolean shouldCalcTestSuiteAvgTime(Description description, String testSuiteName){
+        boolean testSuiteFirstRun = !runnerTestSuites.containsKey(testSuiteName) || runnerTestSuites.get(testSuiteName) == 0;
+        return testSuiteFirstRun && !isParameterizedTest(description);
     }
 
     /**
