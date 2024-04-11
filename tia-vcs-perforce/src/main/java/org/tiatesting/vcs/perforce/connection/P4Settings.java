@@ -137,10 +137,7 @@ public class P4Settings
     public static Map<String, String> executeP4SetCommand()
     {
         final String command = P4Constants.P4_SET;
-
-        System.out.println("Executing command: " + command);
-        try
-        {
+        try {
             final ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", command);
             builder.redirectErrorStream(true);
 
