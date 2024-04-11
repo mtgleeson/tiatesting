@@ -26,7 +26,6 @@ public class Agent {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        log.info("Ignoring tests: {}", testsToIgnore);
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
 
         Set<String> selectedTests;
