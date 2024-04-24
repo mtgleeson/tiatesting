@@ -247,7 +247,9 @@ public class TestSelector {
 
         Set<String> testsToRun = new HashSet<>();
         methodsImpacted.forEach( ( methodImpacted ) -> {
-            testsToRun.addAll(methodTestSuites.get(methodImpacted));
+            Set<String> methodTestsToRun = methodTestSuites.get(methodImpacted);
+            log.debug("Tests to run ({}) for method {}: {}", methodTestsToRun.size(), tiaData.getMethodsTracked().get(methodImpacted).getMethodName(), methodTestsToRun);
+            testsToRun.addAll(methodTestsToRun);
         });
 
         log.info("Selected tests to run from VCS source changes: {}", testsToRun);
