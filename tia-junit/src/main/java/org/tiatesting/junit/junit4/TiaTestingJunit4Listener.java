@@ -153,7 +153,6 @@ public class TiaTestingJunit4Listener extends RunListener {
             // If surefire is configured to re-run failed tests, it will use the same instance of this class and it
             // will execute new test runs. Each time a test suite is run, remove it from the failed list in case
             // it was previously run, failed, and is being re-run.
-            log.warn("removing testSuitesFailed: {}", testSuiteName);
             this.testSuitesFailed.remove(testSuiteName);
         }
     }
@@ -181,7 +180,6 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        log.warn("adding testSuitesFailed: {}", getTestSuiteName(failure.getDescription()));
         this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
         updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
@@ -192,7 +190,6 @@ public class TiaTestingJunit4Listener extends RunListener {
             return;
         }
 
-        log.warn("adding testSuitesFailed: {}", getTestSuiteName(failure.getDescription()));
         this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
         updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
@@ -252,7 +249,6 @@ public class TiaTestingJunit4Listener extends RunListener {
         log.info("Test run finished. Persisting the DB.");
         Set<String> runnerTestSuites = getRunnerTestSuites();
         TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
-        log.warn("testSuitesFailed: {}", testSuitesFailed);
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
