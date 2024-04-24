@@ -322,7 +322,7 @@ public class H2DataStore implements DataStore {
 
         for (String testSuite : testSuites){
             String deleteTestSuiteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = '" + testSuite +"'";
-            log.info("Deleting test suite: {}", deleteTestSuiteSql);
+            log.trace("Deleting test suite: {}", deleteTestSuiteSql);
 
             statement.executeUpdate(deleteTestSuiteSql);
         }
@@ -351,7 +351,7 @@ public class H2DataStore implements DataStore {
                     ", " + COL_NUM_FAIL_RUNS + "=" + tiaData.getTestStats().getNumFailRuns();
         }
 
-        log.info("Persisting Tia core data: {}", sql);
+        log.trace("Persisting Tia core data: {}", sql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(sql);
     }
@@ -377,7 +377,7 @@ public class H2DataStore implements DataStore {
                     testSuite.getTestStats().getNumSuccessRuns() + ", " +
                     testSuite.getTestStats().getNumFailRuns() + ")";
 
-            log.info("Persisting test suites: {}", mergeSql);
+            log.trace("Persisting test suites: {}", mergeSql);
             statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
 
             // only update the source classes mapping for the test suite if mapping data exists for this test run
@@ -477,7 +477,7 @@ public class H2DataStore implements DataStore {
         }
 
         String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
-        log.info("Truncating indexed source methods: {}", truncateSql);
+        log.trace("Truncating indexed source methods: {}", truncateSql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(truncateSql);
 
@@ -500,7 +500,7 @@ public class H2DataStore implements DataStore {
         String insertSql = insertSqlBuilder.toString();
         insertSql = insertSql.substring(0, insertSql.length()-1);
 
-        log.info("Persisting indexed source methods: {}", insertSql);
+        log.trace("Persisting indexed source methods: {}", insertSql);
         statement.executeUpdate(insertSql);
     }
 
@@ -527,20 +527,6 @@ public class H2DataStore implements DataStore {
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setMethodsTracked(getMethodsTracked(connection));
                 log.trace("SQL query time for methods tracked: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
-
-/*
-                startQueryTime = System.currentTimeMillis();
-                String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS;
-                Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery(sql);
-                log.info("SQL query time for all source classes: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
-
-                startQueryTime = System.currentTimeMillis();
-                sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS_METHOD;
-                Statement statement2 = connection.createStatement();
-                ResultSet resultSet2 = statement2.executeQuery(sql);
-                log.info("SQL query time for all source class methods: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
-*/
                 return tiaData;
             }
         } catch (SQLException e) {
@@ -674,20 +660,6 @@ public class H2DataStore implements DataStore {
         return sourceClasses;
     }
 
-    /*
-    private Set<Integer> getSourceClassMethods(Connection connection, long sourceClassId) throws SQLException {
-        Set<Integer> sourceClassMethods = new HashSet<>();
-        String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID + " = " + sourceClassId;
-        Statement statement = connection.createStatement();
-        ResultSet resultSet = statement.executeQuery(sql);
-
-        while(resultSet.next()){
-            sourceClassMethods.add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
-        }
-
-        return sourceClassMethods;
-    }
-*/
     private void createTiaDB(){
         log.info("Creating the Tia DB");
         String createCoreTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_CORE + " (" +
