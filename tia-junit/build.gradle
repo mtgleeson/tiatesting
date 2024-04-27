@@ -6,21 +6,10 @@ dependencies {
     implementation group: 'commons-io', name: 'commons-io', version: '2.15.1'
 }
 
-/*
-Map <String, ?> attrs = [ 'Premain-Class': 'org.walkmod.junit4git.core.ignorers.TestIgnorerAgent',
-                          'Can-Retransform-Classes': true,
-                          'Boot-Class-Path': 'junit4git-agent.jar'
-]
-*/
-
 tasks.register('uberJar', Jar) {
     archiveClassifier = 'uber'
 
     from sourceSets.main.output
-
-    //manifest {
-    //    attributes attrs
-    //}
 
     archiveClassifier = 'tiatesting-plugin-uber'
 
