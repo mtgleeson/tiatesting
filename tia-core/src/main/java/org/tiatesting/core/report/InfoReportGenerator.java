@@ -25,7 +25,7 @@ public class InfoReportGenerator {
         StringBuilder sb = new StringBuilder(lineSep);
         sb.append("Tia Info:" + lineSep);
         sb.append("DB last updated: " + (tiaData.getLastUpdated()!= null ? dtf.format(tiaData.getLastUpdated()) : "N/A") + lineSep);
-        sb.append("Test mapping valid for commit number: " + tiaData.getCommitValue() + lineSep + lineSep);
+        sb.append("Test mapping valid for commit: " + tiaData.getCommitValue() + lineSep + lineSep);
 
         int numTestSuites = dataStore.getNumTestSuites();
         sb.append("Number of tests classes with mappings: " + numTestSuites + lineSep);

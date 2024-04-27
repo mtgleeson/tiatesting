@@ -13,9 +13,12 @@ import java.text.DecimalFormat;
 import java.util.*;
 
 import static j2html.TagCreator.*;
+import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
 
 public class HtmlSourceMethodReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlSourceMethodReport.class);
+    protected static final String TIA_SOURCE_METHODS_HTML = "tia-source-methods.html";
+    protected static final String METHODS_FOLDER = "methods";
     private final String filenameExt;
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
@@ -23,7 +26,7 @@ public class HtmlSourceMethodReport {
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
         this.filenameExt = filenameExt;
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
-                + File.separator + filenameExt + File.separator + "methods");
+                + File.separator + filenameExt + File.separator + METHODS_FOLDER);
     }
 
     public void generateSourceMethodReport(TiaData tiaData) {
@@ -35,7 +38,7 @@ public class HtmlSourceMethodReport {
 
     private void generateSourceMethodsReportFile(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
         long startTime = System.currentTimeMillis();
-        String fileName = reportOutputDir + File.separator + "tia-source-methods.html";
+        String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS_HTML;
         log.info("Writing the source methods report to {}", fileName);
 
         try {
@@ -49,6 +52,9 @@ public class HtmlSourceMethodReport {
                     ), body(
                             header(
                                     h2("Tia: Source Methods")
+                            ),
+                            p(
+                                    a("back to Summary").attr("href=\"../"+ INDEX_HTML  +"\"")
                             ),
                             table(attrs("#tiaSourceMethodsTable"),
                                     thead(

@@ -1,6 +1,7 @@
 package org.tiatesting.core.report.html;
 
 import static j2html.TagCreator.*;
+import static org.tiatesting.core.report.html.HtmlSummaryReport.*;
 
 import j2html.Config;
 import j2html.rendering.FlatHtml;
@@ -18,6 +19,8 @@ import java.text.DecimalFormat;
 
 public class HtmlTestSuiteReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlTestSuiteReport.class);
+    protected static final String TEST_SUITES_FOLDER = "test-suites";
+    protected static final String TIA_TEST_SUITES_HTML = "tia-test-suites.html";
     private final String filenameExt;
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
@@ -25,7 +28,7 @@ public class HtmlTestSuiteReport {
     public HtmlTestSuiteReport(String filenameExt, File reportOutputDir){
         this.filenameExt = filenameExt;
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
-                + File.separator + filenameExt + File.separator + "test-suites");
+                + File.separator + filenameExt + File.separator + TEST_SUITES_FOLDER);
     }
 
     public void generateTestSuiteReport(TiaData tiaData) {
@@ -37,7 +40,7 @@ public class HtmlTestSuiteReport {
 
     private void generateTestSuiteReportData(TiaData tiaData){
         long startTime = System.currentTimeMillis();
-        String fileName = reportOutputDir + File.separator + "tia-test-suites.html";
+        String fileName = reportOutputDir + File.separator + TIA_TEST_SUITES_HTML;
         log.info("Writing the test suite report to {}", fileName);
 
         try {
@@ -51,6 +54,9 @@ public class HtmlTestSuiteReport {
                     ), body(
                             header(
                                     h2("Tia: Test Suites")
+                            ),
+                            p(
+                                    a("back to Summary").attr("href=\"../"+ INDEX_HTML  +"\"")
                             ),
                             table(attrs("#tiaTable"),
                                     thead(

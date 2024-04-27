@@ -26,7 +26,8 @@ public class HtmlReportGenerator implements ReportGenerator {
 
     @Override
     public String generateSummaryReport(TiaData tiaData) {
-        // TODO
+        HtmlSummaryReport htmlSummaryReport = new HtmlSummaryReport(filenameExt, reportOutputDir);
+        htmlSummaryReport.generateSummaryReport(tiaData);
         return null;
     }
 
