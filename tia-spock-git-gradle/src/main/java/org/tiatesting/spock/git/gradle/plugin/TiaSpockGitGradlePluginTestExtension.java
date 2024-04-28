@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.plugin;
+package org.tiatesting.spock.git.gradle.plugin;
 
 import org.gradle.api.Action;
 import org.gradle.api.Task;
@@ -12,10 +12,10 @@ import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.util.Set;
 
-public class TiaSpockGitPluginTestExtension {
-    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPluginTestExtension.class);
+public class TiaSpockGitGradlePluginTestExtension {
+    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitGradlePluginTestExtension.class);
 
-    public TiaSpockGitPluginTestExtension(){
+    public TiaSpockGitGradlePluginTestExtension(){
     }
 
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {

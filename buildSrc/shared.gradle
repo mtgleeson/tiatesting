@@ -1,0 +1,100 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+
+group 'org.tiatesting'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = '1.8'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+javadoc {
+    source = sourceSets.main.allJava
+    classpath = configurations.compileClasspath
+}
+
+task sourceJar(type: Jar) {
+    from sourceSets.main.allJava
+    archiveClassifier = 'sources'
+}
+
+task packageJavadoc(type: Jar) {
+    from javadoc
+    archiveClassifier = 'javadoc'
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            version = '0.1.0'
+            group 'org.tiatesting'
+            artifact sourceJar
+            artifact packageJavadoc
+
+            pom {
+                url = 'github.com/mtgleeson/tiatesting'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'mtgleeson'
+                        name = 'Matt Gleeson'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/mtgleeson/tiatesting.git'
+                    developerConnection = 'scm:git:ssh://github.com/mtgleeson/tiatesting.git'
+                    url = 'github.com/mtgleeson/tiatesting'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            // change URLs to point to your repos, e.g. http://my.org/repo
+            //def releasesRepoUrl = layout.buildDirectory.dir('repos/releases')
+            //def snapshotsRepoUrl = layout.buildDirectory.dir('repos/snapshots')
+            //url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+            url = layout.buildDirectory.dir('repos/releases')
+        }
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign publishing.publications.mavenJava
+}
+
+// I've created my own tasks to publish the artifacts to Maven Central as currently the new Central Sonatype repo (central.sonatype.com) doesn't have an official Gradle plugin
+// https://central.sonatype.org/publish/publish-portal-gradle/
+tasks.register('packageDistribution', Zip) {
+    dependsOn 'publishAllPublicationsToMavenRepository'
+    println "Creating zip artifact for distribution: " + publishing.publications.mavenJava.artifactId + "-" + publishing.publications.mavenJava.version
+    archiveFileName = publishing.publications.mavenJava.artifactId + "-" + publishing.publications.mavenJava.version + "-distribution.zip"
+    destinationDirectory = layout.buildDirectory.dir('dist')
+    from layout.buildDirectory.dir('repos/releases')
+}
+
+tasks.register('publishToCentral', Exec){
+    dependsOn 'packageDistribution'
+    String archivePath = layout.buildDirectory.get().asFile.absolutePath + "/dist/" + publishing.publications.mavenJava.artifactId + "-" + publishing.publications.mavenJava.version + "-distribution.zip"
+    String authBearer = ossrhUsername + ":" + ossrhPassword
+    String authBearerEncoded = authBearer.bytes.encodeBase64().toString()
+    //String[] getStatusCmdLine = ["curl", "--request", "POST", "--header", "Authorization: Bearer " +  authBearerEncoded, "https://central.sonatype.com/api/v1/publisher/status?id=3a30a69f-f53a-4095-afbb-93ad127ac19c"]
+    String[] cmdLine = ["curl", "--request", "POST", "--header", "Authorization: Bearer " + authBearerEncoded, "--form", "bundle=@" + archivePath, "https://central.sonatype.com/api/v1/publisher/upload"]
+    commandLine(cmdLine)
+}

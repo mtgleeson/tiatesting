@@ -1,10 +1,18 @@
-apply plugin: 'java-gradle-plugin'
+plugins {
+    id 'java'
+    id 'java-gradle-plugin'
+    id 'signing'
+    id 'maven-publish'
+}
+
+// Use the build script defined in buildSrc
+apply from: rootProject.file('buildSrc/shared.gradle')
 
 gradlePlugin {
     plugins {
-        spockGitPlugin {
-            id = 'org.tiatesting.spock.git'
-            implementationClass = 'org.tiatesting.spock.git.plugin.TiaSpockGitPlugin'
+        spockGitGradlePlugin {
+            id = 'org.tiatesting.spock.gradle.git'
+            implementationClass = 'org.tiatesting.spock.git.gradle.plugin.TiaSpockGitGradlePlugin'
         }
     }
 }
@@ -18,16 +26,60 @@ dependencies {
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
 }
 
-
+// The java-gradle-plugin seems to override the generated pom from maven-publish https://github.com/gradle/gradle/issues/14993
 publishing {
     publications {
-        mavenJava(MavenPublication) {
-            artifactId = 'tia-spock-git'
-
+        it.withType(MavenPublication).configureEach {
             pom {
+                artifactId = 'tia-spock-git-gradle'
                 name = 'Tia Spock Git'
                 description = 'This library contains the logic for running Tia with Spock and Git.'
+                url = 'github.com/mtgleeson/tiatesting'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'mtgleeson'
+                        name = 'Matt Gleeson'
+                        email = 'mtgleeson@gmail.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/mtgleeson/tiatesting.git'
+                    developerConnection = 'scm:git:ssh://github.com/mtgleeson/tiatesting.git'
+                    url = 'github.com/mtgleeson/tiatesting'
+                }
             }
         }
     }
+}
+
+/**
+ * When publishAllPublicationsToMavenRepository, using java-gradle-plugin seems to create an extra (unneeded) spock folder.
+ * Delete it.
+ */
+tasks.register('deleteExtraGeneratedSpockFolder', Delete) {
+    dependsOn 'publishAllPublicationsToMavenRepository'
+    println "deleting generated spock folder"
+    delete layout.buildDirectory.dir('repos/releases/org/tiatesting/spock')
+}
+
+tasks.named('packageDistribution') {
+    dependsOn 'deleteExtraGeneratedSpockFolder'
+    println "Creating zip artifact for distribution: " + publishing.publications.mavenJava.artifactId + "-" + publishing.publications.mavenJava.version
+    archiveFileName = publishing.publications.mavenJava.artifactId + "-" + publishing.publications.mavenJava.version + "-distribution.zip"
+    destinationDirectory = layout.buildDirectory.dir('dist')
+    from layout.buildDirectory.dir('repos/releases')
+}
+
+// The java-gradle-plugin clashes with the maven-publish plugin. The pom will be overwritten from the java-gradle-plugin.
+// The file contents for the pom are correct but the file has the wrong signature. So make sure publishMavenJavaPublicationToMavenRepository
+// is executed after publishPluginMavenPublicationToMavenRepository so the correctly signed pom.xml ends up last in the repo.
+// https://github.com/gradle/gradle/issues/14993
+tasks.named('publishMavenJavaPublicationToMavenRepository') {
+    dependsOn 'publishPluginMavenPublicationToMavenRepository'
 }

@@ -1,7 +1,15 @@
-apply plugin: 'java-gradle-plugin'
+plugins {
+    id 'java'
+    id 'signing'
+    id 'maven-publish'
+}
+
+// Use the build script defined in buildSrc
+apply from: rootProject.file('buildSrc/shared.gradle')
 
 dependencies {
     implementation project(':tia-core')
+    implementation gradleApi()
 }
 
 publishing {
