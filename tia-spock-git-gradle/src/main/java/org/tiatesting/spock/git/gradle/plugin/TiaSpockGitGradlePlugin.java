@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.plugin;
+package org.tiatesting.spock.git.gradle.plugin;
 
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -14,9 +14,9 @@ import org.tiatesting.vcs.git.GitReader;
 import java.util.Iterator;
 import java.util.List;
 
-public class TiaSpockGitPlugin extends TiaBasePlugin {
+public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
 
-    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitPlugin.class);
+    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitGradlePlugin.class);
 
     private Project project;
 
@@ -42,7 +42,7 @@ public class TiaSpockGitPlugin extends TiaBasePlugin {
     }
 
     private void applyPluginToTestTasks(Project project) {
-        TiaSpockGitPluginTestExtension tiaTestExtension = project.getExtensions().create("tiaTest", TiaSpockGitPluginTestExtension.class);
+        TiaSpockGitGradlePluginTestExtension tiaTestExtension = project.getExtensions().create("tiaTest", TiaSpockGitGradlePluginTestExtension.class);
 
         // if any of the test plugins have Tia enabled and are updating the DB then when need to load/apply the jacoco plugin
         for (final Iterator<Test> i = project.getTasks().withType(Test.class).iterator(); i.hasNext();) {
@@ -55,7 +55,7 @@ public class TiaSpockGitPlugin extends TiaBasePlugin {
                 boolean tiaUpdateDBMapping = Boolean.valueOf((String) project.property(updateDBMappingPropName));
 
                 if (tiaEnabled && tiaUpdateDBMapping){
-                    LOGGER.warn("TiaSpockGitPlugin: applying Jacoco plugin");
+                    LOGGER.warn("TiaSpockGitGradlePlugin: applying Jacoco plugin");
                     project.getPluginManager().apply("jacoco");
                     break;
                 }
@@ -70,7 +70,7 @@ public class TiaSpockGitPlugin extends TiaBasePlugin {
         applyToDefaultTasks(tiaTestExtension);
     }
 
-    private void applyToDefaultTasks(TiaSpockGitPluginTestExtension extension) {
+    private void applyToDefaultTasks(TiaSpockGitGradlePluginTestExtension extension) {
         project.getTasks().withType(Test.class).configureEach(extension::applyTo);
     }
 }
