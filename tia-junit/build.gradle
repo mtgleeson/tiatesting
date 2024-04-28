@@ -6,6 +6,22 @@ dependencies {
     implementation group: 'commons-io', name: 'commons-io', version: '2.15.1'
 }
 
+/*
+    tasks.register('uberJar', Jar) {
+        from sourceSets.main.output
+        archiveClassifier = 'uber'
+        //archiveClassifier = 'tiatesting-plugin-uber'
+
+        dependsOn configurations.runtimeClasspath
+        from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){
+            exclude "META-INF/*.SF"
+            exclude "META-INF/*.DSA"
+            exclude "META-INF/*.RSA"
+        }
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
+*/
+
 publishing {
     publications {
         mavenJava(MavenPublication) {
