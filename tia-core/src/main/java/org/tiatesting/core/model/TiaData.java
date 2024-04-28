@@ -41,7 +41,7 @@ public class TiaData implements Serializable {
     /**
      * Increment the stats for Tia.
      *
-     * @param testStats
+     * @param testStats the test statistics
      */
     public void incrementStats(final TestStats testStats){
         this.testStats.incrementStats(testStats);

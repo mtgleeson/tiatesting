@@ -31,10 +31,8 @@ public class P4Settings
      *
      * @return {@link P4Settings}
      */
-    public static P4Settings getInstance()
-    {
-        if (INSTANCE == null)
-        {
+    public static P4Settings getInstance() {
+        if (INSTANCE == null) {
             INSTANCE = new P4Settings();
         }
         return INSTANCE;
@@ -48,29 +46,23 @@ public class P4Settings
     /**
      * Read P4 set vars from a file and store all of them in a map.
      *
-     * @param file
-     * @throws Exception
+     * @param file the file to retrieve saved P4 settings from
+     * @throws Exception an Exception
      */
-    public void setP4SettingsMapFromFile(File file) throws Exception
-    {
-        if (!file.exists())
-        {
+    public void setP4SettingsMapFromFile(File file) throws Exception {
+        if (!file.exists()) {
             return;
         }
 
         Scanner scanner;
 
-        try
-        {
+        try {
             scanner = new Scanner(file);
-        }
-        catch (FileNotFoundException ignored)
-        {
+        } catch (FileNotFoundException ignored) {
             return;
         }
 
-        while (scanner.hasNextLine())
-        {
+        while (scanner.hasNextLine()) {
             String line = scanner.nextLine();
 
             int equalsIndex = line.indexOf(P4_SET_VAR_SEPARATOR);
@@ -79,8 +71,7 @@ public class P4Settings
 
         scanner.close();
 
-        for (String setting : requiredSettingsFromP4set)
-        {
+        for (String setting : requiredSettingsFromP4set) {
             if (!settingsMap.containsKey(setting))
             {
                 throw new Exception(String.format(P4_VARIABLE_NOT_SET, setting));
@@ -91,13 +82,12 @@ public class P4Settings
     /**
      * Add a specific P4 setting to the map.
      *
-     * @param key
-     * @param value
+     * @param key the P4 settings key
+     * @param value the P4 settings value
+     * @throws Exception an Exception
      */
-    public void addSettingToMap(String key, String value) throws Exception
-    {
-        if (key.startsWith(P4_SET_VAR_PREFIX))
-        {
+    public void addSettingToMap(String key, String value) throws Exception {
+        if (key.startsWith(P4_SET_VAR_PREFIX)) {
             if (value.equals(P4_SET_VAR_NO_VALUE))
             {
                 throw new Exception(String.format(P4_VARIABLE_NOT_SET, key));
@@ -109,12 +99,11 @@ public class P4Settings
     /**
      * From the given {@link String} filePath, create a new text file. Call 'p4 set' command and store all vars there.
      *
-     * @param filePath
-     * @return {@link File}
-     * @throws Exception
+     * @param filePath the path to the file used to store the P4 settings
+     * @return {@link File} the created file used to store the P4 settings
+     * @throws Exception an Exception
      */
-    public File createLocalP4SettingsFile(String filePath) throws Exception
-    {
+    public File createLocalP4SettingsFile(String filePath) throws Exception {
         File file = new File(filePath);
         file.createNewFile();
 
@@ -132,10 +121,9 @@ public class P4Settings
     /**
      * Executes a command prompt p4 set command from java and returns the output.
      *
-     * @return
+     * @return the P4 set args
      */
-    public static Map<String, String> executeP4SetCommand()
-    {
+    public static Map<String, String> executeP4SetCommand() {
         final String command = P4Constants.P4_SET;
         try {
             final ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", command);
@@ -145,11 +133,9 @@ public class P4Settings
             final BufferedReader bufReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             Map<String, String> p4SetArgs = new HashMap<>();
             String line;
-            while (true)
-            {
+            while (true) {
                 line = bufReader.readLine();
-                if (line == null)
-                {
+                if (line == null) {
                     break;
                 }
 
@@ -162,16 +148,13 @@ public class P4Settings
             }
             bufReader.close();
             return p4SetArgs;
-        }
-        catch (IOException e)
-        {
+        } catch (IOException e) {
             throw new VCSAnalyzerException("Failed to execute command: " + command, e);
         }
     }
 
     private static boolean extractP4Setting(String p4Setting, String line, Map<String, String> p4SetArgs) {
-        if (line.contains(p4Setting))
-        {
+        if (line.contains(p4Setting)) {
             String setting = line.endsWith(P4_SET_VAR_UNWANTED_SUFFIX) ? line.substring(0, line.indexOf(P4_SET_VAR_UNWANTED_SUFFIX)) : line;
             setting = setting.replace(p4Setting + "=", "");
             p4SetArgs.put(p4Setting, setting);

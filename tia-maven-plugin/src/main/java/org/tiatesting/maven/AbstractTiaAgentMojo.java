@@ -166,10 +166,10 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      *
      * https://github.com/jacoco/jacoco/issues/551
      *
-     * @param arguments
-     * @param agentJarFile
-     * @param agentOptions
-     * @return
+     * @param arguments the VM arguments
+     * @param agentJarFile the agent JAR file
+     * @param agentOptions the agent options
+     * @return the agent command line arguments
      */
     public String addVMArguments(final String arguments, final File agentJarFile, final AgentOptions agentOptions) {
         final List<String> args = CommandLineSupport.split(arguments);

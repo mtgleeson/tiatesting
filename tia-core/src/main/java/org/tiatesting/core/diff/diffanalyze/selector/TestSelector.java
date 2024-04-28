@@ -45,9 +45,9 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
-     * @param vcsReader
-     * @param sourceFilesDirNames
-     * @param testFilesDirNames
+     * @param vcsReader the VCS reader
+     * @param sourceFilesDirNames the dir names for the source files
+     * @param testFilesDirNames the dir names for the test files
      * @param checkLocalChanges should local changes be checked by Tia.
      * @return list of test suites to ignore in the current test run.
      */
@@ -87,11 +87,11 @@ public class TestSelector {
      * Note: this represents the list of tests to run that Tia is aware of. There may be new test files in changes that
      * have been analysed that will be executed by the test runner in addition to this list of tests.
      *
-     * @param vcsReader
-     * @param sourceFilesDirNames
-     * @param testFilesDirNames
-     * @param checkLocalChanges
-     * @return
+     * @param vcsReader the VCS reader
+     * @param sourceFilesDirNames the dir names for the source files
+     * @param testFilesDirNames the dir names for the test files
+     * @param checkLocalChanges should we check for local changes?
+     * @return the selected tests to run
      */
     public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                         final List<String> testFilesDirNames, final boolean checkLocalChanges){

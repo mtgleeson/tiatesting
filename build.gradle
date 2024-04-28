@@ -6,9 +6,14 @@ subprojects {
         }
     }
 
-    version = '1.1.0'
     group 'org.tiatesting'
+    version = '0.1.0'
+
     apply plugin: 'java'
+    apply plugin: 'signing'
+    apply plugin: 'maven-publish'
+
+    sourceCompatibility = 1.8
 
     repositories {
         mavenCentral()
@@ -21,16 +26,75 @@ subprojects {
     }
 
     task sourceJar(type: Jar) {
-        classifier = 'sources'
         from sourceSets.main.allJava
+        archiveClassifier = 'sources'
     }
 
     task packageJavadoc(type: Jar) {
         from javadoc
-        classifier = 'javadoc'
+        archiveClassifier = 'javadoc'
     }
 
-    apply plugin: 'maven-publish'
+    tasks.register('uberJar', Jar) {
+        from sourceSets.main.output
+        archiveClassifier = 'uber'
+        //archiveClassifier = 'tiatesting-plugin-uber'
 
-    sourceCompatibility = 1.8
+        dependsOn configurations.runtimeClasspath
+        from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){
+            exclude "META-INF/*.SF"
+            exclude "META-INF/*.DSA"
+            exclude "META-INF/*.RSA"
+        }
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+
+                version = '0.1.0'
+                group 'org.tiatesting'
+                artifact sourceJar
+                artifact packageJavadoc
+
+                pom {
+                    url = 'github.com/mtgleeson/tiatesting'
+                    licenses {
+                        license {
+                            name = 'The Apache License, Version 2.0'
+                            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = 'mtgleeson'
+                            name = 'Matt Gleeson'
+                            email = 'mtgleeson@gmail.com'
+                        }
+                    }
+                    scm {
+                        connection = 'scm:git:git://github.com/mtgleeson/tiatesting.git'
+                        developerConnection = 'scm:git:ssh://github.com/mtgleeson/tiatesting.git'
+                        url = 'github.com/mtgleeson/tiatesting'
+                    }
+                }
+            }
+        }
+        repositories {
+            maven {
+                // change URLs to point to your repos, e.g. http://my.org/repo
+                //def releasesRepoUrl = layout.buildDirectory.dir('repos/releases')
+                //def snapshotsRepoUrl = layout.buildDirectory.dir('repos/snapshots')
+                //url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+            }
+        }
+    }
+
+    signing {
+        useGpgCmd()
+        sign publishing.publications.mavenJava
+    }
+
 }

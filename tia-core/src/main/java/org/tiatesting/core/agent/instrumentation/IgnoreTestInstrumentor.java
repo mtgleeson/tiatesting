@@ -13,9 +13,9 @@ public class IgnoreTestInstrumentor {
     /**
      * Instrument the code to add the junit @Ignore to a given set of test classes.
      *
-     * @param ignoredTests
-     * @param instrumentation
-     * @param ignoreClass
+     * @param ignoredTests the tests to ignore
+     * @param instrumentation the Instrumentation
+     * @param ignoreClass the ignore class
      */
     public void ignoreTests(final Set<String> ignoredTests, Instrumentation instrumentation, Class<? extends Annotation> ignoreClass){
         AnnotationDescription ignoreDescription = AnnotationDescription.Builder.ofType(ignoreClass)

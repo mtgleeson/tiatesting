@@ -17,3 +17,17 @@ dependencies {
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
     implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
 }
+
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = 'tia-spock-git'
+
+            pom {
+                name = 'Tia Spock Git'
+                description = 'This library contains the logic for running Tia with Spock and Git.'
+            }
+        }
+    }
+}
