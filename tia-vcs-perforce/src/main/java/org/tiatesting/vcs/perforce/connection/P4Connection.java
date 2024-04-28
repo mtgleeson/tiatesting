@@ -61,8 +61,6 @@ public class P4Connection {
 
     /**
      * Connects to the P4 server using the instance param settings.
-     *
-     * @return
      */
     public void start() throws VCSAnalyzerException {
         if (serverUri == null || serverUri.isEmpty())
@@ -101,9 +99,6 @@ public class P4Connection {
 
     /**
      * Disconnects from the P4 server.
-     *
-     * @throws ConnectionException
-     * @throws AccessException
      */
     public void stop(){
         if (server != null && server.isConnected())
@@ -121,14 +116,12 @@ public class P4Connection {
      * Set the P4 connection settings. If either of the serverUri, userName or clientName is not set,
      * try read it from the users workspace using the "p4 set" command.
      *
-     * @param serverUri
-     * @param userName
-     * @param password
-     * @param clientName
-     * @throws Exception
+     * @param serverUri the Perforce server URI
+     * @param userName the Perforce server username to connect with
+     * @param password the Perforce server password to connect with
+     * @param clientName the Perforce server client name to connect with
      */
-    public void setP4Settings(final String serverUri, final String userName, final String password, final String clientName)
-    {
+    public void setP4Settings(final String serverUri, final String userName, final String password, final String clientName){
         Map<String, String> p4Settings = new HashMap<>();
         if (StringUtils.isBlank(serverUri) || StringUtils.isBlank(userName) || StringUtils.isBlank(clientName)){
             p4Settings = P4Settings.executeP4SetCommand();
@@ -181,9 +174,9 @@ public class P4Connection {
     /**
      * Refresh P4 client.
      *
-     * @throws ConnectionException
-     * @throws AccessException
-     * @throws RequestException
+     * @throws ConnectionException a connection exception
+     * @throws AccessException an access exception
+     * @throws RequestException a request exception
      */
     public void refreshClient() throws ConnectionException, AccessException, RequestException
     {

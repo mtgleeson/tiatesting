@@ -87,6 +87,8 @@ public class AgentOptions {
     /**
      * Creates a string representation that can be passed to the agent via the
      * command line. Might be the empty string, if no options are set.
+     *
+     * @return the command line options as a string
      */
     public String toCommandLineOptionsString() {
         final StringBuilder sb = new StringBuilder();

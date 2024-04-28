@@ -50,8 +50,8 @@ public class JacocoClient {
 
     /**
      * Starts the execution data request.
-     *
-     * @throws IOException
+     * @return CoverageResult
+     * @throws IOException IO Exception
      */
     public CoverageResult collectCoverage() throws IOException {
         long startTime = System.currentTimeMillis();

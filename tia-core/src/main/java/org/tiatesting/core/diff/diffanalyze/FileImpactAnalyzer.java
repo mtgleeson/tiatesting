@@ -35,9 +35,9 @@ public class FileImpactAnalyzer {
      * Loop over impactedSourceFiles once and create a map containing a list of modified source code diffs, modified test
      * file diffs, deleted test file diffs.
      *
-     * @param sourceFileDiffContexts
-     * @param testFilesDirs
-     * @return
+     * @param sourceFileDiffContexts the set of diff file contexts
+     * @param testFilesDirs the list of test file directories
+     * @return the impacted test files
      */
     public Map<String, List<SourceFileDiffContext>> groupImpactedTestFiles(Set<SourceFileDiffContext> sourceFileDiffContexts,
                                                                            final List<String> testFilesDirs){
@@ -78,11 +78,12 @@ public class FileImpactAnalyzer {
     }
 
     /**
+     * For the source files that have changed, do a diff to find the methods that have changed.
      *
-     *
-     * @param sourceFileDiffContexts
-     * @param tiaData
+     * @param sourceFileDiffContexts the set of diff file contexts
+     * @param tiaData the Tia DB as an object
      * @param sourceFilesDirs Locations of the source files for the project being tested
+     * @return the set of ids for the methods that have changed
      */
     public Set<Integer> getMethodsForFilesChanged(final List<SourceFileDiffContext> sourceFileDiffContexts,
                                                   final TiaData tiaData, final List<String> sourceFilesDirs){
@@ -107,8 +108,8 @@ public class FileImpactAnalyzer {
      * Build a convenience map showing a list of impacted methods for each impacted source file (ignore test suite information).
      * Used for convenience in analyzing the diff files: Tracked Source File: List<MethodImpactTracker>
      *
-     * @param tiaData
-     * @return
+     * @param tiaData the Tia DB as an object
+     * @return the tracked source file methods
      */
     private static Map<String, Set<Integer>> buildTrackedSourceFileMethods(final TiaData tiaData){
         Map<String, Set<Integer>> sourceFilesTracked = new HashMap<>();
