@@ -81,14 +81,4 @@ public class GitReader implements VCSReader {
             throw new VCSAnalyzerException(e);
         }
     }
-
-    /**
-     * TODO delete this.
-     *
-     * @param commit
-     * @return
-     */
-    public File checkoutSourceAtVersion(String commit){
-        return gitCheckoutProcessor.checkoutSourceAtVersion(gitContext, commit);
-    }
 }

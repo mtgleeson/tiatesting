@@ -6,17 +6,33 @@
 
     <groupId>org.tiatesting</groupId>
     <artifactId>tia-junit-git-maven-plugin</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.1.0</version>
     <packaging>maven-plugin</packaging>
 
-    <name>tia-junit-git-maven-plugin Tia Testing Maven Plugin for Junit and Git</name>
+    <name>Tia JUnit Git Maven Plugin</name>
     <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Git version control projects.</description>
-    <url>http://maven.apache.org</url>
+    <url>github.com/mtgleeson/tiatesting</url>
 
-    <organization>
-        <name>MGleeson</name>
-        <url>https://github.com/mtgleeson/</url>
-    </organization>
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>mtgleeson</id>
+            <name>Matt Gleeson</name>
+            <email>mtgleeson@gmail.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/mtgleeson/tiatesting.git</connection>
+        <developerConnection>scm:git:ssh://github.com/mtgleeson/tiatesting.git</developerConnection>
+        <url>github.com/mtgleeson/tiatesting</url>
+    </scm>
 
     <properties>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -31,17 +47,17 @@
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-maven-plugin</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
+            <version>0.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-vcs-git</artifactId>
-            <version>1.1.0</version>
+            <version>0.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit-agent</artifactId>
-            <version>1.1.0</version>
+            <version>0.1.0</version>
             <classifier>runtime</classifier>
         </dependency>
         <dependency>
@@ -63,6 +79,64 @@
     </dependencies>
 
     <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>1.5</version>
+                <configuration>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.4.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <tokenAuth>true</tokenAuth>
+                </configuration>
+            </plugin>
+        </plugins>
         <pluginManagement>
             <plugins>
                 <plugin>
@@ -104,43 +178,4 @@
         </plugins>
     </reporting>
 
-    <!--
-    <build>
-        <sourceDirectory>src</sourceDirectory>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <configuration>
-                    <tagletArtifacts>
-                        <tagletArtifact>
-                            <groupId>org.apache.maven.plugin-tools</groupId>
-                            <artifactId>maven-plugin-tools-javadoc</artifactId>
-                            <version>2.8</version>
-                        </tagletArtifact>
-                    </tagletArtifacts>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-plugin-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>help-mojo</id>
-                        <goals>
-                            <goal>helpmojo</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>report</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
--->
 </project>

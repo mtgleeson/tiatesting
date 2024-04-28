@@ -198,8 +198,8 @@ public class TiaTestingJunit4Listener extends RunListener {
      * Called when a test suite (class) has finished, whether the test suite succeeds or fails.
      * Track the list of methods called for the tests in the suite.
      *
-     * @param description
-     * @throws Exception
+     * @param description the Junit test description
+     * @throws Exception an Exception
      */
     @Override
     public void testSuiteFinished(Description description) throws Exception {
@@ -236,8 +236,7 @@ public class TiaTestingJunit4Listener extends RunListener {
     /**
      * Called when all tests have finished.
      *
-     * @param result
-     * @throws Exception
+     * @param result the Junit runner result
      */
     @Override
     public void testRunFinished(Result result) {

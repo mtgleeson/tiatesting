@@ -11,29 +11,31 @@ public interface ReportGenerator {
     /**
      * Generate all the Tia reports.
      *
-     * @param tiaData
-     * @return
+     * @param tiaData the Tia data from the DB
      */
     void generateReports(TiaData tiaData);
 
     /**
      * Generate the Tia summary report.
      *
-     * @param tiaData
-     * @return
+     * @param tiaData the Tia data from the DB
+     * @return the report as a String
      */
     String generateSummaryReport(TiaData tiaData);
 
     /**
      * Generate the report for the test suites tracked by Tia.
-     * @param tiaData
+     *
+     * @param tiaData the Tia data from the DB
+     * @return the report as a String
      */
     String generateTestSuiteReport(TiaData tiaData);
 
     /**
-     *  Generate the report for the source methods tracked by Tia.
-     * @param tiaData
-     * @return
+     * Generate the report for the source methods tracked by Tia.
+     *
+     * @param tiaData the Tia data from the DB
+     * @return the report as a String
      */
     String generateSourceMethodReport(TiaData tiaData);
 }

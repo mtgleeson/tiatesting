@@ -11,39 +11,11 @@ dependencies {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            from components.java
+            artifactId = 'tia-core'
 
-            artifact sourceJar {
-                classifier "sources"
-            }
-
-            //groupId 'org.something'
-            //artifact packageJavadoc
-
-            pom.withXml {
-                asNode().children().last() + {
-                    resolveStrategy = Closure.DELEGATE_FIRST
-                    name 'tiatesting'
-                    description 'This library contains the core common classes used in the Tia Test program.'
-                    //url 'https://github.com/rpau/junit4git'
-                    //scm {
-                    //    url 'https://github.com/rpau/junit4git'
-                    //    connection 'https://github.com/rpau/junit4git.git'
-                    //}
-                    //licenses {
-                    //    license {
-                    //        name 'The Apache Software License, Version 2.0'
-                    //        url 'http://www.apache.org/license/LICENSE-2.0.txt'
-                    //    }
-                    //}
-                    developers {
-                        developer {
-                            id 'mtgleeson'
-                            name 'Matt'
-                            email 'mtgleeson@gmail.com'
-                        }
-                    }
-                }
+            pom {
+                name = 'Tia Core'
+                description = 'This library contains the core common classes used in the Tia selective testing library.'
             }
         }
     }

@@ -9,8 +9,8 @@ public class ReportUtils {
      * i.e. 1h 23m 57s 687ms
      * If component of time is 0 it will not be shown.
      *
-     * @param durationMs
-     * @return
+     * @param durationMs the duration represented in MS
+     * @return a user-friendly string showing a duration in hours, minutes, seconds and ms.
      */
     public static String prettyDuration(long durationMs){
         Duration avgDuration = Duration.ofMillis(durationMs);

@@ -28,7 +28,7 @@ public class TestStats implements Serializable {
     /**
      * Increment the stats of this tracked test suite by the specified amounts.
      *
-     * @param testStats
+     * @param testStats the test statistics
      */
     public void incrementStats(final TestStats testStats){
         long totalRunTime = (this.numRuns * this.avgRunTime) + (testStats.getNumRuns() * testStats.getAvgRunTime());

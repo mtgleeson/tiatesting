@@ -13,14 +13,14 @@ public interface VCSReader {
     /**
      * Find the name of the current branch used by local version control system.
      *
-     * @return
+     * @return the VCS branch name
      */
     String getBranchName();
 
     /**
      * Get the head commit value for the VCS repository.
      *
-     * @return
+     * @return the head commit value
      */
     String getHeadCommit();
 
@@ -32,7 +32,7 @@ public interface VCSReader {
      * @param sourceFilesDirs the list of source code directories for the source project being analysed
      * @param testFilesDirs the list of test file directories for the project being analysed
      * @param checkLocalChanges should local changes be checked by Tia.
-     * @return
+     * @return the set of diff file contexts
      */
     Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
                                                      final List<String> testFilesDirs, final boolean checkLocalChanges);

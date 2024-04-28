@@ -30,14 +30,14 @@ public class MethodImpactAnalyzer {
      * Parse the original content as a Java file and check each method to see if it's in the diff based on the
      * file line numbers and the diff segment line numbers.
      *
-     * @param originalFileContent
-     * @param newFilContent
-     * @param originalFileName
-     * @param revisedFileName
+     * @param originalFileContent the original file content
+     * @param newFilContent the new file content
+     * @param originalFileName the original filename
+     * @param revisedFileName the revised filename
      * @param methodsInvokedByChanges A set of methods that will be invoked by the changes in source code
      * @param sourceFilesTracked The tracked list of source files and their associated list of methods with previous execution coverage
      * @param sourceFilesDirs Locations of the source files for the project being tested
-     * @param methodImpactTrackers
+     * @param methodImpactTrackers the list of methods that have been impacted by the changes
      */
     public void getMethodsForImpactedFile(final String originalFileContent, final String newFilContent,
                                           final String originalFileName, final String revisedFileName,

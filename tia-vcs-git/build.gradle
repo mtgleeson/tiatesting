@@ -8,40 +8,11 @@ dependencies {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            from components.java
+            artifactId = 'tia-vcs-git'
 
-            artifact sourceJar {
-                classifier "sources"
-            }
-
-            //groupId 'org.something'
-            //artifact packageJavadoc
-
-            pom.withXml {
-                asNode().children().last() + {
-                    resolveStrategy = Closure.DELEGATE_FIRST
-                    name 'tiatesting'
-                    description 'A library to support test impact analysis driven testing for junit4. This library ' +
-                            'contains an agent to be hooked up to an application containing the source code to be instrumented.'
-                    //url 'https://github.com/rpau/junit4git'
-                    //scm {
-                    //    url 'https://github.com/rpau/junit4git'
-                    //    connection 'https://github.com/rpau/junit4git.git'
-                    //}
-                    //licenses {
-                    //    license {
-                    //        name 'The Apache Software License, Version 2.0'
-                    //        url 'http://www.apache.org/license/LICENSE-2.0.txt'
-                    //    }
-                    //}
-                    developers {
-                        developer {
-                            id 'mtgleeson'
-                            name 'Matt'
-                            email 'mtgleeson@gmail.com'
-                        }
-                    }
-                }
+            pom {
+                name = 'Tia VCS Git'
+                description = 'This library contains the core VCS logic for running Tia with Git.'
             }
         }
     }
