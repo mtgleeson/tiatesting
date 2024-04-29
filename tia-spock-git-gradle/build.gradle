@@ -23,7 +23,7 @@ dependencies {
     implementation project(':tia-vcs-git')
     implementation project(':tia-gradle')
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
 }
 
 // The java-gradle-plugin seems to override the generated pom from maven-publish https://github.com/gradle/gradle/issues/14993
