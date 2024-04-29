@@ -10,9 +10,9 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 dependencies {
     implementation project(':tia-core')
     implementation project(':tia-junit')
-    implementation group: 'junit', name: 'junit', version: '4.13.2'
+    implementation group: 'junit', name: 'junit', version: junitVersion
     implementation project(':tia-vcs-perforce')
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
 }
 
 publishing {

@@ -8,12 +8,11 @@ plugins {
 apply from: rootProject.file('buildSrc/shared.gradle')
 
 dependencies {
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
     implementation group: 'com.h2database', name: 'h2', version: '2.2.224'
     implementation "io.github.java-diff-utils:java-diff-utils:4.5"
     implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
-    implementation "io.github.java-diff-utils:java-diff-utils:4.5"
     implementation 'com.j2html:j2html:1.6.0'
 }
 
