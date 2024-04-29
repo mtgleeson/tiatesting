@@ -6,7 +6,7 @@
 
     <groupId>org.tiatesting</groupId>
     <artifactId>tia-junit-git-maven-plugin</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <packaging>maven-plugin</packaging>
 
     <name>Tia JUnit Git Maven Plugin</name>
@@ -46,17 +46,17 @@
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-maven-plugin</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.1</version>
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-vcs-git</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.1</version>
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit-agent</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.1</version>
             <classifier>runtime</classifier>
         </dependency>
         <dependency>

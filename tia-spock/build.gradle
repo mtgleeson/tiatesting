@@ -11,7 +11,7 @@ dependencies {
     implementation project(':tia-core')
     implementation project(':tia-vcs-git')
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: '1.7.32'
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
 }
 
