@@ -53,12 +53,14 @@ public class P4DiffAnalyzer {
         List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
 
         // get changes from the previously stored CL number to HEAD
-        Set<SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getChangesFromPreviousSubmit(p4Context, baseCl, clTo, sourceAndTestFilesSpecs);
+        Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
-        // get the local changes compared to local HEAD
         if (checkLocalChanges){
+            // get the local changes compared to local HEAD
             sourceFileDiffContexts.addAll(getLocalChanges(p4Context, sourceAndTestFilesSpecs));
+        } else {
+            // get the changes since the CL that was last run with Tia
+            sourceFileDiffContexts.addAll(getChangesSinceLastRunCL(p4Context, baseCl, clTo, sourceAndTestFilesSpecs));
         }
 
         return sourceFileDiffContexts;
@@ -92,8 +94,8 @@ public class P4DiffAnalyzer {
      * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getChangesFromPreviousSubmit(P4Context p4Context, String baseCl, String clTo,
-                                                                    List<IFileSpec> sourceAndTestFilesSpecs){
+    private Set<SourceFileDiffContext> getChangesSinceLastRunCL(P4Context p4Context, String baseCl, String clTo,
+                                                                List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
 
         if (baseCl.equals(clTo)){

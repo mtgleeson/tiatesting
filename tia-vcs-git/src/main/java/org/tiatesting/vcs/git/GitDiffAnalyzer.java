@@ -50,13 +50,15 @@ public class GitDiffAnalyzer {
         ObjectId commitToObjectId = gitContext.getHeadObjectId();
 
         // get changes from the previously stored commit to HEAD
-        Set<SourceFileDiffContext> sourceFileDiffContexts;
-        sourceFileDiffContexts = getChangesFromPreviousCommit(gitContext, commitFromObjectId, commitToObjectId,
-                sourceAndTestDirs);
+        Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
         if (checkLocalChanges){
             // get the local changes compared to local HEAD
             sourceFileDiffContexts.addAll(getLocalChanges(gitContext, sourceAndTestDirs));
+        } else {
+            // get the changes since the CL that was last run with Tia
+            sourceFileDiffContexts.addAll(getChangesSinceLastRunCommit(gitContext, commitFromObjectId, commitToObjectId,
+                    sourceAndTestDirs));
         }
 
         return sourceFileDiffContexts;
@@ -72,7 +74,7 @@ public class GitDiffAnalyzer {
      * @param sourceAndTestDirs the list of source code and test files for the source project being analysed
      * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
      */
-    private Set<SourceFileDiffContext> getChangesFromPreviousCommit(GitContext gitContext, ObjectId commitFrom,
+    private Set<SourceFileDiffContext> getChangesSinceLastRunCommit(GitContext gitContext, ObjectId commitFrom,
                                                                     ObjectId commitTo, List<String> sourceAndTestDirs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts;
         sourceFileDiffContexts = getSourceFilesImpactedFromPreviousCommit(gitContext.getRepository(), commitFrom,
