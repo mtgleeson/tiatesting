@@ -114,14 +114,15 @@ public class TestSelector {
         Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED), tiaData, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
 
-        // Re-run tests that failed since the last successful full test run.
-        addPreviouslyFailedTests(tiaData, testsToRun);
-
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
 
         // Add newly added test files to the run list.
         addNewTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), tiaData, testsToRun, testFilesDirs);
+
+        // Re-run tests that failed since the last successful full test run.
+        addPreviouslyFailedTests(tiaData, testsToRun);
+
         return testsToRun;
     }
 
