@@ -165,7 +165,10 @@ test {
 }
 ```
 
-## How Does Tia Work
+## Usage
 
+## Configuration Options
+
+## How Does Tia Work
 
 ## Supported Frameworks and Test Runners
