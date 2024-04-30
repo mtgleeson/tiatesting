@@ -11,12 +11,6 @@ import java.util.Objects;
 public class TestSuiteTracker implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    public TestSuiteTracker(){}
-
-    public TestSuiteTracker(String name) {
-        this.name = name;
-    }
-
     private long id;
 
     /**
@@ -30,6 +24,12 @@ public class TestSuiteTracker implements Serializable {
     private List<ClassImpactTracker> classesImpacted = new ArrayList<>();
 
     private TestStats testStats = new TestStats();
+
+    public TestSuiteTracker(){}
+
+    public TestSuiteTracker(String name) {
+        this.name = name;
+    }
 
     /**
      * Increment the stats of this tracked test suite by the specified amounts.
