@@ -7,7 +7,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - I have an idea → [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
 ## Getting Started
-### For a Maven, JUnit4 and Git setup:
+### Maven, JUnit4 and Git
 Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
 For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git-maven-plugin&smo=true) and [tia-junit-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git&smo=true).
 
@@ -110,12 +110,12 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
 </build>
 ```
 
-### For a Maven, JUnit and Perforce setup:
+### Maven, JUnit and Perforce
 Use the configuration documented above for [Maven, Junit and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit-git` with `tia-junit-perforce` and `tia-junit-git-maven-plugin` with `tia-junit-perforce-maven-plugin`.
 
 For the latest versions, see [tia-junit-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-perforce-maven-plugin&smo=true) and [tia-junit-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-perforce&smo=true).
 
-### For a Gradle, Spock and Git setup: 
+### Gradle, Spock and Git
 Include the following configuration in your project where you execute your tests. 
 For the latest version, see [tia-spock-git-gradle](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-spock-git-gradle&smo=true).
 
