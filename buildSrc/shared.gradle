@@ -5,7 +5,7 @@ buildscript {
 }
 
 group 'org.tiatesting'
-version = '0.1.1'
+version '0.1.2'
 
 java {
     sourceCompatibility = '1.8'
@@ -36,8 +36,8 @@ publishing {
         mavenJava(MavenPublication) {
             from components.java
 
-            group 'org.tiatesting'
-            version = '0.1.1'
+            group project.group
+            version project.version
             artifact sourceJar
             artifact packageJavadoc
 
