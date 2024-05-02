@@ -32,7 +32,7 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit-git</artifactId>
-        <version>0.1.1</version>
+        <version>0.1.2</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -43,7 +43,7 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit-git-maven-plugin</artifactId>
-            <version>0.1.1</version>
+            <version>0.1.2</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -126,7 +126,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.1'
+        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.2'
     }
 }
 ```
