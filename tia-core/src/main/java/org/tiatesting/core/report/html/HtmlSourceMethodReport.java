@@ -6,9 +6,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.*;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.util.*;
 
@@ -18,6 +22,7 @@ import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
 public class HtmlSourceMethodReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlSourceMethodReport.class);
     protected static final String TIA_SOURCE_METHODS_HTML = "tia-source-methods.html";
+    protected static final String TIA_SOURCE_METHODS__TEST_JS = "tia-source-methods-tests.js";
     protected static final String METHODS_FOLDER = "methods";
     private final String filenameExt;
     private final File reportOutputDir;
@@ -60,19 +65,17 @@ public class HtmlSourceMethodReport {
                                     thead(
                                             tr(
                                                     th("Method"),
+                                                    th("Num Test Suites").attr(numberDataType),
                                                     th("Line start").attr(numberDataType),
-                                                    th("Line end").attr(numberDataType),
-                                                    th("Class"),
-                                                    th("Num Test Suites").attr(numberDataType)
+                                                    th("Line end").attr(numberDataType)
                                             )
                                     ), tbody(
                                             each(methodToTestSuites, mapEntry ->
                                                     tr(
                                                             td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay()).attr("href=\"" + mapEntry.getKey() + ".html\"")),
+                                                            td(String.valueOf(mapEntry.getValue().getTestSuites().size())),
                                                             td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberStart())),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberEnd())),
-                                                            td(mapEntry.getValue().getClassImpactTracker().getSourceFilenameForDisplay()),
-                                                            td(String.valueOf(mapEntry.getValue().getTestSuites().size()))
+                                                            td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberEnd()))
                                                     )
                                             )
                                     )
@@ -98,6 +101,8 @@ public class HtmlSourceMethodReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the test suites reports to {}", reportOutputDir.getAbsoluteFile());
 
+        writeMethodTestSuiteJSFile();
+
         methodToTestSuites.entrySet().parallelStream().forEach(entry -> {
             writeTestSuitesReportFiles(tiaData, entry.getKey(), entry.getValue());
         });
@@ -111,7 +116,7 @@ public class HtmlSourceMethodReport {
         fileName = fileName.replaceAll("<", "").replaceAll(">", "");
 
         try {
-            FileWriter writer = new FileWriter(fileName);
+            BufferedWriter writer = new BufferedWriter((new FileWriter(fileName)));
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -154,15 +159,28 @@ public class HtmlSourceMethodReport {
                                     )
                             )
                     ),
-                    script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", {\n" +
-                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
-                            "\tsearchable: true,\n" +
-                            "\tfixedHeight: true,\n" +
-                            "\tpaging: true,\n" +
-                            "\tperPage: 20,\n" +
-                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                            "})")
+                    script().attr("src=\"" + TIA_SOURCE_METHODS__TEST_JS + "\" type=\"text/javascript\"")
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void writeMethodTestSuiteJSFile(){
+        String jsContent = "const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", { " +
+                "columns: [{ select: 0, sort: \"asc\" }], " +
+                "searchable: true, " +
+                "fixedHeight: true, " +
+                "paging: true, " +
+                "perPage: 20, " +
+                "perPageSelect: [10, 20, 50, [\"All\", -1]] " +
+                "});";
+
+        byte[] strToBytes = jsContent.getBytes();
+        String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS__TEST_JS;
+        Path path = Paths.get(fileName);
+        try {
+            Files.write(path, strToBytes);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

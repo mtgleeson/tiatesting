@@ -1,13 +1,9 @@
 package org.tiatesting.core.report.html;
 
-import static j2html.TagCreator.*;
-import static org.tiatesting.core.report.html.HtmlSummaryReport.*;
-
 import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -16,6 +12,11 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static j2html.TagCreator.*;
+import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
 
 public class HtmlTestSuiteReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlTestSuiteReport.class);
@@ -34,7 +35,6 @@ public class HtmlTestSuiteReport {
     public void generateTestSuiteReport(TiaData tiaData) {
         createOutputDir();
         generateTestSuiteReportData(tiaData);
-        generateSourceClassReport(tiaData);
         generateSourceMethodReport(tiaData);
     }
 
@@ -68,7 +68,7 @@ public class HtmlTestSuiteReport {
                                                     th("Success %").attr(numberDataType),
                                                     th("Num fails").attr(numberDataType),
                                                     th("Fail %").attr(numberDataType),
-                                                    th("Num classes").attr(numberDataType)
+                                                    th("Num methods").attr(numberDataType)
                                             )
                                     ), tbody(
                                             each(tiaData.getTestSuitesTracked().values(), testSuiteTracker ->
@@ -80,7 +80,8 @@ public class HtmlTestSuiteReport {
                                                             td(getAvgSuccess(testSuiteTracker.getTestStats())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumFailRuns())),
                                                             td(getAvgFail(testSuiteTracker.getTestStats())),
-                                                            td(String.valueOf(testSuiteTracker.getClassesImpacted().size()))
+                                                            td(String.valueOf(testSuiteTracker.getClassesImpacted().stream().reduce(0, (sub, classImpactTracker)
+                                                                    -> sub + classImpactTracker.getMethodsImpacted().size(), Integer :: sum)))
                                                     )
                                             )
                                     )
@@ -102,85 +103,23 @@ public class HtmlTestSuiteReport {
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
 
-    private void generateSourceClassReport(TiaData tiaData) {
-        long startTime = System.currentTimeMillis();
-        log.info("Writing the source class reports to {}", reportOutputDir.getAbsoluteFile());
-
-        tiaData.getTestSuitesTracked().values().parallelStream().forEach(testSuiteTracker -> {
-            writeSourceClassHtmlToFile(testSuiteTracker);
-        });
-
-        log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
-    }
-
-    private void writeSourceClassHtmlToFile(TestSuiteTracker testSuiteTracker){
-        String fileName = reportOutputDir + File.separator + testSuiteTracker.getName() + ".html";
-
-        try {
-            FileWriter writer = new FileWriter(fileName);
-            final String numberDataType = "data-type=\"number\"";
-
-            html(
-                    head(
-                            link().attr("href=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1/dist/style.css\" rel=\"stylesheet\" type=\"text/css\""),
-                            script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
-                    ), body(
-                            header(
-                                    h2("Source Classes For Test Suite: " + testSuiteTracker.getName())
-                            ),
-                            div(
-                                    p(
-                                            a("back to Test Suites").attr("href=tia-test-suites.html")
-                                    )
-                            ),
-                            table(attrs("#tiaSourceClassTable"),
-                                    thead(
-                                            tr(
-                                                    th("Name"),
-                                                    th("Num methods").attr(numberDataType)
-                                            )
-                                    ), tbody(
-                                            each(testSuiteTracker.getClassesImpacted(), classImpactTracker ->
-                                                    tr(
-                                                            td(a(classImpactTracker.getSourceFilenameForDisplay())
-                                                                    .attr("href=\"" + testSuiteTracker.getName() + File.separator + classImpactTracker.getSourceFilenameForDisplay() + ".html\"")),
-                                                            td(String.valueOf(classImpactTracker.getMethodsImpacted().size()))
-                                                    )
-                                            )
-                                    )
-                            )
-                    ),
-                    script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceClassTable\", {\n" +
-                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
-                            "\tsearchable: true,\n" +
-                            "\tfixedHeight: true,\n" +
-                            "\tpaging: true,\n" +
-                            "\tperPage: 20,\n" +
-                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                            "})")
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     private void generateSourceMethodReport(TiaData tiaData) {
         long startTime = System.currentTimeMillis();
         log.info("Writing the source method reports to {}", reportOutputDir.getAbsoluteFile());
 
         tiaData.getTestSuitesTracked().values().parallelStream().forEach(testSuiteTracker -> {
-            testSuiteTracker.getClassesImpacted().forEach(classImpactTracker -> {
-                writeSourceClassHtmlToFile(tiaData, testSuiteTracker, classImpactTracker);
-            });
+            writeSourceMethodsHtmlToFile(tiaData, testSuiteTracker);
         });
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
 
-    private void writeSourceClassHtmlToFile(TiaData tiaData, TestSuiteTracker testSuiteTracker, ClassImpactTracker classImpactTracker){
-        File testSuiteOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + testSuiteTracker.getName());
-        createOutputDir(testSuiteOutputDir);
-        String fileName = testSuiteOutputDir + File.separator + classImpactTracker.getSourceFilenameForDisplay() + ".html";
+    private void writeSourceMethodsHtmlToFile(TiaData tiaData, TestSuiteTracker testSuiteTracker){
+        String fileName = reportOutputDir + File.separator + testSuiteTracker.getName() + ".html";
+
+        Set<Integer> methodIds = testSuiteTracker.getClassesImpacted().stream()
+                .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
+                .collect(Collectors.toSet());
 
         try {
             FileWriter writer = new FileWriter(fileName);
@@ -192,12 +131,11 @@ public class HtmlTestSuiteReport {
                             script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
                     ), body(
                             header(
-                                    h2("Test Suite: " + testSuiteTracker.getName()),
-                                    h3("Source Methods For Class: " + classImpactTracker.getSourceFilenameForDisplay())
+                                    h2("Test Suite: " + testSuiteTracker.getName())
                             ),
                             div(
                                     p(
-                                            a("back to " + testSuiteTracker.getName()).attr("href=../" + testSuiteTracker.getName() + ".html")
+                                            a("back to Test Suites").attr("href=tia-test-suites.html")
                                     )
                             ),
                             table(attrs("#tiaSourceMethodTable"),
@@ -208,11 +146,11 @@ public class HtmlTestSuiteReport {
                                                     th("Line end").attr(numberDataType)
                                             )
                                     ), tbody(
-                                            each(classImpactTracker.getMethodsImpacted(), methodImpactTracker ->
+                                            each(methodIds, methodId ->
                                                     tr(
-                                                            td(tiaData.getMethodsTracked().get(methodImpactTracker).getNameForDisplay()),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodImpactTracker).getLineNumberStart())),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodImpactTracker).getLineNumberEnd()))
+                                                            td(tiaData.getMethodsTracked().get(methodId).getNameForDisplay()),
+                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodId).getLineNumberStart())),
+                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodId).getLineNumberEnd()))
                                                     )
                                             )
                                     )
@@ -244,9 +182,5 @@ public class HtmlTestSuiteReport {
 
     private void createOutputDir() {
         reportOutputDir.mkdirs();
-    }
-
-    private void createOutputDir(File testSuiteOutputDir) {
-        testSuiteOutputDir.mkdirs();
     }
 }
