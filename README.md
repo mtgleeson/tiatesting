@@ -9,6 +9,8 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
+- [Credits](#credits)
+- [Additional resources and solutions](#additional-resources-and-solutions)
 - [Bug Report](https://github.com/mtgleeson/tiatesting/issues)
 - [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
@@ -253,7 +255,6 @@ mvn tia-junit-perforce:text-report
 gradle tia-text-report
 ```
 
-
 ## Configuration Options
 
 |Maven|Gradle|Possible Values|Description|Default Value|Mandatory|
@@ -283,12 +284,12 @@ Through the tracking of statistics it, Tia can generate reports that show how su
 ## How Does Tia Work
 Tia collects and stores a mapping of methods that are executed for each of your test suites. 
 
-Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping.
+Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping. Tia uses an embedded H2 DB for the data store.
 
-The first time Tia it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
+The first time Tia runs it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that version of the test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
 
 Typically you will want a 'primary' automated build that is configured to run Tia on each commit/submit/check-in. Only this build should be configured to update the test suite to source code mapping in the DB (tiaUpdateDBMapping=true). 
-Developers using Tia should be configured to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
+Developers using Tia on their local workspace should configur Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3
@@ -307,4 +308,19 @@ Developers using Tia should be configured to analyse local changes only (tiaUpda
 |Junit 5|x|x|
 |Spock 2|✔|x|
 
+## Credits
+A shout out to the following libraries that Tia uses:
+ - Jacoco
+ - H2
+ - J2HTML
+ - ByteBuddy
+ - Simple-Datatables
 
+## Additional resources and solutions
+https://martinfowler.com/articles/rise-test-impact-analysis.html
+https://gradle.com/gradle-enterprise-solutions/predictive-test-selection/ 
+https://research.facebook.com/publications/predictive-test-selection/ 
+https://schibsted.com/blog/impact-testing-stop-waiting-tests-not-need-run/
+https://github.com/rpau/junit4git
+https://www.parasoft.com/products/parasoft-jtest/java-test-impact-analysis/
+https://www.sealights.io/product/test-impact-analysis/# 
