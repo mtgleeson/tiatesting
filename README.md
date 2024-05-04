@@ -3,6 +3,11 @@ Tia is a free library used for selective testing with common test runners such a
 Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis. 
 
 ## Starting Points
+- [Getting started](#getting-started)
+- [Usage](#usage)
+- [Configuration Options](#configuration-options)
+- [How Does Tia Work](#how-does-tia-work)
+- [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
 - I found a bug → [Bug Report](https://github.com/mtgleeson/tiatesting/issues)
 - I have an idea → [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
@@ -167,8 +172,106 @@ test {
 
 ## Usage
 
+### Running Tia
+Nothing special is needed to execute Tia. Confifure Tia for your build automation tool (Maven, Gradle) and then run your tests as you normally would. Tia will select the tests to run and then hook into the test runner to capture details of the results. 
+i.e. mvn test/verify. gradle test 
+
+### General Information about the state of Tia
+**Maven, Junit4 and Git**
+```
+mvn tia-junit-git:info
+```
+
+**Maven, Junit4 and Perforce**
+```
+mvn tia-junit-perforce:info
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-info
+```
+
+
+### Display the selected tests based on the current state of the workspace
+This will show what tests Tia will select to run based on the current state of the workspace and how Tia is configured.
+
+**Maven, Junit4 and Git**
+```
+tia-junit-git:select-tests
+```
+
+Note: to see extra debugging including what test suites are being selected broken down by source methods:
+```
+tia-junit-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+```
+
+**Maven, Junit4 and Perforce**
+```
+tia-junit-perforce:select-tests
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-select-tests
+```
+
+### Html Report
+Generate HTML report showing the current information about the Tia DB, the test suites and the source code.
+
+**Maven, Junit4 and Git**
+```
+mvn tia-junit-git:html-report
+```
+
+**Maven, Junit4 and Perforce**
+```
+mvn tia-junit-perforce:html-report
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-html-report
+```
+
+### Text Report
+Generate a basic text report showing the current information about the Tia DB, the test suites and the source code.
+
+**Maven, Junit4 and Git**
+```
+mvn tia-junit-git:text-report
+```
+
+**Maven, Junit4 and Perforce**
+```
+mvn tia-junit-perforce:text-report
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-text-report
+```
+
+
 ## Configuration Options
+
+|Maven|Gradle|Possible Values|Description|Default Value|Mandatory|
+|-----|------|---------------|-----------|-------------|---------|
+|tiaEnabled|enabled|true, false|When true Tia will be used in the test runner and only the selected tests will be run. When disabled, tests are run as normal and no mapping or stats will be updated in the Tia DB.|false|true|
+|tiaUpdateDBMapping|updateDBMapping|true, false|When true Tia will analyse all changes from the VCS since the last stored commit number in the DB, up to the head commit of the workspace. Only tests impacted by the deteced changes will be run. The stored mapping in the Tia DB will be updated at the end of the test run (regardless if the test run was successful or failed).|false|false|
+|tiaCheckLocalChanges|checkLocalChanges|true, false|When true Tia will analyse all the changes in the local workspace and only run the tests impacted by the local changes. **Note:** when updateDBMapping is true, checkLocalChanges will be disabled regardless of it's value. This is done to ensure the Tia DB is only updated based on analysed changes from VCS and not local changes.|false|false|
+|tiaUpdateDBStats|updateDBStats|true, false|When true Tia will update the statistics for the over test run and the individual test suites that were executed in the run.|false|false|
+|tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.||true|
+|tiaClassFilesDirs|classFilesDirs|<string>|Comma seperated list of paths to the folders containing the classes of the source code (not the test source code). Required for Jacoco to analyse the test coverage.||true|
+|tiaSourceFilesDirs|sourceFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the project being analysed.||true|
+|tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
+|tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project.||true|
+|tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.|${project.build.directory}/tia|true|
+|tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
+|tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
+|tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the locally cached p4 ticket in the users home directory.|false|
+|tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 
 ## How Does Tia Work
 
-## Supported Frameworks and Test Runners
+## Supported Build Automation Tools, VCS and Test Runners
