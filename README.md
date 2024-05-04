@@ -314,6 +314,9 @@ A shout out to the following libraries that Tia uses:
  - H2
  - J2HTML
  - ByteBuddy
+ - JGit
+ - P4Java
+ - Java Diff Utils
  - Simple-Datatables
 
 ## Additional resources and solutions
