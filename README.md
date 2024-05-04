@@ -6,10 +6,11 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Getting started](#getting-started)
 - [Usage](#usage)
 - [Configuration Options](#configuration-options)
+- [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
-- I found a bug → [Bug Report](https://github.com/mtgleeson/tiatesting/issues)
-- I have an idea → [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
+- [Bug Report](https://github.com/mtgleeson/tiatesting/issues)
+- [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
 ## Getting Started
 ### Maven, JUnit4 and Git
@@ -272,6 +273,38 @@ gradle tia-text-report
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the locally cached p4 ticket in the users home directory.|false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 
+## What is Tia
+Tia ia a free test impact analysis library. It analyses changes made to source code and automtically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the effecency of developers by cutting down the time required to get feedback on changes. 
+
+Tia has been designed to be unintrusive in your day-to-day work flow. Once it's setup and configured, it will automatically hook in your build automation tool test system to select the tests, and then update the mapping and record the statsics at the completion of the test run.
+
+Through the tracking of statistics it, Tia can generate reports that show how successful each teet suite is, and how long it takes to run. This information can be useful in tracking poorly written or problematic tests that need attention to improve the overall health of the test suites and your builds.
+
 ## How Does Tia Work
+Tia collects and stores a mapping of methods that are executed for each of your test suites. 
+
+Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping.
+
+The first time Tia it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
+
+Typically you will want a 'primary' automated build that is configured to run Tia on each commit/submit/check-in. Only this build should be configured to update the test suite to source code mapping in the DB (tiaUpdateDBMapping=true). 
+Developers using Tia should be configured to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
 
 ## Supported Build Automation Tools, VCS and Test Runners
+### Maven 3
+
+| |Git|Perforce|
+|-|---|--------|
+|Junit 4|✔|✔|
+|Junit 5|x|x|
+|Spock 2|x|x|
+
+### Gradle
+
+| |Git|Perforce|
+|-|---|--------|
+|Junit 4|x|x|
+|Junit 5|x|x|
+|Spock 2|✔|x|
+
+
