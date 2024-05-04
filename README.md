@@ -260,9 +260,9 @@ gradle tia-text-report
 |Maven|Gradle|Possible Values|Description|Default Value|Mandatory|
 |-----|------|---------------|-----------|-------------|---------|
 |tiaEnabled|enabled|true, false|When true Tia will be used in the test runner and only the selected tests will be run. When disabled, tests are run as normal and no mapping or stats will be updated in the Tia DB.|false|true|
-|tiaUpdateDBMapping|updateDBMapping|true, false|When true Tia will analyse all changes from the VCS since the last stored commit number in the DB, up to the head commit of the workspace. Only tests impacted by the deteced changes will be run. The stored mapping in the Tia DB will be updated at the end of the test run (regardless if the test run was successful or failed).|false|false|
-|tiaCheckLocalChanges|checkLocalChanges|true, false|When true Tia will analyse all the changes in the local workspace and only run the tests impacted by the local changes. **Note:** when updateDBMapping is true, checkLocalChanges will be disabled regardless of it's value. This is done to ensure the Tia DB is only updated based on analysed changes from VCS and not local changes.|false|false|
-|tiaUpdateDBStats|updateDBStats|true, false|When true Tia will update the statistics for the over test run and the individual test suites that were executed in the run.|false|false|
+|tiaUpdateDBMapping|updateDBMapping|true, false|When true, Tia will analyse all changes from the VCS since the last stored commit number in the DB, up to the head commit of the workspace. Only tests impacted by the detected changes will be run. The stored mapping in the Tia DB will be updated at the end of the test run (regardless if the test run was successful or failed).|false|false|
+|tiaCheckLocalChanges|checkLocalChanges|true, false|When true, Tia will analyse all the changes in the local workspace and only run the tests impacted by the local changes. **Note:** when updateDBMapping is true, checkLocalChanges will be disabled regardless of it's value. This is done to ensure the Tia DB is only updated based on analysed changes from VCS and not local changes.|false|false|
+|tiaUpdateDBStats|updateDBStats|true, false|When true, Tia will update the statistics for the test run and individual test suites that were executed in the run.|false|false|
 |tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.||true|
 |tiaClassFilesDirs|classFilesDirs|<string>|Comma seperated list of paths to the folders containing the classes of the source code (not the test source code). Required for Jacoco to analyse the test coverage.||true|
 |tiaSourceFilesDirs|sourceFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the project being analysed.||true|
@@ -275,11 +275,11 @@ gradle tia-text-report
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 
 ## What is Tia
-Tia ia a free test impact analysis library. It analyses changes made to source code and automtically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the effecency of developers by cutting down the time required to get feedback on changes. 
+Tia ia a free test impact analysis library. It analyses changes made to source code and automatically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the efficiency of developers by cutting down the time required to get feedback on changes. 
 
-Tia has been designed to be unintrusive in your day-to-day work flow. Once it's setup and configured, it will automatically hook in your build automation tool test system to select the tests, and then update the mapping and record the statsics at the completion of the test run.
+Tia has been designed to be unintrusive in your day-to-day work flow. Once it's setup and configured, it will automatically hook into your build automation tool test system to select the tests, and then update the mapping and record the statsics at the completion of the test run.
 
-Through the tracking of statistics it, Tia can generate reports that show how successful each teet suite is, and how long it takes to run. This information can be useful in tracking poorly written or problematic tests that need attention to improve the overall health of the test suites and your builds.
+Through the tracking of statistics, Tia can generate reports that show how successful each test suite is, and how long it takes to run. This information can be useful in tracking poorly written or problematic tests that need attention to improve the overall health of the test suites and your builds.
 
 ## How Does Tia Work
 Tia collects and stores a mapping of methods that are executed for each of your test suites. 
@@ -289,7 +289,7 @@ Tia uses Jacoco to collect the source code coverage for each test suite and stor
 The first time Tia runs it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that version of the test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
 
 Typically you will want a 'primary' automated build that is configured to run Tia on each commit/submit/check-in. Only this build should be configured to update the test suite to source code mapping in the DB (tiaUpdateDBMapping=true). 
-Developers using Tia on their local workspace should configur Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
+Developers using Tia on their local workspace should configure Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3
@@ -320,10 +320,10 @@ A shout out to the following libraries that Tia uses:
  - Simple-Datatables
 
 ## Additional resources and solutions
-https://martinfowler.com/articles/rise-test-impact-analysis.html
-https://gradle.com/gradle-enterprise-solutions/predictive-test-selection/ 
-https://research.facebook.com/publications/predictive-test-selection/ 
-https://schibsted.com/blog/impact-testing-stop-waiting-tests-not-need-run/
-https://github.com/rpau/junit4git
-https://www.parasoft.com/products/parasoft-jtest/java-test-impact-analysis/
-https://www.sealights.io/product/test-impact-analysis/# 
+ - [https://martinfowler.com/articles/rise-test-impact-analysis.html](https://martinfowler.com/articles/rise-test-impact-analysis.html)
+ - [https://gradle.com/gradle-enterprise-solutions/predictive-test-selection/](https://gradle.com/gradle-enterprise-solutions/predictive-test-selection/)
+ - [https://research.facebook.com/publications/predictive-test-selection/](https://research.facebook.com/publications/predictive-test-selection/)
+ - [https://schibsted.com/blog/impact-testing-stop-waiting-tests-not-need-run/](https://schibsted.com/blog/impact-testing-stop-waiting-tests-not-need-run/)
+ - [https://github.com/rpau/junit4git](https://github.com/rpau/junit4git)
+ - [https://www.parasoft.com/products/parasoft-jtest/java-test-impact-analysis/](https://www.parasoft.com/products/parasoft-jtest/java-test-impact-analysis/)
+ - [https://www.sealights.io/product/test-impact-analysis/#](https://www.sealights.io/product/test-impact-analysis/#) 
