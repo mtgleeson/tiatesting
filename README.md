@@ -176,8 +176,8 @@ test {
 ## Usage
 
 ### Running Tia
-Nothing special is needed to execute Tia. Confifure Tia for your build automation tool (Maven, Gradle) and then run your tests as you normally would. Tia will select the tests to run and then hook into the test runner to capture details of the results. 
-i.e. mvn test/verify. gradle test 
+Nothing special is needed to execute Tia. Configure Tia for your build automation tool (Maven, Gradle) and then run your tests as you normally would. Tia will select the tests to run and then hook into the test runner to capture details of the results. 
+i.e. mvn test/verify, gradle test. 
 
 ### General Information about the state of Tia
 **Maven, Junit4 and Git**
