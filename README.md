@@ -15,6 +15,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
 ## Getting Started
+
 ### Maven, JUnit4 and Git
 Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
 For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git-maven-plugin&smo=true) and [tia-junit-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git&smo=true).
@@ -178,6 +179,13 @@ test {
 ### Running Tia
 Nothing special is needed to execute Tia. Configure Tia for your build automation tool (Maven, Gradle) and then run your tests as you normally would. Tia will select the tests to run and then hook into the test runner to capture details of the results. 
 i.e. mvn test/verify, gradle test. 
+
+For Maven, it's recommended to add the following to your ~/.settings.xml file to allow you to run truncated commands without needing to specify the org.tiatesting plugin group:
+```
+<pluginGroups>
+    <pluginGroup>org.tiatesting</pluginGroup>
+</pluginGroups>
+```
 
 ### General Information about the state of Tia
 **Maven, Junit4 and Git**
