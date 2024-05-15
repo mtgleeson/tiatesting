@@ -188,6 +188,23 @@ For Maven, it's recommended to add the following to your ~/.settings.xml file to
 ```
 
 ### General Information about the state of Tia
+Example output:
+```
+Tia Info:
+DB last updated: 03/05/2024 23:05:04 PDT
+Test mapping valid for commit: 70d0624e4c2c6fab629d618f0ac406d5cbf009e3
+
+Number of tests classes with mappings: 4
+Number of source methods tracked for tests: 35
+Number of runs: 1
+Average run time: 459ms
+Number of successful runs: 1 (100%)
+Number of failed runs: 0 (0%)
+
+Pending failed tests: 
+none
+```
+
 **Maven, Junit4 and Git**
 ```
 mvn tia-junit-git:info
@@ -206,6 +223,16 @@ gradle tia-info
 
 ### Display the selected tests based on the current state of the workspace
 This will show what tests Tia will select to run based on the current state of the workspace and how Tia is configured.
+Example output:
+```
+Selected tests to run from VCS source changes: [com.example.DoorServiceTest, com.example.ParameterizedTest]
+Selected tests to run from VCS test file changes: []
+Selected tests to run from new test files: []
+Running previously failed tests: [com.example.DoorServiceTest]
+Selected tests to run: 
+	com.example.DoorServiceTest
+	com.example.ParameterizedTest
+```
 
 **Maven, Junit4 and Git**
 ```
@@ -227,8 +254,31 @@ tia-junit-perforce:select-tests
 gradle tia-select-tests
 ```
 
+Note: 
+To see extra informtation about what type of changes trigger the selected tests, run the command with more information:
+```
+gradle tia-select-tests --info
+```
+
+To see extra debugging including what test suites are being selected broken down by source methods:
+```
+gradle tia-select-tests --debug
+```
+
 ### Html Report
-Generate HTML report showing the current information about the Tia DB, the test suites and the source code.
+Generate a HTML report showing the current information about the Tia DB, the test suites and the source code.
+
+*Example of the report summary page:*
+
+<kbd><img width="529" border="1" alt="Screen Shot 2024-05-14 at 9 42 50 PM" src="https://github.com/mtgleeson/tiatesting/assets/1771850/e43aaf82-ee2d-4e66-ac32-b2fb73669fa9"></kbd>
+
+*Example of the test suites index page:*
+
+<kbd><img width="1120" alt="Screen Shot 2024-05-14 at 10 12 56 PM" src="https://github.com/mtgleeson/tiatesting/assets/1771850/a057dbfe-5277-48e7-af1f-e7b9e6834b4f"></kbd>
+
+*Example of the source methods index page:*
+
+<kbd><img width="992" alt="Screen Shot 2024-05-14 at 10 04 34 PM" src="https://github.com/mtgleeson/tiatesting/assets/1771850/d04b527c-f88d-452a-ab20-2d864d7a4424"></kbd>
 
 **Maven, Junit4 and Git**
 ```
