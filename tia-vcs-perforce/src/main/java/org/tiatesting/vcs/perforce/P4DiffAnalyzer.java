@@ -139,6 +139,10 @@ public class P4DiffAnalyzer {
             List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
                     FileSpecBuilder.makeFileSpecList(filePaths), options);
 
+            // The list of file changes should be ordered based on time the change was made, with the latest changes at the
+            // end of the list (so the last change action takes precedence when a file is changed in multiple CLs).
+            changeLists.sort(Comparator.comparing(IChangelistSummary::getId));
+
             if (changeLists.isEmpty()){
                 log.warn("Couldn't find any changelists for the P4 file paths {}", filePaths);
             }
@@ -257,6 +261,14 @@ public class P4DiffAnalyzer {
         return sourceCodeFiles;
     }
 
+    /**
+     * Filter out any files that have changed that aren't source or test files.
+     * We only track an analyze source and test files in Tia.
+     *
+     * @param allFileSpecs
+     * @param sourceAndTestFilesSpecs
+     * @return
+     */
     private List<IFileSpec> filterValidSourceOrTestFiles(List<? extends IFileSpec> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
         List<IFileSpec> validSourceOrTestFiles = new ArrayList<>();
 
