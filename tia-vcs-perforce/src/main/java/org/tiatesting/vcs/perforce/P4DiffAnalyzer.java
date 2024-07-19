@@ -244,6 +244,7 @@ public class P4DiffAnalyzer {
             throw new VCSAnalyzerException(e);
         }
 
+        sortFileChanges(sourceCodeFiles);
         for (IFileSpec fileSpec: sourceCodeFiles){
             String depotPath = fileSpec.getDepotPathString();
             FileAction changeType = fileSpec.getAction();
@@ -251,10 +252,10 @@ public class P4DiffAnalyzer {
 
             if (isFileAdded(changeType)){
                 // if the old path doesn't exist but the new path is source code, a new source file has been added
-                buildDiffContext(null, localPath, changeType, sourceFileDiffContexts, depotPath);
+                addDiffContext(null, localPath, changeType, sourceFileDiffContexts, depotPath);
             } else {
                 // file has been modified or deleted
-                buildDiffContext(localPath, null, changeType, sourceFileDiffContexts, depotPath);
+                addDiffContext(localPath, null, changeType, sourceFileDiffContexts, depotPath);
             }
         }
 
@@ -281,6 +282,20 @@ public class P4DiffAnalyzer {
         }
 
         return validSourceOrTestFiles;
+    }
+
+    /**
+     * When we retrieve the list of changes from between points, it will return all the individual CLs.
+     * To process the CL's and understand the file changes correctly, we need to process the files in order of change.
+     * This allows us to understand the state of the file at the beginning of the range of CL's, and at the end.
+     *
+     * For example, if a file was added and then edited, the change type for this file for processing within Tia should
+     * be added (not edited).
+     *
+     * @param sourceCodeFiles
+     */
+    private void sortFileChanges(List<IFileSpec> sourceCodeFiles){
+        Collections.sort(sourceCodeFiles, Comparator.comparing(IFileSpec::getChangelistId));
     }
 
     /**
@@ -328,11 +343,75 @@ public class P4DiffAnalyzer {
         return tiaMappingPath;
     }
 
-    private void buildDiffContext(String diffOldPath, String diffNewPath, FileAction changeType,
-                                  Map<String, SourceFileDiffContext> sourceFileDiffContexts, String pathForTracking) {
-        SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffNewPath,
-                convertP4ChangeType(changeType));
-        sourceFileDiffContexts.put(pathForTracking, diffContext);
+    private void addDiffContext(String diffOldPath, String diffNewPath, FileAction changeType,
+                                Map<String, SourceFileDiffContext> sourceFileDiffContexts, String pathForTracking) {
+        SourceFileDiffContext diffContext = buildDiffContext(diffOldPath, diffNewPath, convertP4ChangeType(changeType),
+                sourceFileDiffContexts, pathForTracking);
+
+        if (diffContext != null){
+            sourceFileDiffContexts.put(pathForTracking, diffContext);
+        }
+    }
+
+    /**
+     * Build the diff context for a source file that has changed. The diff context will be used to load the before and
+     * after file content used to perform the diff and understand which methods have changed, and which tests to run.
+     *
+     * In some scenarios the change action is overridden. For Perforce we load all the individual CL's from the start of
+     * the range to the end and then iterate over them sequentially from oldest to newest. In some cases a file can be
+     * changed multiple times within the CL range. i.e. when Tia hasn't run for a while. If Tia is run after every commit
+     * this situation shouldn't happen.
+     *
+     * We want the end change action to reflect the over change from the beginning as we only keep 1 diff context for the file.
+     * i.e. if a file was added then edited in the CL range, we want the final action type for the diff context to be
+     * 'added' as that's the final state when compared to the state at the beginning of the CL range.
+     *
+     * Override mapping:
+     * 1st commit -> 2nd commit = overridden action
+     * add -> edit = add
+     * add -> delete = delete (treat the file like it never existed in the CL range)
+     * edit -> edit = edit
+     * edit -> delete = delete
+     * delete -> add = edit
+     *
+     * @param diffOldPath
+     * @param diffNewPath
+     * @param currentChangeType
+     * @param sourceFileDiffContexts
+     * @param pathForTracking
+     * @return the SourceFileDiffContext for the file change, or null if the file change should not be processed by Tia for selection.
+     */
+    private SourceFileDiffContext buildDiffContext(String diffOldPath, String diffNewPath, ChangeType currentChangeType,
+                                                   Map<String, SourceFileDiffContext> sourceFileDiffContexts,
+                                                   String pathForTracking){
+
+        SourceFileDiffContext newDiffContext = new SourceFileDiffContext(diffOldPath, diffNewPath, currentChangeType);
+        SourceFileDiffContext previousDiffContext = sourceFileDiffContexts.get(pathForTracking);
+
+        if (previousDiffContext != null){
+            ChangeType previousChangeType = previousDiffContext.getChangeType();
+
+            // if a file is both added and edited in the CL range, keep the action as add
+            if (previousChangeType == ChangeType.ADD && currentChangeType == ChangeType.MODIFY){
+                log.debug("Converting change type from MODIFY back to ADD given the file didn't exist at the beginning of the CL range: {}", pathForTracking);
+                newDiffContext = previousDiffContext;
+            }
+
+            // if a file existed before, and was deleted and then added back in the CL range, treat the action as edit
+            if (previousChangeType == ChangeType.DELETE && currentChangeType == ChangeType.ADD){
+                log.debug("Converting change type from ADD back to MODIFY as the file previously existed at the start of the CL range: {}", pathForTracking);
+                previousDiffContext.setChangeType(ChangeType.MODIFY);
+                newDiffContext = previousDiffContext;
+            }
+
+            // delete file from list (never existed previously, doesn't exist now, no Tia tests to run)
+            if (previousChangeType == ChangeType.ADD && currentChangeType == ChangeType.DELETE){
+                log.debug("Not adding a file to the tracked source file diffs due to it being added and deleted in the CL range: {}", pathForTracking);
+                newDiffContext = null;
+            }
+        }
+
+        return newDiffContext;
     }
 
     /**
