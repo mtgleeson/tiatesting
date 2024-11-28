@@ -17,17 +17,16 @@ import java.util.stream.Collectors;
 
 import static j2html.TagCreator.*;
 import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
+import static org.tiatesting.core.report.html.HtmlSourceMethodReport.METHODS_FOLDER;
 
 public class HtmlTestSuiteReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlTestSuiteReport.class);
     protected static final String TEST_SUITES_FOLDER = "test-suites";
     protected static final String TIA_TEST_SUITES_HTML = "tia-test-suites.html";
-    private final String filenameExt;
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
 
     public HtmlTestSuiteReport(String filenameExt, File reportOutputDir){
-        this.filenameExt = filenameExt;
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
                 + File.separator + filenameExt + File.separator + TEST_SUITES_FOLDER);
     }
@@ -135,22 +134,34 @@ public class HtmlTestSuiteReport {
                             ),
                             div(
                                     p(
-                                            a("back to Test Suites").attr("href=tia-test-suites.html")
-                                    )
+                                            a("go to Test Suites").attr("href=tia-test-suites.html")
+                                    ),
+                                    h3("Stats"),
+                                    p(
+                                            div("Avg run time (ms): " + testSuiteTracker.getTestStats().getAvgRunTime()),
+                                            br(),
+                                            div("Num runs: " + testSuiteTracker.getTestStats().getNumRuns()),
+                                            br(),
+                                            div("Num successes: " + testSuiteTracker.getTestStats().getNumSuccessRuns()),
+                                            br(),
+                                            div("Success: " + getAvgSuccess(testSuiteTracker.getTestStats()) + "%"),
+                                            br(),
+                                            div("Num fails: " + testSuiteTracker.getTestStats().getNumFailRuns()),
+                                            br(),
+                                            div("Fail: " + getAvgFail(testSuiteTracker.getTestStats()) + "%"),
+                                            br()
+                                    ),
+                                    h3("Source methods executed by the test suite")
                             ),
                             table(attrs("#tiaSourceMethodTable"),
                                     thead(
                                             tr(
-                                                    th("Name"),
-                                                    th("Line start").attr(numberDataType),
-                                                    th("Line end").attr(numberDataType)
+                                                    th("Name")
                                             )
                                     ), tbody(
                                             each(methodIds, methodId ->
                                                     tr(
-                                                            td(tiaData.getMethodsTracked().get(methodId).getNameForDisplay()),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodId).getLineNumberStart())),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(methodId).getLineNumberEnd()))
+                                                            td(a(tiaData.getMethodsTracked().get(methodId).getNameForDisplay()).attr("href=\"../" + METHODS_FOLDER + "/" + methodId + ".html\""))
                                                     )
                                             )
                                     )

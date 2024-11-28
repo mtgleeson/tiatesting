@@ -98,7 +98,7 @@ public class MethodImpactAnalyzer {
     /**
      * Check if any of the impacted code line numbers are within the current methods line numbers.
      * Note: the stored line numbers generated from the code coverage analysis start from the line after the
-     * method name, and end at the line before the closing brace.
+     * method description/signature, and end at the line with the closing brace.
      *
      * IM = impacted method (from VCS).
      * Check start point is within method:			    IM start > = method start && IM start <= method end

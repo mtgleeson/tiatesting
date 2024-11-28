@@ -102,7 +102,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
             return;
         }
 
-        log.debug("Collecting coverage and adding the mapping for the test suite: " + specName);
         TestSuiteTracker testSuiteTracker = testSuiteTrackers.get(specName);
 
         if (updateDBStats){
@@ -110,6 +109,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         }
 
         if (updateDBMapping) {
+            log.debug("Collecting coverage and adding the mapping for the test suite: " + specName);
             try {
                 CoverageResult coverageResult = this.coverageClient.collectCoverage();
                 testSuiteTracker.setClassesImpacted(coverageResult.getClassesInvoked());
