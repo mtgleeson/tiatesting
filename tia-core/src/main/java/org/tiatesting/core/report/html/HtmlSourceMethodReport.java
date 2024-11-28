@@ -18,18 +18,17 @@ import java.util.*;
 
 import static j2html.TagCreator.*;
 import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
+import static org.tiatesting.core.report.html.HtmlTestSuiteReport.TEST_SUITES_FOLDER;
 
 public class HtmlSourceMethodReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlSourceMethodReport.class);
     protected static final String TIA_SOURCE_METHODS_HTML = "tia-source-methods.html";
     protected static final String TIA_SOURCE_METHODS__TEST_JS = "tia-source-methods-tests.js";
     protected static final String METHODS_FOLDER = "methods";
-    private final String filenameExt;
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
 
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
-        this.filenameExt = filenameExt;
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
                 + File.separator + filenameExt + File.separator + METHODS_FOLDER);
     }
@@ -38,7 +37,7 @@ public class HtmlSourceMethodReport {
         Map<Integer, ClassTestSuite> methodToTestSuites = buildMethodToTestSuiteMap(tiaData);
         createOutputDir();
         generateSourceMethodsReportFile(tiaData, methodToTestSuites);
-        generateTestSuitesReportFiles(tiaData, methodToTestSuites);
+        generateMethodReportFiles(tiaData, methodToTestSuites);
     }
 
     private void generateSourceMethodsReportFile(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
@@ -97,9 +96,9 @@ public class HtmlSourceMethodReport {
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
 
-    private void generateTestSuitesReportFiles(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
+    private void generateMethodReportFiles(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
         long startTime = System.currentTimeMillis();
-        log.info("Writing the test suites reports to {}", reportOutputDir.getAbsoluteFile());
+        log.info("Writing the method data including test suites reports to {}", reportOutputDir.getAbsoluteFile());
 
         writeMethodTestSuiteJSFile();
 
@@ -126,12 +125,21 @@ public class HtmlSourceMethodReport {
                     ),
                     body(
                             header(
-                                    h2("Test Suites for " + methodImpactTracker.getNameForDisplay())
+                                    h2("Source Method: " + methodImpactTracker.getNameForDisplay())
                             ),
                             div(
                                     p(
-                                            a("back to Source Methods").attr("href=tia-source-methods.html")
-                                    )
+                                            a("go to Source Methods").attr("href=tia-source-methods.html"),
+                                            br()
+                                    ),
+                                    h3("Coverage"),
+                                    p(
+                                            div("Line start: " + methodImpactTracker.getLineNumberStart()),
+                                            br(),
+                                            div("Line end: " + methodImpactTracker.getLineNumberEnd()),
+                                            br()
+                                    ),
+                                    h3("Test suits that execute the source method")
                             ),
                             table(attrs("#tiaSourceMethodTable"),
                                     thead(
@@ -147,7 +155,7 @@ public class HtmlSourceMethodReport {
                                     ), tbody(
                                             each(classTestSuite.getTestSuites(), testSuiteTracker ->
                                                     tr(
-                                                            td(testSuiteTracker.getName()),
+                                                            td(a(testSuiteTracker.getName()).attr("href=\"../" + TEST_SUITES_FOLDER + "/" + testSuiteTracker.getName() + ".html\"")),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getAvgRunTime())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumRuns())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumSuccessRuns())),
