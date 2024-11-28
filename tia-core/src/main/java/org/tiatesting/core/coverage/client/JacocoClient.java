@@ -91,10 +91,10 @@ public class JacocoClient {
 
         bundleCoverage.getPackages().forEach( bundlePackage -> {
 
-            if (containsLineCoverage(bundlePackage)){
+            if (containsLineCoverage(bundlePackage.getLineCounter())){
                 bundlePackage.getClasses().forEach( bundleClass -> {
 
-                    if (containsLineCoverage(bundleClass)){
+                    if (containsLineCoverage(bundleClass.getLineCounter())){
                         String sourceFilename = bundlePackage.getName() + "/" + bundleClass.getSourceFileName();
                         log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
 
@@ -110,7 +110,7 @@ public class JacocoClient {
                             MethodImpactTracker methodTracker = new MethodImpactTracker(methodName,  method.getFirstLine(), method.getLastLine());
                             coverageResult.getAllMethodsClassesInvoked().put(methodTracker.hashCode(), methodTracker);
 
-                            if (containsLineCoverage(method)){
+                            if (containsLineCoverage(method.getLineCounter())){
                                 methodsImpactedForClass.add(methodTracker.hashCode());
                                 log.trace("Method contains line coverage {} first: {} last: {}", method.getName(),
                                         method.getFirstLine(), method.getLastLine());
@@ -126,8 +126,8 @@ public class JacocoClient {
         return coverageResult;
     }
 
-    private boolean containsLineCoverage(ICoverageNode coverageNode){
-        return coverageNode.getLineCounter().getMissedCount() < coverageNode.getLineCounter().getTotalCount();
+    private boolean containsLineCoverage(ICounter counter){
+        return counter.getMissedCount() < counter.getTotalCount();
     }
 
     private IBundleCoverage analyze(final ExecutionDataStore data) throws IOException {
