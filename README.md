@@ -18,7 +18,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ### Maven, JUnit4 and Git
 Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
-For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git-maven-plugin&smo=true) and [tia-junit-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-git&smo=true).
+For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-git-maven-plugin&smo=true) and [tia-junit4-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-git&smo=true).
 
 **Note:** If your tests live in the same project as your source code, you need to include and configure Jacoco to run in TCP server mode (see below). If your source code lives in a different project to your tests, you need to ensure your project that contains your source code is configured to run with Jacoco in TCP server mode. You can then omit the Jacoco configuration below from your test project pom.xml.
 
@@ -37,10 +37,10 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
 </properties>
 
 <dependencies>
-    <!-- tia-junit-git is needed for the Tia test listener used by Surefire/Failsafe. -->
+    <!-- tia-junit4-git is needed for the Tia test listener used by Surefire/Failsafe. -->
     <dependency>
         <groupId>org.tiatesting</groupId>
-        <artifactId>tia-junit-git</artifactId>
+        <artifactId>tia-junit4-git</artifactId>
         <version>0.1.6-SNAPSHOT</version>
         <scope>test</scope>
     </dependency>
@@ -51,7 +51,7 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
         <plugin>
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit-git-maven-plugin</artifactId>
+            <artifactId>tia-junit4-git-maven-plugin</artifactId>
             <version>0.1.6-SNAPSHOT</version>
             <executions>
                 <execution>
@@ -120,9 +120,9 @@ For the latest versions, see [tia-junit-git-maven-plugin](https://central.sonaty
 ```
 
 ### Maven, JUnit and Perforce
-Use the configuration documented above for [Maven, Junit and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit-git` with `tia-junit-perforce` and `tia-junit-git-maven-plugin` with `tia-junit-perforce-maven-plugin`.
+Use the configuration documented above for [Maven, Junit and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit4-git` with `tia-junit4-perforce` and `tia-junit4-git-maven-plugin` with `tia-junit4-perforce-maven-plugin`.
 
-For the latest versions, see [tia-junit-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-perforce-maven-plugin&smo=true) and [tia-junit-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit-perforce&smo=true).
+For the latest versions, see [tia-junit4-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce-maven-plugin&smo=true) and [tia-junit4-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce&smo=true).
 
 ### Gradle, Spock and Git
 Include the following configuration in your project where you execute your tests. 
@@ -207,12 +207,12 @@ none
 
 **Maven, Junit4 and Git**
 ```
-mvn tia-junit-git:info
+mvn tia-junit4-git:info
 ```
 
 **Maven, Junit4 and Perforce**
 ```
-mvn tia-junit-perforce:info
+mvn tia-junit4-perforce:info
 ```
 
 **Gradle, Spock and Git**
@@ -236,17 +236,17 @@ Selected tests to run:
 
 **Maven, Junit4 and Git**
 ```
-tia-junit-git:select-tests
+tia-junit4-git:select-tests
 ```
 
 Note: to see extra debugging including what test suites are being selected broken down by source methods:
 ```
-tia-junit-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+tia-junit4-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
 ```
 
 **Maven, Junit4 and Perforce**
 ```
-tia-junit-perforce:select-tests
+tia-junit4-perforce:select-tests
 ```
 
 **Gradle, Spock and Git**
@@ -282,12 +282,12 @@ Generate a HTML report showing the current information about the Tia DB, the tes
 
 **Maven, Junit4 and Git**
 ```
-mvn tia-junit-git:html-report
+mvn tia-junit4-git:html-report
 ```
 
 **Maven, Junit4 and Perforce**
 ```
-mvn tia-junit-perforce:html-report
+mvn tia-junit4-perforce:html-report
 ```
 
 **Gradle, Spock and Git**
@@ -300,12 +300,12 @@ Generate a basic text report showing the current information about the Tia DB, t
 
 **Maven, Junit4 and Git**
 ```
-mvn tia-junit-git:text-report
+mvn tia-junit4-git:text-report
 ```
 
 **Maven, Junit4 and Perforce**
 ```
-mvn tia-junit-perforce:text-report
+mvn tia-junit4-perforce:text-report
 ```
 
 **Gradle, Spock and Git**

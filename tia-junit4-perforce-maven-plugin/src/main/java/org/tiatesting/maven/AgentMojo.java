@@ -18,7 +18,7 @@ public class AgentMojo extends AbstractTiaAgentMojo {
     /**
      * Name of the Tia Test Agent artifact.
      */
-    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-junit-agent";
+    static final String AGENT_ARTIFACT_NAME = "org.tiatesting:tia-junit4-agent";
 
     /**
      * Map of plugin artifacts.
