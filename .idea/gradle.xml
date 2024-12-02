@@ -10,10 +10,10 @@
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/tia-core" />
             <option value="$PROJECT_DIR$/tia-gradle" />
-            <option value="$PROJECT_DIR$/tia-junit" />
-            <option value="$PROJECT_DIR$/tia-junit-agent" />
-            <option value="$PROJECT_DIR$/tia-junit-git" />
-            <option value="$PROJECT_DIR$/tia-junit-perforce" />
+            <option value="$PROJECT_DIR$/tia-junit4" />
+            <option value="$PROJECT_DIR$/tia-junit4-agent" />
+            <option value="$PROJECT_DIR$/tia-junit4-git" />
+            <option value="$PROJECT_DIR$/tia-junit4-perforce" />
             <option value="$PROJECT_DIR$/tia-spock" />
             <option value="$PROJECT_DIR$/tia-spock-git-gradle" />
             <option value="$PROJECT_DIR$/tia-vcs-git" />

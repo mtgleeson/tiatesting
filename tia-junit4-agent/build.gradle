@@ -9,7 +9,7 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 
 dependencies {
     implementation project(':tia-core')
-    implementation group: 'junit', name: 'junit', version: junitVersion
+    implementation group: 'junit', name: 'junit', version: junit4Version
     implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
 }
 
@@ -42,11 +42,11 @@ tasks.register('uberJarAgent', Jar) {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            artifactId = 'tia-junit-agent'
+            artifactId = 'tia-junit4-agent'
             artifact uberJarAgent
 
             pom {
-                name = 'Tia JUnit Agent'
+                name = 'Tia JUnit4 Agent'
                 description = 'This library contains the agent used for Tia with JUnit.'
             }
         }
