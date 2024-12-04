@@ -92,7 +92,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
                 <properties>
                     <property>
                         <name>listener</name>
-                        <value>org.tiatesting.junit.junit4.TiaTestingJunit4GitListener</value>
+                        <value>org.tiatesting.junit.junit4.TiaJunit4GitListener</value>
                     </property>
                 </properties>
             </configuration>

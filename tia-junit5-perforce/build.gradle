@@ -9,18 +9,20 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 
 dependencies {
     implementation project(':tia-core')
-    implementation group: 'junit', name: 'junit', version: junit4Version
+    implementation project(':tia-junit5')
+    implementation project(':tia-vcs-perforce')
+    implementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: junit5PlatformVersion
     implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
 }
 
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            artifactId = 'tia-junit4'
+            artifactId = 'tia-junit5-perforce'
 
             pom {
-                name = 'Tia JUnit4'
-                description = 'This library contains the base logic for running Tia with JUnit4.'
+                name = 'Tia JUnit5 Perforce'
+                description = 'This library contains the logic for running Tia with JUnit5 and Perforce.'
             }
         }
     }

@@ -102,13 +102,13 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
      * committed changes only.
      *
-     * @return
+     * @return should Tia check for unsubmitted changes
      */
     private boolean isCheckLocalChanges(){
-        if (Boolean.valueOf(getUpdateDBMapping())){
+        if (getUpdateDBMapping()){
             return false;
-        } else{
-            return Boolean.valueOf(getCheckLocalChanges());
+        } else {
+            return getCheckLocalChanges();
         }
     }
 
@@ -154,7 +154,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         if (tiaTaskExtension.getReportOutputDir() != null){
             return tiaTaskExtension.getReportOutputDir();
         }else{
-            return new File(project.getBuildDir().getPath() + File.separator + "tia/reports");
+            return new File(project.getLayout().getBuildDirectory().getAsFile().get().getPath() + File.separator + "tia/reports");
         }
     }
 

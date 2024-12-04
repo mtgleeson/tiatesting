@@ -28,14 +28,17 @@ public class TestStats implements Serializable {
     /**
      * Increment the stats of this tracked test suite by the specified amounts.
      *
-     * @param testStats the test statistics
+     * @param testStats the test statistics being added
      */
     public void incrementStats(final TestStats testStats){
-        long totalRunTime = (this.numRuns * this.avgRunTime) + (testStats.getNumRuns() * testStats.getAvgRunTime());
-        this.numRuns += testStats.getNumRuns();
-        this.avgRunTime = totalRunTime / this.numRuns;
-        this.numSuccessRuns += testStats.getNumSuccessRuns();
-        this.numFailRuns += testStats.getNumFailRuns();
+        // only increment stats if there was a test run
+        if (testStats.getNumRuns() > 0){
+            long totalRunTime = (this.numRuns * this.avgRunTime) + (testStats.getNumRuns() * testStats.getAvgRunTime());
+            this.numRuns += testStats.getNumRuns();
+            this.numSuccessRuns += testStats.getNumSuccessRuns();
+            this.numFailRuns += testStats.getNumFailRuns();
+            this.avgRunTime = totalRunTime / this.numRuns;
+        }
     }
 
     public long getNumRuns() {
