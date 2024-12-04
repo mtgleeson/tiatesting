@@ -9,7 +9,7 @@
     <version>0.1.6-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Tia JUnit Git Maven Plugin</name>
+    <name>Tia JUnit4 Git Maven Plugin</name>
     <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Git version control projects.</description>
     <url>github.com/mtgleeson/tiatesting</url>
 

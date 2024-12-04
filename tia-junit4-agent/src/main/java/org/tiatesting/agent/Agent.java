@@ -42,7 +42,8 @@ public class Agent {
      * Set the selected tests to run as a System property so it's available for the test runners.
      * The test runners should rely on the ignore tests to drive which tests to exclude.
      * But the test runner will need to know which existing tests Tia is aware of that it selected to run as part
-     * of tracking previously failed tests that have now been ignored. We can't always rely on the test runner to fire
+     * of tracking previously failed tests that have now been ignored. Test suites can be filtered out by surefire
+     * when using the 'groups' configuration. Also, for Junit4, we can't always rely on the test runner to fire
      * for ignored tests (there's an issue with using the Surefire "groups" property not firing Ignored tests with junit).
      *
      * @param testsToRun

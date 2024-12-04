@@ -7,9 +7,11 @@
   <component name="MavenProjectsManager">
     <option name="originalFiles">
       <list>
-        <option value="$PROJECT_DIR$/tia-junit-git-maven-plugin/pom.xml" />
-        <option value="$PROJECT_DIR$/tia-junit-perforce-maven-plugin/pom.xml" />
         <option value="$PROJECT_DIR$/tia-maven-plugin/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-junit5-git-maven-plugin/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-junit4-git-maven-plugin/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-junit4-perforce-maven-plugin/pom.xml" />
+        <option value="$PROJECT_DIR$/tia-junit5-perforce-maven-plugin/pom.xml" />
       </list>
     </option>
     <option name="workspaceImportForciblyTurnedOn" value="true" />

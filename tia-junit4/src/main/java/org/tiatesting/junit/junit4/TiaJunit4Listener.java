@@ -10,20 +10,14 @@ import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.core.sourcefile.FileExtensions;
-import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,23 +26,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class TiaTestingJunit4Listener extends RunListener {
+public class TiaJunit4Listener extends RunListener {
 
-    private static final Logger log = LoggerFactory.getLogger(TiaTestingJunit4Listener.class);
+    private static final Logger log = LoggerFactory.getLogger(TiaJunit4Listener.class);
 
     private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
-    private final DataStore dataStore;
     private final String headCommit;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
-    private Set<String> testSuitesFailed;
+    private final Set<String> testSuitesFailed;
     private final String testClassesDir;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
     Track how many times the test suite was executed (hit the finish hook, this doesn't happen for ignored tests).
      */
-    private Map<String, Integer> runnerTestSuites;
+    private final Map<String, Integer> runnerTestSuites;
     /*
     The set of tests selected to run by Tia.
      */
@@ -57,9 +50,9 @@ public class TiaTestingJunit4Listener extends RunListener {
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
     private long testRunStartTime;
-    private TestStats testRunStats = new TestStats();
+    private final TestStats testRunStats = new TestStats();
 
-    public TiaTestingJunit4Listener(VCSReader vcsReader) {
+    public TiaJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
         this.enabled = isEnabled();
@@ -74,7 +67,7 @@ public class TiaTestingJunit4Listener extends RunListener {
         this.runnerTestSuites = new ConcurrentHashMap<>();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
-        this.dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
         vcsReader.close();
@@ -82,18 +75,18 @@ public class TiaTestingJunit4Listener extends RunListener {
     }
 
     /**
-     * Enable the TiaTestingJunit4Listener only if TIA is enabled and the test run is
+     * Enable the TiaJunit4Listener only if TIA is enabled and the test run is
      * marked to update the DB. i.e. only collect coverage metrics and update the
      * TIA DB when the test run is marked to update the DB (usually from CI).
      *
-     * @return
+     * @return is Tia enabled
      */
     private boolean isEnabled(){
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
         log.info("Tia Junit4Listener: enabled: {}, update mapping: {}, update stats: {}",
                 enabled, updateDBMapping, updateDBStats);
 
-        /**
+        /*
          * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
          */
         if (enabled){
@@ -109,6 +102,24 @@ public class TiaTestingJunit4Listener extends RunListener {
         return enabled && (updateDBMapping || updateDBStats);
     }
 
+    private void setSelectedTests(){
+        String selectedTestsStr = System.getProperty("tiaSelectedTests");
+        if (selectedTestsStr != null && !selectedTestsStr.trim().isEmpty()){
+            this.selectedTests = Stream.of(selectedTestsStr.split(",")).collect(Collectors.toSet());
+        }else{
+            this.selectedTests = new HashSet<>();
+        }
+        log.trace("Reading system property tiaSelectedTests: {}", selectedTests);
+    }
+
+    /**
+     * This method gets called once for all tests. But on re-runs, sometime this won't get called again,
+     * the retry of the failed tests will happen all within 1 run.
+     * I've als seen retries of failed tests happen in separate runs.
+     *
+     * @param description The test run description.
+     * @throws Exception The exception thrown by the test runner.
+     */
     @Override
     public void testRunStarted(Description description) throws Exception {
         if (!enabled){
@@ -134,18 +145,19 @@ public class TiaTestingJunit4Listener extends RunListener {
         String testSuiteName = getTestSuiteName(description);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
-        if (testSuiteTracker == null){
+        // check if this is the first run for the test suite
+        if (testSuiteTracker == null) {
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
+        }
 
-            if (updateDBStats){
-                // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
-                testSuiteTracker.getTestStats().setNumSuccessRuns(1);
+        if (updateDBStats){
+            // assume the test suite will run and succeed. Explicitly set to 0 on failure, or no runs if ignored.
+            testSuiteTracker.getTestStats().setNumSuccessRuns(1);
 
-                if (shouldCalcTestSuiteAvgTime(description, testSuiteName)){
-                    // track the start of the test run, do it in the test suite object to keep the class thread safe
-                    testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
-                }
+            if (shouldCalcTestSuiteAvgTime(description, testSuiteName)){
+                // track the start of the test run, do it in the test suite object to keep the class thread safe
+                testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
             }
         }
 
@@ -235,6 +247,9 @@ public class TiaTestingJunit4Listener extends RunListener {
 
     /**
      * Called when all tests have finished.
+     * This method gets called once for all tests. But on re-runs, sometime this won't get called again,
+     * the retry of the failed tests will happen all within 1 run.
+     * I've als seen retries of failed tests happen in separate runs.
      *
      * @param result the Junit runner result
      */
@@ -252,9 +267,13 @@ public class TiaTestingJunit4Listener extends RunListener {
                 selectedTests, testRunMethodsImpacted, testStats);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
 
-        // clear the trackers in case there are test failures and it's configured to retry so there's another test run.
-        // we don't want to keep the stats from the first test run for the subsequent test runs.
-        testSuiteTrackers.clear();
+        // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
+        // We don't want to keep the stats from the first test run for the subsequent test runs.
+        // But we do want to keep the mapping from previous runs as retry runs will only execute the failed tests
+        // which is a subset of test and won't contain the mapping for the successful tests in the previous run.
+        if (testRunStats.getNumRuns() > 0) {
+            testSuiteTrackers.values().forEach(testSuiteTracker -> resetStatsForSubsequentRun(testSuiteTracker.getTestStats()));
+        }
     }
 
     private TestStats getStatsForTestRun(){
@@ -292,9 +311,9 @@ public class TiaTestingJunit4Listener extends RunListener {
      * We want the run time for the whole test suite - the first attempt.
      * Also, for parameterized tests suites, only calculate the runtime for the overall test suite, not the individual param tests.
      *
-     * @param description
-     * @param testSuiteName
-     * @return
+     * @param testSuiteName The name of the test suite being executed
+     * @param description the description of the test being executed
+     * @return if we should calculate the average execution time for the test suite
      */
     private boolean shouldCalcTestSuiteAvgTime(Description description, String testSuiteName){
         boolean testSuiteFirstRun = !runnerTestSuites.containsKey(testSuiteName) || runnerTestSuites.get(testSuiteName) == 0;
@@ -305,8 +324,8 @@ public class TiaTestingJunit4Listener extends RunListener {
      * If the test suite is a parameterized test, we may already have a testSuiteTracker for the parent class
      * group the coverage for all parameterized tests into its parent class.
      *
-     * @param testSuiteTracker
-     * @param classImpactTrackers
+     * @param testSuiteTracker the test suite being executed
+     * @param classImpactTrackers the class trackers with coverage info for the test suite being executed
      */
     private static void addClassTrackersToTestSuiteTracker(TestSuiteTracker testSuiteTracker,
                                                            List<ClassImpactTracker> classImpactTrackers) {
@@ -341,67 +360,40 @@ public class TiaTestingJunit4Listener extends RunListener {
      * Parameterized tests don't have a test class, it's null.
      * The overall test suite containing the param tests will have a test class.
      *
-     * @param description
-     * @return
+     * @param description the description of the test being executed
+     * @return is the test being executed a parameterized test
      */
     private boolean isParameterizedTest(Description description){
         return description.getTestClass() == null;
     }
 
     /**
-     * Get the list of test suites being executed by the test runner. Normally we can rely on the test runner to be passed
-     * the full list of test suites to be executed (including ignored test suites).
-     *
+     * Get the list of test suites being executed by the test runner. But when "groups" is used in Surefire, it
+     * filters the tests being executed and so out TestExecutionListener is not aware of the test suites filtered out.
+     * So we can't rely on using TestExecutionListener to know the full list of tests.
+     * <p>
      * There is an edge case where Surefire doesn't seem to pass the Ignored test classes when specifying the "groups"
      * param. In this case the junit listener only executes the unignored test suites and Tia will then think all the
      * ignored test classes were deleted and remove them from the DB.
-     *
-     * i.e. testSuiteStarted and testIgnored hooks are not being fired for Ignored tests when "groups" is specified.
-     * Seems like a bug with Surefire.
-     *
+     * <p>
+     * i.e. testIgnored hooks are not being fired for Ignored classes when "groups" is specified for Surefire.
+     * When groups is not specified and a test suite is Ignored, only the testIgnored() method is fired.
+     * Seems like a bug with Surefire
+     * <p>
      * To work around this, the user can specify the test-classes file system path and we can read all the classes and use
-     * that as the list of known test classes valid for the test run.
+     * that as the list of known test classes valid for the test run. i.e. if a test class exists, it hasn't been
+     * deleted and so we treat it as still value (even if it's disabled or filtered out via 'groups').
+     * This was we don't delete the tests that are being filtered from Tia. We only delete from Tia when the test class
+     * has been removed.
      *
-     * @return
+     * @return the set of all test suite names for the project that Tia is aware of.
      */
     private Set<String> getRunnerTestSuites(){
         if (testClassesDir == null){
             return runnerTestSuites.keySet();
         }
 
-        Path path = Paths.get(testClassesDir);
-        if (!Files.isDirectory(path)) {
-            throw new IllegalArgumentException("Test classes path must be a directory - " + testClassesDir);
-        }
-
-        Set<String> testClasses;
-        String classFileExt = "." + FileExtensions.CLASS_FILE_EXT;
-
-        try (Stream<Path> walk = Files.walk(path)) {
-            testClasses = walk
-                    .filter(p -> !Files.isDirectory(p))
-                    // convert from the full file system path for the class files into the class name
-                    .map(p -> p.toString())
-                    .filter(f -> f.toLowerCase().endsWith(classFileExt))
-                    .map(p -> p.replace(testClassesDir, "").replace(classFileExt, ""))
-                    .map(p -> p.substring((p.startsWith(File.separator) ? 1 : 0)).replace(File.separator, "."))
-                    .collect(Collectors.toSet());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        log.trace("Test classes found: " + testClasses);
-        return testClasses;
-    }
-
-    private void setSelectedTests(){
-        String selectedTestsStr = System.getProperty("tiaSelectedTests");
-        if (selectedTestsStr != null && !selectedTestsStr.trim().isEmpty()){
-            this.selectedTests = Stream.of(selectedTestsStr.split(",")).collect(Collectors.toSet());
-        }else{
-            this.selectedTests = new HashSet<>();
-        }
-        log.trace("Reading system property tiaSelectedTests: {}", selectedTests);
+        return testRunnerService.getTestClassesFromDir(testClassesDir);
     }
 
     private void updateTrackerStatsForFailedRun(String testSuiteName) {
@@ -410,5 +402,18 @@ public class TiaTestingJunit4Listener extends RunListener {
             testSuiteTracker.getTestStats().setNumSuccessRuns(0);
             testSuiteTracker.getTestStats().setNumFailRuns(1);
         }
+    }
+    /**
+     * Clear the stats for the test suite when being re-run due to a failed retry.
+     * Don't reset the average time, we keep that from the initial run as the initial run covers all tests.
+     * Re-run times will be shorter due to only running failed tests. We don't want to use this for the avg time for
+     * the suite.
+     *
+     * @param testStats The stats for a test suite.
+     */
+    private void resetStatsForSubsequentRun(TestStats testStats) {
+        testStats.setNumRuns(0);
+        testStats.setNumSuccessRuns(0);
+        testStats.setNumFailRuns(0);
     }
 }

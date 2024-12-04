@@ -47,7 +47,7 @@ publishing {
 
             pom {
                 name = 'Tia JUnit4 Agent'
-                description = 'This library contains the agent used for Tia with JUnit.'
+                description = 'This library contains the agent used for Tia with JUnit4.'
             }
         }
     }
