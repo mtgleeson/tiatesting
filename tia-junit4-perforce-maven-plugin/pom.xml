@@ -9,8 +9,8 @@
     <version>0.1.6-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Tia Junit Perforce Maven Plugin</name>
-    <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Junit and Perforce version control projects.</description>
+    <name>Tia Junit4 Perforce Maven Plugin</name>
+    <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Junit4 and Perforce version control projects.</description>
     <url>github.com/mtgleeson/tiatesting</url>
 
     <licenses>

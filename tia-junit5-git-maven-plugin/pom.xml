@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.tiatesting</groupId>
-    <artifactId>tia-junit4-git-maven-plugin</artifactId>
+    <artifactId>tia-junit5-git-maven-plugin</artifactId>
     <version>0.1.6-SNAPSHOT</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Tia JUnit4 Git Maven Plugin</name>
+    <name>Tia JUnit5 Git Maven Plugin</name>
     <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests. This plugin is built for Git version control projects.</description>
     <url>github.com/mtgleeson/tiatesting</url>
 
@@ -56,7 +56,7 @@
         </dependency>
         <dependency>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit4-agent</artifactId>
+            <artifactId>tia-junit5-agent</artifactId>
             <version>${tia.version}</version>
             <classifier>runtime</classifier>
         </dependency>

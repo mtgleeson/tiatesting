@@ -1,10 +1,10 @@
 package org.tiatesting.agent;
 
-import org.junit.Ignore;
+import org.junit.jupiter.api.Disabled;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
 import org.tiatesting.core.agent.AgentOptions;
+import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
 
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
@@ -27,7 +27,7 @@ public class Agent {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
+        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Disabled.class);
 
         Set<String> selectedTests;
         try (Stream<String> lines = Files.lines(Paths.get(agentOptions.getSelectedTestsFile()))) {
@@ -43,8 +43,7 @@ public class Agent {
      * The test runners should rely on the ignore tests to drive which tests to exclude.
      * But the test runner will need to know which existing tests Tia is aware of that it selected to run as part
      * of tracking previously failed tests that have now been ignored. Test suites can be filtered out by surefire
-     * when using the 'groups' configuration. Also, for Junit4, we can't always rely on the test runner to fire
-     * for ignored tests (there's an issue with using the Surefire "groups" property not firing Ignored tests with junit).
+     * when using the 'groups' configuration.
      *
      * @param testsToRun
      */
