@@ -6,7 +6,7 @@
 
     <groupId>org.tiatesting</groupId>
     <artifactId>tia-junit4-perforce-maven-plugin</artifactId>
-    <version>0.1.6-SNAPSHOT</version>
+    <version>0.1.6</version>
     <packaging>maven-plugin</packaging>
 
     <name>Tia Junit4 Perforce Maven Plugin</name>
@@ -34,7 +34,7 @@
     </scm>
 
     <properties>
-        <tia.version>0.1.6-SNAPSHOT</tia.version>
+        <tia.version>0.1.6</tia.version>
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
     </properties>
