@@ -4,6 +4,11 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ## Starting Points
 - [Getting started](#getting-started)
+	- [Maven, Junit5, Git](#maven-junit5-and-git)
+  	- [Maven, Junit5, Perforce](#maven-junit5-and-perforce)
+  	- [Maven, Junit4, Git](#maven-junit4-and-git)
+  	- [Maven, Junit4, Perforce](#maven-junit4-and-perforce)
+  	- [Gradle, Spock, Git](#gradle-spock-and-git)
 - [Usage](#usage)
 - [Configuration Options](#configuration-options)
 - [What is Tia](#what-is-tia)
@@ -15,6 +20,118 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Feature Request](https://github.com/mtgleeson/tiatesting/issues)
 
 ## Getting Started
+
+### Maven, JUnit5 and Git
+1. Registering the Tia LaunchSessionListener.
+   
+Tia uses a LauncherSessionListener to plugin to the Junit5 framework for updating test coverage mappings and stats. To register the Tia LaunchSessionListener use Java’s [ServiceLoader](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/ServiceLoader.html) mechanism. Create a file called org.junit.platform.launcher.LauncherSessionListener in the /test/resources/META-INF/services folder of your test project. This file should contain the list of of Junit5 session listeners. Add the following line to this file (if you already have this file, add the following as a separate line).
+
+`/test/resources/META-INF/services/org.junit.platform.launcher.LauncherSessionListener`
+```
+org.tiatesting.junit.junit5.TiaLauncherSessionListener
+```
+
+2. Congifuring your test project POM for Tia.
+Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
+For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git-maven-plugin&smo=true) and [tia-junit5-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git&smo=true).
+
+**Note:** If your tests live in the same project as your source code, you need to include and configure Jacoco to run in TCP server mode (see below). If your source code lives in a different project to your tests, you need to ensure your project that contains your source code is configured to run with Jacoco in TCP server mode. You can then omit the Jacoco configuration below from your test project pom.xml.
+
+`pom.xml`
+```xml
+<properties>
+    <tiaEnabled>true</tiaEnabled>
+    <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
+    <tiaUpdateDBStats>true</tiaUpdateDBStats>
+    <tiaCheckLocalChanges>false</tiaCheckLocalChanges>
+    <tiaProjectDir>.</tiaProjectDir>
+    <tiaClassFilesDirs>/target/classes</tiaClassFilesDirs>
+    <tiaSourceFilesDirs>/src/main/java</tiaSourceFilesDirs>
+    <tiaTestFilesDirs>/src/test/java</tiaTestFilesDirs>
+    <tiaDBFilePath>/some/path</tiaDBFilePath>    
+</properties>
+
+<dependencies>
+    <!-- tia-junit5-git is needed for the Tia test listener used by Surefire/Failsafe. -->
+    <dependency>
+        <groupId>org.tiatesting</groupId>
+        <artifactId>tia-junit5-git</artifactId>
+        <version>0.1.6</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>        
+        <plugin>
+            <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-junit5-git-maven-plugin</artifactId>
+            <version>0.1.6</version>
+            <executions>
+                <execution>
+                    <id>pre-test</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <phase>test-compile</phase>
+                </execution>
+            </executions>
+            <configuration>
+                <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
+                <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
+                <tiaSourceFilesDirs>${tiaSourceFilesDirs}</tiaSourceFilesDirs>
+                <tiaTestFilesDirs>${tiaTestFilesDirs}</tiaTestFilesDirs>                
+                <tiaCheckLocalChanges>${tiaCheckLocalChanges}</tiaCheckLocalChanges>
+                <tiaEnabled>${tiaEnabled}</tiaEnabled>
+            </configuration>
+        </plugin>
+        <plugin>
+            <!-- Configure Surefire to use Tia. Used to update the Tia test to source code mapping and/or stats when running the tests. -->
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>3.5.2</version>
+            <configuration>
+                <includes>
+                    <include>**/*Test.java</include>
+                </includes>
+                <systemPropertyVariables>
+                    <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
+                    <tiaClassFilesDirs>${tiaClassFilesDirs}</tiaClassFilesDirs>
+                    <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
+                    <tiaEnabled>${tiaEnabled}</tiaEnabled>
+                    <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
+                    <tiaUpdateDBStats>${tiaUpdateDBStats}</tiaUpdateDBStats>
+                    <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
+                </systemPropertyVariables>
+            </configuration>
+        </plugin>
+        <plugin>
+            <!-- Configure Jacoco as a TCP server, needed by Tia (which has a Jacoco client) for collecting the coverage data for each test suite. -->
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>            
+            <version>0.8.7</version>
+            <executions>
+                <execution>
+                    <id>pre-test</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <phase>test-compile</phase>
+                    <configuration>
+                        <output>tcpserver</output>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+### Maven, JUnit5 and Perforce
+Use the configuration documented above for [Maven, Junit5 and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit5-git` with `tia-junit5-perforce` and `tia-junit5-git-maven-plugin` with `tia-junit5-perforce-maven-plugin`.
+
+For the latest versions, see [tia-junit5-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce-maven-plugin&smo=true) and [tia-junit5-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce&smo=true).
 
 ### Maven, JUnit4 and Git
 Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
@@ -119,8 +236,8 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
 </build>
 ```
 
-### Maven, JUnit and Perforce
-Use the configuration documented above for [Maven, Junit and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit4-git` with `tia-junit4-perforce` and `tia-junit4-git-maven-plugin` with `tia-junit4-perforce-maven-plugin`.
+### Maven, JUnit4 and Perforce
+Use the configuration documented above for [Maven, Junit4 and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit4-git` with `tia-junit4-perforce` and `tia-junit4-git-maven-plugin` with `tia-junit4-perforce-maven-plugin`.
 
 For the latest versions, see [tia-junit4-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce-maven-plugin&smo=true) and [tia-junit4-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce&smo=true).
 
@@ -205,6 +322,16 @@ Pending failed tests:
 none
 ```
 
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:info
+```
+
+**Maven, Junit5 and Perforce**
+```
+mvn tia-junit5-perforce:info
+```
+
 **Maven, Junit4 and Git**
 ```
 mvn tia-junit4-git:info
@@ -234,14 +361,24 @@ Selected tests to run:
 	com.example.ParameterizedTest
 ```
 
-**Maven, Junit4 and Git**
+**Maven, Junit5 and Git**
 ```
-tia-junit4-git:select-tests
+tia-junit5-git:select-tests
 ```
 
 Note: to see extra debugging including what test suites are being selected broken down by source methods:
 ```
-tia-junit4-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+tia-junit5-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+```
+
+**Maven, Junit5 and Perforce**
+```
+tia-junit5-perforce:select-tests
+```
+
+**Maven, Junit4 and Git**
+```
+tia-junit4-git:select-tests
 ```
 
 **Maven, Junit4 and Perforce**
@@ -280,6 +417,16 @@ Generate a HTML report showing the current information about the Tia DB, the tes
 
 <kbd><img width="992" alt="Screen Shot 2024-05-14 at 10 04 34 PM" src="https://github.com/mtgleeson/tiatesting/assets/1771850/d04b527c-f88d-452a-ab20-2d864d7a4424"></kbd>
 
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:html-report
+```
+
+**Maven, Junit5 and Perforce**
+```
+mvn tia-junit5-perforce:html-report
+```
+
 **Maven, Junit4 and Git**
 ```
 mvn tia-junit4-git:html-report
@@ -297,6 +444,16 @@ gradle tia-html-report
 
 ### Text Report
 Generate a basic text report showing the current information about the Tia DB, the test suites and the source code.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:html-report
+```
+
+**Maven, Junit5 and Perforce**
+```
+mvn tia-junit5-perforce:html-report
+```
 
 **Maven, Junit4 and Git**
 ```
@@ -355,7 +512,7 @@ Developers using Tia on their local workspace should configure Tia to analyse lo
 | |Git|Perforce|
 |-|---|--------|
 |Junit 4|✔|✔|
-|Junit 5|x|x|
+|Junit 5|✔|✔|
 |Spock 2|x|x|
 
 ### Gradle
