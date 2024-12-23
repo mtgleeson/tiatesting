@@ -6,7 +6,7 @@
 
     <groupId>org.tiatesting</groupId>
     <artifactId>tia-maven-plugin</artifactId>
-    <version>0.1.6</version>
+    <version>0.1.7</version>
     <packaging>jar</packaging>
 
     <name>Tia Maven Plugin</name>
@@ -34,9 +34,10 @@
     </scm>
 
     <properties>
-        <tia.version>0.1.6</tia.version>
+        <tia.version>0.1.7</tia.version>
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
+        <gpg.skip>true</gpg.skip>
     </properties>
 
     <prerequisites>
@@ -118,7 +119,7 @@
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.4.0</version>
+                <version>0.6.0</version>
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central</publishingServerId>
@@ -128,4 +129,12 @@
         </plugins>
     </build>
 
+    <profiles>
+        <profile>
+            <id>release</id>
+            <properties>
+                <gpg.skip>false</gpg.skip>
+            </properties>
+        </profile>
+    </profiles>
 </project>
