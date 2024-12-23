@@ -65,7 +65,7 @@ public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
         // add the plugin itself as a test dependency for the calling project. This is required so the Spock IGlobalExtension
         // file under META-INF is added to the test class path.
         DependencyHandler dependencies = project.getDependencies();
-        dependencies.add(JavaPlugin.TEST_IMPLEMENTATION_CONFIGURATION_NAME, "org.tiatesting:tia-spock-git-gradle:0.1.6");
+        dependencies.add(JavaPlugin.TEST_IMPLEMENTATION_CONFIGURATION_NAME, "org.tiatesting:tia-spock-git-gradle:0.1.7");
 
         applyToDefaultTasks(tiaTestExtension);
     }
