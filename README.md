@@ -503,8 +503,10 @@ Tia uses Jacoco to collect the source code coverage for each test suite and stor
 
 The first time Tia runs it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that version of the test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
 
-Typically you will want a 'primary' automated build that is configured to run Tia on each commit/submit/check-in. Only this build should be configured to update the test suite to source code mapping in the DB (tiaUpdateDBMapping=true). 
-Developers using Tia on their local workspace should configure Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true). 
+Typically you will want a 'primary' automated build that is configured to run Tia on each commit/submit/check-in. Only this build should be configured to update the test suite to source code mapping in the DB (tiaUpdateDBMapping=true).
+Developers using Tia on their local workspace should configure Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true).
+
+**Note:** The build machine(s) that are designated to be the 'primary' (which update the test suite to source code mapping) need to run the tests suites **sequentially**. This is important to allow Tia to correctly associate the source code coverage with each test suite.  
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3
