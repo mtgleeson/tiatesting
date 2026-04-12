@@ -19,14 +19,15 @@ import java.util.Set;
 public class GitReader implements VCSReader {
 
     private static final Logger log = LoggerFactory.getLogger(GitReader.class);
-    public static final String GIT_REPOSITORY_NAME = "/.git";
+    public static final String GIT_REPOSITORY_NAME = ".git";
 
     private final GitDiffAnalyzer gitDiffAnalyzer;
     private final GitContext gitContext;
     private final GitCheckoutProcessor gitCheckoutProcessor;
 
     public GitReader(final String gitProjectPath) {
-        Repository repository = getFileRepository(gitProjectPath + GIT_REPOSITORY_NAME);
+        File gitDir = resolveGitDir(gitProjectPath);
+        Repository repository = getFileRepository(gitDir);
         gitContext = new GitContext(repository, readBranchName(repository), readHeadObjectId(repository));
         gitDiffAnalyzer = new GitDiffAnalyzer();
         gitCheckoutProcessor = new GitCheckoutProcessor();
@@ -56,6 +57,26 @@ public class GitReader implements VCSReader {
         return gitContext.getBranchName();
     }
 
+    private File resolveGitDir(String projectPath) {
+        File currentDir;
+        try {
+            currentDir = new File(projectPath).getCanonicalFile();
+        } catch (IOException e) {
+            throw new VCSAnalyzerException("Failed to resolve project path: " + projectPath, e);
+        }
+
+        while (currentDir != null) {
+            File gitDir = new File(currentDir, GIT_REPOSITORY_NAME);
+            if (gitDir.exists() && gitDir.isDirectory()) {
+                log.info("Found " + GIT_REPOSITORY_NAME + " directory in " + currentDir.getAbsolutePath());
+                return gitDir;
+            }
+            currentDir = currentDir.getParentFile();
+        }
+        throw new VCSAnalyzerException("Could not find " + GIT_REPOSITORY_NAME
+                + " directory in " + projectPath + " or any of its parent directories");
+    }
+
     private String readBranchName(final Repository repository) {
         try {
             return repository.getFullBranch().replaceAll("/", ".");
@@ -64,10 +85,10 @@ public class GitReader implements VCSReader {
         }
     }
 
-    private Repository getFileRepository(final String gitPath){
+    private Repository getFileRepository(final File gitDir){
         try {
             return new FileRepositoryBuilder()
-                    .setGitDir(new File(gitPath)) //"my_repo/.git"
+                    .setGitDir(gitDir) //"my_repo/.git"
                     .build();
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);

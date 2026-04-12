@@ -12,6 +12,8 @@ public class TiaLauncherSessionListener implements LauncherSessionListener {
 
     @Override
     public void launcherSessionOpened(LauncherSession session) {
-        session.getLauncher().registerTestExecutionListeners(new TiaJunit5GitListener(sharedTestRunData));
+        if (Boolean.parseBoolean(System.getProperty("tiaEnabled"))){
+            session.getLauncher().registerTestExecutionListeners(new TiaJunit5GitListener(sharedTestRunData));
+        }
     }
 }
