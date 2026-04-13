@@ -10,7 +10,7 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 dependencies {
     implementation project(':tia-core')
     implementation group: 'junit', name: 'junit', version: junit4Version
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
+    compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
 }
 
 publishing {

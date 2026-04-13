@@ -56,7 +56,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit5-git</artifactId>
-        <version>0.1.8</version>
+        <version>0.1.9</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -67,7 +67,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.8</version>
+            <version>0.1.9</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -158,7 +158,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit4-git</artifactId>
-        <version>0.1.8</version>
+        <version>0.1.9</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -169,7 +169,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit4-git-maven-plugin</artifactId>
-            <version>0.1.8</version>
+            <version>0.1.9</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -252,7 +252,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.8'
+        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.9'
     }
 }
 ```

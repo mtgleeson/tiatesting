@@ -58,7 +58,7 @@ License: Apache 2.0
 Reference: https://github.com/spockframework/spock/blob/master/LICENSE
 License Text: See appendix.
 
-org.eclipse.jgit:org.eclipse.jgit:5.13.0.202109080827-r
+org.eclipse.jgit:org.eclipse.jgit:5.13.5.202508271544-r
 License: Eclipse Distribution License v1.0 (EDL)
 Reference: https://github.com/eclipse-jgit/jgit?tab=License-1-ov-file
 License Text: See appendix.
