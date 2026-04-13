@@ -6,6 +6,7 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
@@ -82,7 +83,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         long startQueryTime = System.currentTimeMillis();
 
         List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+        StringUtil.sanitizeInputArray(sourceFilesDirs);
         List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+        StringUtil.sanitizeInputArray(testFilesDirs);
 
         TestSelector testSelector = new TestSelector(dataStore);
         TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
