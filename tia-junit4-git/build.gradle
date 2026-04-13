@@ -12,7 +12,7 @@ dependencies {
     implementation project(':tia-junit4')
     implementation group: 'junit', name: 'junit', version: junit4Version
     implementation project(':tia-vcs-git')
-    implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
+    compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
 }
 
 publishing {
