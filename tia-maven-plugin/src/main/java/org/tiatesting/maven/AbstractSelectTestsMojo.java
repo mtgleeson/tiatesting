@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
@@ -21,7 +22,9 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
         List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+        StringUtil.sanitizeInputArray(sourceFilesDirs);
         List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+        StringUtil.sanitizeInputArray(testFilesDirs);
 
         TestSelector testSelector = new TestSelector(dataStore);
         Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());

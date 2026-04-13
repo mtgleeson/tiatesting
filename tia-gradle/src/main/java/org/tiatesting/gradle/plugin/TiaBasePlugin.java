@@ -6,6 +6,7 @@ import org.gradle.api.logging.Logging;
 import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
@@ -82,7 +83,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             System.out.println("Displaying the tests selected by Tia.");
             final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
             List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(sourceFilesDirs);
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(testFilesDirs);
             TestSelector testSelector = new TestSelector(dataStore);
             Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
             String lineSep = System.lineSeparator();

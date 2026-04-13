@@ -11,6 +11,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
+import org.tiatesting.core.util.StringUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -165,25 +166,13 @@ public class JacocoClient {
     private void loadClasses(){
         String classesDirsStr = System.getProperty("tiaClassFilesDirs");
         List<String> classesDirs = classesDirsStr != null ? Arrays.asList(classesDirsStr.split(",")) : null;
-        sanitizeInputArray(classesDirs);
+        StringUtil.sanitizeInputArray(classesDirs);
         String classExtension = "." + FileExtensions.CLASS_FILE_EXT;
 
         for (String classesDir: classesDirs){
             classesDir = getProjectDir() + classesDir;
             List<File> classFiles = loadFiles(classesDir, classExtension);
             this.classfiles.addAll(classFiles);
-        }
-    }
-
-    /**
-     * Remove all trailing spaces and new lines for each element.
-     *
-     * @param inputStrings
-     * @return
-     */
-    private static void sanitizeInputArray(List<String> inputStrings) {
-        if (inputStrings != null){
-            inputStrings.replaceAll(s -> s.replace("\\R", "").trim());
         }
     }
 
