@@ -36,6 +36,25 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaSourceFilesDirs;
 
     /**
+     * Comma-separated list of {@code groupId:artifactId} coordinates identifying in-repo
+     * libraries that should additionally be tracked for coverage. TIA resolves the version
+     * from the source project's pom and includes the corresponding JAR in JaCoCo analysis.
+     * The library source directories should also be listed in {@link #tiaSourceFilesDirs} so
+     * VCS diff analysis picks up changes.
+     */
+    @Parameter(property = "tiaSourceLibs")
+    String tiaSourceLibs;
+
+    /**
+     * The file path to the root of the source project — the project whose pom declares the
+     * dependencies used to resolve {@link #tiaSourceLibs} to JAR files. Defaults to
+     * {@link #tiaProjectDir} when not set. Only needed when the project running the tests is
+     * different from the source project being tracked.
+     */
+    @Parameter(property = "tiaSourceProjectDir")
+    String tiaSourceProjectDir;
+
+    /**
      * The test files directories for the project being analyzed.
      */
     @Parameter(property = "tiaTestFilesDirs")
@@ -107,6 +126,20 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaSourceFilesDirs() {
         return tiaSourceFilesDirs;
+    }
+
+    public String getTiaSourceLibs() {
+        return tiaSourceLibs;
+    }
+
+    /**
+     * @return the configured source-project root, or {@link #getTiaProjectDir()} when blank.
+     */
+    public String getTiaSourceProjectDir() {
+        if (tiaSourceProjectDir == null || tiaSourceProjectDir.trim().isEmpty()){
+            return getTiaProjectDir();
+        }
+        return tiaSourceProjectDir;
     }
 
     public String getTiaTestFilesDirs() {

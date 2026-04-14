@@ -56,7 +56,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit5-git</artifactId>
-        <version>0.1.10</version>
+        <version>0.1.11-SNAPSHOT</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -67,7 +67,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.10</version>
+            <version>0.1.11-SNAPSHOT</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -158,7 +158,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit4-git</artifactId>
-        <version>0.1.10</version>
+        <version>0.1.11-SNAPSHOT</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -169,7 +169,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit4-git-maven-plugin</artifactId>
-            <version>0.1.10</version>
+            <version>0.1.11-SNAPSHOT</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -252,7 +252,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.10'
+        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.11-SNAPSHOT'
     }
 }
 ```
@@ -289,6 +289,47 @@ test {
         updateDBStats = true
     }
 }
+```
+
+### Tracking coverage for libraries (Maven)
+If your source project depends on in-repo libraries (also published as Maven artifacts in the same repository) and you want Tia to track and react to changes in those libraries too, use the `tiaSourceLibs` configuration. Tia resolves the `groupId:artifactId` coordinates against the source project's resolved dependencies, locates the matching JAR file for the version actually in use, and adds it to Jacoco's analysis so library classes are included in the test-to-source mapping.
+
+Add the library source directories to `tiaSourceFilesDirs` as well, so VCS diff and method-impact analysis picks up library changes. If the project running the tests is different from the source project, point `tiaSourceProjectDir` at the source project's root (containing its pom).
+
+`pom.xml`
+```xml
+<properties>
+    <!-- ...existing Tia properties... -->
+    <tiaSourceLibs>com.example:my-lib,com.example:other-lib</tiaSourceLibs>
+    <!-- optional: only needed when the test project differs from the source project -->
+    <tiaSourceProjectDir>/absolute/path/to/source-project</tiaSourceProjectDir>
+</properties>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-junit5-git-maven-plugin</artifactId>
+            <version>0.1.11-SNAPSHOT</version>
+            <configuration>
+                <!-- ...existing Tia plugin configuration... -->
+                <tiaSourceLibs>${tiaSourceLibs}</tiaSourceLibs>
+                <tiaSourceProjectDir>${tiaSourceProjectDir}</tiaSourceProjectDir>
+            </configuration>
+        </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+                <systemPropertyVariables>
+                    <!-- ...existing system properties... -->
+                    <!-- tiaLibraryJars is published by the Tia plugin after it resolves the library JAR paths -->
+                    <tiaLibraryJars>${tiaLibraryJars}</tiaLibraryJars>
+                </systemPropertyVariables>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
 ```
 
 ## Usage
@@ -481,6 +522,8 @@ gradle tia-text-report
 |tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.||true|
 |tiaClassFilesDirs|classFilesDirs|<string>|Comma seperated list of paths to the folders containing the classes of the source code (not the test source code). Required for Jacoco to analyse the test coverage.||true|
 |tiaSourceFilesDirs|sourceFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the project being analysed.||true|
+|tiaSourceLibs|N/A|<string>|Comma seperated list of `groupId:artifactId` coordinates for in-repo libraries to additionally track coverage for. Tia resolves the version from the source project's resolved dependencies and adds the corresponding JAR to Jacoco analysis. The library source directories should also be listed in `tiaSourceFilesDirs` so VCS diff analysis picks up changes. Currently only used for Maven.||false|
+|tiaSourceProjectDir|N/A|<string>|The file path to the root of the source project (the project whose pom declares the dependencies used to resolve `tiaSourceLibs` to JAR files). Only needed when the project running the tests is different from the source project being tracked. Currently only used for Maven.|`tiaProjectDir`|false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
 |tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project.||true|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.|${project.build.directory}/tia|true|
