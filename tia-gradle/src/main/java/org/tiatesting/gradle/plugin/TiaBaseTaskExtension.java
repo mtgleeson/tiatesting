@@ -9,6 +9,8 @@ public class TiaBaseTaskExtension {
     private String projectDir;
     private String classFilesDirs;
     private String sourceFilesDirs;
+    private String sourceLibs;
+    private String sourceProjectDir;
     private String testFilesDirs;
     private String dbFilePath;
     private Boolean enabled;
@@ -42,6 +44,26 @@ public class TiaBaseTaskExtension {
 
     public void setSourceFilesDirs(String sourceFilesDirs) {
         this.sourceFilesDirs = sourceFilesDirs;
+    }
+
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getSourceLibs() {
+        return sourceLibs;
+    }
+
+    public void setSourceLibs(String sourceLibs) {
+        this.sourceLibs = sourceLibs;
+    }
+
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getSourceProjectDir() {
+        return sourceProjectDir;
+    }
+
+    public void setSourceProjectDir(String sourceProjectDir) {
+        this.sourceProjectDir = sourceProjectDir;
     }
 
     @Input
