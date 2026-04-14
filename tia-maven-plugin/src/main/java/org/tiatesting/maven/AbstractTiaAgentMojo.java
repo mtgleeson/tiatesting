@@ -185,7 +185,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             return null;
         }
 
-        getLog().info("tiaLibraryJars resolved to: " + jarsCsv);
+        getLog().debug("tiaLibraryJars resolved to: " + jarsCsv);
         Set<String> jars = new LinkedHashSet<>(Arrays.asList(jarsCsv.split(",")));
         String filename = getLibraryJarsFilename();
         writeTestsToFile(filename, jars);

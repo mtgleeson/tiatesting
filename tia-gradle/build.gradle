@@ -7,9 +7,14 @@ plugins {
 // Use the build script defined in buildSrc
 apply from: rootProject.file('buildSrc/shared.gradle')
 
+repositories {
+    maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+}
+
 dependencies {
     implementation project(':tia-core')
     implementation gradleApi()
+    implementation 'org.gradle:gradle-tooling-api:8.10'
 }
 
 publishing {

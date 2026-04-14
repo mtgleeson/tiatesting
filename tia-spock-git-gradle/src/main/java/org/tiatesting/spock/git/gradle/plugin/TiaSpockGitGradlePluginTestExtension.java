@@ -8,6 +8,7 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.util.Set;
@@ -43,6 +44,14 @@ public class TiaSpockGitGradlePluginTestExtension {
                     testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+
+                    LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
+                    String libraryJarsCsv = resolver.resolveLibraryJarsCsv(
+                            tiaTaskExtension.getSourceLibs(),
+                            tiaTaskExtension.getSourceProjectDir());
+                    if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
+                        testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
+                    }
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -103,6 +112,14 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getCheckLocalChanges() == null){
             tiaTaskExt.setCheckLocalChanges(tiaProjectExt.getCheckLocalChanges());
+        }
+
+        if (tiaTaskExt.getSourceLibs() == null){
+            tiaTaskExt.setSourceLibs(tiaProjectExt.getSourceLibs());
+        }
+
+        if (tiaTaskExt.getSourceProjectDir() == null){
+            tiaTaskExt.setSourceProjectDir(tiaProjectExt.getSourceProjectDir());
         }
     }
 
