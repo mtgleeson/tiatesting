@@ -1,9 +1,12 @@
 package org.tiatesting.maven;
 
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.util.StringUtil;
@@ -37,6 +40,20 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     @Parameter(property = "jacoco.propertyName")
     String propertyName;
 
+    /**
+     * Maven project builder used to load the source project's pom so its declared dependencies
+     * can be resolved when mapping {@code tiaSourceLibs} coordinates to JAR files.
+     */
+    @Component
+    private ProjectBuilder projectBuilder;
+
+    /**
+     * Current Maven session, used to seed the {@link org.apache.maven.project.ProjectBuildingRequest}
+     * passed to {@link #projectBuilder} with the active repositories and settings.
+     */
+    @Parameter(defaultValue = "${session}", readonly = true)
+    private MavenSession session;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (!isEnabled()){
@@ -50,6 +67,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
+
+        resolveAndPublishLibraryJars(projectProperties);
 
         TestSelectorResult testSelectorResult = getTestSelectorResult();
         writeIgnoredTestsToFile(testSelectorResult.getTestsToIgnore());
@@ -135,6 +154,29 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
     private String getSelectedTestsFilename(){
         return getTiaBuildDir() + "/" + SELECTED_TESTS_FILENAME;
+    }
+
+    /**
+     * Resolve the configured {@code tiaSourceLibs} coordinates to absolute JAR paths using the
+     * source project's pom, and publish the result as the Maven project property
+     * {@code tiaLibraryJars}. Users reference {@code ${tiaLibraryJars}} from surefire's
+     * {@code <systemPropertyVariables>} so the test JVM picks the value up at runtime.
+     */
+    private void resolveAndPublishLibraryJars(Properties projectProperties){
+        String libraries = getTiaSourceLibs();
+        if (libraries == null || libraries.trim().isEmpty()){
+            return;
+        }
+
+        LibraryJarResolver resolver = new LibraryJarResolver(
+                projectBuilder, session.getProjectBuildingRequest(), getLog());
+        String jarsCsv = resolver.resolveLibraryJarsCsv(libraries, getTiaSourceProjectDir());
+
+        if (jarsCsv != null && !jarsCsv.isEmpty()){
+            getLog().info("tiaLibraryJars resolved to: " + jarsCsv);
+            projectProperties.setProperty("tiaLibraryJars", jarsCsv);
+            getLog().info("tiaLibraryJars set to " + projectProperties.getProperty("tiaLibraryJars"));
+        }
     }
 
     private AgentOptions buildTiaAgentOptions(){
