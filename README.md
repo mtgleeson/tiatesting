@@ -292,9 +292,11 @@ test {
 ```
 
 ### Tracking coverage for libraries (Maven)
-If your source project depends on in-repo libraries (also published as Maven artifacts in the same repository) and you want Tia to track and react to changes in those libraries too, use the `tiaSourceLibs` configuration. Tia resolves the `groupId:artifactId` coordinates against the source project's resolved dependencies, locates the matching JAR file for the version actually in use, and adds it to Jacoco's analysis so library classes are included in the test-to-source mapping.
+If your source project depends on in-repo libraries (also published as artifacts in the same repository) and you want Tia to track and react to changes in those libraries too, use the `tiaSourceLibs` configuration. Tia resolves the `groupId:artifactId` coordinates against the source project's resolved dependencies, locates the matching JAR file for the version actually in use, and adds it to Jacoco's analysis so library classes are included in the test-to-source mapping.
 
-Add the library source directories to `tiaSourceFilesDirs` as well, so VCS diff and method-impact analysis picks up library changes. If the project running the tests is different from the source project, point `tiaSourceProjectDir` at the source project's root (containing its pom).
+The source project can be either a Maven or a Gradle build — Tia auto-detects based on the files at `tiaSourceProjectDir`: if a `pom.xml` is present Tia reads the resolved dependencies via Maven; otherwise if `build.gradle(.kts)` or `settings.gradle(.kts)` is present Tia reads them via the Gradle Tooling API (which spins up a short Gradle daemon against the source project on first use, so the source project must be buildable).
+
+Add the library source directories to `tiaSourceFilesDirs` as well, so VCS diff and method-impact analysis picks up library changes. If the project running the tests is different from the source project, point `tiaSourceProjectDir` at the source project's root (containing its `pom.xml` or `build.gradle`).
 
 `pom.xml`
 ```xml

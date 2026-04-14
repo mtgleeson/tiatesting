@@ -44,6 +44,13 @@
         <maven>3.0.0</maven>
     </prerequisites>
 
+    <repositories>
+        <repository>
+            <id>gradle-releases</id>
+            <url>https://repo.gradle.org/gradle/libs-releases</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <dependency>
             <groupId>org.tiatesting</groupId>
@@ -71,6 +78,11 @@
             <artifactId>maven-core</artifactId>
             <version>3.6.3</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.gradle</groupId>
+            <artifactId>gradle-tooling-api</artifactId>
+            <version>8.10</version>
         </dependency>
     </dependencies>
 
