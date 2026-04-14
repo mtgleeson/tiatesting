@@ -29,7 +29,16 @@ public class AgentOptions {
      */
     private static final String DEFAULT_SELECTED_TESTS_FILE = ".";
 
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE);
+    /**
+     * Specifies the path for the file containing the list of library JAR absolute paths that Tia
+     * should additionally include in JaCoCo coverage analysis. Optional — empty when the feature
+     * isn't in use.
+     */
+    public static final String LIBRARY_JARS_FILE = "libraryJarsFile";
+
+    private static final String DEFAULT_LIBRARY_JARS_FILE = "";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE, LIBRARY_JARS_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -118,5 +127,13 @@ public class AgentOptions {
 
     public void setSelectedTestsFile(String selectedTestsFile) {
         setOption(SELECTED_TESTS_FILE, selectedTestsFile);
+    }
+
+    public String getLibraryJarsFile() {
+        return getOption(LIBRARY_JARS_FILE, DEFAULT_LIBRARY_JARS_FILE);
+    }
+
+    public void setLibraryJarsFile(String libraryJarsFile) {
+        setOption(LIBRARY_JARS_FILE, libraryJarsFile);
     }
 }
