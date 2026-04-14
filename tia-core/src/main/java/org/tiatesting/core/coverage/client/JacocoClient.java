@@ -174,6 +174,38 @@ public class JacocoClient {
             List<File> classFiles = loadFiles(classesDir, classExtension);
             this.classfiles.addAll(classFiles);
         }
+
+        loadLibraryJars();
+    }
+
+    /**
+     * Load any library JARs declared via the {@code tiaLibraryJars} system property (comma-separated
+     * absolute paths). Each JAR is added directly to the {@link #classfiles} list — JaCoCo's
+     * {@code Analyzer.analyzeAll(File)} handles JAR files natively by reading the {@code .class}
+     * entries inside. The paths are not prefixed with the TIA project dir because they are
+     * expected to be absolute paths into the local Maven/Gradle artifact cache.
+     */
+    private void loadLibraryJars(){
+        String libraryJarsStr = System.getProperty("tiaLibraryJars");
+        if (libraryJarsStr == null || libraryJarsStr.isEmpty()){
+            return;
+        }
+
+        List<String> libraryJars = new ArrayList<>(Arrays.asList(libraryJarsStr.split(",")));
+        StringUtil.sanitizeInputArray(libraryJars);
+
+        for (String jarPath : libraryJars){
+            if (jarPath.isEmpty()){
+                continue;
+            }
+            File jarFile = new File(jarPath);
+            if (jarFile.isFile()){
+                this.classfiles.add(jarFile);
+                log.debug("Adding library JAR to the JacocoClient classfiles: " + jarPath);
+            } else {
+                log.warn("tiaLibraryJars entry not found, skipping: " + jarPath);
+            }
+        }
     }
 
     private String getProjectDir(){
