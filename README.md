@@ -317,17 +317,6 @@ Add the library source directories to `tiaSourceFilesDirs` as well, so VCS diff 
                 <tiaSourceProjectDir>${tiaSourceProjectDir}</tiaSourceProjectDir>
             </configuration>
         </plugin>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <configuration>
-                <systemPropertyVariables>
-                    <!-- ...existing system properties... -->
-                    <!-- tiaLibraryJars is published by the Tia plugin after it resolves the library JAR paths -->
-                    <tiaLibraryJars>${tiaLibraryJars}</tiaLibraryJars>
-                </systemPropertyVariables>
-            </configuration>
-        </plugin>
     </plugins>
 </build>
 ```
