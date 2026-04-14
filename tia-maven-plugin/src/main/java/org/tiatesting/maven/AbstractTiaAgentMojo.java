@@ -31,6 +31,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     static final String SUREFIRE_ARG_LINE = "argLine";
     private static final String IGNORED_TESTS_FILENAME = "ignored-tests.txt";
     private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
+    private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -63,12 +64,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
         final String oldValue = projectProperties.getProperty(name);
-        final AgentOptions agentOptions = buildTiaAgentOptions();
+
+        String libraryJarsFile = writeLibraryJarsFile();
+
+        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile);
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
-
-        resolveAndPublishLibraryJars(projectProperties);
 
         TestSelectorResult testSelectorResult = getTestSelectorResult();
         writeIgnoredTestsToFile(testSelectorResult.getTestsToIgnore());
@@ -156,33 +158,47 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         return getTiaBuildDir() + "/" + SELECTED_TESTS_FILENAME;
     }
 
+    private String getLibraryJarsFilename(){
+        return getTiaBuildDir() + "/" + LIBRARY_JARS_FILENAME;
+    }
+
     /**
      * Resolve the configured {@code tiaSourceLibs} coordinates to absolute JAR paths using the
-     * source project's pom, and publish the result as the Maven project property
-     * {@code tiaLibraryJars}. Users reference {@code ${tiaLibraryJars}} from surefire's
-     * {@code <systemPropertyVariables>} so the test JVM picks the value up at runtime.
+     * source project's pom and write them (one per line) to {@code ${tiaBuildDir}/library-jars.txt}.
+     * The TIA javaagent reads this file at {@code premain} time in the forked test JVM and
+     * publishes the contents as the {@code tiaLibraryJars} system property for {@code JacocoClient}.
+     *
+     * @return absolute path of the file written, or {@code null} when {@code tiaSourceLibs} is
+     *         unset or no JARs resolved.
      */
-    private void resolveAndPublishLibraryJars(Properties projectProperties){
+    private String writeLibraryJarsFile(){
         String libraries = getTiaSourceLibs();
         if (libraries == null || libraries.trim().isEmpty()){
-            return;
+            return null;
         }
 
         LibraryJarResolver resolver = new LibraryJarResolver(
                 projectBuilder, session.getProjectBuildingRequest(), getLog());
         String jarsCsv = resolver.resolveLibraryJarsCsv(libraries, getTiaSourceProjectDir());
 
-        if (jarsCsv != null && !jarsCsv.isEmpty()){
-            getLog().info("tiaLibraryJars resolved to: " + jarsCsv);
-            projectProperties.setProperty("tiaLibraryJars", jarsCsv);
-            getLog().info("tiaLibraryJars set to " + projectProperties.getProperty("tiaLibraryJars"));
+        if (jarsCsv == null || jarsCsv.isEmpty()){
+            return null;
         }
+
+        getLog().info("tiaLibraryJars resolved to: " + jarsCsv);
+        Set<String> jars = new LinkedHashSet<>(Arrays.asList(jarsCsv.split(",")));
+        String filename = getLibraryJarsFilename();
+        writeTestsToFile(filename, jars);
+        return filename;
     }
 
-    private AgentOptions buildTiaAgentOptions(){
+    private AgentOptions buildTiaAgentOptions(String libraryJarsFile){
         AgentOptions agentOptions = new AgentOptions();
         agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
         agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
+        if (libraryJarsFile != null){
+            agentOptions.setLibraryJarsFile(libraryJarsFile);
+        }
         return agentOptions;
     }
 

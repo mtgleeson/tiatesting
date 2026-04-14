@@ -187,6 +187,7 @@ public class JacocoClient {
      */
     private void loadLibraryJars(){
         String libraryJarsStr = System.getProperty("tiaLibraryJars");
+        log.warn("[WARN] Loading library jars from {}.", libraryJarsStr);
         if (libraryJarsStr == null || libraryJarsStr.isEmpty()){
             return;
         }
