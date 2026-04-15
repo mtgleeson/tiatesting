@@ -56,7 +56,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit5-git</artifactId>
-        <version>0.1.11-SNAPSHOT</version>
+        <version>0.1.11</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -67,7 +67,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.11-SNAPSHOT</version>
+            <version>0.1.11</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -158,7 +158,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
     <dependency>
         <groupId>org.tiatesting</groupId>
         <artifactId>tia-junit4-git</artifactId>
-        <version>0.1.11-SNAPSHOT</version>
+        <version>0.1.11</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -169,7 +169,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit4-git-maven-plugin</artifactId>
-            <version>0.1.11-SNAPSHOT</version>
+            <version>0.1.11</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -252,7 +252,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.11-SNAPSHOT'
+        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.11'
     }
 }
 ```
@@ -315,7 +315,7 @@ The Maven plugin reads the source project's resolved dependencies by loading its
         <plugin>
             <groupId>org.tiatesting</groupId>
             <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.11-SNAPSHOT</version>
+            <version>0.1.11</version>
             <configuration>
                 <!-- ...existing Tia plugin configuration... -->
                 <tiaSourceLibs>${tiaSourceLibs}</tiaSourceLibs>
@@ -331,7 +331,7 @@ The Gradle plugin supports three source-project configurations:
 
 1. **Same project** — `sourceProjectDir` is omitted (or points at the current project). The plugin resolves coordinates against the current project's `runtimeClasspath`.
 2. **Sibling subproject** — `sourceProjectDir` points at another subproject in the same Gradle build. The plugin resolves against that subproject's `runtimeClasspath`.
-3. **External Gradle build** — `sourceProjectDir` points at a separate Gradle project on disk. The plugin uses the Gradle Tooling API to load that project and read its resolved classpath, which spins up a short Gradle daemon against the source project on first use (so the source project must be buildable).
+3. **External Gradle build** — `sourceProjectDir` points at a separate Gradle project on disk (but in the same VCS repository). The plugin uses the Gradle Tooling API to load that project and read its resolved classpath, which spins up a short Gradle daemon against the source project on first use (so the source project must be buildable).
 
 `build.gradle`
 ```gradle
