@@ -4,7 +4,9 @@
       "Bash(mvn compile *)",
       "Bash(./gradlew compileJava)",
       "Bash(./gradlew :tia-core:compileJava)",
-      "Bash(./gradlew :tia-core:publishToMavenLocal)"
+      "Bash(./gradlew :tia-core:publishToMavenLocal)",
+      "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.persistence.h2.H2DataStorePendingLibraryMethodsTest\")",
+      "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.persistence.h2.H2DataStorePendingLibraryMethodsTest\" --tests \"org.tiatesting.core.library.TrackedLibraryReconcilerTest\" --tests \"org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorderTest\")"
     ]
   }
 }

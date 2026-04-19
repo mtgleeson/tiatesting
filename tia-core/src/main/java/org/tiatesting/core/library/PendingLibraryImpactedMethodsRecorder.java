@@ -54,7 +54,7 @@ public class PendingLibraryImpactedMethodsRecorder {
 
         String stampJarHash = computeStampJarHashIfSnapshot(stampVersion, trackedLibrary, libraryConfig);
 
-        mergeAndPersistPendingMethods(dataStore, trackedLibrary.getGroupArtifact(),
+        persistPendingMethods(dataStore, trackedLibrary.getGroupArtifact(),
                 stampVersion, stampJarHash, impactedMethodIds);
     }
 
@@ -103,28 +103,19 @@ public class PendingLibraryImpactedMethodsRecorder {
     }
 
     /**
-     * Merge new impacted method IDs into any existing pending batch for the same
-     * stamp key, then persist the result.
+     * Persist new impacted method IDs as pending rows. The data store uses MERGE
+     * semantics so duplicate {@code (groupArtifact, stampVersion, methodId)} rows
+     * are handled without error.
      */
-    private void mergeAndPersistPendingMethods(DataStore dataStore, String groupArtifact,
-                                                String stampVersion, String stampJarHash,
-                                                Set<Integer> newMethodIds) {
-        List<PendingLibraryImpactedMethod> existing = dataStore.readPendingLibraryImpactedMethods(groupArtifact);
-
-        Set<Integer> mergedMethodIds = new HashSet<>(newMethodIds);
-        for (PendingLibraryImpactedMethod batch : existing) {
-            if (stampVersion.equals(batch.getStampVersion())) {
-                mergedMethodIds.addAll(batch.getSourceMethodIds());
-                break;
-            }
-        }
-
+    private void persistPendingMethods(DataStore dataStore, String groupArtifact,
+                                       String stampVersion, String stampJarHash,
+                                       Set<Integer> newMethodIds) {
         PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
-                groupArtifact, stampVersion, stampJarHash, mergedMethodIds);
+                groupArtifact, stampVersion, stampJarHash, newMethodIds);
 
         dataStore.persistPendingLibraryImpactedMethods(pending);
         log.info("Stamped {} pending impacted methods for library '{}' at version '{}'.",
-                mergedMethodIds.size(), groupArtifact, stampVersion);
+                newMethodIds.size(), groupArtifact, stampVersion);
     }
 
     /**
