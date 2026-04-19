@@ -8,6 +8,9 @@ import org.apache.maven.project.ProjectBuilder;
 import org.apache.maven.project.ProjectBuildingException;
 import org.apache.maven.project.ProjectBuildingRequest;
 import org.apache.maven.project.ProjectBuildingResult;
+import org.tiatesting.core.library.LibraryMetadataReader;
+import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
+import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -26,7 +29,7 @@ import java.util.Set;
  * build-system setups (e.g. Maven test project with a Gradle source project) are not currently
  * supported; the Gradle equivalent lives in {@code tia-gradle}.
  */
-class LibraryJarResolver {
+class LibraryJarResolver implements LibraryMetadataReader {
 
     private final ProjectBuilder projectBuilder;
     private final ProjectBuildingRequest baseRequest;
@@ -123,6 +126,96 @@ class LibraryJarResolver {
             return null;
         }
         return String.join(",", resolvedJarPaths);
+    }
+
+    @Override
+    public List<LibraryBuildMetadata> readLibraryBuildMetadata(String libraryProjectDir, List<String> coordinates) {
+        List<LibraryBuildMetadata> result = new ArrayList<>();
+
+        File pomFile = new File(libraryProjectDir, "pom.xml");
+        if (!pomFile.isFile()) {
+            log.warn("Library pom.xml not found at " + pomFile.getAbsolutePath()
+                    + " — cannot read library build metadata.");
+            return result;
+        }
+
+        MavenProject libraryProject = loadMavenProject(pomFile);
+        if (libraryProject == null) {
+            return result;
+        }
+
+        for (String coord : coordinates) {
+            String[] parts = coord.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            String groupId = parts[0].trim();
+            String artifactId = parts[1].trim();
+
+            if (groupId.equals(libraryProject.getGroupId())
+                    && artifactId.equals(libraryProject.getArtifactId())) {
+                result.add(new LibraryBuildMetadata(coord, libraryProject.getVersion()));
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    public List<ResolvedSourceProjectLibrary> resolveLibrariesInSourceProject(String sourceProjectDir,
+                                                                              List<String> coordinates) {
+        List<ResolvedSourceProjectLibrary> result = new ArrayList<>();
+
+        File pomFile = new File(sourceProjectDir, "pom.xml");
+        if (!pomFile.isFile()) {
+            log.warn("Source project pom.xml not found at " + pomFile.getAbsolutePath()
+                    + " — cannot resolve libraries in source project.");
+            return result;
+        }
+
+        MavenProject sourceProject = loadMavenProject(pomFile);
+        if (sourceProject == null) {
+            return result;
+        }
+
+        Set<Artifact> artifacts = sourceProject.getArtifacts();
+
+        for (String coord : coordinates) {
+            String[] parts = coord.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            String groupId = parts[0].trim();
+            String artifactId = parts[1].trim();
+
+            Artifact match = findArtifact(artifacts, groupId, artifactId);
+            if (match == null) {
+                log.warn("Coordinate '" + coord + "' not found on source project classpath, skipping.");
+                continue;
+            }
+
+            File file = match.getFile();
+            String jarPath = file != null ? file.getAbsolutePath() : null;
+            result.add(new ResolvedSourceProjectLibrary(coord, match.getVersion(), jarPath));
+        }
+
+        return result;
+    }
+
+    /**
+     * Load a Maven project from a pom file, returning {@code null} on failure.
+     */
+    private MavenProject loadMavenProject(File pomFile) {
+        try {
+            ProjectBuildingRequest request = new DefaultProjectBuildingRequest(baseRequest);
+            request.setResolveDependencies(true);
+            ProjectBuildingResult result = projectBuilder.build(pomFile, request);
+            return result.getProject();
+        } catch (ProjectBuildingException e) {
+            log.warn("Failed to load Maven project at " + pomFile.getAbsolutePath()
+                    + ": " + e.getMessage());
+            return null;
+        }
     }
 
     private static Artifact findArtifact(Set<Artifact> artifacts, String groupId, String artifactId){

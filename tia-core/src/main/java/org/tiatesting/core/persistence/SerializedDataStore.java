@@ -6,10 +6,12 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TrackedLibrary;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -124,6 +126,21 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void deleteTestSuites(Set<String> testSuites) {
         // do nothing, the deleted test suites will be serialized in persistTestSuites(testSuites);
+    }
+
+    @Override
+    public Map<String, TrackedLibrary> readTrackedLibraries() {
+        return new HashMap<>();
+    }
+
+    @Override
+    public void persistTrackedLibrary(TrackedLibrary trackedLibrary) {
+        // tracked libraries are only supported in the H2 data store
+    }
+
+    @Override
+    public void deleteTrackedLibrary(String groupArtifact) {
+        // tracked libraries are only supported in the H2 data store
     }
 
     /**

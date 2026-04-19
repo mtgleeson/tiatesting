@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -53,7 +55,21 @@ public class TestSelector {
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges){
+        return selectTestsToIgnore(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges, null);
+    }
+
+    /**
+     * Overload that accepts a {@link LibraryImpactAnalysisConfig} for tracked library reconciliation.
+     * When the config is non-null and enabled, the reconciler synchronises declared libraries
+     * against the persisted {@code tia_library} rows before proceeding with test selection.
+     */
+    public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                           final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                           final LibraryImpactAnalysisConfig libraryConfig){
         TiaData tiaData = dataStore.getTiaData(true);
+
+        reconcileTrackedLibrariesIfConfigured(libraryConfig);
+
         if (!hasStoredMapping(tiaData)){
             return new TestSelectorResult(new HashSet<>(), new HashSet<>()); // run all tests - don't ignore any
         }
@@ -313,5 +329,20 @@ public class TestSelector {
         });
 
         return methodTestSuites;
+    }
+
+    /**
+     * If library impact analysis is configured, reconcile the declared libraries against
+     * the persisted tracked-library rows so that additions, removals, and config changes
+     * are reflected before test selection proceeds.
+     */
+    private void reconcileTrackedLibrariesIfConfigured(LibraryImpactAnalysisConfig libraryConfig) {
+        if (libraryConfig == null || !libraryConfig.isEnabled()) {
+            return;
+        }
+
+        log.info("Reconciling tracked libraries against tiaSourceLibs configuration.");
+        TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
+        reconciler.reconcile(dataStore, libraryConfig);
     }
 }

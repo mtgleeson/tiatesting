@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
 import org.tiatesting.core.util.StringUtil;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
@@ -16,6 +17,7 @@ import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -153,12 +155,45 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         return tiaTaskExtension.getCheckLocalChanges();
     }
 
+    public String getSourceLibs() {
+        return tiaTaskExtension.getSourceLibs();
+    }
+
+    public String getSourceProjectDir() {
+        String dir = tiaTaskExtension.getSourceProjectDir();
+        if (dir == null || dir.trim().isEmpty()) {
+            return getProjectDir();
+        }
+        return dir;
+    }
+
     public File getReportOutputDir() {
         if (tiaTaskExtension.getReportOutputDir() != null){
             return tiaTaskExtension.getReportOutputDir();
         }else{
             return new File(project.getLayout().getBuildDirectory().getAsFile().get().getPath() + File.separator + "tia/reports");
         }
+    }
+
+    /**
+     * Build a {@link LibraryImpactAnalysisConfig} from the Gradle extension properties.
+     */
+    protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
+        String libs = getSourceLibs();
+        if (libs == null || libs.trim().isEmpty()) {
+            return new LibraryImpactAnalysisConfig(null, null, null);
+        }
+
+        List<String> coordinates = new ArrayList<>();
+        for (String raw : libs.split(",")) {
+            String coord = raw.trim();
+            if (!coord.isEmpty()) {
+                coordinates.add(coord);
+            }
+        }
+
+        LibraryJarResolver reader = new LibraryJarResolver(project, LOGGER);
+        return new LibraryImpactAnalysisConfig(coordinates, getSourceProjectDir(), reader);
     }
 
 }
