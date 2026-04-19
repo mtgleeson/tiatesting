@@ -5,9 +5,11 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
@@ -75,7 +77,7 @@ public class TestSelector {
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData);
+                tiaData, libraryConfig);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
@@ -119,6 +121,19 @@ public class TestSelector {
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                          final TiaData tiaData){
+        return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges, tiaData, null);
+    }
+
+    /**
+     * Core test selection logic. When a {@link LibraryImpactAnalysisConfig} is provided and
+     * enabled, modified source diffs are partitioned into main-project vs per-library buckets.
+     * Library-bucket methods are stamped as pending (not added to the run set in this stage).
+     * In {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
+     * diffs are treated as main-project diffs so tests run immediately against local changes.
+     */
+    private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+                                         final List<String> testFilesDirNames, final boolean checkLocalChanges,
+                                         final TiaData tiaData, final LibraryImpactAnalysisConfig libraryConfig){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -126,8 +141,16 @@ public class TestSelector {
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
+        List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);
+
+        // Partition source diffs: library diffs go to pending stamp, main-project diffs to immediate selection.
+        List<SourceFileDiffContext> mainProjectDiffs = modifiedSourceDiffs;
+        if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
+            mainProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs, libraryConfig);
+        }
+
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED), tiaData, sourceFilesDirs);
+        Set<Integer> impactedMethods = findMethodsImpacted(mainProjectDiffs, tiaData, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
@@ -344,5 +367,107 @@ public class TestSelector {
         log.info("Reconciling tracked libraries against tiaSourceLibs configuration.");
         TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
         reconciler.reconcile(dataStore, libraryConfig);
+    }
+
+    /**
+     * Determine whether library diff partitioning should be performed.
+     * Partitioning is skipped in local-changes mode (all diffs run immediately)
+     * and when no library config is present.
+     */
+    private boolean shouldPartitionLibraryDiffs(LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges) {
+        if (checkLocalChanges) {
+            return false;
+        }
+        return libraryConfig != null && libraryConfig.isEnabled();
+    }
+
+    /**
+     * Partition modified source diffs into main-project and per-library buckets.
+     * For each library bucket, run method-impact analysis and record the impacted
+     * method IDs as pending via {@link PendingLibraryImpactedMethodsRecorder}.
+     *
+     * @return the main-project diffs (those not belonging to any tracked library).
+     */
+    private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
+            List<SourceFileDiffContext> allModifiedSourceDiffs, TiaData tiaData,
+            List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig) {
+
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        if (trackedLibraries.isEmpty()) {
+            return allModifiedSourceDiffs;
+        }
+
+        List<SourceFileDiffContext> mainProjectDiffs = new ArrayList<>();
+        Map<String, List<SourceFileDiffContext>> libraryDiffBuckets = new HashMap<>();
+
+        partitionDiffsByLibraryProjectDir(allModifiedSourceDiffs, trackedLibraries,
+                mainProjectDiffs, libraryDiffBuckets);
+
+        recordImpactedMethodsForLibraryBuckets(libraryDiffBuckets, trackedLibraries,
+                tiaData, sourceFilesDirs, libraryConfig);
+
+        return mainProjectDiffs;
+    }
+
+    /**
+     * Walk each modified source diff and assign it to a library bucket if its file path
+     * falls under a tracked library's project directory. Otherwise assign it to the
+     * main-project bucket.
+     */
+    private void partitionDiffsByLibraryProjectDir(
+            List<SourceFileDiffContext> diffs, Map<String, TrackedLibrary> trackedLibraries,
+            List<SourceFileDiffContext> mainProjectDiffs,
+            Map<String, List<SourceFileDiffContext>> libraryDiffBuckets) {
+
+        for (SourceFileDiffContext diff : diffs) {
+            String diffPath = diff.getNewFilePath() != null ? diff.getNewFilePath() : diff.getOldFilePath();
+            String matchedLibrary = findLibraryForDiffPath(diffPath, trackedLibraries);
+
+            if (matchedLibrary != null) {
+                libraryDiffBuckets.computeIfAbsent(matchedLibrary, k -> new ArrayList<>()).add(diff);
+            } else {
+                mainProjectDiffs.add(diff);
+            }
+        }
+    }
+
+    /**
+     * Find which tracked library (if any) owns a given diff file path by checking
+     * whether the path starts with the library's project directory.
+     *
+     * @return the {@code groupArtifact} key of the matching library, or {@code null}.
+     */
+    private String findLibraryForDiffPath(String diffPath, Map<String, TrackedLibrary> trackedLibraries) {
+        for (TrackedLibrary lib : trackedLibraries.values()) {
+            if (lib.getProjectDir() != null && diffPath.startsWith(lib.getProjectDir())) {
+                return lib.getGroupArtifact();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * For each library bucket, run method-impact analysis on the library's diffs
+     * and record the impacted method IDs as pending via the recorder.
+     */
+    private void recordImpactedMethodsForLibraryBuckets(
+            Map<String, List<SourceFileDiffContext>> libraryDiffBuckets,
+            Map<String, TrackedLibrary> trackedLibraries,
+            TiaData tiaData, List<String> sourceFilesDirs,
+            LibraryImpactAnalysisConfig libraryConfig) {
+
+        PendingLibraryImpactedMethodsRecorder recorder = new PendingLibraryImpactedMethodsRecorder();
+
+        for (Map.Entry<String, List<SourceFileDiffContext>> entry : libraryDiffBuckets.entrySet()) {
+            String groupArtifact = entry.getKey();
+            List<SourceFileDiffContext> libraryDiffs = entry.getValue();
+            TrackedLibrary trackedLibrary = trackedLibraries.get(groupArtifact);
+
+            log.info("Library '{}' has {} modified source files — analyzing impacted methods.",
+                    groupArtifact, libraryDiffs.size());
+
+            Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, tiaData, sourceFilesDirs);
+            recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
+        }
     }
 }

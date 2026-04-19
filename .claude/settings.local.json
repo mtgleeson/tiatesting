@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(mvn compile *)",
-      "Bash(./gradlew compileJava)"
+      "Bash(./gradlew compileJava)",
+      "Bash(./gradlew :tia-core:compileJava)",
+      "Bash(./gradlew :tia-core:publishToMavenLocal)"
     ]
   }
 }

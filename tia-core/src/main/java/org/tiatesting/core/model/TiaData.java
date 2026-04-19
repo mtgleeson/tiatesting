@@ -4,8 +4,6 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
 
-import org.tiatesting.core.model.TrackedLibrary;
-
 public class TiaData implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -42,6 +40,11 @@ public class TiaData implements Serializable {
      * Libraries tracked by TIA for deferred impact analysis, keyed by {@code groupId:artifactId}.
      */
     private Map<String, TrackedLibrary> librariesTracked = new HashMap<>();
+
+    /**
+     * Pending impacted source method batches from library changes, awaiting drain.
+     */
+    private List<PendingLibraryImpactedMethod> pendingLibraryImpactedMethods = new ArrayList<>();
 
     private TestStats testStats = new TestStats();
 
@@ -100,6 +103,14 @@ public class TiaData implements Serializable {
 
     public void setLibrariesTracked(Map<String, TrackedLibrary> librariesTracked) {
         this.librariesTracked = librariesTracked;
+    }
+
+    public List<PendingLibraryImpactedMethod> getPendingLibraryImpactedMethods() {
+        return pendingLibraryImpactedMethods;
+    }
+
+    public void setPendingLibraryImpactedMethods(List<PendingLibraryImpactedMethod> pendingLibraryImpactedMethods) {
+        this.pendingLibraryImpactedMethods = pendingLibraryImpactedMethods;
     }
 
     public TestStats getTestStats() {
