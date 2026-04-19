@@ -9,6 +9,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.TiaPersistenceException;
 
@@ -39,6 +40,12 @@ public class H2DataStore implements DataStore {
     private static final String COL_LINE_NUMBER_START = "line_number_start";
     private static final String COL_LINE_NUMBER_END = "line_number_end";
     private static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
+    private static final String TABLE_TIA_LIBRARY = "tia_library";
+    private static final String COL_GROUP_ARTIFACT = "group_artifact";
+    private static final String COL_PROJECT_DIR = "project_dir";
+    private static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
+    private static final String COL_LAST_SOURCE_PROJECT_VERSION = "last_source_project_version";
+    private static final String COL_LAST_SOURCE_PROJECT_JAR_HASH = "last_source_project_jar_hash";
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
     private final String jdbcURL;
     private final String username = "sa";
@@ -317,6 +324,98 @@ public class H2DataStore implements DataStore {
         log.trace("Time to delete the removed test suites from disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    @Override
+    public Map<String, TrackedLibrary> readTrackedLibraries() {
+        Map<String, TrackedLibrary> libraries = new HashMap<>();
+        Connection connection = getConnection();
+
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
+                return libraries;
+            }
+            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY;
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
+
+            while (resultSet.next()) {
+                TrackedLibrary lib = new TrackedLibrary();
+                lib.setGroupArtifact(resultSet.getString(COL_GROUP_ARTIFACT));
+                lib.setProjectDir(resultSet.getString(COL_PROJECT_DIR));
+                lib.setSourceDirsCsv(resultSet.getString(COL_SOURCE_DIRS_CSV));
+                lib.setLastSourceProjectVersion(resultSet.getString(COL_LAST_SOURCE_PROJECT_VERSION));
+                lib.setLastSourceProjectJarHash(resultSet.getString(COL_LAST_SOURCE_PROJECT_JAR_HASH));
+                libraries.put(lib.getGroupArtifact(), lib);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return libraries;
+    }
+
+    @Override
+    public void persistTrackedLibrary(final TrackedLibrary trackedLibrary) {
+        Connection connection = getConnection();
+
+        try {
+            ensureLibraryTableExists(connection);
+            String sql = "MERGE INTO " + TABLE_TIA_LIBRARY + " ("
+                    + COL_GROUP_ARTIFACT + ", "
+                    + COL_PROJECT_DIR + ", "
+                    + COL_SOURCE_DIRS_CSV + ", "
+                    + COL_LAST_SOURCE_PROJECT_VERSION + ", "
+                    + COL_LAST_SOURCE_PROJECT_JAR_HASH + ") "
+                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?)";
+
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, trackedLibrary.getGroupArtifact());
+            ps.setString(2, trackedLibrary.getProjectDir());
+            ps.setString(3, trackedLibrary.getSourceDirsCsv());
+            ps.setString(4, trackedLibrary.getLastSourceProjectVersion());
+            ps.setString(5, trackedLibrary.getLastSourceProjectJarHash());
+            ps.executeUpdate();
+            log.trace("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    @Override
+    public void deleteTrackedLibrary(final String groupArtifact) {
+        Connection connection = getConnection();
+
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
+                return;
+            }
+            String sql = "DELETE FROM " + TABLE_TIA_LIBRARY + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, groupArtifact);
+            ps.executeUpdate();
+            log.trace("Deleted tracked library: {}", groupArtifact);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
     private void deleteTestSuites(Connection connection, final Set<String> testSuites) throws SQLException {
         Statement statement = connection.createStatement();
 
@@ -527,6 +626,9 @@ public class H2DataStore implements DataStore {
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setMethodsTracked(getMethodsTracked(connection));
                 log.trace("SQL query time for methods tracked: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                startQueryTime = System.currentTimeMillis();
+                tiaData.setLibrariesTracked(readTrackedLibraries());
+                log.trace("SQL query time for tracked libraries: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
                 return tiaData;
             }
         } catch (SQLException e) {
@@ -701,6 +803,8 @@ public class H2DataStore implements DataStore {
                 COL_TIA_SOURCE_METHOD_ID + " INT, " +
                 "PRIMARY KEY (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + "))";
 
+        String createLibraryTableSql = buildCreateLibraryTableSql();
+
         try {
             Connection connection = getConnection();
             Statement statement = connection.createStatement();
@@ -711,6 +815,7 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(createTestSuiteNameIndexSql);
             statement.executeUpdate(createSourceClassTableSql);
             statement.executeUpdate(createSourceClassMethodTableSql);
+            statement.executeUpdate(createLibraryTableSql);
             connection.close();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -719,15 +824,40 @@ public class H2DataStore implements DataStore {
     }
 
     private boolean checkTiaDBExists(Connection connection) throws SQLException {
-        boolean tiaDBExists = false;
+        return checkTableExists(connection, TABLE_TIA_CORE);
+    }
 
-        ResultSet rset = null;
-        rset = connection.getMetaData().getTables(null, null, "TIA_CORE", new String[]{"TABLE"});
-        if (rset.next()) {
-            tiaDBExists = true;
+    /**
+     * Check whether a table exists in the H2 database.
+     */
+    private boolean checkTableExists(Connection connection, String tableName) throws SQLException {
+        ResultSet rset = connection.getMetaData().getTables(null, null, tableName.toUpperCase(), new String[]{"TABLE"});
+        return rset.next();
+    }
+
+    /**
+     * Build the DDL for the {@code tia_library} table.
+     */
+    private String buildCreateLibraryTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_LIBRARY + " ("
+                + COL_GROUP_ARTIFACT + " VARCHAR(512) PRIMARY KEY, "
+                + COL_PROJECT_DIR + " VARCHAR(1000), "
+                + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
+                + COL_LAST_SOURCE_PROJECT_VERSION + " VARCHAR(128), "
+                + COL_LAST_SOURCE_PROJECT_JAR_HASH + " VARCHAR(128))";
+    }
+
+    /**
+     * Ensure the {@code tia_library} table exists, creating it if necessary.
+     * Called before insert/merge operations on the library table to handle
+     * databases that were created before this feature was added.
+     */
+    private void ensureLibraryTableExists(Connection connection) throws SQLException {
+        if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
+            Statement statement = connection.createStatement();
+            statement.executeUpdate(buildCreateLibraryTableSql());
+            log.debug("Created {} table in existing Tia DB", TABLE_TIA_LIBRARY);
         }
-
-        return tiaDBExists;
     }
 
     private Connection getConnection(){
