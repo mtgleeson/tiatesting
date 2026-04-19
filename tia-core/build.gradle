@@ -14,6 +14,13 @@ dependencies {
     implementation group: 'net.bytebuddy', name: 'byte-buddy', version: '1.11.6'
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
     implementation 'com.j2html:j2html:1.6.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {
