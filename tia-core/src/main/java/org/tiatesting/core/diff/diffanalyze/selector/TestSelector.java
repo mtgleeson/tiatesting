@@ -126,10 +126,10 @@ public class TestSelector {
 
     /**
      * Core test selection logic. When a {@link LibraryImpactAnalysisConfig} is provided and
-     * enabled, modified source diffs are partitioned into main-project vs per-library buckets.
+     * enabled, modified source diffs are partitioned into source-project vs per-library buckets.
      * Library-bucket methods are stamped as pending (not added to the run set in this stage).
      * In {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
-     * diffs are treated as main-project diffs so tests run immediately against local changes.
+     * diffs are treated as source-project diffs so tests run immediately against local changes.
      */
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
@@ -143,14 +143,14 @@ public class TestSelector {
 
         List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);
 
-        // Partition source diffs: library diffs go to pending stamp, main-project diffs to immediate selection.
-        List<SourceFileDiffContext> mainProjectDiffs = modifiedSourceDiffs;
+        // Partition source diffs: library diffs go to pending stamp, source-project diffs to immediate selection.
+        List<SourceFileDiffContext> sourceProjectDiffs = modifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            mainProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs, libraryConfig);
+            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs, libraryConfig);
         }
 
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(mainProjectDiffs, tiaData, sourceFilesDirs);
+        Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, tiaData, sourceFilesDirs);
         Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
@@ -382,11 +382,11 @@ public class TestSelector {
     }
 
     /**
-     * Partition modified source diffs into main-project and per-library buckets.
+     * Partition modified source diffs into source-project and per-library buckets.
      * For each library bucket, run method-impact analysis and record the impacted
      * method IDs as pending via {@link PendingLibraryImpactedMethodsRecorder}.
      *
-     * @return the main-project diffs (those not belonging to any tracked library).
+     * @return the source-project diffs (those not belonging to any tracked library).
      */
     private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
             List<SourceFileDiffContext> allModifiedSourceDiffs, TiaData tiaData,
@@ -397,26 +397,26 @@ public class TestSelector {
             return allModifiedSourceDiffs;
         }
 
-        List<SourceFileDiffContext> mainProjectDiffs = new ArrayList<>();
+        List<SourceFileDiffContext> sourceProjectDiffs = new ArrayList<>();
         Map<String, List<SourceFileDiffContext>> libraryDiffBuckets = new HashMap<>();
 
         partitionDiffsByLibraryProjectDir(allModifiedSourceDiffs, trackedLibraries,
-                mainProjectDiffs, libraryDiffBuckets);
+                sourceProjectDiffs, libraryDiffBuckets);
 
         recordImpactedMethodsForLibraryBuckets(libraryDiffBuckets, trackedLibraries,
                 tiaData, sourceFilesDirs, libraryConfig);
 
-        return mainProjectDiffs;
+        return sourceProjectDiffs;
     }
 
     /**
      * Walk each modified source diff and assign it to a library bucket if its file path
      * falls under a tracked library's project directory. Otherwise assign it to the
-     * main-project bucket.
+     * source-project bucket.
      */
     private void partitionDiffsByLibraryProjectDir(
             List<SourceFileDiffContext> diffs, Map<String, TrackedLibrary> trackedLibraries,
-            List<SourceFileDiffContext> mainProjectDiffs,
+            List<SourceFileDiffContext> sourceProjectDiffs,
             Map<String, List<SourceFileDiffContext>> libraryDiffBuckets) {
 
         for (SourceFileDiffContext diff : diffs) {
@@ -426,7 +426,7 @@ public class TestSelector {
             if (matchedLibrary != null) {
                 libraryDiffBuckets.computeIfAbsent(matchedLibrary, k -> new ArrayList<>()).add(diff);
             } else {
-                mainProjectDiffs.add(diff);
+                sourceProjectDiffs.add(diff);
             }
         }
     }

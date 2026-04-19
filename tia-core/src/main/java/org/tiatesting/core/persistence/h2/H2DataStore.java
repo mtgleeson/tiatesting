@@ -480,17 +480,12 @@ public class H2DataStore implements DataStore {
         try {
             ensurePendingLibraryImpactedMethodTableExists(connection);
 
-            String deleteSql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_STAMP_VERSION + " = ?";
-            PreparedStatement deletePs = connection.prepareStatement(deleteSql);
-            deletePs.setString(1, pending.getGroupArtifact());
-            deletePs.setString(2, pending.getStampVersion());
-            deletePs.executeUpdate();
-
             if (!pending.getSourceMethodIds().isEmpty()) {
-                String insertSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
+                String insertSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_STAMP_JAR_HASH + ", " + COL_TIA_SOURCE_METHOD_ID + ") VALUES (?, ?, ?, ?)";
+                        + COL_STAMP_JAR_HASH + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + "VALUES (?, ?, ?, ?)";
                 PreparedStatement insertPs = connection.prepareStatement(insertSql);
 
                 for (Integer methodId : pending.getSourceMethodIds()) {
