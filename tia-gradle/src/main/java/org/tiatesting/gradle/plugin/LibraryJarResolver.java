@@ -10,6 +10,9 @@ import org.gradle.tooling.model.GradleModuleVersion;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 import org.slf4j.Logger;
+import org.tiatesting.core.library.LibraryMetadataReader;
+import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
+import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
 import java.io.IOException;
@@ -36,7 +39,7 @@ import java.util.Set;
  * This resolver only supports Gradle source projects. For Maven source projects use
  * {@code tia-maven-plugin} instead.
  */
-public class LibraryJarResolver {
+public class LibraryJarResolver implements LibraryMetadataReader {
 
     private final Project project;
     private final Logger log;
@@ -190,6 +193,167 @@ public class LibraryJarResolver {
                     + " — skipping sourceLibs resolution: " + e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    @Override
+    public List<LibraryBuildMetadata> readLibraryBuildMetadata(String libraryProjectDir, List<String> coordinates) {
+        List<LibraryBuildMetadata> result = new ArrayList<>();
+
+        Project sibling = findSiblingProject(libraryProjectDir);
+        if (sibling != null) {
+            return readMetadataFromGradleProject(sibling, coordinates);
+        }
+
+        File libDir = new File(libraryProjectDir);
+        if (!libDir.isDirectory()) {
+            log.warn("Library project directory '" + libraryProjectDir + "' does not exist.");
+            return result;
+        }
+
+        return readMetadataFromExternalGradleBuild(libDir, coordinates);
+    }
+
+    /**
+     * Read library build metadata from a Gradle project within the same build.
+     */
+    private List<LibraryBuildMetadata> readMetadataFromGradleProject(Project gradleProject, List<String> coordinates) {
+        List<LibraryBuildMetadata> result = new ArrayList<>();
+        String group = String.valueOf(gradleProject.getGroup());
+        String name = gradleProject.getName();
+        String version = String.valueOf(gradleProject.getVersion());
+
+        for (String coord : coordinates) {
+            String[] parts = coord.split(":");
+            if (parts.length == 2 && parts[0].trim().equals(group) && parts[1].trim().equals(name)) {
+                result.add(new LibraryBuildMetadata(coord, version));
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Read library build metadata from an external Gradle build via the Tooling API.
+     * Uses the {@link EclipseProject} model's classpath entries to find matching coordinates.
+     */
+    private List<LibraryBuildMetadata> readMetadataFromExternalGradleBuild(File libraryProjectDir,
+                                                                           List<String> coordinates) {
+        List<LibraryBuildMetadata> result = new ArrayList<>();
+
+        try (ProjectConnection conn = GradleConnector.newConnector()
+                .forProjectDirectory(libraryProjectDir)
+                .connect()) {
+            EclipseProject eclipse = conn.getModel(EclipseProject.class);
+            for (EclipseExternalDependency dep : eclipse.getClasspath()) {
+                GradleModuleVersion v = dep.getGradleModuleVersion();
+                if (v == null) continue;
+                String ga = v.getGroup() + ":" + v.getName();
+                for (String coord : coordinates) {
+                    if (coord.trim().equals(ga)) {
+                        result.add(new LibraryBuildMetadata(coord, v.getVersion()));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read library build metadata from " + libraryProjectDir.getAbsolutePath()
+                    + ": " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    @Override
+    public List<ResolvedSourceProjectLibrary> resolveLibrariesInSourceProject(String sourceProjectDir,
+                                                                              List<String> coordinates) {
+        List<ResolvedSourceProjectLibrary> result = new ArrayList<>();
+        String currentDir = project.getProjectDir().getAbsolutePath();
+
+        if (sourceProjectDir == null || sourceProjectDir.trim().isEmpty()
+                || sameDir(sourceProjectDir, currentDir)) {
+            return resolveFromGradleProjectForLibraryMetadata(project, coordinates);
+        }
+
+        Project sibling = findSiblingProject(sourceProjectDir);
+        if (sibling != null) {
+            return resolveFromGradleProjectForLibraryMetadata(sibling, coordinates);
+        }
+
+        File externalDir = new File(sourceProjectDir);
+        if (!externalDir.isDirectory()) {
+            log.warn("sourceProjectDir '" + sourceProjectDir + "' does not exist — skipping.");
+            return result;
+        }
+
+        return resolveFromExternalBuildForLibraryMetadata(externalDir, coordinates);
+    }
+
+    /**
+     * Resolve library metadata from a Gradle project's resolved artifacts.
+     */
+    private List<ResolvedSourceProjectLibrary> resolveFromGradleProjectForLibraryMetadata(
+            Project gradleProject, List<String> coordinates) {
+        List<ResolvedSourceProjectLibrary> result = new ArrayList<>();
+        Configuration conf = gradleProject.getConfigurations().findByName("runtimeClasspath");
+        if (conf == null) {
+            return result;
+        }
+
+        Set<ResolvedArtifact> artifacts = conf.getResolvedConfiguration().getResolvedArtifacts();
+
+        for (String coord : coordinates) {
+            String[] parts = coord.split(":");
+            if (parts.length != 2) continue;
+            String group = parts[0].trim();
+            String name = parts[1].trim();
+
+            for (ResolvedArtifact a : artifacts) {
+                ModuleVersionIdentifier id = a.getModuleVersion().getId();
+                if (group.equals(id.getGroup()) && name.equals(id.getName())) {
+                    File file = a.getFile();
+                    String jarPath = file != null ? file.getAbsolutePath() : null;
+                    result.add(new ResolvedSourceProjectLibrary(coord, id.getVersion(), jarPath));
+                    break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Resolve library metadata from an external Gradle build via the Tooling API.
+     */
+    private List<ResolvedSourceProjectLibrary> resolveFromExternalBuildForLibraryMetadata(
+            File sourceProjectDir, List<String> coordinates) {
+        List<ResolvedSourceProjectLibrary> result = new ArrayList<>();
+
+        try (ProjectConnection conn = GradleConnector.newConnector()
+                .forProjectDirectory(sourceProjectDir)
+                .connect()) {
+            EclipseProject eclipse = conn.getModel(EclipseProject.class);
+
+            for (String coord : coordinates) {
+                String[] parts = coord.split(":");
+                if (parts.length != 2) continue;
+                String group = parts[0].trim();
+                String name = parts[1].trim();
+
+                for (EclipseExternalDependency dep : eclipse.getClasspath()) {
+                    GradleModuleVersion v = dep.getGradleModuleVersion();
+                    if (v != null && group.equals(v.getGroup()) && name.equals(v.getName())) {
+                        File file = dep.getFile();
+                        String jarPath = file != null ? file.getAbsolutePath() : null;
+                        result.add(new ResolvedSourceProjectLibrary(coord, v.getVersion(), jarPath));
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve libraries from external Gradle build at "
+                    + sourceProjectDir.getAbsolutePath() + ": " + e.getMessage());
+        }
+
+        return result;
     }
 
     private List<String> matchExternalClasspath(EclipseProject eclipse, List<String> coordinates,

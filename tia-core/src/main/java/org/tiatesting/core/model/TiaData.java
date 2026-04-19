@@ -4,6 +4,8 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
 
+import org.tiatesting.core.model.TrackedLibrary;
+
 public class TiaData implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -35,6 +37,11 @@ public class TiaData implements Serializable {
      * We can use the method hashcode to look up the method details from this map.
      */
     private Map<Integer, MethodImpactTracker> methodsTracked = new HashMap<>();
+
+    /**
+     * Libraries tracked by TIA for deferred impact analysis, keyed by {@code groupId:artifactId}.
+     */
+    private Map<String, TrackedLibrary> librariesTracked = new HashMap<>();
 
     private TestStats testStats = new TestStats();
 
@@ -85,6 +92,14 @@ public class TiaData implements Serializable {
 
     public void setMethodsTracked(Map<Integer, MethodImpactTracker> methodsTracked) {
         this.methodsTracked = methodsTracked;
+    }
+
+    public Map<String, TrackedLibrary> getLibrariesTracked() {
+        return librariesTracked;
+    }
+
+    public void setLibrariesTracked(Map<String, TrackedLibrary> librariesTracked) {
+        this.librariesTracked = librariesTracked;
     }
 
     public TestStats getTestStats() {

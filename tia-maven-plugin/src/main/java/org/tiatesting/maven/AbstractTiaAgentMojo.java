@@ -9,6 +9,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -109,9 +110,34 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         StringUtil.sanitizeInputArray(testFilesDirs);
 
         TestSelector testSelector = new TestSelector(dataStore);
-        TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
+        LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+        TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
+                testFilesDirs, isCheckLocalChanges(), libraryConfig);
         getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
         return testSelectorResult;
+    }
+
+    /**
+     * Build the library impact analysis configuration from the Maven plugin parameters.
+     */
+    private LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
+        String libs = getTiaSourceLibs();
+        if (libs == null || libs.trim().isEmpty()) {
+            return new LibraryImpactAnalysisConfig(null, null, null);
+        }
+
+        List<String> coordinates = new ArrayList<>();
+        for (String raw : libs.split(",")) {
+            String coord = raw.trim();
+            if (!coord.isEmpty()) {
+                coordinates.add(coord);
+            }
+        }
+
+        LibraryJarResolver reader = new LibraryJarResolver(
+                projectBuilder, session.getProjectBuildingRequest(), getLog());
+
+        return new LibraryImpactAnalysisConfig(coordinates, getTiaSourceProjectDir(), reader);
     }
 
     private void writeIgnoredTestsToFile(Set<String> testsToIgnore){

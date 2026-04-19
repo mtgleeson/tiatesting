@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TrackedLibrary;
 
 import java.util.Map;
 import java.util.Set;
@@ -100,4 +101,26 @@ public interface DataStore {
      * @param testSuites the test suites that should be deleted from disk.
      */
     void deleteTestSuites(final Set<String> testSuites);
+
+    /**
+     * Read all tracked libraries from the data store, keyed by {@code groupArtifact}.
+     *
+     * @return map of tracked libraries.
+     */
+    Map<String, TrackedLibrary> readTrackedLibraries();
+
+    /**
+     * Persist (insert or update) a tracked library row.
+     *
+     * @param trackedLibrary the tracked library to persist.
+     */
+    void persistTrackedLibrary(final TrackedLibrary trackedLibrary);
+
+    /**
+     * Delete a tracked library row by its {@code groupArtifact} key.
+     * Cascade-deletes any pending impacted method rows for this library.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library to delete.
+     */
+    void deleteTrackedLibrary(final String groupArtifact);
 }
