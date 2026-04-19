@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -11,10 +12,7 @@ import org.tiatesting.core.model.TrackedLibrary;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * DataStore implementation based on a plain Java Object and being persisted to a file on disk.
@@ -141,6 +139,26 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void deleteTrackedLibrary(String groupArtifact) {
         // tracked libraries are only supported in the H2 data store
+    }
+
+    @Override
+    public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public void persistPendingLibraryImpactedMethods(PendingLibraryImpactedMethod pending) {
+        // pending library methods are only supported in the H2 data store
+    }
+
+    @Override
+    public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
+        // pending library methods are only supported in the H2 data store
     }
 
     /**

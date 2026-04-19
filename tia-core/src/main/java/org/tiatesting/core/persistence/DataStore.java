@@ -1,10 +1,12 @@
 package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -123,4 +125,36 @@ public interface DataStore {
      * @param groupArtifact the {@code groupId:artifactId} of the library to delete.
      */
     void deleteTrackedLibrary(final String groupArtifact);
+
+    /**
+     * Read all pending library impacted method batches for a given library.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} to read pending batches for.
+     * @return list of pending batches, one per stamp version.
+     */
+    List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(final String groupArtifact);
+
+    /**
+     * Read all pending library impacted method batches across all libraries.
+     *
+     * @return list of all pending batches.
+     */
+    List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods();
+
+    /**
+     * Persist (insert or merge) a pending library impacted methods batch.
+     * If a batch already exists for the same {@code (groupArtifact, stampVersion)},
+     * the method IDs are replaced.
+     *
+     * @param pending the pending batch to persist.
+     */
+    void persistPendingLibraryImpactedMethods(final PendingLibraryImpactedMethod pending);
+
+    /**
+     * Delete all pending library impacted method rows for a specific stamp.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library.
+     * @param stampVersion the stamp version to delete.
+     */
+    void deletePendingLibraryImpactedMethods(final String groupArtifact, final String stampVersion);
 }
