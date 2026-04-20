@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -79,11 +81,14 @@ public class TestSelector {
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
                 tiaData, libraryConfig);
 
+        LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
+                libraryConfig, checkLocalChanges, tiaData, testsToRun);
+
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
 
         log.debug("Ignoring tests: {}", testsToIgnore);
-        return new TestSelectorResult(testsToRun, testsToIgnore);
+        return new TestSelectorResult(testsToRun, testsToIgnore, drainResult);
     }
 
     private boolean hasStoredMapping(TiaData tiaData){
@@ -469,5 +474,31 @@ public class TestSelector {
             Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, tiaData, sourceFilesDirs);
             recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
         }
+    }
+
+    /**
+     * Drain pending library impacted methods when library impact analysis is configured
+     * and we are not in local-changes mode. Resolved tests from drained batches are added
+     * directly to {@code testsToRun}. The drain result is returned so the caller can carry
+     * it to the post-test-run cleanup phase.
+     */
+    private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
+            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
+            TiaData tiaData, Set<String> testsToRun) {
+
+        if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
+            return null;
+        }
+
+        PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, libraryConfig, tiaData);
+
+        if (!outcome.getTestsToAdd().isEmpty()) {
+            log.info("Adding {} tests from drained pending library impacted methods.", outcome.getTestsToAdd().size());
+            testsToRun.addAll(outcome.getTestsToAdd());
+        }
+
+        return outcome.getDrainResult();
     }
 }
