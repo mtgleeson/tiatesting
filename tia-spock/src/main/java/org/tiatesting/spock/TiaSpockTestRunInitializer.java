@@ -22,6 +22,6 @@ public class TiaSpockTestRunInitializer {
 
     TestSelectorResult selectTests(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
         TestSelector testSelector = new TestSelector(dataStore);
-        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges);
+        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges, null);
     }
 }
