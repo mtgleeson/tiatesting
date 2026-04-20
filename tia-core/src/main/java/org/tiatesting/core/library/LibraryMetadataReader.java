@@ -31,4 +31,13 @@ public interface LibraryMetadataReader {
      * @return one entry per coordinate that could be resolved; missing entries are skipped with a warning.
      */
     List<ResolvedSourceProjectLibrary> resolveLibrariesInSourceProject(String sourceProjectDir, List<String> coordinates);
+
+    /**
+     * Read the source directories configured in the library's build file (e.g. Maven's
+     * {@code <sourceDirectory>} or Gradle's {@code sourceSets.main.java.srcDirs}).
+     *
+     * @param libraryProjectDir absolute path to the library's project root directory.
+     * @return list of absolute paths to source directories, or an empty list if they cannot be determined.
+     */
+    List<String> readSourceDirectories(String libraryProjectDir);
 }
