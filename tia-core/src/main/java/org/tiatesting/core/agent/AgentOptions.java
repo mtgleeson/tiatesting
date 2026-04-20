@@ -38,7 +38,18 @@ public class AgentOptions {
 
     private static final String DEFAULT_LIBRARY_JARS_FILE = "";
 
-    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE, LIBRARY_JARS_FILE);
+    /**
+     * Specifies the path for the file containing the serialized {@code LibraryImpactDrainResult}
+     * from test selection. The agent sets a system property so the test listener can deserialize
+     * the drain result and pass it to {@code TestRunnerService} for post-test-run cleanup.
+     * Optional — empty when no library drain occurred.
+     */
+    public static final String DRAIN_RESULT_FILE = "drainResultFile";
+
+    private static final String DEFAULT_DRAIN_RESULT_FILE = "";
+
+    private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE,
+            LIBRARY_JARS_FILE, DRAIN_RESULT_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -135,5 +146,13 @@ public class AgentOptions {
 
     public void setLibraryJarsFile(String libraryJarsFile) {
         setOption(LIBRARY_JARS_FILE, libraryJarsFile);
+    }
+
+    public String getDrainResultFile() {
+        return getOption(DRAIN_RESULT_FILE, DEFAULT_DRAIN_RESULT_FILE);
+    }
+
+    public void setDrainResultFile(String drainResultFile) {
+        setOption(DRAIN_RESULT_FILE, drainResultFile);
     }
 }

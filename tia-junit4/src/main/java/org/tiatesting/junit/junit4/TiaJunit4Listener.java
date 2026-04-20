@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestStats;
@@ -263,8 +265,10 @@ public class TiaJunit4Listener extends RunListener {
         log.info("Test run finished. Persisting the DB.");
         Set<String> runnerTestSuites = getRunnerTestSuites();
         TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
+        LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
+                System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats);
+                selectedTests, testRunMethodsImpacted, testStats, drainResult);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.

@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TestStats;
@@ -14,6 +15,7 @@ public class TestRunResult {
     final Set<String> selectedTests;
     final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun;
     final TestStats testStats;
+    final LibraryImpactDrainResult libraryImpactDrainResult;
 
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
@@ -21,12 +23,24 @@ public class TestRunResult {
                          Set<String> selectedTests,
                          Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
                          TestStats testStats) {
+        this(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
+                methodTrackersFromTestRun, testStats, null);
+    }
+
+    public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
+                         Set<String> testSuitesFailed,
+                         Set<String> runnerTestSuites,
+                         Set<String> selectedTests,
+                         Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
+                         TestStats testStats,
+                         LibraryImpactDrainResult libraryImpactDrainResult) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
         this.selectedTests = selectedTests;
         this.methodTrackersFromTestRun = methodTrackersFromTestRun;
         this.testStats = testStats;
+        this.libraryImpactDrainResult = libraryImpactDrainResult;
     }
 
     public Map<String, TestSuiteTracker> getTestSuiteTrackers() {
@@ -51,5 +65,9 @@ public class TestRunResult {
 
     public TestStats getTestStats() {
         return testStats;
+    }
+
+    public LibraryImpactDrainResult getLibraryImpactDrainResult() {
+        return libraryImpactDrainResult;
     }
 }

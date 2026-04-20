@@ -2,9 +2,11 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.sourcefile.FileExtensions;
@@ -48,6 +50,7 @@ public class TestRunnerService {
         if (updateDBMapping){
             updateMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
             updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+            applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult());
         }
     }
 
@@ -138,6 +141,61 @@ public class TestRunnerService {
         tiaData.getTestSuitesFailed().removeAll(selectedTests);
         tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
         dataStore.persistTestSuitesFailed(tiaData.getTestSuitesFailed());
+    }
+
+    /**
+     * Apply the library impact drain result after a successful test run. Deletes the drained
+     * library changes pending rows from the data store and updates each drained library's
+     * {@code last_source_project_version} and {@code last_source_project_jar_hash} to the
+     * values observed at drain time.
+     *
+     * @param drainResult the drain result from test selection, or {@code null} if no drain occurred.
+     */
+    private void applyLibraryImpactDrainResult(final LibraryImpactDrainResult drainResult) {
+        if (drainResult == null || !drainResult.hasDrainedBatches()) {
+            return;
+        }
+
+        deleteDrainedPendingBatches(drainResult);
+        updateTrackedLibraryVersions(drainResult);
+    }
+
+    /**
+     * Delete each drained {@code (groupArtifact, stampVersion)} batch from the pending table.
+     */
+    private void deleteDrainedPendingBatches(final LibraryImpactDrainResult drainResult) {
+        for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedBatchKeys()) {
+            log.info("Deleting drained pending batch: {}", key);
+            dataStore.deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getStampVersion());
+        }
+    }
+
+    /**
+     * Update each drained library's {@code last_source_project_version} and
+     * {@code last_source_project_jar_hash} to the resolved values observed at drain time.
+     */
+    private void updateTrackedLibraryVersions(final LibraryImpactDrainResult drainResult) {
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+
+        for (Map.Entry<String, LibraryImpactDrainResult.ObservedLibraryState> entry
+                : drainResult.getObservedLibraryStates().entrySet()) {
+            String groupArtifact = entry.getKey();
+            LibraryImpactDrainResult.ObservedLibraryState state = entry.getValue();
+            TrackedLibrary library = trackedLibraries.get(groupArtifact);
+
+            if (library == null) {
+                log.warn("Tracked library '{}' not found during drain cleanup — skipping version update.",
+                        groupArtifact);
+                continue;
+            }
+
+            library.setLastSourceProjectVersion(state.getResolvedVersion());
+            library.setLastSourceProjectJarHash(state.getResolvedJarHash());
+            dataStore.persistTrackedLibrary(library);
+            log.info("Updated tracked library '{}': last_source_project_version='{}', last_source_project_jar_hash='{}'.",
+                    groupArtifact, state.getResolvedVersion(),
+                    state.getResolvedJarHash() != null ? state.getResolvedJarHash() : "N/A");
+        }
     }
 
     /**
