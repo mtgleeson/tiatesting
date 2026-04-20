@@ -11,7 +11,8 @@
       "Bash(./gradlew :tia-core:test)",
       "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainerTest\")",
       "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainerTest.returnsEmptyOutcomeWhenNoTrackedLibraries\")",
-      "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainerTest.drainsReleaseBatchWhenResolvedVersionMeetsStamp\" --info)"
+      "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainerTest.drainsReleaseBatchWhenResolvedVersionMeetsStamp\" --info)",
+      "Bash(./gradlew :tia-spock:compileJava :tia-junit5:compileJava :tia-junit4:compileJava :tia-junit5-agent:compileJava :tia-junit4-agent:compileJava)"
     ]
   }
 }

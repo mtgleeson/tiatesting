@@ -68,7 +68,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             if (tiaUpdateDBMapping || tiaUpdateDBStats){
                 // the listener is used for collecting coverage and updating the stored test mapping
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testSelectorResult.getTestsToRun(),
-                        tiaUpdateDBMapping, tiaUpdateDBStats);
+                        tiaUpdateDBMapping, tiaUpdateDBStats, testSelectorResult.getLibraryImpactDrainResult());
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;

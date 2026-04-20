@@ -10,6 +10,8 @@ import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -33,6 +35,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String IGNORED_TESTS_FILENAME = "ignored-tests.txt";
     private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
     private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
+    private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -68,14 +71,15 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
         String libraryJarsFile = writeLibraryJarsFile();
 
-        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile);
-        final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
-        getLog().info(name + " set to " + newValue);
-        projectProperties.setProperty(name, newValue);
-
         TestSelectorResult testSelectorResult = getTestSelectorResult();
         writeIgnoredTestsToFile(testSelectorResult.getTestsToIgnore());
         writeSelectedTestsToFile(testSelectorResult.getTestsToRun());
+        String drainResultFile = writeDrainResultFile(testSelectorResult.getLibraryImpactDrainResult());
+
+        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile);
+        final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
+        getLog().info(name + " set to " + newValue);
+        projectProperties.setProperty(name, newValue);
 
         // trying to configure the surefire plugin programtically below to work for tia doesn't seem to work
         // I can update the configuration for the surefire plugin but the change don't seem to get read.
@@ -218,14 +222,37 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         return filename;
     }
 
-    private AgentOptions buildTiaAgentOptions(String libraryJarsFile){
+    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile){
         AgentOptions agentOptions = new AgentOptions();
         agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
         agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
         if (libraryJarsFile != null){
             agentOptions.setLibraryJarsFile(libraryJarsFile);
         }
+        if (drainResultFile != null){
+            agentOptions.setDrainResultFile(drainResultFile);
+        }
         return agentOptions;
+    }
+
+    /**
+     * Serialize the {@link LibraryImpactDrainResult} to a file so the test listener in the
+     * forked JVM can deserialize it and pass it to {@code TestRunnerService} for post-test-run cleanup.
+     *
+     * @return absolute path of the file written, or {@code null} if no drain result.
+     */
+    private String writeDrainResultFile(LibraryImpactDrainResult drainResult) {
+        if (drainResult == null || !drainResult.hasDrainedBatches()) {
+            return null;
+        }
+        String filename = getDrainResultFilename();
+        java.io.File file = new java.io.File(filename);
+        LibraryImpactDrainResultSerializer.serialize(drainResult, file);
+        return filename;
+    }
+
+    private String getDrainResultFilename(){
+        return getTiaBuildDir() + "/" + DRAIN_RESULT_FILENAME;
     }
 
     /**

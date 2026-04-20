@@ -7,6 +7,7 @@ import org.spockframework.runtime.model.ErrorInfo;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
@@ -36,10 +37,17 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
     private final SpecificationUtil specificationUtil;
+    private final LibraryImpactDrainResult libraryImpactDrainResult;
     private boolean stopStepRan;
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final boolean updateDBMapping, final boolean updateDBStats){
+        this(vcsReader, dataStore, selectedTests, updateDBMapping, updateDBStats, null);
+    }
+
+    public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
+                               final boolean updateDBMapping, final boolean updateDBStats,
+                               final LibraryImpactDrainResult libraryImpactDrainResult){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
@@ -51,6 +59,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.selectedTests = selectedTests;
         this.updateDBMapping = updateDBMapping;
         this.updateDBStats = updateDBStats;
+        this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.headCommit = vcsReader.getHeadCommit();
 
         vcsReader.close();
@@ -132,7 +141,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         log.info("Test run finished. Persisting the DB.");
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats);
+                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
     }
 
