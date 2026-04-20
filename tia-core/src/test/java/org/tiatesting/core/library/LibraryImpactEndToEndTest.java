@@ -674,5 +674,10 @@ class LibraryImpactEndToEndTest {
             }
             return result;
         }
+
+        @Override
+        public List<String> readSourceDirectories(String libraryProjectDir) {
+            return Collections.emptyList();
+        }
     }
 }

@@ -82,13 +82,21 @@ public class TrackedLibraryReconciler {
         }
     }
 
-    /**
-     * Build a {@link TrackedLibrary} from a coordinate and the current config.
-     * Project dir and source dirs are derived from the config's source project directory.
-     */
     private TrackedLibrary buildTrackedLibraryFromConfig(String coordinate, LibraryImpactAnalysisConfig config) {
         String projectDir = config.getLibraryProjectDir(coordinate);
-        return new TrackedLibrary(coordinate, projectDir, null, null, null);
+        String sourceDirsCsv = readSourceDirsCsv(projectDir, config);
+        return new TrackedLibrary(coordinate, projectDir, sourceDirsCsv, null, null);
+    }
+
+    private String readSourceDirsCsv(String libraryProjectDir, LibraryImpactAnalysisConfig config) {
+        if (libraryProjectDir == null || config.getMetadataReader() == null) {
+            return null;
+        }
+        List<String> sourceDirs = config.getMetadataReader().readSourceDirectories(libraryProjectDir);
+        if (sourceDirs == null || sourceDirs.isEmpty()) {
+            return null;
+        }
+        return String.join(",", sourceDirs);
     }
 
     /**

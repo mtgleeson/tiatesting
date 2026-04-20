@@ -17,7 +17,8 @@
       "Bash(./gradlew :tia-core:test --tests \"org.tiatesting.core.library.LibraryImpactEndToEndTest.releaseVersionStampDrainCleanupLifecycle\" --info)",
       "Bash(./gradlew :tia-core:compileJava :tia-core:compileTestJava)",
       "Bash(./gradlew :tia-maven-plugin:compileJava :tia-gradle:compileJava)",
-      "Bash(./gradlew :tia-gradle:compileJava)"
+      "Bash(./gradlew :tia-gradle:compileJava)",
+      "Bash(./gradlew :tia-core:compileJava :tia-core:compileTestJava :tia-gradle:compileJava)"
     ]
   }
 }
