@@ -23,6 +23,7 @@ public class Agent {
         instrumentIgnoredTests(instrumentation, agentOptions.getIgnoreTestsFile());
         setSelectedTestsSystemProperty(agentOptions.getSelectedTestsFile());
         setLibraryJarsSystemProperty(agentOptions.getLibraryJarsFile());
+        setDrainResultFileSystemProperty(agentOptions.getDrainResultFile());
     }
 
     private static void instrumentIgnoredTests(Instrumentation instrumentation, String ignoreTestsFile) {
@@ -38,7 +39,8 @@ public class Agent {
     /**
      * Read the library JARs file (one absolute JAR path per line) and publish the joined CSV
      * as the {@code tiaLibraryJars} system property so {@code JacocoClient} picks it up in the
-     * forked test JVM. Skips silently when the option is unset.
+     * forked test JVM. Library Jars are used for Jacoco class loading to track coverage.
+     * Skips silently when the option is unset.
      */
     private static void setLibraryJarsSystemProperty(String libraryJarsFile){
         if (libraryJarsFile == null || libraryJarsFile.isEmpty()){
@@ -54,6 +56,18 @@ public class Agent {
             log.trace("Setting system property for tiaLibraryJars: {}", csv);
             System.setProperty("tiaLibraryJars", csv);
         }
+    }
+
+    /**
+     * Set the drain result file path as a system property so the test listener can deserialize
+     * the drain result for post-test-run cleanup. Skips silently when the option is unset.
+     */
+    private static void setDrainResultFileSystemProperty(String drainResultFile) {
+        if (drainResultFile == null || drainResultFile.isEmpty()) {
+            return;
+        }
+        log.trace("Setting system property for tiaDrainResultFile: {}", drainResultFile);
+        System.setProperty("tiaDrainResultFile", drainResultFile);
     }
 
     /**
