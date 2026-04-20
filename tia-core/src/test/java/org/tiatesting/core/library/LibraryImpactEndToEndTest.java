@@ -272,6 +272,105 @@ class LibraryImpactEndToEndTest {
     }
 
     /**
+     * Verifies that when a SNAPSHOT library is newly tracked via the reconciler, the baseline
+     * {@code lastSourceProjectJarHash} is seeded by resolving the library's JAR on the source
+     * project and computing its SHA-256 hash. This prevents the drainer from immediately draining
+     * pending batches on the first run — without a baseline, the drain rule would compare against
+     * {@code null} and always evaluate to "changed", producing a false green.
+     *
+     * <p>Steps:
+     * <ol>
+     *   <li>Create a fake JAR file representing the SNAPSHOT library's current build.</li>
+     *   <li><b>Reconcile:</b> Use the {@link TrackedLibraryReconciler} to insert the new library.
+     *       Verify the baseline {@code lastSourceProjectJarHash} is set to the JAR's SHA-256 hash
+     *       and {@code lastSourceProjectVersion} is set to "1.0-SNAPSHOT".</li>
+     *   <li>Set up test suite mappings and stamp a pending batch at "1.0-SNAPSHOT" with the same
+     *       JAR hash (simulating a change committed before a new SNAPSHOT build).</li>
+     *   <li><b>Drain:</b> Run the drainer with the same JAR file still on disk (source project
+     *       hasn't picked up a new build). Since the resolved JAR hash matches the baseline hash,
+     *       the drain should be blocked.</li>
+     *   <li>Verify no batches are drained and the pending row remains.</li>
+     * </ol>
+     */
+    @Test
+    void newlyTrackedSnapshotLibraryDoesNotDrainOnFirstRun() throws Exception {
+        File fakeJar = new File(tempDir, "lib-snapshot.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeJar)) {
+            fos.write("current-snapshot-content".getBytes());
+        }
+        String currentHash = PendingLibraryImpactedMethodsRecorder.computeSha256Hash(fakeJar);
+
+        // RECONCILE: insert the library with baseline seeding
+        StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+        TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
+        reconciler.reconcile(dataStore, config);
+
+        TrackedLibrary tracked = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.0-SNAPSHOT", tracked.getLastSourceProjectVersion());
+        assertEquals(currentHash, tracked.getLastSourceProjectJarHash());
+
+        // STAMP: pending methods at SNAPSHOT with the same hash
+        setupTestMappingWithMethods(10);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0-SNAPSHOT", currentHash, new HashSet<>(Arrays.asList(10))));
+
+        // DRAIN: JAR hasn't changed, so drain should be blocked
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+
+        assertFalse(outcome.getDrainResult().hasDrainedBatches());
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods("com.example:lib").size());
+    }
+
+    /**
+     * Verifies that when a release-version library is newly tracked via the reconciler, the
+     * baseline {@code lastSourceProjectVersion} is seeded by resolving the library on the source
+     * project's classpath. This prevents the drainer from immediately draining pending batches
+     * stamped at the same version the source project already has.
+     *
+     * <p>Steps:
+     * <ol>
+     *   <li><b>Reconcile:</b> Use the {@link TrackedLibraryReconciler} to insert the new library.
+     *       Verify the baseline {@code lastSourceProjectVersion} is set to "1.0.0".</li>
+     *   <li>Set up test suite mappings and stamp a pending batch at version "1.0.0".</li>
+     *   <li><b>Drain:</b> Run the drainer with the source project resolving 1.0.0. Since the
+     *       resolved version matches the baseline {@code lastSourceProjectVersion}, the drain
+     *       should be blocked by the "differs from last version" guard.</li>
+     *   <li>Verify no batches are drained and the pending row remains.</li>
+     * </ol>
+     */
+    @Test
+    void newlyTrackedReleaseLibraryDoesNotDrainOnFirstRun() {
+        // RECONCILE: insert the library with baseline seeding
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+        TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
+        reconciler.reconcile(dataStore, config);
+
+        TrackedLibrary tracked = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.0.0", tracked.getLastSourceProjectVersion());
+
+        // STAMP: pending methods at version 1.0.0
+        setupTestMappingWithMethods(10);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10))));
+
+        // DRAIN: resolved version matches baseline → should NOT drain
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+
+        assertFalse(outcome.getDrainResult().hasDrainedBatches());
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods("com.example:lib").size());
+    }
+
+    /**
      * Verifies that deleting a tracked library from the {@code tia_library} table automatically
      * cascade-deletes all of its pending rows from {@code tia_pending_library_impacted_method}.
      * This is important for the reconciliation flow: when a library is removed from the

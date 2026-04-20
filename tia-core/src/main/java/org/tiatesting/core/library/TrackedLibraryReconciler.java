@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 
+import java.io.File;
 import java.util.*;
 
 /**
@@ -64,7 +65,10 @@ public class TrackedLibraryReconciler {
 
             if (existing == null) {
                 TrackedLibrary newLib = buildTrackedLibraryFromConfig(coord, config);
-                log.info("Library '{}' added to tiaSourceLibs — inserting new tracked library row.", coord);
+                seedBaselineVersionState(newLib, config);
+                log.info("Library '{}' added to tiaSourceLibs — inserting new tracked library row " +
+                        "(baseline version='{}', baseline jarHash='{}').",
+                        coord, newLib.getLastSourceProjectVersion(), newLib.getLastSourceProjectJarHash());
                 dataStore.persistTrackedLibrary(newLib);
             } else {
                 TrackedLibrary updated = buildTrackedLibraryFromConfig(coord, config);
@@ -93,5 +97,56 @@ public class TrackedLibraryReconciler {
     private boolean hasConfigChanged(TrackedLibrary existing, TrackedLibrary updated) {
         return !Objects.equals(existing.getProjectDir(), updated.getProjectDir())
                 || !Objects.equals(existing.getSourceDirsCsv(), updated.getSourceDirsCsv());
+    }
+
+    /**
+     * Seed the baseline {@code lastSourceProjectVersion} and {@code lastSourceProjectJarHash}
+     * for a newly tracked library by resolving it on the source project's classpath. This
+     * prevents the drainer from immediately draining pending batches on the first run — without
+     * a baseline, the drain rules would compare against {@code null} and always evaluate to
+     * "changed", producing a false green by running tests against the old JAR.
+     *
+     * <p>If the library cannot be resolved (e.g. not yet a dependency of the source project),
+     * the baseline fields remain {@code null} and the drainer will correctly skip the library
+     * because {@code resolvedJarHash} / {@code resolvedVersion} will also be {@code null}.
+     */
+    private void seedBaselineVersionState(TrackedLibrary newLib, LibraryImpactAnalysisConfig config) {
+        if (config.getMetadataReader() == null) {
+            return;
+        }
+
+        ResolvedSourceProjectLibrary resolved = resolveLibraryOnSourceProject(newLib.getGroupArtifact(), config);
+        if (resolved == null) {
+            log.debug("Could not resolve library '{}' on source project — baseline version/hash will be null.",
+                    newLib.getGroupArtifact());
+            return;
+        }
+
+        newLib.setLastSourceProjectVersion(resolved.getResolvedVersion());
+        newLib.setLastSourceProjectJarHash(computeBaselineJarHash(resolved));
+    }
+
+    /**
+     * Resolve a single library coordinate on the source project's classpath via the metadata reader.
+     *
+     * @return the resolved library, or {@code null} if it could not be resolved.
+     */
+    private ResolvedSourceProjectLibrary resolveLibraryOnSourceProject(String coordinate,
+                                                                       LibraryImpactAnalysisConfig config) {
+        List<ResolvedSourceProjectLibrary> resolved = config.getMetadataReader()
+                .resolveLibrariesInSourceProject(config.getSourceProjectDir(),
+                        Collections.singletonList(coordinate));
+        return resolved.isEmpty() ? null : resolved.get(0);
+    }
+
+    /**
+     * Compute a SHA-256 content hash of the resolved JAR for use as the baseline
+     * {@code lastSourceProjectJarHash}. Returns {@code null} if the JAR path is not available.
+     */
+    private String computeBaselineJarHash(ResolvedSourceProjectLibrary resolved) {
+        if (resolved.getJarFilePath() == null) {
+            return null;
+        }
+        return PendingLibraryImpactedMethodsRecorder.computeSha256Hash(new File(resolved.getJarFilePath()));
     }
 }
