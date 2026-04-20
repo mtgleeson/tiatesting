@@ -45,7 +45,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         Set<Integer> methodIds = new HashSet<>(Arrays.asList(100, 200, 300));
         recorder.recordPendingImpactedMethods(dataStore, lib, methodIds, config);
@@ -69,7 +69,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         recorder.recordPendingImpactedMethods(dataStore, lib, new HashSet<>(Arrays.asList(10)), config);
 
@@ -87,7 +87,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         recorder.recordPendingImpactedMethods(dataStore, lib, Collections.emptySet(), config);
 
@@ -102,7 +102,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         recorder.recordPendingImpactedMethods(dataStore, lib, null, config);
 
@@ -117,7 +117,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader(null, null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         recorder.recordPendingImpactedMethods(dataStore, lib, new HashSet<>(Arrays.asList(10)), config);
 
@@ -132,7 +132,7 @@ class PendingLibraryImpactedMethodsRecorderTest {
 
         LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         recorder.recordPendingImpactedMethods(dataStore, lib, new HashSet<>(Arrays.asList(10)), config);
 

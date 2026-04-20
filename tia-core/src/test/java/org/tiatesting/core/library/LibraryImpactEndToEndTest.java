@@ -77,7 +77,7 @@ class LibraryImpactEndToEndTest {
         PendingLibraryImpactedMethodsRecorder recorder = new PendingLibraryImpactedMethodsRecorder();
         StubMetadataReader stampReader = new StubMetadataReader("1.0.0", "0.9.0", null);
         LibraryImpactAnalysisConfig stampConfig = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", stampReader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", stampReader);
         recorder.recordPendingImpactedMethods(dataStore, lib, new HashSet<>(Arrays.asList(10, 20)), stampConfig);
 
         List<PendingLibraryImpactedMethod> stamped = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
@@ -88,7 +88,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN: source project now at 1.0.0 (differs from last_source_project_version 0.9.0)
         StubMetadataReader drainReader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig drainConfig = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", drainReader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", drainReader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -143,7 +143,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN: source project at 2.0.0 — only 1.0.0 batch should drain
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "2.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
@@ -209,7 +209,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN: JAR hash differs from last tracked
         StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
@@ -259,7 +259,7 @@ class LibraryImpactEndToEndTest {
         // resolved == last_source_project_version == 1.0.0 → should NOT drain
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
@@ -303,7 +303,7 @@ class LibraryImpactEndToEndTest {
         // RECONCILE: insert the library with baseline seeding
         StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
         reconciler.reconcile(dataStore, config);
 
@@ -348,7 +348,7 @@ class LibraryImpactEndToEndTest {
         // RECONCILE: insert the library with baseline seeding
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
         reconciler.reconcile(dataStore, config);
 
@@ -458,7 +458,7 @@ class LibraryImpactEndToEndTest {
             }
         };
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Arrays.asList("com.example:a", "com.example:b"), "/projects/source", reader);
+                Arrays.asList("com.example:a", "com.example:b"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
@@ -508,7 +508,7 @@ class LibraryImpactEndToEndTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
@@ -569,7 +569,7 @@ class LibraryImpactEndToEndTest {
         // Reconcile: config only declares "keep", so "remove" gets deleted (cascade cleans pending)
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:keep"), "/projects/source", reader);
+                Collections.singletonList("com.example:keep"), null, "/projects/source", reader);
         TrackedLibraryReconciler reconciler = new TrackedLibraryReconciler();
         reconciler.reconcile(dataStore, config);
 

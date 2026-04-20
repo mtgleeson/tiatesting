@@ -39,16 +39,19 @@ class TrackedLibraryReconcilerTest {
 
     @Test
     void insertsNewLibrariesFromConfig() {
+        Map<String, String> libDirs = new HashMap<>();
+        libDirs.put("com.example:libA", "/projects/libA");
+        libDirs.put("com.example:libB", "/projects/libB");
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Arrays.asList("com.example:libA", "com.example:libB"),
-                "/projects/source", null);
+                libDirs, "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
         assertEquals(2, result.size());
         assertTrue(result.containsKey("com.example:libA"));
         assertTrue(result.containsKey("com.example:libB"));
-        assertEquals("/projects/source", result.get("com.example:libA").getProjectDir());
+        assertEquals("/projects/libA", result.get("com.example:libA").getProjectDir());
     }
 
     @Test
@@ -58,6 +61,7 @@ class TrackedLibraryReconcilerTest {
 
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:keep"),
+                Collections.singletonMap("com.example:keep", "/keep"),
                 "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
@@ -73,7 +77,8 @@ class TrackedLibraryReconcilerTest {
 
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:lib"),
-                "/new/path", null);
+                Collections.singletonMap("com.example:lib", "/new/path"),
+                "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -88,7 +93,8 @@ class TrackedLibraryReconcilerTest {
 
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:lib"),
-                "/same", null);
+                Collections.singletonMap("com.example:lib", "/same"),
+                "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -102,7 +108,7 @@ class TrackedLibraryReconcilerTest {
         dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:b", "/b", null, null, null));
 
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.emptyList(), "/projects/source", null);
+                Collections.emptyList(), null, "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -112,7 +118,7 @@ class TrackedLibraryReconcilerTest {
     @Test
     void reconcileWithEmptyDbAndEmptyConfig() {
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.emptyList(), "/projects/source", null);
+                Collections.emptyList(), null, "/projects/source", null);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -129,7 +135,9 @@ class TrackedLibraryReconcilerTest {
     void seedsBaselineVersionForNewReleaseLibrary() {
         StubMetadataReader reader = new StubMetadataReader("2.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -155,7 +163,9 @@ class TrackedLibraryReconcilerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 
@@ -175,7 +185,9 @@ class TrackedLibraryReconcilerTest {
     void baselineRemainsNullWhenLibraryCannotBeResolved() {
         StubMetadataReader reader = new StubMetadataReader(null, null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader);
 
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
 

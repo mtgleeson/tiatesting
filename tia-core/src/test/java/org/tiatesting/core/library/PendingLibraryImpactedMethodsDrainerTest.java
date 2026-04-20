@@ -48,7 +48,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -71,7 +71,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -92,7 +92,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -117,7 +117,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -144,7 +144,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -166,7 +166,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.1.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -188,7 +188,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "2.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -205,7 +205,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -219,7 +219,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
     void returnsEmptyOutcomeWhenNoTrackedLibraries() {
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -240,7 +240,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -263,7 +263,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
@@ -284,7 +284,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         StubMetadataReader reader = new StubMetadataReader(null, null, null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
-                Collections.singletonList("com.example:lib"), "/projects/source", reader);
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
 
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
