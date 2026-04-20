@@ -87,7 +87,8 @@ public class TrackedLibraryReconciler {
      * Project dir and source dirs are derived from the config's source project directory.
      */
     private TrackedLibrary buildTrackedLibraryFromConfig(String coordinate, LibraryImpactAnalysisConfig config) {
-        return new TrackedLibrary(coordinate, config.getSourceProjectDir(), null, null, null);
+        String projectDir = config.getLibraryProjectDir(coordinate);
+        return new TrackedLibrary(coordinate, projectDir, null, null, null);
     }
 
     /**
