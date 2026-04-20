@@ -208,6 +208,34 @@ class LibraryJarResolver implements LibraryMetadataReader {
         return result;
     }
 
+    @Override
+    public List<String> readSourceDirectories(String libraryProjectDir) {
+        List<String> result = new ArrayList<>();
+
+        File pomFile = new File(libraryProjectDir, "pom.xml");
+        if (!pomFile.isFile()) {
+            log.warn("Library pom.xml not found at " + pomFile.getAbsolutePath()
+                    + " — cannot read source directories.");
+            return result;
+        }
+
+        MavenProject libraryProject = loadMavenProject(pomFile);
+        if (libraryProject == null) {
+            return result;
+        }
+
+        List<String> compileRoots = libraryProject.getCompileSourceRoots();
+        if (compileRoots != null) {
+            for (String root : compileRoots) {
+                if (root != null && !root.trim().isEmpty()) {
+                    result.add(root);
+                }
+            }
+        }
+
+        return result;
+    }
+
     /**
      * Load a Maven project from a pom file, returning {@code null} on failure.
      */

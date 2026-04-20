@@ -431,14 +431,23 @@ public class TestSelector {
     }
 
     /**
-     * Find which tracked library (if any) owns a given diff file path by checking
-     * whether the path starts with the library's project directory.
+     * Find which tracked library (if any) owns a given diff file path. When source directories
+     * are available, matches against those for precision; otherwise falls back to the project directory.
      *
      * @return the {@code groupArtifact} key of the matching library, or {@code null}.
      */
     private String findLibraryForDiffPath(String diffPath, Map<String, TrackedLibrary> trackedLibraries) {
         for (TrackedLibrary lib : trackedLibraries.values()) {
-            if (lib.getProjectDir() != null && diffPath.startsWith(lib.getProjectDir())) {
+            if (lib.getProjectDir() == null) {
+                continue;
+            }
+            if (lib.getSourceDirsCsv() != null && !lib.getSourceDirsCsv().isEmpty()) {
+                for (String srcDir : lib.getSourceDirsCsv().split(",")) {
+                    if (diffPath.startsWith(srcDir.trim())) {
+                        return lib.getGroupArtifact();
+                    }
+                }
+            } else if (diffPath.startsWith(lib.getProjectDir())) {
                 return lib.getGroupArtifact();
             }
         }

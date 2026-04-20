@@ -4,11 +4,14 @@ import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.GradleModuleVersion;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
+import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
 import org.slf4j.Logger;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
@@ -359,6 +362,56 @@ public class LibraryJarResolver implements LibraryMetadataReader {
                     + sourceProjectDir.getAbsolutePath() + ": " + e.getMessage());
         }
 
+        return result;
+    }
+
+    @Override
+    public List<String> readSourceDirectories(String libraryProjectDir) {
+        Project sibling = findSiblingProject(libraryProjectDir);
+        if (sibling != null) {
+            return readSourceDirsFromGradleProject(sibling);
+        }
+
+        File libDir = new File(libraryProjectDir);
+        if (!libDir.isDirectory()) {
+            log.warn("Library project directory '{}' does not exist — cannot read source directories.",
+                    libraryProjectDir);
+            return Collections.emptyList();
+        }
+
+        return readSourceDirsFromExternalGradleBuild(libDir);
+    }
+
+    private List<String> readSourceDirsFromGradleProject(Project gradleProject) {
+        List<String> result = new ArrayList<>();
+        SourceSetContainer sourceSets = gradleProject.getExtensions()
+                .findByType(SourceSetContainer.class);
+        if (sourceSets == null) {
+            return result;
+        }
+
+        SourceSet main = sourceSets.findByName(SourceSet.MAIN_SOURCE_SET_NAME);
+        if (main != null) {
+            for (File srcDir : main.getJava().getSrcDirs()) {
+                result.add(srcDir.getAbsolutePath());
+            }
+        }
+        return result;
+    }
+
+    private List<String> readSourceDirsFromExternalGradleBuild(File libraryProjectDir) {
+        List<String> result = new ArrayList<>();
+        try (ProjectConnection conn = GradleConnector.newConnector()
+                .forProjectDirectory(libraryProjectDir)
+                .connect()) {
+            EclipseProject eclipse = conn.getModel(EclipseProject.class);
+            for (EclipseSourceDirectory srcDir : eclipse.getSourceDirectories()) {
+                result.add(srcDir.getDirectory().getAbsolutePath());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read source directories from external Gradle build at {}: {}",
+                    libraryProjectDir.getAbsolutePath(), e.getMessage());
+        }
         return result;
     }
 

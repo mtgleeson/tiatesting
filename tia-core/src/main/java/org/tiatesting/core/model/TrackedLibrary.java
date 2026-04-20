@@ -17,7 +17,7 @@ public class TrackedLibrary implements Serializable {
     /** Absolute path to the library's project directory on disk. */
     private String projectDir;
 
-    /** CSV of source directories within the library project (relative to {@link #projectDir}). */
+    /** CSV of absolute paths to the library's source directories (e.g. {@code src/main/java}). */
     private String sourceDirsCsv;
 
     /** Last version of this library observed on the source project's resolved classpath. */
