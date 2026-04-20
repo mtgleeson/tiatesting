@@ -343,6 +343,22 @@ tia {
 }
 ```
 
+#### How library change tracking works (stamp/drain)
+
+When a tracked library's source code changes in VCS, Tia does **not** run the impacted tests immediately. Instead, it uses a two-phase stamp/drain approach:
+
+**Stamp phase (at commit analysis time):** When Tia detects source changes in a tracked library's directory, it identifies the impacted source methods and records them as *pending* in the Tia database, tagged with the library's current declared version (and a JAR content hash for SNAPSHOT versions). No tests are added to the run set at this point — the source project may still be consuming an older version of the library, so running the tests now would exercise stale code and produce a false green result.
+
+**Drain phase (at test selection time):** On each test run, Tia checks whether the source project has caught up to any pending library versions:
+- **Release versions:** A pending batch drains when the source project's resolved library version is >= the stamped version AND differs from the last version Tia saw on the source project. The "differs" check prevents re-draining when the library's source changes are committed but the version number hasn't been bumped yet.
+- **SNAPSHOT versions:** A pending batch drains when the SHA-256 hash of the resolved JAR file differs from the last hash Tia tracked. This detects new SNAPSHOT builds even though the version string stays the same.
+
+When a batch drains, Tia resolves which test suites exercise the pending method IDs using the **current** test-to-source mapping (not the mapping from stamp time), then adds those tests to the run set. After the test run completes successfully, the drained pending rows are deleted and the library's last-seen version/hash is updated.
+
+**Local changes mode (`checkLocalChanges=true`):** Library diff partitioning is bypassed entirely — all changes (including library changes) are treated as source-project changes and impacted tests run immediately. No pending rows are read or written. This is the expected behavior for local development where you want instant feedback.
+
+**Library removal:** If a library is removed from the `sourceLibs` configuration, Tia deletes the tracked library row and all its pending batches are automatically cascade-deleted.
+
 ## Usage
 
 ### Running Tia
