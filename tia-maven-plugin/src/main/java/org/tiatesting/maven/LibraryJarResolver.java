@@ -55,9 +55,15 @@ class LibraryJarResolver implements LibraryMetadataReader {
 
         List<String> coordinates = new ArrayList<>();
         for (String raw : tiaSourceLibsCsv.split(",")){
-            String coord = raw.trim();
-            if (!coord.isEmpty()){
-                coordinates.add(coord);
+            String entry = raw.trim();
+            if (entry.isEmpty()){
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                coordinates.add(segments[0].trim() + ":" + segments[1].trim());
+            } else {
+                coordinates.add(entry);
             }
         }
         if (coordinates.isEmpty()){
@@ -91,9 +97,9 @@ class LibraryJarResolver implements LibraryMetadataReader {
 
         for (String coord : coordinates){
             String[] parts = coord.split(":");
-            if (parts.length != 2){
+            if (parts.length < 2 || parts.length > 3){
                 log.warn("Invalid tiaSourceLibs coordinate '" + coord
-                        + "' — expected groupId:artifactId, skipping.");
+                        + "' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
                 continue;
             }
             String groupId = parts[0].trim();

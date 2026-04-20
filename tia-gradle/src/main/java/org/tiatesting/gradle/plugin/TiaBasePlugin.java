@@ -19,7 +19,9 @@ import org.tiatesting.core.report.plaintext.TextReportGenerator;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -181,19 +183,30 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getSourceLibs();
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null);
+            return new LibraryImpactAnalysisConfig(null, null, null, null);
         }
 
         List<String> coordinates = new ArrayList<>();
+        Map<String, String> libraryProjectDirs = new HashMap<>();
         for (String raw : libs.split(",")) {
-            String coord = raw.trim();
-            if (!coord.isEmpty()) {
+            String entry = raw.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                String coord = segments[0].trim() + ":" + segments[1].trim();
                 coordinates.add(coord);
+                libraryProjectDirs.put(coord, segments[2].trim());
+            } else if (segments.length == 2) {
+                coordinates.add(entry);
+            } else {
+                LOGGER.warn("Invalid tiaSourceLibs entry '{}' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.", entry);
             }
         }
 
         LibraryJarResolver reader = new LibraryJarResolver(project, LOGGER);
-        return new LibraryImpactAnalysisConfig(coordinates, getSourceProjectDir(), reader);
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader);
     }
 
 }

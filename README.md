@@ -305,7 +305,7 @@ The Maven plugin reads the source project's resolved dependencies by loading its
 ```xml
 <properties>
     <!-- ...existing Tia properties... -->
-    <tiaSourceLibs>com.example:my-lib,com.example:other-lib</tiaSourceLibs>
+    <tiaSourceLibs>com.example:my-lib:/path/to/my-lib,com.example:other-lib:/path/to/other-lib</tiaSourceLibs>
     <!-- optional: only needed when the test project differs from the source project -->
     <tiaSourceProjectDir>/absolute/path/to/source-project</tiaSourceProjectDir>
 </properties>
@@ -549,7 +549,7 @@ gradle tia-text-report
 |tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.||true|
 |tiaClassFilesDirs|classFilesDirs|<string>|Comma seperated list of paths to the folders containing the classes of the source code (not the test source code). Required for Jacoco to analyse the test coverage.||true|
 |tiaSourceFilesDirs|sourceFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the project being analysed.||true|
-|tiaSourceLibs|sourceLibs|<string>|Comma seperated list of `groupId:artifactId` coordinates for in-repo libraries to additionally track coverage for. Tia resolves the version from the source project's resolved dependencies and adds the corresponding JAR to Jacoco analysis. The library source directories should also be listed in `sourceFilesDirs` so VCS diff analysis picks up changes. When the test and source projects are separate, they must use the same build system.||false|
+|tiaSourceLibs|sourceLibs|<string>|Comma separated list of `groupId:artifactId:projectDir` entries for in-repo libraries to additionally track coverage for. The `projectDir` segment is the absolute path to the library's own project root (used for loading its build file and for matching VCS diffs against the library's source tree). The `groupId:artifactId` portion is used to resolve the library version from the source project's dependencies and to add the corresponding JAR to Jacoco analysis. When the test and source projects are separate, they must use the same build system.||false|
 |tiaSourceProjectDir|sourceProjectDir|<string>|The file path to the root of the source project whose resolved dependencies are used to resolve `sourceLibs` to JAR files. Only needed when the project running the tests is different from the source project being tracked. For Gradle this can be the current project, a sibling subproject, or an external Gradle build.|current project|false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
 |tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project.||true|

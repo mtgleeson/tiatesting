@@ -65,9 +65,15 @@ public class LibraryJarResolver implements LibraryMetadataReader {
 
         List<String> coordinates = new ArrayList<>();
         for (String raw : sourceLibsCsv.split(",")){
-            String coord = raw.trim();
-            if (!coord.isEmpty()){
-                coordinates.add(coord);
+            String entry = raw.trim();
+            if (entry.isEmpty()){
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                coordinates.add(segments[0].trim() + ":" + segments[1].trim());
+            } else {
+                coordinates.add(entry);
             }
         }
         if (coordinates.isEmpty()){

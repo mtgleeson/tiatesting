@@ -123,25 +123,38 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
     /**
      * Build the library impact analysis configuration from the Maven plugin parameters.
+     * It shouold be in the format of groupId:artifactId:projectDir.
      */
     private LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getTiaSourceLibs();
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null);
+            return new LibraryImpactAnalysisConfig(null, null, null, null);
         }
 
         List<String> coordinates = new ArrayList<>();
+        Map<String, String> libraryProjectDirs = new HashMap<>();
         for (String raw : libs.split(",")) {
-            String coord = raw.trim();
-            if (!coord.isEmpty()) {
+            String entry = raw.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                String coord = segments[0].trim() + ":" + segments[1].trim();
                 coordinates.add(coord);
+                libraryProjectDirs.put(coord, segments[2].trim());
+            } else if (segments.length == 2) {
+                coordinates.add(entry);
+            } else {
+                getLog().warn("Invalid tiaSourceLibs entry '" + entry
+                        + "' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
             }
         }
 
         LibraryJarResolver reader = new LibraryJarResolver(
                 projectBuilder, session.getProjectBuildingRequest(), getLog());
 
-        return new LibraryImpactAnalysisConfig(coordinates, getTiaSourceProjectDir(), reader);
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader);
     }
 
     private void writeIgnoredTestsToFile(Set<String> testsToIgnore){
