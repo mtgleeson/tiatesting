@@ -1,5 +1,7 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+
 import java.util.Objects;
 import java.util.Set;
 
@@ -9,9 +11,18 @@ public class TestSelectorResult {
 
     private Set<String> testsToIgnore;
 
+    private LibraryImpactDrainResult libraryImpactDrainResult;
+
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
+    }
+
+    public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
+                               LibraryImpactDrainResult libraryImpactDrainResult) {
+        this.testsToRun = testsToRun;
+        this.testsToIgnore = testsToIgnore;
+        this.libraryImpactDrainResult = libraryImpactDrainResult;
     }
 
     public Set<String> getTestsToRun() {
@@ -20,6 +31,10 @@ public class TestSelectorResult {
 
     public Set<String> getTestsToIgnore() {
         return testsToIgnore;
+    }
+
+    public LibraryImpactDrainResult getLibraryImpactDrainResult() {
+        return libraryImpactDrainResult;
     }
 
     @Override
