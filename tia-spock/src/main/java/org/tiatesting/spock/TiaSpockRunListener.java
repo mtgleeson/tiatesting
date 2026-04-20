@@ -41,11 +41,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private boolean stopStepRan;
 
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
-                               final boolean updateDBMapping, final boolean updateDBStats){
-        this(vcsReader, dataStore, selectedTests, updateDBMapping, updateDBStats, null);
-    }
-
-    public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final boolean updateDBMapping, final boolean updateDBStats,
                                final LibraryImpactDrainResult libraryImpactDrainResult){
         this.testRunnerService = new TestRunnerService(dataStore);

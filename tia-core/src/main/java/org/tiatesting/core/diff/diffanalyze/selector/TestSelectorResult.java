@@ -13,11 +13,6 @@ public class TestSelectorResult {
 
     private LibraryImpactDrainResult libraryImpactDrainResult;
 
-    public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore) {
-        this.testsToRun = testsToRun;
-        this.testsToIgnore = testsToIgnore;
-    }
-
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult) {
         this.testsToRun = testsToRun;

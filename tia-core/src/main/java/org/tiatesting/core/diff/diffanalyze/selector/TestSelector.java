@@ -51,21 +51,15 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
+     * When a {@link LibraryImpactAnalysisConfig} is non-null and enabled, the reconciler synchronises
+     * declared libraries against the persisted {@code tia_library} rows before proceeding with test selection.
+     *
      * @param vcsReader the VCS reader
      * @param sourceFilesDirNames the dir names for the source files
      * @param testFilesDirNames the dir names for the test files
      * @param checkLocalChanges should local changes be checked by Tia.
+     * @param libraryConfig the library impact analysis config, or {@code null} if not configured.
      * @return list of test suites to ignore in the current test run.
-     */
-    public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
-                                           final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        return selectTestsToIgnore(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges, null);
-    }
-
-    /**
-     * Overload that accepts a {@link LibraryImpactAnalysisConfig} for tracked library reconciliation.
-     * When the config is non-null and enabled, the reconciler synchronises declared libraries
-     * against the persisted {@code tia_library} rows before proceeding with test selection.
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges,
@@ -75,7 +69,7 @@ public class TestSelector {
         reconcileTrackedLibrariesIfConfigured(libraryConfig);
 
         if (!hasStoredMapping(tiaData)){
-            return new TestSelectorResult(new HashSet<>(), new HashSet<>()); // run all tests - don't ignore any
+            return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null); // run all tests - don't ignore any
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,

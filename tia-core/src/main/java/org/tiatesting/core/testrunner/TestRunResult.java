@@ -22,16 +22,6 @@ public class TestRunResult {
                          Set<String> runnerTestSuites,
                          Set<String> selectedTests,
                          Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
-                         TestStats testStats) {
-        this(testSuiteTrackers, testSuitesFailed, runnerTestSuites, selectedTests,
-                methodTrackersFromTestRun, testStats, null);
-    }
-
-    public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
-                         Set<String> testSuitesFailed,
-                         Set<String> runnerTestSuites,
-                         Set<String> selectedTests,
-                         Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
                          TestStats testStats,
                          LibraryImpactDrainResult libraryImpactDrainResult) {
         this.testSuiteTrackers = testSuiteTrackers;
