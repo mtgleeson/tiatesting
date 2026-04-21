@@ -30,6 +30,11 @@ public class PendingLibraryImpactedMethod implements Serializable {
 
     /**
      * Construct a fully populated pending impacted methods batch.
+     *
+     * @param groupArtifact {@code groupId:artifactId} of the tracked library.
+     * @param stampVersion the library's declared HEAD version at the time the impacted methods were stamped.
+     * @param stampJarHash SHA-256 content hash of the JAR at stamp time (non-null only for SNAPSHOT versions).
+     * @param sourceMethodIds the set of source method IDs impacted by the library change at this stamp.
      */
     public PendingLibraryImpactedMethod(String groupArtifact, String stampVersion,
                                         String stampJarHash, Set<Integer> sourceMethodIds) {

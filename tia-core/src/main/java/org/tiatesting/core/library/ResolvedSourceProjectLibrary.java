@@ -25,6 +25,10 @@ public class ResolvedSourceProjectLibrary implements Serializable {
 
     /**
      * Construct a fully populated resolved-library descriptor.
+     *
+     * @param groupArtifact {@code groupId:artifactId} identity of the library.
+     * @param resolvedVersion version string as resolved on the source project's classpath.
+     * @param jarFilePath absolute path to the resolved JAR file on disk.
      */
     public ResolvedSourceProjectLibrary(String groupArtifact, String resolvedVersion, String jarFilePath) {
         this.groupArtifact = groupArtifact;
