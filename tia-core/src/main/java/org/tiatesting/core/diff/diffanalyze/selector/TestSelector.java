@@ -136,6 +136,13 @@ public class TestSelector {
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
+        // Include tracked library source dirs so library diffs pass the source/test dir filter
+        // in the VCS analyzers and have their prefixes stripped correctly by MethodImpactAnalyzer.
+        if (libraryConfig != null && libraryConfig.isEnabled()) {
+            sourceFilesDirs = new ArrayList<>(sourceFilesDirs);
+            sourceFilesDirs.addAll(collectTrackedLibraryDirs());
+        }
+
         Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(tiaData.getCommitValue(),
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
@@ -369,6 +376,29 @@ public class TestSelector {
     }
 
     /**
+     * Collect the source directories of every tracked library, falling back to the
+     * library's project directory when no source dirs are recorded. Used to augment
+     * the source-file dirs passed to the VCS analyzers and the method impact analyzer.
+     */
+    private List<String> collectTrackedLibraryDirs() {
+        List<String> libDirs = new ArrayList<>();
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        for (TrackedLibrary lib : trackedLibraries.values()) {
+            if (lib.getSourceDirsCsv() != null && !lib.getSourceDirsCsv().isEmpty()) {
+                for (String srcDir : lib.getSourceDirsCsv().split(",")) {
+                    String trimmed = srcDir.trim();
+                    if (!trimmed.isEmpty()) {
+                        libDirs.add(trimmed);
+                    }
+                }
+            } else if (lib.getProjectDir() != null && !lib.getProjectDir().isEmpty()) {
+                libDirs.add(lib.getProjectDir());
+            }
+        }
+        return libDirs;
+    }
+
+    /**
      * Determine whether library diff partitioning should be performed.
      * Partitioning is skipped in local-changes mode (all diffs run immediately)
      * and when no library config is present.
@@ -498,7 +528,7 @@ public class TestSelector {
                 drainer.drainPendingMethods(dataStore, libraryConfig, tiaData);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
-            log.info("Adding {} tests from drained pending library impacted methods.", outcome.getTestsToAdd().size());
+            log.info("Selected tests to run from pending library changes: {}", outcome.getTestsToAdd());
             testsToRun.addAll(outcome.getTestsToAdd());
         }
 

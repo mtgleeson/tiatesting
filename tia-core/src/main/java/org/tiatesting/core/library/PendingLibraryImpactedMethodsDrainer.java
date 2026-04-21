@@ -146,6 +146,10 @@ public class PendingLibraryImpactedMethodsDrainer {
      * but the lib version hasn't increased yet. Those lib changes are stamped with the current lib version,
      * not the new version. But they should be applied to the source project only when the lib
      * version increases past the source project's current lib version.
+     *
+     * @param stampVersion the version stamped in the pending batch
+     * @param library the tracked library
+     * @param resolvedVersion the resolved version of the library on the source project classpath
      */
     private boolean shouldDrainReleaseBatch(String stampVersion, TrackedLibrary library,
                                              String resolvedVersion) {
@@ -159,6 +163,8 @@ public class PendingLibraryImpactedMethodsDrainer {
             return false;
         }
 
+        log.trace("Checking if a release for lib {} should be drained: resolved version {}, tracked version {}",
+                library.getGroupArtifact(), resolvedVersion, stampVersion);
         return compareVersions(resolvedVersion, stampVersion) >= 0;
     }
 
@@ -171,7 +177,8 @@ public class PendingLibraryImpactedMethodsDrainer {
         if (resolvedJarHash == null) {
             return false;
         }
-
+        log.trace("Checking if a snapshot for lib {} should be drained: resolved hash {}, tracked hash {}",
+                library.getGroupArtifact(), resolvedJarHash, library.getLastSourceProjectJarHash());
         return !Objects.equals(resolvedJarHash, library.getLastSourceProjectJarHash());
     }
 
