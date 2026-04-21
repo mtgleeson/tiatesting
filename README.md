@@ -359,6 +359,8 @@ When a batch drains, Tia resolves which test suites exercise the pending method 
 
 **Library removal:** If a library is removed from the `sourceLibs` configuration, Tia deletes the tracked library row and all its pending batches are automatically cascade-deleted.
 
+**Primary build requirement:** The Tia run that persists mapping-DB updates (typically the primary CI run for your branch) must operate on a clean working tree. Tia resolves each tracked library's version from the source project's current on-disk build file (e.g. `pom.xml`, `build.gradle`). An uncommitted version bump is indistinguishable from a committed one at drain time, so running the persisting build with local build-file changes can cause a pending batch to drain against a version not yet in VCS — leading to incorrect test selection on subsequent runs. For local development, use `checkLocalChanges=true` (see above); the drain is bypassed in that mode.
+
 ## Usage
 
 ### Running Tia
