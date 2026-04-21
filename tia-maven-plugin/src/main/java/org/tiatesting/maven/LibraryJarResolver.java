@@ -13,6 +13,7 @@ import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -228,7 +229,9 @@ class LibraryJarResolver implements LibraryMetadataReader {
         if (compileRoots != null) {
             for (String root : compileRoots) {
                 if (root != null && !root.trim().isEmpty()) {
-                    result.add(root);
+                    String absolute = Paths.get(root).toAbsolutePath().normalize().toString();
+                    result.add(absolute);
+                    log.debug("Found source directory " + absolute + " for library " + libraryProject.getId());
                 }
             }
         }

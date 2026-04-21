@@ -123,7 +123,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
     /**
      * Build the library impact analysis configuration from the Maven plugin parameters.
-     * It shouold be in the format of groupId:artifactId:projectDir.
+     * It should be in the format of groupId:artifactId:projectDir.
      */
     private LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getTiaSourceLibs();
