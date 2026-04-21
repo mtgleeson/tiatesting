@@ -26,13 +26,18 @@ gradle-app.setting
 .gradletasknamecache
 
 # https://github.com/github/gitignore/blob/master/Global/JetBrains.gitignorea
-# User-specific stuff
+# User-specific stuff (always ignored)
 .idea/**/workspace.xml
 .idea/**/tasks.xml
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
 .idea/jarRepositories.xml
+
+# Project-specific settings (keep/share — explicitly un-ignored)
+!.idea/codeStyles/
+!.idea/runConfigurations/
+!.idea/inspectionProfiles/
 
 # AWS User-specific
 .idea/**/aws.xml
