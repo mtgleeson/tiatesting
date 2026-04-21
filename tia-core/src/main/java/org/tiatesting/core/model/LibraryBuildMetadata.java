@@ -22,6 +22,9 @@ public class LibraryBuildMetadata implements Serializable {
 
     /**
      * Construct metadata with the library's identity and declared version.
+     *
+     * @param groupArtifact {@code groupId:artifactId} identity of the library.
+     * @param declaredVersion the version declared in the library's own build file at the current HEAD.
      */
     public LibraryBuildMetadata(String groupArtifact, String declaredVersion) {
         this.groupArtifact = groupArtifact;

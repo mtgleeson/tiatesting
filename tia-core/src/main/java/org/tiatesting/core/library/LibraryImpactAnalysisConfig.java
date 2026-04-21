@@ -72,6 +72,8 @@ public class LibraryImpactAnalysisConfig {
 
     /**
      * Returns {@code true} when library impact analysis is configured and should be executed.
+     *
+     * @return {@code true} if coordinates are configured and a metadata reader is available.
      */
     public boolean isEnabled() {
         return !coordinates.isEmpty() && metadataReader != null;

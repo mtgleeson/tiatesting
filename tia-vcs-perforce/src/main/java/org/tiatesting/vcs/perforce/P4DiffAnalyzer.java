@@ -103,8 +103,8 @@ public class P4DiffAnalyzer {
             return new HashSet<>();
         }
 
-        Integer clFrom = Integer.valueOf(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
-        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), clFrom.toString(), clTo,
+        int clFrom = Integer.parseInt(baseCl) + 1; // don't include the current CL in the range to check - we've already analyzed this CL
+        sourceFileDiffContexts = getSourceFilesImpactedFromPreviousSubmit(p4Context.getP4Connection(), Integer.toString(clFrom), clTo,
                 sourceAndTestFilesSpecs);
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
@@ -205,7 +205,7 @@ public class P4DiffAnalyzer {
             if (openedFiles == null || openedFiles.isEmpty()){
                 log.info("No local workspace changes found");
             } else {
-                sourceCodeFiles = (List<IExtendedFileSpec>) buildDiffContextsForFileSpecs(p4Connection, openedFiles, sourceFileDiffContexts,
+                sourceCodeFiles = buildDiffContextsForFileSpecs(p4Connection, openedFiles, sourceFileDiffContexts,
                         sourceAndTestFilesSpecs);
             }
 
@@ -228,24 +228,24 @@ public class P4DiffAnalyzer {
         }
     }
 
-    private List<? extends IFileSpec> buildDiffContextsForFileSpecs(P4Connection p4Connection,
-                                                                    List<? extends IFileSpec> fileSpecs,
-                                                                    Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                                    List<IFileSpec> sourceAndTestFilesSpecs){
-        List<IFileSpec> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
-        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(file -> file.getDepotPathString()).collect(Collectors.toList());
+    private <T extends IFileSpec> List<T> buildDiffContextsForFileSpecs(P4Connection p4Connection,
+                                                                        List<T> fileSpecs,
+                                                                        Map<String, SourceFileDiffContext> sourceFileDiffContexts,
+                                                                        List<IFileSpec> sourceAndTestFilesSpecs){
+        List<T> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
+        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(IFileSpec::getDepotPathString).collect(Collectors.toList());
         Map<String, IFileSpec> localFileSpecs;
 
         try {
             // use P4 where command to find out the local paths for the changed files (local or submitted)
             List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceCodeFileDepotPaths));
-            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap( file -> file.getDepotPathString(), Function.identity()));
+            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap(IFileSpec::getDepotPathString, Function.identity()));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
 
         sortFileChanges(sourceCodeFiles);
-        for (IFileSpec fileSpec: sourceCodeFiles){
+        for (T fileSpec: sourceCodeFiles){
             String depotPath = fileSpec.getDepotPathString();
             FileAction changeType = fileSpec.getAction();
             String localPath = localFileSpecs.get(depotPath).getLocalPathString();
@@ -270,10 +270,10 @@ public class P4DiffAnalyzer {
      * @param sourceAndTestFilesSpecs
      * @return
      */
-    private List<IFileSpec> filterValidSourceOrTestFiles(List<? extends IFileSpec> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
-        List<IFileSpec> validSourceOrTestFiles = new ArrayList<>();
+    private <T extends IFileSpec> List<T> filterValidSourceOrTestFiles(List<T> allFileSpecs, List<IFileSpec> sourceAndTestFilesSpecs){
+        List<T> validSourceOrTestFiles = new ArrayList<>();
 
-        for (IFileSpec fileSpec: allFileSpecs) {
+        for (T fileSpec: allFileSpecs) {
             String depotPath = fileSpec.getDepotPathString();
 
             if (isFileSourceCode(depotPath) && isFileInSourceOrTestDir(depotPath, sourceAndTestFilesSpecs)){
@@ -294,8 +294,8 @@ public class P4DiffAnalyzer {
      *
      * @param sourceCodeFiles
      */
-    private void sortFileChanges(List<IFileSpec> sourceCodeFiles){
-        Collections.sort(sourceCodeFiles, Comparator.comparing(IFileSpec::getChangelistId));
+    private void sortFileChanges(List<? extends IFileSpec> sourceCodeFiles){
+        sourceCodeFiles.sort(Comparator.comparing(IFileSpec::getChangelistId));
     }
 
     /**
@@ -332,7 +332,7 @@ public class P4DiffAnalyzer {
 
         if (tiaMappingPath != null){
             for (IFileSpec sourceAndTestFilesSpec : sourceAndTestFilesSpecs){
-                if (tiaMappingPath.indexOf(sourceAndTestFilesSpec.getDepotPathString()) > -1){
+                if (tiaMappingPath.contains(sourceAndTestFilesSpec.getDepotPathString())){
                     // use +1 to remove the leading '/'
                     tiaMappingPath = tiaMappingPath.substring(sourceAndTestFilesSpec.getDepotPathString().length() + 1);
                     break;
@@ -483,7 +483,7 @@ public class P4DiffAnalyzer {
                     continue;
                 }
 
-                String fileContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8.name());
+                String fileContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
                 loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, fileSpec.getDepotPathString(), fileContent);
             }
         } catch (P4JavaException | IOException e) {
