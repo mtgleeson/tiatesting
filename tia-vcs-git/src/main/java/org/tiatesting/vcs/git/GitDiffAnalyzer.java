@@ -361,6 +361,7 @@ public class GitDiffAnalyzer {
 
     private boolean isFileInSourceOrTestDir(String fileFullPath, List<String> sourceAndTestDirs){
         for (String sourceAndTestDir: sourceAndTestDirs){
+            log.trace("Checking if file {} is in source or test directory: {}", fileFullPath, sourceAndTestDir);
             if (fileFullPath.contains(sourceAndTestDir)){
                 return true;
             }
