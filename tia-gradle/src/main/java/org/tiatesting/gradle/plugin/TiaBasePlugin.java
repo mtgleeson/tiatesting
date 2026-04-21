@@ -179,6 +179,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     /**
      * Build a {@link LibraryImpactAnalysisConfig} from the Gradle extension properties.
+     *
+     * @return the library impact analysis configuration parsed from the Gradle extension.
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getSourceLibs();

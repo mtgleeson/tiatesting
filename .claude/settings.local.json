@@ -18,7 +18,9 @@
       "Bash(./gradlew :tia-core:compileJava :tia-core:compileTestJava)",
       "Bash(./gradlew :tia-maven-plugin:compileJava :tia-gradle:compileJava)",
       "Bash(./gradlew :tia-gradle:compileJava)",
-      "Bash(./gradlew :tia-core:compileJava :tia-core:compileTestJava :tia-gradle:compileJava)"
+      "Bash(./gradlew :tia-core:compileJava :tia-core:compileTestJava :tia-gradle:compileJava)",
+      "Bash(./gradlew :tia-core:javadoc :tia-gradle:javadoc)",
+      "Bash(./gradlew :tia-vcs-perforce:compileJava)"
     ]
   }
 }

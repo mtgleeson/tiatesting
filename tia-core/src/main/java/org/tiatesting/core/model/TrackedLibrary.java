@@ -31,6 +31,12 @@ public class TrackedLibrary implements Serializable {
 
     /**
      * Construct a fully populated tracked-library row.
+     *
+     * @param groupArtifact {@code groupId:artifactId} — primary key in {@code tia_library}.
+     * @param projectDir absolute path to the library's project directory on disk.
+     * @param sourceDirsCsv CSV of absolute paths to the library's source directories (e.g. {@code src/main/java}).
+     * @param lastSourceProjectVersion last version of this library observed on the source project's resolved classpath.
+     * @param lastSourceProjectJarHash SHA-256 content hash of the JAR the last time the source project resolved it (SNAPSHOT path).
      */
     public TrackedLibrary(String groupArtifact, String projectDir, String sourceDirsCsv,
                           String lastSourceProjectVersion, String lastSourceProjectJarHash) {
