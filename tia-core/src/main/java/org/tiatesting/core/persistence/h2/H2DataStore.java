@@ -47,9 +47,11 @@ public class H2DataStore implements DataStore {
     private static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
     private static final String COL_LAST_SOURCE_PROJECT_VERSION = "last_source_project_version";
     private static final String COL_LAST_SOURCE_PROJECT_JAR_HASH = "last_source_project_jar_hash";
+    private static final String COL_LAST_RELEASED_LIBRARY_VERSION = "last_released_library_version";
     private static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
     private static final String COL_STAMP_VERSION = "stamp_version";
     private static final String COL_STAMP_JAR_HASH = "stamp_jar_hash";
+    private static final String COL_UNKNOWN_NEXT_VERSION = "unknown_next_version";
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
     private final String jdbcURL;
     private final String username = "sa";
@@ -348,6 +350,7 @@ public class H2DataStore implements DataStore {
                 lib.setSourceDirsCsv(resultSet.getString(COL_SOURCE_DIRS_CSV));
                 lib.setLastSourceProjectVersion(resultSet.getString(COL_LAST_SOURCE_PROJECT_VERSION));
                 lib.setLastSourceProjectJarHash(resultSet.getString(COL_LAST_SOURCE_PROJECT_JAR_HASH));
+                lib.setLastReleasedLibraryVersion(resultSet.getString(COL_LAST_RELEASED_LIBRARY_VERSION));
                 libraries.put(lib.getGroupArtifact(), lib);
             }
         } catch (SQLException e) {
@@ -374,8 +377,9 @@ public class H2DataStore implements DataStore {
                     + COL_PROJECT_DIR + ", "
                     + COL_SOURCE_DIRS_CSV + ", "
                     + COL_LAST_SOURCE_PROJECT_VERSION + ", "
-                    + COL_LAST_SOURCE_PROJECT_JAR_HASH + ") "
-                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?)";
+                    + COL_LAST_SOURCE_PROJECT_JAR_HASH + ", "
+                    + COL_LAST_RELEASED_LIBRARY_VERSION + ") "
+                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?, ?)";
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, trackedLibrary.getGroupArtifact());
@@ -383,6 +387,7 @@ public class H2DataStore implements DataStore {
             ps.setString(3, trackedLibrary.getSourceDirsCsv());
             ps.setString(4, trackedLibrary.getLastSourceProjectVersion());
             ps.setString(5, trackedLibrary.getLastSourceProjectJarHash());
+            ps.setString(6, trackedLibrary.getLastReleasedLibraryVersion());
             ps.executeUpdate();
             log.trace("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
         } catch (SQLException e) {
@@ -483,16 +488,18 @@ public class H2DataStore implements DataStore {
             if (!pending.getSourceMethodIds().isEmpty()) {
                 String insertSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_STAMP_JAR_HASH + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + COL_STAMP_JAR_HASH + ", " + COL_UNKNOWN_NEXT_VERSION + ", "
+                        + COL_TIA_SOURCE_METHOD_ID + ") "
                         + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?)";
+                        + "VALUES (?, ?, ?, ?, ?)";
                 PreparedStatement insertPs = connection.prepareStatement(insertSql);
 
                 for (Integer methodId : pending.getSourceMethodIds()) {
                     insertPs.setString(1, pending.getGroupArtifact());
                     insertPs.setString(2, pending.getStampVersion());
                     insertPs.setString(3, pending.getStampJarHash());
-                    insertPs.setInt(4, methodId);
+                    insertPs.setBoolean(4, pending.isUnknownNextVersion());
+                    insertPs.setInt(5, methodId);
                     insertPs.addBatch();
                 }
                 insertPs.executeBatch();
@@ -553,6 +560,7 @@ public class H2DataStore implements DataStore {
             if (batch == null) {
                 batch = new PendingLibraryImpactedMethod(ga, sv,
                         resultSet.getString(COL_STAMP_JAR_HASH), new HashSet<>());
+                batch.setUnknownNextVersion(resultSet.getBoolean(COL_UNKNOWN_NEXT_VERSION));
                 batchMap.put(key, batch);
             }
             batch.getSourceMethodIds().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
@@ -994,7 +1002,8 @@ public class H2DataStore implements DataStore {
                 + COL_PROJECT_DIR + " VARCHAR(1000), "
                 + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
                 + COL_LAST_SOURCE_PROJECT_VERSION + " VARCHAR(128), "
-                + COL_LAST_SOURCE_PROJECT_JAR_HASH + " VARCHAR(128))";
+                + COL_LAST_SOURCE_PROJECT_JAR_HASH + " VARCHAR(128), "
+                + COL_LAST_RELEASED_LIBRARY_VERSION + " VARCHAR(128))";
     }
 
     /**
@@ -1018,6 +1027,7 @@ public class H2DataStore implements DataStore {
                 + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
                 + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
                 + COL_STAMP_JAR_HASH + " VARCHAR(128), "
+                + COL_UNKNOWN_NEXT_VERSION + " BOOLEAN NOT NULL DEFAULT FALSE, "
                 + COL_TIA_SOURCE_METHOD_ID + " INT NOT NULL, "
                 + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + "), "
                 + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
