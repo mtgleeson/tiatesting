@@ -55,6 +55,14 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaSourceProjectDir;
 
     /**
+     * Project-wide library versioning policy. Accepts {@code BUMP_AT_RELEASE} or
+     * {@code BUMP_AFTER_RELEASE} (case-insensitive); defaults to {@code BUMP_AFTER_RELEASE}
+     * when not specified. See {@code WIKI.md} for the full model.
+     */
+    @Parameter(property = "tiaLibraryVersionPolicy")
+    String tiaLibraryVersionPolicy;
+
+    /**
      * The test files directories for the project being analyzed.
      */
     @Parameter(property = "tiaTestFilesDirs")
@@ -140,6 +148,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
             return getTiaProjectDir();
         }
         return tiaSourceProjectDir;
+    }
+
+    public String getTiaLibraryVersionPolicy() {
+        return tiaLibraryVersionPolicy;
     }
 
     public String getTiaTestFilesDirs() {

@@ -29,7 +29,16 @@ public class LibraryImpactAnalysisConfig {
     private final LibraryMetadataReader metadataReader;
 
     /**
-     * Construct a library impact analysis configuration.
+     * Project-wide policy for how tracked libraries manage their version number around releases.
+     * Drives stamp-time classification of whether a batch is destined for the currently-declared
+     * version or for the next, unknown release. Defaults to {@link LibraryVersionPolicy#BUMP_AFTER_RELEASE}
+     * when not specified.
+     */
+    private final LibraryVersionPolicy versionPolicy;
+
+    /**
+     * Construct a library impact analysis configuration with the default version policy
+     * ({@link LibraryVersionPolicy#BUMP_AFTER_RELEASE}).
      *
      * @param coordinates parsed list of {@code groupId:artifactId} strings.
      * @param libraryProjectDirs map from coordinate to library project directory.
@@ -38,10 +47,26 @@ public class LibraryImpactAnalysisConfig {
      */
     public LibraryImpactAnalysisConfig(List<String> coordinates, Map<String, String> libraryProjectDirs,
                                        String sourceProjectDir, LibraryMetadataReader metadataReader) {
+        this(coordinates, libraryProjectDirs, sourceProjectDir, metadataReader, LibraryVersionPolicy.BUMP_AFTER_RELEASE);
+    }
+
+    /**
+     * Construct a library impact analysis configuration.
+     *
+     * @param coordinates parsed list of {@code groupId:artifactId} strings.
+     * @param libraryProjectDirs map from coordinate to library project directory.
+     * @param sourceProjectDir absolute path to the source project root.
+     * @param metadataReader build-system-specific reader for library metadata.
+     * @param versionPolicy the library version policy; {@code null} is treated as the default.
+     */
+    public LibraryImpactAnalysisConfig(List<String> coordinates, Map<String, String> libraryProjectDirs,
+                                       String sourceProjectDir, LibraryMetadataReader metadataReader,
+                                       LibraryVersionPolicy versionPolicy) {
         this.coordinates = coordinates != null ? coordinates : new ArrayList<>();
         this.libraryProjectDirs = libraryProjectDirs != null ? libraryProjectDirs : new HashMap<>();
         this.sourceProjectDir = sourceProjectDir;
         this.metadataReader = metadataReader;
+        this.versionPolicy = versionPolicy != null ? versionPolicy : LibraryVersionPolicy.BUMP_AFTER_RELEASE;
     }
 
     public List<String> getCoordinates() {
@@ -68,6 +93,10 @@ public class LibraryImpactAnalysisConfig {
 
     public LibraryMetadataReader getMetadataReader() {
         return metadataReader;
+    }
+
+    public LibraryVersionPolicy getVersionPolicy() {
+        return versionPolicy;
     }
 
     /**
