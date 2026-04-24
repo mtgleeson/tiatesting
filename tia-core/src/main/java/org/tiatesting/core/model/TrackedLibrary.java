@@ -26,6 +26,17 @@ public class TrackedLibrary implements Serializable {
     /** SHA-256 content hash of the JAR the last time the source project resolved it (SNAPSHOT path). */
     private String lastSourceProjectJarHash;
 
+    /**
+     * High-water mark of build-file versions observed for this library. Advances strictly forward
+     * whenever a stamp sees a build-file version greater than the stored value; never regresses.
+     * Seeded from the library's current build-file version when the library is first onboarded.
+     *
+     * <p>Under {@code BUMP_AT_RELEASE} this drives the "unknown next version" classification at
+     * stamp time. Under {@code BUMP_AFTER_RELEASE} it is maintained symmetrically but does not
+     * influence drain decisions. See {@code WIKI.md} for the full model.
+     */
+    private String lastReleasedLibraryVersion;
+
     public TrackedLibrary() {
     }
 
@@ -87,6 +98,14 @@ public class TrackedLibrary implements Serializable {
         this.lastSourceProjectJarHash = lastSourceProjectJarHash;
     }
 
+    public String getLastReleasedLibraryVersion() {
+        return lastReleasedLibraryVersion;
+    }
+
+    public void setLastReleasedLibraryVersion(String lastReleasedLibraryVersion) {
+        this.lastReleasedLibraryVersion = lastReleasedLibraryVersion;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -102,7 +121,8 @@ public class TrackedLibrary implements Serializable {
 
     @Override
     public String toString() {
-        return "TrackedLibrary{groupArtifact='" + groupArtifact + "', lastSourceProjectVersion='"
-                + lastSourceProjectVersion + "'}";
+        return "TrackedLibrary{groupArtifact='" + groupArtifact
+                + "', lastSourceProjectVersion='" + lastSourceProjectVersion
+                + "', lastReleasedLibraryVersion='" + lastReleasedLibraryVersion + "'}";
     }
 }
