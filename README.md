@@ -308,6 +308,8 @@ The Maven plugin reads the source project's resolved dependencies by loading its
     <tiaSourceLibs>com.example:my-lib:/path/to/my-lib,com.example:other-lib:/path/to/other-lib</tiaSourceLibs>
     <!-- optional: only needed when the test project differs from the source project -->
     <tiaSourceProjectDir>/absolute/path/to/source-project</tiaSourceProjectDir>
+    <!-- optional: BUMP_AFTER_RELEASE (default) or BUMP_AT_RELEASE — see policy description below -->
+    <tiaLibraryVersionPolicy>BUMP_AFTER_RELEASE</tiaLibraryVersionPolicy>
 </properties>
 
 <build>
@@ -320,6 +322,7 @@ The Maven plugin reads the source project's resolved dependencies by loading its
                 <!-- ...existing Tia plugin configuration... -->
                 <tiaSourceLibs>${tiaSourceLibs}</tiaSourceLibs>
                 <tiaSourceProjectDir>${tiaSourceProjectDir}</tiaSourceProjectDir>
+                <tiaLibraryVersionPolicy>${tiaLibraryVersionPolicy}</tiaLibraryVersionPolicy>
             </configuration>
         </plugin>
     </plugins>
@@ -340,6 +343,8 @@ tia {
     sourceLibs = 'com.example:my-lib,com.example:other-lib'
     // optional: only needed when the source project differs from the test project
     sourceProjectDir = '/absolute/path/to/source-project'
+    // optional: BUMP_AFTER_RELEASE (default) or BUMP_AT_RELEASE — see policy description below
+    libraryVersionPolicy = 'BUMP_AFTER_RELEASE'
 }
 ```
 
@@ -360,6 +365,19 @@ When a batch drains, Tia resolves which test suites exercise the pending method 
 **Library removal:** If a library is removed from the `sourceLibs` configuration, Tia deletes the tracked library row and all its pending batches are automatically cascade-deleted.
 
 **Primary build requirement:** The Tia run that persists mapping-DB updates (typically the primary CI run for your branch) must operate on a clean working tree. Tia resolves each tracked library's version from the source project's current on-disk build file (e.g. `pom.xml`, `build.gradle`). An uncommitted version bump is indistinguishable from a committed one at drain time, so running the persisting build with local build-file changes can cause a pending batch to drain against a version not yet in VCS — leading to incorrect test selection on subsequent runs. For local development, use `checkLocalChanges=true` (see above); the drain is bypassed in that mode.
+
+**Release cadence — run Tia on every release:** The stamp/drain model assumes Tia observes every released library version. Multiple commits within the same release cycle are safely aggregated into a single pending batch, but a diff range that spans two releases cannot be correctly classified — the stamper reads only the library's current build-file state, not the commit history, so intermediate releases are invisible to it. In practice this means Tia must run at least once against every released state of each tracked library (typically every primary CI run is sufficient).
+
+**Semantic versioning required for libraries:** Tia's version comparison is numeric-per-segment with lexicographic fallback. Version strings like `1.2.3` or `1.2.3-SNAPSHOT` compare correctly; pre-release qualifiers such as `1.2.0-rc1`, `1.2.0-M1`, or `1.2.0-alpha` will mis-order relative to the base version. Tracked libraries should use plain semantic versioning.
+
+**Library version policy (`libraryVersionPolicy`):** Tia supports two release conventions used in the library's build file, configured globally for all tracked libraries. The default is `BUMP_AFTER_RELEASE`:
+
+- `BUMP_AFTER_RELEASE` *(default)* — the build-file version is the *next* version to be released. Example (Maven release plugin convention): dev on `1.6.0-SNAPSHOT` → release cuts `1.6.0` → bump to `1.7.0-SNAPSHOT`. The declared version always points forward.
+- `BUMP_AT_RELEASE` — the build-file version stays at the *last released* version during dev; the bump happens atomically with each release. Example: released `1.0` → dev commits continue declaring `1.0` → release cuts `1.1` (bump + tag in the same commit) → dev continues on `1.1`. The declared version always points backward.
+
+Under `BUMP_AT_RELEASE`, changes stamped while the build-file version equals the last observed released version are tagged as destined for the *next, unknown release* and held by the drainer until the library's build-file version advances. Under `BUMP_AFTER_RELEASE` this holding behaviour is not needed and the logic stays as described in the stamp/drain rules above.
+
+See [`WIKI.md`](WIKI.md) for a full explanation of the model, including worked examples under both policies.
 
 ## Usage
 
