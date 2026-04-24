@@ -52,10 +52,63 @@ public class PendingLibraryImpactedMethodsRecorder {
             return;
         }
 
-        String stampJarHash = computeStampJarHashIfSnapshot(stampVersion, trackedLibrary, libraryConfig);
+        String stampJarHash = null;
+        boolean unknownNextVersion = false;
+
+        if (isSnapshotVersion(stampVersion)) {
+            stampJarHash = computeSnapshotStampJarHash(trackedLibrary, libraryConfig);
+        } else {
+            unknownNextVersion = classifyReleaseStampAndAdvanceHwm(stampVersion, trackedLibrary,
+                    libraryConfig.getVersionPolicy(), dataStore);
+        }
 
         persistPendingMethods(dataStore, trackedLibrary.getGroupArtifact(),
-                stampVersion, stampJarHash, impactedMethodIds);
+                stampVersion, stampJarHash, unknownNextVersion, impactedMethodIds);
+    }
+
+    /**
+     * For release-version stamps, classify the stamp against the library's high-water mark
+     * (HWM) and policy, advance the HWM when the stamp exceeds it, and return the value of
+     * {@code unknownNextVersion} for the stamp row.
+     *
+     * <p>HWM is maintained symmetrically under both policies — the interpretation of
+     * {@code loadedVersion == HWM} is what differs. Under {@code BUMP_AT_RELEASE} it means the
+     * changes are destined for the next, unknown release (hold); under {@code BUMP_AFTER_RELEASE}
+     * it is a normal stamp at the version about to ship. See {@code WIKI.md} for the full model.
+     */
+    private boolean classifyReleaseStampAndAdvanceHwm(String stampVersion, TrackedLibrary trackedLibrary,
+                                                       LibraryVersionPolicy policy, DataStore dataStore) {
+        String priorHwm = trackedLibrary.getLastReleasedLibraryVersion();
+        int cmp = (priorHwm == null) ? 1
+                : PendingLibraryImpactedMethodsDrainer.compareVersions(stampVersion, priorHwm);
+
+        boolean unknownNextVersion;
+        if (policy == LibraryVersionPolicy.BUMP_AT_RELEASE) {
+            if (cmp > 0) {
+                unknownNextVersion = false;
+            } else if (cmp == 0) {
+                unknownNextVersion = true;
+            } else {
+                log.warn("Library '{}' version '{}' regressed below observed HWM '{}' — holding stamp conservatively.",
+                        trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
+                unknownNextVersion = true;
+            }
+        } else {
+            if (cmp < 0) {
+                log.warn("Library '{}' version '{}' regressed below observed HWM '{}' — HWM unchanged.",
+                        trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
+            }
+            unknownNextVersion = false;
+        }
+
+        if (cmp > 0) {
+            trackedLibrary.setLastReleasedLibraryVersion(stampVersion);
+            dataStore.persistTrackedLibrary(trackedLibrary);
+            log.debug("Advanced lastReleasedLibraryVersion for '{}' to '{}'.",
+                    trackedLibrary.getGroupArtifact(), stampVersion);
+        }
+
+        return unknownNextVersion;
     }
 
     /**
@@ -83,12 +136,8 @@ public class PendingLibraryImpactedMethodsRecorder {
      * drainer can detect when the JAR content has changed even if the version string
      * remains the same.
      */
-    private String computeStampJarHashIfSnapshot(String stampVersion, TrackedLibrary trackedLibrary,
-                                                  LibraryImpactAnalysisConfig libraryConfig) {
-        if (!isSnapshotVersion(stampVersion)) {
-            return null;
-        }
-
+    private String computeSnapshotStampJarHash(TrackedLibrary trackedLibrary,
+                                                LibraryImpactAnalysisConfig libraryConfig) {
         List<String> coordinates = Collections.singletonList(trackedLibrary.getGroupArtifact());
         List<ResolvedSourceProjectLibrary> resolved = libraryConfig.getMetadataReader()
                 .resolveLibrariesInSourceProject(libraryConfig.getSourceProjectDir(), coordinates);
@@ -109,13 +158,14 @@ public class PendingLibraryImpactedMethodsRecorder {
      */
     private void persistPendingMethods(DataStore dataStore, String groupArtifact,
                                        String stampVersion, String stampJarHash,
-                                       Set<Integer> newMethodIds) {
+                                       boolean unknownNextVersion, Set<Integer> newMethodIds) {
         PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
                 groupArtifact, stampVersion, stampJarHash, newMethodIds);
+        pending.setUnknownNextVersion(unknownNextVersion);
 
         dataStore.persistPendingLibraryImpactedMethods(pending);
-        log.info("Stamped {} pending impacted methods for library '{}' at version '{}'.",
-                newMethodIds.size(), groupArtifact, stampVersion);
+        log.info("Stamped {} pending impacted methods for library '{}' at version '{}' (unknownNextVersion={}).",
+                newMethodIds.size(), groupArtifact, stampVersion, unknownNextVersion);
     }
 
     /**
