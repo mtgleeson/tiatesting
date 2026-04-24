@@ -140,12 +140,12 @@ public class TrackedLibraryReconciler {
     }
 
     /**
-     * Seed {@code lastReleasedLibraryVersion} (the HWM of observed released library versions)
-     * from the library's current build-file version when the library is first onboarded. The
-     * HWM advances strictly forward from this seed as future stamps observe higher build-file
-     * versions. Leaves the field {@code null} when the library's project directory is not
-     * configured or its build metadata cannot be read — the stamper handles {@code null}
-     * defensively by treating the first observed version as the HWM.
+     * Seed {@code lastReleasedLibraryVersion} (the high water mark of observed released library
+     * versions) from the library's current build-file version when the library is first
+     * onboarded. The high water mark advances strictly forward from this seed as future stamps
+     * observe higher build-file versions. Leaves the field {@code null} when the library's
+     * project directory is not configured or its build metadata cannot be read — the stamper
+     * handles {@code null} defensively by treating the first observed version as the high water mark.
      */
     private void seedLastReleasedLibraryVersion(TrackedLibrary newLib, LibraryImpactAnalysisConfig config) {
         String libraryProjectDir = config.getLibraryProjectDir(newLib.getGroupArtifact());
