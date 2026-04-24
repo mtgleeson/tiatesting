@@ -67,12 +67,12 @@ public class PendingLibraryImpactedMethodsRecorder {
     }
 
     /**
-     * For release-version stamps, classify the stamp against the library's high-water mark
-     * (HWM) and policy, advance the HWM when the stamp exceeds it, and return the value of
-     * {@code unknownNextVersion} for the stamp row.
+     * For release-version stamps, classify the stamp against the library's high water mark
+     * and policy, advance the high water mark when the stamp exceeds it, and return the value
+     * of {@code unknownNextVersion} for the stamp row.
      *
-     * <p>HWM is maintained symmetrically under both policies — the interpretation of
-     * {@code loadedVersion == HWM} is what differs. Under {@code BUMP_AT_RELEASE} it means the
+     * <p>The high water mark is maintained symmetrically under both policies — the interpretation
+     * of {@code loadedVersion == highWaterMark} is what differs. Under {@code BUMP_AT_RELEASE} it means the
      * changes are destined for the next, unknown release (hold); under {@code BUMP_AFTER_RELEASE}
      * it is a normal stamp at the version about to ship. See {@code WIKI.md} for the full model.
      */

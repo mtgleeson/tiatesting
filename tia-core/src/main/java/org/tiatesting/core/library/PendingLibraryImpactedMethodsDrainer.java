@@ -148,8 +148,9 @@ public class PendingLibraryImpactedMethodsDrainer {
      * version increases past the source project's current lib version.
      *
      * <p>Hold rule: when the batch carries {@code unknownNextVersion=true} (stamped under
-     * {@code BUMP_AT_RELEASE} at the observed HWM, i.e. destined for the next, unknown release),
-     * it is held as long as the source project's resolved version still equals the stamp version.
+     * {@code BUMP_AT_RELEASE} at the observed high water mark, i.e. destined for the next,
+     * unknown release), it is held as long as the source project's resolved version still
+     * equals the stamp version.
      * The drain only fires once the resolved version moves past the stamp. See {@code WIKI.md}
      * for the full model.
      *
