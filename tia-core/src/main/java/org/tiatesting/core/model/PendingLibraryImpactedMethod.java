@@ -24,6 +24,15 @@ public class PendingLibraryImpactedMethod implements Serializable {
     /** The set of source method IDs impacted by the library change at this stamp. */
     private Set<Integer> sourceMethodIds;
 
+    /**
+     * When {@code true}, the stamp is tagged with the last observed released version rather than
+     * the (unknown) version the changes will actually ship under. The drainer holds batches with
+     * this flag until the library's build-file version advances past {@link #stampVersion} — i.e.
+     * a new release has occurred. Always {@code false} under {@code BUMP_AFTER_RELEASE}, and
+     * always {@code false} for SNAPSHOT stamps. See {@code WIKI.md} for the full model.
+     */
+    private boolean unknownNextVersion;
+
     public PendingLibraryImpactedMethod() {
         this.sourceMethodIds = new HashSet<>();
     }
@@ -76,6 +85,14 @@ public class PendingLibraryImpactedMethod implements Serializable {
         this.sourceMethodIds = sourceMethodIds;
     }
 
+    public boolean isUnknownNextVersion() {
+        return unknownNextVersion;
+    }
+
+    public void setUnknownNextVersion(boolean unknownNextVersion) {
+        this.unknownNextVersion = unknownNextVersion;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -94,6 +111,7 @@ public class PendingLibraryImpactedMethod implements Serializable {
     public String toString() {
         return "PendingLibraryImpactedMethod{groupArtifact='" + groupArtifact
                 + "', stampVersion='" + stampVersion
-                + "', methodCount=" + sourceMethodIds.size() + "}";
+                + "', unknownNextVersion=" + unknownNextVersion
+                + ", methodCount=" + sourceMethodIds.size() + "}";
     }
 }
