@@ -2,6 +2,7 @@ package org.tiatesting.core.library;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 
@@ -66,15 +67,18 @@ public class TrackedLibraryReconciler {
             if (existing == null) {
                 TrackedLibrary newLib = buildTrackedLibraryFromConfig(coord, config);
                 seedBaselineVersionState(newLib, config);
+                seedLastReleasedLibraryVersion(newLib, config);
                 log.info("Library '{}' added to tiaSourceLibs — inserting new tracked library row " +
-                        "(baseline version='{}', baseline jarHash='{}').",
-                        coord, newLib.getLastSourceProjectVersion(), newLib.getLastSourceProjectJarHash());
+                        "(baseline version='{}', baseline jarHash='{}', lastReleasedLibraryVersion='{}').",
+                        coord, newLib.getLastSourceProjectVersion(), newLib.getLastSourceProjectJarHash(),
+                        newLib.getLastReleasedLibraryVersion());
                 dataStore.persistTrackedLibrary(newLib);
             } else {
                 TrackedLibrary updated = buildTrackedLibraryFromConfig(coord, config);
                 if (hasConfigChanged(existing, updated)) {
                     updated.setLastSourceProjectVersion(existing.getLastSourceProjectVersion());
                     updated.setLastSourceProjectJarHash(existing.getLastSourceProjectJarHash());
+                    updated.setLastReleasedLibraryVersion(existing.getLastReleasedLibraryVersion());
                     log.info("Library '{}' config changed — updating tracked library row.", coord);
                     dataStore.persistTrackedLibrary(updated);
                 }
@@ -133,6 +137,29 @@ public class TrackedLibraryReconciler {
 
         newLib.setLastSourceProjectVersion(resolved.getResolvedVersion());
         newLib.setLastSourceProjectJarHash(computeBaselineJarHash(resolved));
+    }
+
+    /**
+     * Seed {@code lastReleasedLibraryVersion} (the HWM of observed released library versions)
+     * from the library's current build-file version when the library is first onboarded. The
+     * HWM advances strictly forward from this seed as future stamps observe higher build-file
+     * versions. Leaves the field {@code null} when the library's project directory is not
+     * configured or its build metadata cannot be read — the stamper handles {@code null}
+     * defensively by treating the first observed version as the HWM.
+     */
+    private void seedLastReleasedLibraryVersion(TrackedLibrary newLib, LibraryImpactAnalysisConfig config) {
+        String libraryProjectDir = config.getLibraryProjectDir(newLib.getGroupArtifact());
+        if (libraryProjectDir == null || config.getMetadataReader() == null) {
+            return;
+        }
+        List<LibraryBuildMetadata> metadata = config.getMetadataReader()
+                .readLibraryBuildMetadata(libraryProjectDir, Collections.singletonList(newLib.getGroupArtifact()));
+        if (metadata == null || metadata.isEmpty()) {
+            log.debug("Could not read build metadata for library '{}' — lastReleasedLibraryVersion will be null.",
+                    newLib.getGroupArtifact());
+            return;
+        }
+        newLib.setLastReleasedLibraryVersion(metadata.get(0).getDeclaredVersion());
     }
 
     /**
