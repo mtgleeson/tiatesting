@@ -12,6 +12,7 @@ import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
+import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -127,8 +128,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     private LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getTiaSourceLibs();
+        LibraryVersionPolicy policy = parseLibraryVersionPolicy(getTiaLibraryVersionPolicy());
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null, null);
+            return new LibraryImpactAnalysisConfig(null, null, null, null, policy);
         }
 
         List<String> coordinates = new ArrayList<>();
@@ -154,7 +156,20 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         LibraryJarResolver reader = new LibraryJarResolver(
                 projectBuilder, session.getProjectBuildingRequest(), getLog());
 
-        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader);
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader, policy);
+    }
+
+    private LibraryVersionPolicy parseLibraryVersionPolicy(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
+        try {
+            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            getLog().warn("Invalid tiaLibraryVersionPolicy value '" + raw
+                    + "' — expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
     }
 
     private void writeIgnoredTestsToFile(Set<String> testsToIgnore){

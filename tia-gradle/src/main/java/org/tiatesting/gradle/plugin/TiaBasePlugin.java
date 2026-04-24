@@ -8,6 +8,7 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
@@ -184,8 +185,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getSourceLibs();
+        LibraryVersionPolicy policy = parseLibraryVersionPolicy(tiaTaskExtension.getLibraryVersionPolicy());
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null, null);
+            return new LibraryImpactAnalysisConfig(null, null, null, null, policy);
         }
 
         List<String> coordinates = new ArrayList<>();
@@ -208,7 +210,19 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         }
 
         LibraryJarResolver reader = new LibraryJarResolver(project, LOGGER);
-        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader);
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader, policy);
+    }
+
+    private LibraryVersionPolicy parseLibraryVersionPolicy(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
+        try {
+            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            LOGGER.warn("Invalid libraryVersionPolicy value '{}' — expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.", raw);
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
     }
 
 }
