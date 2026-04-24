@@ -135,7 +135,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         if (isSnapshotVersion(stampVersion)) {
             return shouldDrainSnapshotBatch(library, resolvedJarHash);
         } else {
-            return shouldDrainReleaseBatch(stampVersion, library, resolvedVersion);
+            return shouldDrainReleaseBatch(batch, library, resolvedVersion);
         }
     }
 
@@ -147,13 +147,28 @@ public class PendingLibraryImpactedMethodsDrainer {
      * not the new version. But they should be applied to the source project only when the lib
      * version increases past the source project's current lib version.
      *
-     * @param stampVersion the version stamped in the pending batch
+     * <p>Hold rule: when the batch carries {@code unknownNextVersion=true} (stamped under
+     * {@code BUMP_AT_RELEASE} at the observed HWM, i.e. destined for the next, unknown release),
+     * it is held as long as the source project's resolved version still equals the stamp version.
+     * The drain only fires once the resolved version moves past the stamp. See {@code WIKI.md}
+     * for the full model.
+     *
+     * @param batch the pending batch under evaluation
      * @param library the tracked library
      * @param resolvedVersion the resolved version of the library on the source project classpath
      */
-    private boolean shouldDrainReleaseBatch(String stampVersion, TrackedLibrary library,
+    private boolean shouldDrainReleaseBatch(PendingLibraryImpactedMethod batch, TrackedLibrary library,
                                              String resolvedVersion) {
         if (resolvedVersion == null) {
+            return false;
+        }
+
+        String stampVersion = batch.getStampVersion();
+
+        if (batch.isUnknownNextVersion() && compareVersions(resolvedVersion, stampVersion) == 0) {
+            log.debug("Holding pending batch for library '{}' at stamp '{}' — unknownNextVersion=true " +
+                    "and resolved version has not advanced past the stamp.",
+                    library.getGroupArtifact(), stampVersion);
             return false;
         }
 
