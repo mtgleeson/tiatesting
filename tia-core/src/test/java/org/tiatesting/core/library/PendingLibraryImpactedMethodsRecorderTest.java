@@ -140,6 +140,210 @@ class PendingLibraryImpactedMethodsRecorderTest {
         assertTrue(pending.isEmpty());
     }
 
+    /**
+     * Under {@code BUMP_AT_RELEASE}, when the build-file version equals the library's high water
+     * mark the change is destined for the next, unknown release. The stamp must therefore record
+     * {@code unknownNextVersion=true} so the drainer holds it until a real version bump happens.
+     * The high water mark itself does not change because no new release has been observed.
+     */
+    @Test
+    void bumpAtReleaseStampAtHighWaterMarkFlagsUnknownNextVersion() {
+        // given a tracked library at HWM 1.0.0 whose build file still declares 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we stamp impacted methods for this library
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10, 20)), config);
+
+        // then the pending row is flagged unknownNextVersion=true and the HWM is unchanged
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, pending.size());
+        assertEquals("1.0.0", pending.get(0).getStampVersion());
+        assertTrue(pending.get(0).isUnknownNextVersion());
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.0.0", reloaded.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * Under {@code BUMP_AT_RELEASE}, when the build-file version is higher than the recorded high
+     * water mark a new release has just been observed. The stamp records {@code unknownNextVersion=false}
+     * (the change is destined for this version, not the next unknown one) and the high water mark
+     * is advanced to the new build-file version.
+     */
+    @Test
+    void bumpAtReleaseStampAboveHighWaterMarkAdvancesHwmAndFlagsKnown() {
+        // given a tracked library at HWM 1.0.0 whose build file now declares 1.1.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.1.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we stamp impacted methods for this library
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the pending row is flagged unknownNextVersion=false and the HWM advances to 1.1.0
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, pending.size());
+        assertEquals("1.1.0", pending.get(0).getStampVersion());
+        assertFalse(pending.get(0).isUnknownNextVersion());
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.1.0", reloaded.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * Under {@code BUMP_AT_RELEASE}, a build-file version below the high water mark is a
+     * regression that shouldn't happen in a healthy project. The stamper handles it conservatively:
+     * record {@code unknownNextVersion=true} so the drainer holds the batch (avoiding a false drain
+     * against a stale lower version) and leave the high water mark unchanged.
+     */
+    @Test
+    void bumpAtReleaseStampBelowHighWaterMarkFlagsUnknownConservatively() {
+        // given a tracked library at HWM 1.1.0 whose build file regresses to 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.1.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we stamp impacted methods for this library
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the pending row is held (unknownNextVersion=true) and the HWM is unchanged
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, pending.size());
+        assertEquals("1.0.0", pending.get(0).getStampVersion());
+        assertTrue(pending.get(0).isUnknownNextVersion());
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.1.0", reloaded.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * Under {@code BUMP_AFTER_RELEASE} the build-file version is always the next-to-release
+     * version, so every stamp is "known" — there is no holding behaviour to enable. Even when the
+     * stamp version equals the current high water mark, the flag must stay {@code false}, otherwise
+     * the drainer would incorrectly hold a batch that should drain at this version.
+     */
+    @Test
+    void bumpAfterReleaseAlwaysFlagsKnownAtHighWaterMark() {
+        // given a tracked library at HWM 1.0.0 whose build file declares 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AFTER_RELEASE);
+
+        // when we stamp impacted methods under BUMP_AFTER_RELEASE
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the pending row is always flagged unknownNextVersion=false regardless of HWM equality
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertFalse(pending.get(0).isUnknownNextVersion());
+    }
+
+    /**
+     * The high water mark is maintained symmetrically under both policies — keeping the stamping
+     * code one-pathed. Under {@code BUMP_AFTER_RELEASE} the HWM is informational only (the drain
+     * does not consult it), but it must still advance when the build-file version exceeds the
+     * stored mark, so behaviour stays consistent if the policy is later switched.
+     */
+    @Test
+    void bumpAfterReleaseAdvancesHwmSymmetricallyWhenStampExceedsIt() {
+        // given a tracked library at HWM 1.0.0 whose build file declares 2.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("2.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AFTER_RELEASE);
+
+        // when we stamp impacted methods under BUMP_AFTER_RELEASE
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the HWM advances to 2.0.0 even though the policy doesn't use it for drain decisions
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("2.0.0", reloaded.getLastReleasedLibraryVersion());
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertFalse(pending.get(0).isUnknownNextVersion());
+    }
+
+    /**
+     * Defensive case — when a library has no high water mark yet (e.g. it could not be seeded by
+     * the reconciler), the stamper treats the first observed build-file version as the new HWM
+     * and records the stamp as known ({@code unknownNextVersion=false}). This avoids a permanent
+     * hold on the very first stamp for a freshly tracked library.
+     */
+    @Test
+    void bumpAtReleaseWithNullHwmTreatsFirstStampAsKnown() {
+        // given a tracked library with no recorded HWM whose build file declares 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we stamp impacted methods under BUMP_AT_RELEASE
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the first stamp is flagged known and the HWM is initialised to the stamp version
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertFalse(pending.get(0).isUnknownNextVersion());
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.0.0", reloaded.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * SNAPSHOT stamps follow a hash-based detection flow that is independent of release-version
+     * policy. The {@code unknownNextVersion} flag must always stay {@code false} for SNAPSHOTs and
+     * the high water mark of released versions must not move, regardless of which policy is active.
+     */
+    @Test
+    void snapshotStampKeepsUnknownNextVersionFalseRegardlessOfPolicy() throws Exception {
+        // given a tracked library at HWM 1.0.0 with a SNAPSHOT JAR available for hashing
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        File fakeJar = new File(tempDir, "lib-1.0-SNAPSHOT.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeJar)) {
+            fos.write("snapshot-jar".getBytes());
+        }
+        LibraryMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", fakeJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we stamp impacted methods for a SNAPSHOT version under BUMP_AT_RELEASE
+        recorder.recordPendingImpactedMethods(dataStore, lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the SNAPSHOT row is flagged known and the released-version HWM is unchanged
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, pending.size());
+        assertEquals("1.0-SNAPSHOT", pending.get(0).getStampVersion());
+        assertFalse(pending.get(0).isUnknownNextVersion());
+        TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
+        assertEquals("1.0.0", reloaded.getLastReleasedLibraryVersion());
+    }
+
     @Test
     void computeSha256HashProducesDeterministicResult() throws Exception {
         File testFile = new File(tempDir, "test.bin");
