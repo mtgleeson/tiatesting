@@ -295,6 +295,127 @@ class PendingLibraryImpactedMethodsDrainerTest {
     }
 
     /**
+     * Hold rule: when a release batch is stamped {@code unknownNextVersion=true} (the change is
+     * destined for the next, unknown release) and the source project still resolves to the same
+     * version as the stamp, the drainer must hold the batch rather than fire it. Without this
+     * check, a batch tagged for "the next release" would drain prematurely against the current
+     * release.
+     */
+    @Test
+    void releaseBatchWithUnknownNextVersionHeldWhenResolvedEqualsStamp() {
+        // given a pending batch flagged unknownNextVersion=true at stamp 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10)));
+        pending.setUnknownNextVersion(true);
+        dataStore.persistPendingLibraryImpactedMethods(pending);
+        setupTestMappingWithMethods(10);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the source project still resolves to 1.0.0 (matching the stamp)
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch is held — no tests selected, no drain recorded
+        assertFalse(outcome.getDrainResult().hasDrainedBatches());
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+    }
+
+    /**
+     * Once the source project resolves to a higher version than the stamp, the batch's "next,
+     * unknown release" has materialised and the drainer must release the hold and run the
+     * pending tests against the new version.
+     */
+    @Test
+    void releaseBatchWithUnknownNextVersionDrainsWhenResolvedAdvancesPastStamp() {
+        // given a pending batch flagged unknownNextVersion=true at stamp 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "1.0.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10)));
+        pending.setUnknownNextVersion(true);
+        dataStore.persistPendingLibraryImpactedMethods(pending);
+        setupTestMappingWithMethods(10);
+        StubMetadataReader reader = new StubMetadataReader("1.1.0", "1.1.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the source project advances past the stamp (resolves to 1.1.0)
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch drains normally
+        assertTrue(outcome.getDrainResult().hasDrainedBatches());
+        assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
+    }
+
+    /**
+     * Pre-existing behaviour for a release batch with {@code unknownNextVersion=false}: the hold
+     * rule does not apply. This is the {@code BUMP_AFTER_RELEASE} default, where the build-file
+     * version is always the next-to-release version, so a stamp at the resolved version should
+     * fire as soon as the resolved version differs from the library's last-tracked version.
+     */
+    @Test
+    void releaseBatchWithKnownFlagDrainsAtStampVersion() {
+        // given a pending batch flagged unknownNextVersion=false at stamp 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10)));
+        pending.setUnknownNextVersion(false);
+        dataStore.persistPendingLibraryImpactedMethods(pending);
+        setupTestMappingWithMethods(10);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the source project resolves to 1.0.0 (matching the stamp) but is past last-tracked 0.9.0
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch drains because the hold rule does not apply when unknownNextVersion=false
+        assertTrue(outcome.getDrainResult().hasDrainedBatches());
+    }
+
+    /**
+     * The {@code unknownNextVersion} flag is meaningful only on the release-version drain path.
+     * SNAPSHOT batches use a JAR-content-hash flow and must drain whenever the resolved hash
+     * differs from the library's last-tracked hash, irrespective of the flag's value.
+     */
+    @Test
+    void snapshotBatchUnaffectedByUnknownNextVersionFlag() throws Exception {
+        // given a SNAPSHOT pending batch with the flag set true and a JAR with a different hash than last-tracked
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, "oldhash");
+        dataStore.persistTrackedLibrary(lib);
+        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0-SNAPSHOT", "stamphash", new HashSet<>(Arrays.asList(10)));
+        pending.setUnknownNextVersion(true);
+        dataStore.persistPendingLibraryImpactedMethods(pending);
+        setupTestMappingWithMethods(10);
+        File fakeJar = new File(tempDir, "lib.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeJar)) {
+            fos.write("new-jar-content".getBytes());
+        }
+        StubMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", "1.0-SNAPSHOT", fakeJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the drainer runs against the new SNAPSHOT JAR
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch drains via the SNAPSHOT hash path — the unknownNextVersion flag is ignored
+        assertTrue(outcome.getDrainResult().hasDrainedBatches());
+    }
+
+    /**
      * Set up TiaData with test suite mappings where TestA covers method 10 and TestB covers method 20.
      */
     private void setupTestMappingWithMethods(int... methodIds) {
