@@ -196,18 +196,105 @@ class TrackedLibraryReconcilerTest {
         assertNull(lib.getLastSourceProjectJarHash());
     }
 
+    /**
+     * On first insert, the reconciler must seed {@code lastReleasedLibraryVersion} (the high water
+     * mark of observed released versions) from the library's current build-file version. Without
+     * this seed, the stamper would treat the very first stamp as a new release and could either
+     * mis-flag or fail to hold subsequent batches under {@code BUMP_AT_RELEASE}.
+     */
+    @Test
+    void seedsLastReleasedLibraryVersionFromBuildFile() {
+        // given a metadata reader that reports the library's build-file declares 1.5.0
+        StubMetadataReader reader = new StubMetadataReader("1.5.0", null, "1.5.0");
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader);
+
+        // when the reconciler inserts a new tracked library row for this coordinate
+        Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
+
+        // then the new row is seeded with lastReleasedLibraryVersion = build-file version
+        TrackedLibrary lib = result.get("com.example:lib");
+        assertEquals("1.5.0", lib.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * The high water mark advances strictly forward and must never be reset by config changes.
+     * When only the project directory changes (or any other reconciler-managed config field), the
+     * reconciler must preserve the existing {@code lastReleasedLibraryVersion} rather than
+     * re-seeding from the build file — otherwise an unrelated config edit would clobber the
+     * library's accumulated release history.
+     */
+    @Test
+    void preservesLastReleasedLibraryVersionWhenConfigChanges() {
+        // given an existing tracked library at HWM 1.0.0 whose build file now reports 2.0.0
+        TrackedLibrary existing = new TrackedLibrary("com.example:lib", "/old/path", null, "1.0", "hash1");
+        existing.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(existing);
+        StubMetadataReader reader = new StubMetadataReader("2.0.0", null, "2.0.0");
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/new/path"),
+                "/projects/source", reader);
+
+        // when the reconciler runs after the project directory has changed
+        Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
+
+        // then the project dir updates but the existing HWM is preserved (not re-seeded from build file)
+        TrackedLibrary lib = result.get("com.example:lib");
+        assertEquals("/new/path", lib.getProjectDir());
+        assertEquals("1.0.0", lib.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * Defensive case: when the metadata reader cannot read the library's build file (e.g. the
+     * library's project directory is misconfigured), the seed is left {@code null}. The stamper
+     * handles a null HWM by treating the first observed version as the initial mark — so this
+     * gap is a deferred initialisation, not a hard failure.
+     */
+    @Test
+    void leavesLastReleasedLibraryVersionNullWhenBuildMetadataMissing() {
+        // given a metadata reader that returns no build metadata for the library
+        StubMetadataReader reader = new StubMetadataReader("2.0.0", null, null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader);
+
+        // when the reconciler inserts a new tracked library row
+        Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
+
+        // then lastReleasedLibraryVersion is left null for the stamper to initialise on first stamp
+        TrackedLibrary lib = result.get("com.example:lib");
+        assertNull(lib.getLastReleasedLibraryVersion());
+    }
+
     private static class StubMetadataReader implements LibraryMetadataReader {
         private final String resolvedVersion;
         private final String jarFilePath;
+        private final String declaredBuildVersion;
 
         StubMetadataReader(String resolvedVersion, String jarFilePath) {
+            this(resolvedVersion, jarFilePath, null);
+        }
+
+        StubMetadataReader(String resolvedVersion, String jarFilePath, String declaredBuildVersion) {
             this.resolvedVersion = resolvedVersion;
             this.jarFilePath = jarFilePath;
+            this.declaredBuildVersion = declaredBuildVersion;
         }
 
         @Override
         public List<LibraryBuildMetadata> readLibraryBuildMetadata(String libraryProjectDir, List<String> coordinates) {
-            return Collections.emptyList();
+            if (declaredBuildVersion == null) {
+                return Collections.emptyList();
+            }
+            List<LibraryBuildMetadata> result = new ArrayList<>();
+            for (String coord : coordinates) {
+                result.add(new LibraryBuildMetadata(coord, declaredBuildVersion));
+            }
+            return result;
         }
 
         @Override
