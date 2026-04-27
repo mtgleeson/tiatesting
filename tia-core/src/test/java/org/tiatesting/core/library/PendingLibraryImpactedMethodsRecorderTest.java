@@ -257,16 +257,17 @@ class PendingLibraryImpactedMethodsRecorderTest {
     }
 
     /**
-     * The high water mark is maintained symmetrically under both policies — keeping the stamping
-     * code one-pathed. Under {@code BUMP_AFTER_RELEASE} the HWM is informational only (the drain
-     * does not consult it), but it must still advance when the build-file version exceeds the
-     * stored mark, so behaviour stays consistent if the policy is later switched.
+     * Under {@code BUMP_AFTER_RELEASE} the high water mark is not used by the drainer, and it is
+     * not maintained by the stamper either: the field is left at whatever value was already
+     * stored (deliberately {@code null} when seeded under this policy). Maintaining it on stamp
+     * events would only show partial data — versions where stamps happen — and would diverge from
+     * reality whenever releases occur without source changes. Leaving the field untouched keeps
+     * it consistently empty so it never surfaces misleading data.
      */
     @Test
-    void bumpAfterReleaseAdvancesHwmSymmetricallyWhenStampExceedsIt() {
-        // given a tracked library at HWM 1.0.0 whose build file declares 2.0.0
+    void bumpAfterReleaseDoesNotMaintainHwmEvenWhenStampExceedsIt() {
+        // given a tracked library with no recorded HWM (the policy doesn't seed it) whose build file declares 2.0.0
         TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
-        lib.setLastReleasedLibraryVersion("1.0.0");
         dataStore.persistTrackedLibrary(lib);
         LibraryMetadataReader reader = new StubMetadataReader("2.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
@@ -277,9 +278,9 @@ class PendingLibraryImpactedMethodsRecorderTest {
         recorder.recordPendingImpactedMethods(dataStore, lib,
                 new HashSet<>(Arrays.asList(10)), config);
 
-        // then the HWM advances to 2.0.0 even though the policy doesn't use it for drain decisions
+        // then the HWM stays null (the policy doesn't maintain it) and the stamp is flagged known
         TrackedLibrary reloaded = dataStore.readTrackedLibraries().get("com.example:lib");
-        assertEquals("2.0.0", reloaded.getLastReleasedLibraryVersion());
+        assertNull(reloaded.getLastReleasedLibraryVersion());
         List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods("com.example:lib");
         assertFalse(pending.get(0).isUnknownNextVersion());
     }
