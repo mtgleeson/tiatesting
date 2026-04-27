@@ -122,21 +122,64 @@ public class PendingLibraryImpactedMethodsDrainer {
     }
 
     /**
-     * Determine whether a pending batch should be drained based on the drain rules.
-     * For release stamps: resolved version must be &ge; stamp version AND must differ from
-     * the library's {@code last_source_project_version}.
-     * For SNAPSHOT stamps: the resolved JAR hash must differ from the library's
-     * {@code last_source_project_jar_hash}.
+     * Determine whether a pending batch should be drained based on the drain rules. The path is
+     * chosen by both the stamp's version form and the source project's resolved version form:
+     * <ul>
+     *     <li><b>Both SNAPSHOT</b> — JAR-hash comparison (a new SNAPSHOT build has been picked up).</li>
+     *     <li><b>Both release</b> — release-style version comparison.</li>
+     *     <li><b>SNAPSHOT stamp, release resolved</b> — release-style comparison against the
+     *         SNAPSHOT's target version (i.e. the stamp with {@code -SNAPSHOT} stripped). A hash
+     *         compare here would always trigger because the resolved JAR is for a release line,
+     *         not the SNAPSHOT, so the hashes differ trivially and would cause a false drain.</li>
+     *     <li><b>Release stamp, SNAPSHOT resolved</b> — release-style comparison (the SNAPSHOT
+     *         orders past prior releases under the existing comparator).</li>
+     * </ul>
      */
     private boolean shouldDrainBatch(PendingLibraryImpactedMethod batch, TrackedLibrary library,
                                       String resolvedVersion, String resolvedJarHash) {
         String stampVersion = batch.getStampVersion();
+        boolean stampIsSnapshot = isSnapshotVersion(stampVersion);
+        boolean resolvedIsSnapshot = isSnapshotVersion(resolvedVersion);
 
-        if (isSnapshotVersion(stampVersion)) {
-            return shouldDrainSnapshotBatch(library, resolvedJarHash);
-        } else {
-            return shouldDrainReleaseBatch(batch, library, resolvedVersion);
+        if (stampIsSnapshot && !resolvedIsSnapshot) {
+            return shouldDrainSnapshotStampAgainstReleaseSource(batch, library, resolvedVersion);
         }
+
+        if (stampIsSnapshot) {
+            return shouldDrainSnapshotBatch(library, resolvedJarHash);
+        }
+
+        return shouldDrainReleaseBatch(batch, library, resolvedVersion);
+    }
+
+    /**
+     * Drain rule for the case where the pending stamp is a SNAPSHOT but the source project has
+     * moved to a release version. The SNAPSHOT's target release (its version with the
+     * {@code -SNAPSHOT} suffix removed) is compared against the resolved release version using
+     * release-style semantics: drain only when the resolved release is &ge; the SNAPSHOT's target.
+     * The same {@code lastSourceProjectVersion} differs check from the release path applies, to
+     * avoid re-draining when the source project has not advanced since the previous drain.
+     */
+    private boolean shouldDrainSnapshotStampAgainstReleaseSource(PendingLibraryImpactedMethod batch,
+                                                                  TrackedLibrary library,
+                                                                  String resolvedVersion) {
+        if (resolvedVersion == null) {
+            return false;
+        }
+
+        String stampVersion = batch.getStampVersion();
+        String stampTargetVersion = stripSnapshotSuffix(stampVersion);
+
+        if (Objects.equals(resolvedVersion, library.getLastSourceProjectVersion())) {
+            log.debug("Resolved version '{}' matches last_source_project_version — skipping drain " +
+                    "of SNAPSHOT stamp '{}' against release source.", resolvedVersion, stampVersion);
+            return false;
+        }
+
+        log.trace("Checking if SNAPSHOT stamp {} should be drained against release-resolved version {} " +
+                "for lib {} — comparing stamp target {} to resolved release",
+                stampVersion, resolvedVersion, library.getGroupArtifact(), stampTargetVersion);
+        return compareVersions(resolvedVersion, stampTargetVersion) >= 0;
     }
 
     /**
@@ -280,6 +323,22 @@ public class PendingLibraryImpactedMethodsDrainer {
      */
     private boolean isSnapshotVersion(String version) {
         return version != null && version.toUpperCase().endsWith("-SNAPSHOT");
+    }
+
+    /**
+     * Return the SNAPSHOT version's target release — the version string with a trailing
+     * {@code -SNAPSHOT} suffix removed (case-insensitive). Returns the input unchanged when
+     * it does not end with {@code -SNAPSHOT}.
+     */
+    private static String stripSnapshotSuffix(String version) {
+        if (version == null) {
+            return null;
+        }
+        int suffixStart = version.length() - "-SNAPSHOT".length();
+        if (suffixStart >= 0 && version.substring(suffixStart).equalsIgnoreCase("-SNAPSHOT")) {
+            return version.substring(0, suffixStart);
+        }
+        return version;
     }
 
     /**
