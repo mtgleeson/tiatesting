@@ -384,6 +384,72 @@ class PendingLibraryImpactedMethodsDrainerTest {
     }
 
     /**
+     * Bug fix: when the pending stamp is a SNAPSHOT but the source project has moved to a
+     * release version, the drainer must not run a JAR-hash compare (the resolved JAR is for a
+     * different version line, so hashes always differ and would falsely drain). Instead, the
+     * SNAPSHOT's target release (stamp with {@code -SNAPSHOT} stripped) must be compared against
+     * the resolved release. A SNAPSHOT targeting a version higher than the resolved release is
+     * destined for a future release and must be held.
+     */
+    @Test
+    void snapshotStampIsHeldWhenSourceIsReleaseBelowSnapshotTarget() throws Exception {
+        // given a 1.2.0-SNAPSHOT pending stamp and a source project resolved to release 1.1.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "1.0.0", "oldhash");
+        dataStore.persistTrackedLibrary(lib);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.2.0-SNAPSHOT", "stamphash", new HashSet<>(Arrays.asList(10))));
+        setupTestMappingWithMethods(10);
+        File fakeReleaseJar = new File(tempDir, "lib-1.1.0.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeReleaseJar)) {
+            fos.write("release-jar-1.1.0".getBytes());
+        }
+        StubMetadataReader reader = new StubMetadataReader("1.1.0", "1.1.0", fakeReleaseJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the drainer runs
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch is held — SNAPSHOT's target 1.2.0 is above the resolved release 1.1.0
+        assertFalse(outcome.getDrainResult().hasDrainedBatches());
+        assertTrue(outcome.getTestsToAdd().isEmpty());
+    }
+
+    /**
+     * Bug fix companion case: when the pending stamp is a SNAPSHOT and the source project has
+     * moved to a release at or above the SNAPSHOT's target release, the SNAPSHOT's changes have
+     * been incorporated into a consumed release and the batch must drain. The release-style
+     * comparison uses the stamp with {@code -SNAPSHOT} stripped.
+     */
+    @Test
+    void snapshotStampDrainsWhenSourceIsReleaseAtOrAboveSnapshotTarget() throws Exception {
+        // given a 1.0.0-SNAPSHOT pending stamp and a source project resolved to release 1.1.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", "oldhash");
+        dataStore.persistTrackedLibrary(lib);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0-SNAPSHOT", "stamphash", new HashSet<>(Arrays.asList(10))));
+        setupTestMappingWithMethods(10);
+        File fakeReleaseJar = new File(tempDir, "lib-1.1.0.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeReleaseJar)) {
+            fos.write("release-jar-1.1.0".getBytes());
+        }
+        StubMetadataReader reader = new StubMetadataReader("1.1.0", "1.1.0", fakeReleaseJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when the drainer runs
+        TiaData tiaData = dataStore.getTiaData(true);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
+                drainer.drainPendingMethods(dataStore, config, tiaData);
+
+        // then the batch drains — SNAPSHOT's target 1.0.0 is below the resolved release 1.1.0
+        assertTrue(outcome.getDrainResult().hasDrainedBatches());
+        assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
+    }
+
+    /**
      * The {@code unknownNextVersion} flag is meaningful only on the release-version drain path.
      * SNAPSHOT batches use a JAR-content-hash flow and must drain whenever the resolved hash
      * differs from the library's last-tracked hash, irrespective of the flag's value.
