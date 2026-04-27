@@ -146,8 +146,18 @@ public class TrackedLibraryReconciler {
      * observe higher build-file versions. Leaves the field {@code null} when the library's
      * project directory is not configured or its build metadata cannot be read — the stamper
      * handles {@code null} defensively by treating the first observed version as the high water mark.
+     *
+     * <p>Only applied under {@link LibraryVersionPolicy#BUMP_AT_RELEASE}. Under
+     * {@link LibraryVersionPolicy#BUMP_AFTER_RELEASE} the field is informational only and is
+     * deliberately left {@code null} for the lifetime of the library — without periodic
+     * re-reading of the build file (which we avoid for performance), any seeded value can grow
+     * stale as new releases happen without triggering stamps. A consistently null value avoids
+     * surfacing misleading data.
      */
     private void seedLastReleasedLibraryVersion(TrackedLibrary newLib, LibraryImpactAnalysisConfig config) {
+        if (config.getVersionPolicy() != LibraryVersionPolicy.BUMP_AT_RELEASE) {
+            return;
+        }
         String libraryProjectDir = config.getLibraryProjectDir(newLib.getGroupArtifact());
         if (libraryProjectDir == null || config.getMetadataReader() == null) {
             return;

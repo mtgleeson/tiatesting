@@ -197,19 +197,20 @@ class TrackedLibraryReconcilerTest {
     }
 
     /**
-     * On first insert, the reconciler must seed {@code lastReleasedLibraryVersion} (the high water
-     * mark of observed released versions) from the library's current build-file version. Without
-     * this seed, the stamper would treat the very first stamp as a new release and could either
-     * mis-flag or fail to hold subsequent batches under {@code BUMP_AT_RELEASE}.
+     * On first insert under {@code BUMP_AT_RELEASE}, the reconciler must seed
+     * {@code lastReleasedLibraryVersion} (the high water mark of observed released versions) from
+     * the library's current build-file version. Without this seed, the stamper would treat the
+     * very first stamp as a new release and could either mis-flag or fail to hold subsequent
+     * batches under {@code BUMP_AT_RELEASE}.
      */
     @Test
-    void seedsLastReleasedLibraryVersionFromBuildFile() {
-        // given a metadata reader that reports the library's build-file declares 1.5.0
+    void seedsLastReleasedLibraryVersionFromBuildFileUnderBumpAtRelease() {
+        // given a metadata reader reporting the library's build-file declares 1.5.0, under BUMP_AT_RELEASE
         StubMetadataReader reader = new StubMetadataReader("1.5.0", null, "1.5.0");
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:lib"),
                 Collections.singletonMap("com.example:lib", "/projects/lib"),
-                "/projects/source", reader);
+                "/projects/source", reader, LibraryVersionPolicy.BUMP_AT_RELEASE);
 
         // when the reconciler inserts a new tracked library row for this coordinate
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
@@ -217,6 +218,29 @@ class TrackedLibraryReconcilerTest {
         // then the new row is seeded with lastReleasedLibraryVersion = build-file version
         TrackedLibrary lib = result.get("com.example:lib");
         assertEquals("1.5.0", lib.getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * Under {@code BUMP_AFTER_RELEASE} the high water mark field is informational only and is
+     * deliberately left {@code null} for the lifetime of the library. Seeding it would surface
+     * data that grows stale as new releases happen between stamp events (and we avoid the
+     * performance cost of periodically re-reading the build file just to maintain it).
+     */
+    @Test
+    void doesNotSeedLastReleasedLibraryVersionUnderBumpAfterRelease() {
+        // given a metadata reader reporting the library's build-file declares 1.5.0, under BUMP_AFTER_RELEASE
+        StubMetadataReader reader = new StubMetadataReader("1.5.0", null, "1.5.0");
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"),
+                Collections.singletonMap("com.example:lib", "/projects/lib"),
+                "/projects/source", reader, LibraryVersionPolicy.BUMP_AFTER_RELEASE);
+
+        // when the reconciler inserts a new tracked library row for this coordinate
+        Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
+
+        // then lastReleasedLibraryVersion is left null because the policy doesn't track it
+        TrackedLibrary lib = result.get("com.example:lib");
+        assertNull(lib.getLastReleasedLibraryVersion());
     }
 
     /**
@@ -248,19 +272,21 @@ class TrackedLibraryReconcilerTest {
     }
 
     /**
-     * Defensive case: when the metadata reader cannot read the library's build file (e.g. the
-     * library's project directory is misconfigured), the seed is left {@code null}. The stamper
-     * handles a null HWM by treating the first observed version as the initial mark — so this
-     * gap is a deferred initialisation, not a hard failure.
+     * Defensive case under {@code BUMP_AT_RELEASE}: when the metadata reader cannot read the
+     * library's build file (e.g. the library's project directory is misconfigured), the seed is
+     * left {@code null}. The stamper handles a null high water mark by treating the first
+     * observed version as the initial mark — so this gap is a deferred initialisation, not a
+     * hard failure. Uses {@code BUMP_AT_RELEASE} explicitly so the seed path actually runs;
+     * under {@code BUMP_AFTER_RELEASE} the seed is short-circuited regardless of metadata.
      */
     @Test
-    void leavesLastReleasedLibraryVersionNullWhenBuildMetadataMissing() {
-        // given a metadata reader that returns no build metadata for the library
+    void leavesLastReleasedLibraryVersionNullWhenBuildMetadataMissingUnderBumpAtRelease() {
+        // given a metadata reader that returns no build metadata for the library, under BUMP_AT_RELEASE
         StubMetadataReader reader = new StubMetadataReader("2.0.0", null, null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:lib"),
                 Collections.singletonMap("com.example:lib", "/projects/lib"),
-                "/projects/source", reader);
+                "/projects/source", reader, LibraryVersionPolicy.BUMP_AT_RELEASE);
 
         // when the reconciler inserts a new tracked library row
         Map<String, TrackedLibrary> result = reconciler.reconcile(dataStore, config);
