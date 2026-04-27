@@ -68,37 +68,34 @@ public class PendingLibraryImpactedMethodsRecorder {
 
     /**
      * For release-version stamps, classify the stamp against the library's high water mark
-     * and policy, advance the high water mark when the stamp exceeds it, and return the value
-     * of {@code unknownNextVersion} for the stamp row.
+     * and policy, advance the high water mark when the stamp exceeds it (only under
+     * {@link LibraryVersionPolicy#BUMP_AT_RELEASE}), and return the value of
+     * {@code unknownNextVersion} for the stamp row.
      *
-     * <p>The high water mark is maintained symmetrically under both policies — the interpretation
-     * of {@code loadedVersion == highWaterMark} is what differs. Under {@code BUMP_AT_RELEASE} it means the
-     * changes are destined for the next, unknown release (hold); under {@code BUMP_AFTER_RELEASE}
-     * it is a normal stamp at the version about to ship. See {@code WIKI.md} for the full model.
+     * <p>The high water mark is only maintained under {@code BUMP_AT_RELEASE} — that policy is
+     * the only consumer. Under {@code BUMP_AFTER_RELEASE} the field is left {@code null} for
+     * the lifetime of the library to avoid surfacing data that would grow stale as new releases
+     * happen between stamp events. See {@code WIKI.md} for the full model.
      */
     private boolean classifyReleaseStampAndAdvanceHwm(String stampVersion, TrackedLibrary trackedLibrary,
                                                        LibraryVersionPolicy policy, DataStore dataStore) {
+        if (policy != LibraryVersionPolicy.BUMP_AT_RELEASE) {
+            return false;
+        }
+
         String priorHwm = trackedLibrary.getLastReleasedLibraryVersion();
         int cmp = (priorHwm == null) ? 1
                 : PendingLibraryImpactedMethodsDrainer.compareVersions(stampVersion, priorHwm);
 
         boolean unknownNextVersion;
-        if (policy == LibraryVersionPolicy.BUMP_AT_RELEASE) {
-            if (cmp > 0) {
-                unknownNextVersion = false;
-            } else if (cmp == 0) {
-                unknownNextVersion = true;
-            } else {
-                log.warn("Library '{}' version '{}' regressed below observed HWM '{}' — holding stamp conservatively.",
-                        trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
-                unknownNextVersion = true;
-            }
-        } else {
-            if (cmp < 0) {
-                log.warn("Library '{}' version '{}' regressed below observed HWM '{}' — HWM unchanged.",
-                        trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
-            }
+        if (cmp > 0) {
             unknownNextVersion = false;
+        } else if (cmp == 0) {
+            unknownNextVersion = true;
+        } else {
+            log.warn("Library '{}' version '{}' regressed below observed high water mark '{}' — holding stamp conservatively.",
+                    trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
+            unknownNextVersion = true;
         }
 
         if (cmp > 0) {
