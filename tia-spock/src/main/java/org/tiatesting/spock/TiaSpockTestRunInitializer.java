@@ -20,8 +20,10 @@ public class TiaSpockTestRunInitializer {
         this.dataStore = dataStore;
     }
 
-    TestSelectorResult selectTests(final List<String> sourceFilesDirs, final List<String> testFilesDirs, boolean checkLocalChanges){
+    TestSelectorResult selectTests(final List<String> sourceFilesDirs, final List<String> testFilesDirs,
+                                   boolean checkLocalChanges, boolean updateDBMapping){
         TestSelector testSelector = new TestSelector(dataStore);
-        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges, null);
+        return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges,
+                null, updateDBMapping);
     }
 }

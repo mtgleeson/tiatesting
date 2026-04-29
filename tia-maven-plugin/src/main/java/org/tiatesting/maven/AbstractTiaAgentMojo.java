@@ -117,7 +117,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         TestSelector testSelector = new TestSelector(dataStore);
         LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
         TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                testFilesDirs, isCheckLocalChanges(), libraryConfig);
+                testFilesDirs, isCheckLocalChanges(), libraryConfig, isTiaUpdateDBMapping());
         getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
         return testSelectorResult;
     }

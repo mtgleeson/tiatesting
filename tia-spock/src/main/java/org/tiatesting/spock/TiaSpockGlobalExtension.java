@@ -62,7 +62,8 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             }
 
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
-            TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs, this.checkLocalChanges);
+            TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
+                    this.checkLocalChanges, tiaUpdateDBMapping);
             ignoredTests = testSelectorResult.getTestsToIgnore();
 
             if (tiaUpdateDBMapping || tiaUpdateDBStats){

@@ -27,6 +27,11 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         StringUtil.sanitizeInputArray(testFilesDirs);
 
         TestSelector testSelector = new TestSelector(dataStore);
+        // TODO: this preview path does not pass a LibraryImpactAnalysisConfig, so when tiaSourceLibs
+        // is configured, library-owned diffs fall through as source-project diffs and inflate the
+        // previewed run set (it should match what the agent mojo selects). Wire libraryConfig in
+        // here and call selectTestsToIgnore (or a new read-only overload) with updateDBMapping=false
+        // so the preview reflects partitioning + drain without mutating the mapping DB.
         Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
         System.out.println("Selected tests to run: ");
 

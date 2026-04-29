@@ -92,6 +92,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
             TestSelector testSelector = new TestSelector(dataStore);
+            // TODO: this preview path does not pass a LibraryImpactAnalysisConfig, so when tiaSourceLibs
+            // is configured, library-owned diffs fall through as source-project diffs and inflate the
+            // previewed run set (it should match what the test task selects). Wire libraryConfig in
+            // here and call selectTestsToIgnore (or a new read-only overload) with updateDBMapping=false
+            // so the preview reflects partitioning + drain without mutating the mapping DB.
             Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
             String lineSep = System.lineSeparator();
 
