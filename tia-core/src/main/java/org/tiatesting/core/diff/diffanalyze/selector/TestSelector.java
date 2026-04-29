@@ -106,29 +106,6 @@ public class TestSelector {
     }
 
     /**
-     * Get the selected tests to run based on the changes to VCS since the last submit tracked by Tia.
-     * It will add any previously failed tests tracked by Tia and any test files that have had changes since the last
-     * commit.
-     * Note: this represents the list of tests to run that Tia is aware of. There may be new test files in changes that
-     * have been analysed that will be executed by the test runner in addition to this list of tests.
-     *
-     * @param vcsReader the VCS reader
-     * @param sourceFilesDirNames the dir names for the source files
-     * @param testFilesDirNames the dir names for the test files
-     * @param checkLocalChanges should we check for local changes?
-     * @return the selected tests to run
-     */
-    public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
-                                        final List<String> testFilesDirNames, final boolean checkLocalChanges){
-        TiaData tiaData = dataStore.getTiaData(true);
-        // No libraryConfig is supplied on this entry point, so the stamp/reconcile paths are not reachable —
-        // updateDBMapping has no effect here today. Pass false defensively so any future wiring of
-        // libraryConfig into this overload does not silently start writing on non-primary callers.
-        return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData, null, false);
-    }
-
-    /**
      * Core test selection logic. When a {@link LibraryImpactAnalysisConfig} is provided and
      * enabled, modified source diffs are partitioned into source-project vs per-library buckets.
      * Library-bucket methods are stamped as pending (not added to the run set in this stage).

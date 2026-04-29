@@ -1,9 +1,19 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.ProjectBuilder;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.vcs.VCSReader;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -116,6 +126,20 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     @Parameter(property = "tiaVcsClientName")
     String tiaVcsClientName;
 
+    /**
+     * Maven project builder used to load the source project's pom so its declared dependencies
+     * can be resolved when mapping {@code tiaSourceLibs} coordinates to JAR files.
+     */
+    @Component
+    protected ProjectBuilder projectBuilder;
+
+    /**
+     * Current Maven session, used to seed the {@link org.apache.maven.project.ProjectBuildingRequest}
+     * passed to {@link #projectBuilder} with the active repositories and settings.
+     */
+    @Parameter(defaultValue = "${session}", readonly = true)
+    protected MavenSession session;
+
     public MavenProject getProject(){
         return project;
     }
@@ -191,4 +215,55 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     public abstract VCSReader getVCSReader();
+
+    /**
+     * Build the library impact analysis configuration from the Maven plugin parameters.
+     * Coordinates in {@link #tiaSourceLibs} should be in the format
+     * {@code groupId:artifactId} or {@code groupId:artifactId:projectDir}.
+     */
+    protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
+        String libs = getTiaSourceLibs();
+        LibraryVersionPolicy policy = parseLibraryVersionPolicy(getTiaLibraryVersionPolicy());
+        if (libs == null || libs.trim().isEmpty()) {
+            return new LibraryImpactAnalysisConfig(null, null, null, null, policy);
+        }
+
+        List<String> coordinates = new ArrayList<>();
+        Map<String, String> libraryProjectDirs = new HashMap<>();
+        for (String raw : libs.split(",")) {
+            String entry = raw.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                String coord = segments[0].trim() + ":" + segments[1].trim();
+                coordinates.add(coord);
+                libraryProjectDirs.put(coord, segments[2].trim());
+            } else if (segments.length == 2) {
+                coordinates.add(entry);
+            } else {
+                getLog().warn("Invalid tiaSourceLibs entry '" + entry
+                        + "' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
+            }
+        }
+
+        LibraryJarResolver reader = new LibraryJarResolver(
+                projectBuilder, session.getProjectBuildingRequest(), getLog());
+
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader, policy);
+    }
+
+    private LibraryVersionPolicy parseLibraryVersionPolicy(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
+        try {
+            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            getLog().warn("Invalid tiaLibraryVersionPolicy value '" + raw
+                    + "' — expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
+            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
+    }
 }

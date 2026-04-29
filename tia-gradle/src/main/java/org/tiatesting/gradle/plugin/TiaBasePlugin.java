@@ -11,6 +11,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.report.InfoReportGenerator;
@@ -81,7 +82,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     /**
      * Task to show the tests Tia will select for the workspace. Used to preview what tests Tia will select to run
-     * without actually running the tests.
+     * without actually running the tests. Selection runs with {@code updateDBMapping=false}: library reconcile
+     * and pending-stamp persistence are skipped, but drain analysis still runs (read-only) so the preview
+     * matches what the test task would select.
      */
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
@@ -92,12 +95,10 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
             TestSelector testSelector = new TestSelector(dataStore);
-            // TODO: this preview path does not pass a LibraryImpactAnalysisConfig, so when tiaSourceLibs
-            // is configured, library-owned diffs fall through as source-project diffs and inflate the
-            // previewed run set (it should match what the test task selects). Wire libraryConfig in
-            // here and call selectTestsToIgnore (or a new read-only overload) with updateDBMapping=false
-            // so the preview reflects partitioning + drain without mutating the mapping DB.
-            Set<String> testsToRun = testSelector.selectTestsToRun(getVCSReader(), sourceFilesDirs, testFilesDirs, isCheckLocalChanges());
+            LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            TestSelectorResult result = testSelector.selectTestsToIgnore(getVCSReader(), sourceFilesDirs,
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
+            Set<String> testsToRun = result.getTestsToRun();
             String lineSep = System.lineSeparator();
 
             System.out.println("Selected tests to run: ");

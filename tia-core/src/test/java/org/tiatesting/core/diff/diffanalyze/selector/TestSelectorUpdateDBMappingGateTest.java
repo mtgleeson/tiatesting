@@ -8,6 +8,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
@@ -148,6 +149,47 @@ class TestSelectorUpdateDBMappingGateTest {
                 "Non-primary build must not call deleteTrackedLibrary.");
     }
 
+    /**
+     * Preview path (Maven {@code tia-select-tests} mojo / Gradle {@code tia-select-tests} task):
+     * {@code selectTestsToIgnore} is called with a real {@link LibraryImpactAnalysisConfig} and
+     * {@code updateDBMapping=false}. A pending batch whose stamp is now resolvable in the source
+     * project must be drained into {@code testsToRun}, but the drain must not mutate the DB —
+     * post-test cleanup is the primary build's job.
+     */
+    @Test
+    void previewDrainsPendingBatchIntoTestsToRunWithoutDbWrites() {
+        TrackedLibrary tracked = new TrackedLibrary("com.example:lib", "/projects/lib",
+                "/projects/lib/src/main/java", "0.9.0", null);
+        dataStore.persistTrackedLibrary(tracked);
+        seedStoredCommitWithTestMapping("abc123", 42, "com.example.LibTest");
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Collections.singletonList(42))));
+
+        CountingDataStore counting = new CountingDataStore(dataStore);
+        LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
+
+        TestSelector testSelector = new TestSelector(counting);
+        TestSelectorResult result = testSelector.selectTestsToIgnore(emptyDiffsVcsReader(),
+                Collections.emptyList(), Collections.emptyList(), false, libraryConfig, false);
+
+        assertTrue(result.getTestsToRun().contains("com.example.LibTest"),
+                "Preview must surface tests resolved from drained pending batches.");
+
+        assertEquals(0, counting.persistPendingCalls.get(),
+                "Preview must not write pending rows.");
+        assertEquals(0, counting.persistTrackedLibraryCalls.get(),
+                "Preview must not advance HWM or reconcile tracked-library rows.");
+        assertEquals(0, counting.deleteTrackedLibraryCalls.get(),
+                "Preview must not delete tracked-library rows.");
+        assertEquals(0, counting.deletePendingCalls.get(),
+                "Preview must not delete drained pending rows — that's the primary build's job.");
+
+        assertEquals(1, dataStore.readPendingLibraryImpactedMethods("com.example:lib").size(),
+                "Pending row must remain in DB after preview.");
+        assertEquals("0.9.0", dataStore.readTrackedLibraries().get("com.example:lib").getLastSourceProjectVersion(),
+                "Tracked library version must remain unchanged after preview.");
+    }
+
     private LibraryImpactAnalysisConfig libraryConfigFor(String coordinate, String projectDir) {
         Map<String, String> projectDirs = new HashMap<>();
         projectDirs.put(coordinate, projectDir);
@@ -164,6 +206,28 @@ class TestSelectorUpdateDBMappingGateTest {
         tiaData.setLastUpdated(Instant.now());
         Map<String, TestSuiteTracker> testSuites = new HashMap<>();
         Map<Integer, MethodImpactTracker> methods = new HashMap<>();
+        tiaData.setTestSuitesTracked(testSuites);
+        tiaData.setMethodsTracked(methods);
+        dataStore.persistCoreData(tiaData);
+        dataStore.persistTestSuites(testSuites);
+        dataStore.persistSourceMethods(methods);
+    }
+
+    private void seedStoredCommitWithTestMapping(String commit, int methodId, String testSuiteName) {
+        TiaData tiaData = dataStore.getTiaData(true);
+        tiaData.setCommitValue(commit);
+        tiaData.setLastUpdated(Instant.now());
+
+        Map<Integer, MethodImpactTracker> methods = new HashMap<>();
+        methods.put(methodId, new MethodImpactTracker("com.example.Method" + methodId, 1, 10));
+
+        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
+        TestSuiteTracker tracker = new TestSuiteTracker(testSuiteName);
+        tracker.setClassesImpacted(Collections.singletonList(
+                new ClassImpactTracker("com/example/Lib.java",
+                        new HashSet<>(Collections.singletonList(methodId)))));
+        testSuites.put(testSuiteName, tracker);
+
         tiaData.setTestSuitesTracked(testSuites);
         tiaData.setMethodsTracked(methods);
         dataStore.persistCoreData(tiaData);
@@ -253,6 +317,7 @@ class TestSelectorUpdateDBMappingGateTest {
         final AtomicInteger persistTrackedLibraryCalls = new AtomicInteger();
         final AtomicInteger deleteTrackedLibraryCalls = new AtomicInteger();
         final AtomicInteger persistPendingCalls = new AtomicInteger();
+        final AtomicInteger deletePendingCalls = new AtomicInteger();
 
         CountingDataStore(DataStore delegate) {
             this.delegate = delegate;
@@ -274,7 +339,11 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public Map<String, TrackedLibrary> readTrackedLibraries() { return delegate.readTrackedLibraries(); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }
-        @Override public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) { delegate.deletePendingLibraryImpactedMethods(groupArtifact, stampVersion); }
+        @Override
+        public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
+            deletePendingCalls.incrementAndGet();
+            delegate.deletePendingLibraryImpactedMethods(groupArtifact, stampVersion);
+        }
 
         @Override
         public void persistTrackedLibrary(TrackedLibrary trackedLibrary) {
