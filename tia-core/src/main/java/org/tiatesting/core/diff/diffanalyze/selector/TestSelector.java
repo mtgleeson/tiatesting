@@ -59,21 +59,29 @@ public class TestSelector {
      * @param testFilesDirNames the dir names for the test files
      * @param checkLocalChanges should local changes be checked by Tia.
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured.
+     * @param updateDBMapping whether this run owns mapping-DB updates. When {@code false} (non-primary
+     *                       build / local workspace), test selection still runs but no mapping/library
+     *                       writes are performed: tracked-library reconcile is skipped and pending
+     *                       library impacted methods are not stamped. Stats writes are independent
+     *                       and not affected by this flag.
      * @return list of test suites to ignore in the current test run.
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges,
-                                           final LibraryImpactAnalysisConfig libraryConfig){
+                                           final LibraryImpactAnalysisConfig libraryConfig,
+                                           final boolean updateDBMapping){
         TiaData tiaData = dataStore.getTiaData(true);
 
-        reconcileTrackedLibrariesIfConfigured(libraryConfig);
+        if (updateDBMapping) {
+            reconcileTrackedLibrariesIfConfigured(libraryConfig);
+        }
 
         if (!hasStoredMapping(tiaData)){
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null); // run all tests - don't ignore any
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData, libraryConfig);
+                tiaData, libraryConfig, updateDBMapping);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
                 libraryConfig, checkLocalChanges, tiaData, testsToRun);
@@ -113,14 +121,11 @@ public class TestSelector {
     public Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                         final List<String> testFilesDirNames, final boolean checkLocalChanges){
         TiaData tiaData = dataStore.getTiaData(true);
+        // No libraryConfig is supplied on this entry point, so the stamp/reconcile paths are not reachable —
+        // updateDBMapping has no effect here today. Pass false defensively so any future wiring of
+        // libraryConfig into this overload does not silently start writing on non-primary callers.
         return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData);
-    }
-
-    private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
-                                         final List<String> testFilesDirNames, final boolean checkLocalChanges,
-                                         final TiaData tiaData){
-        return selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges, tiaData, null);
+                tiaData, null, false);
     }
 
     /**
@@ -129,10 +134,15 @@ public class TestSelector {
      * Library-bucket methods are stamped as pending (not added to the run set in this stage).
      * In {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
      * diffs are treated as source-project diffs so tests run immediately against local changes.
+     *
+     * <p>When {@code updateDBMapping} is {@code false}, library-diff partitioning still runs (so that
+     * library-owned diffs are not misclassified as source-project diffs) but the pending-stamp persist
+     * is skipped — non-primary builds read the existing tracked-library snapshot without mutating it.
      */
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
-                                         final TiaData tiaData, final LibraryImpactAnalysisConfig libraryConfig){
+                                         final TiaData tiaData, final LibraryImpactAnalysisConfig libraryConfig,
+                                         final boolean updateDBMapping){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -152,7 +162,8 @@ public class TestSelector {
         // Partition source diffs: library diffs go to pending stamp, source-project diffs to immediate selection.
         List<SourceFileDiffContext> sourceProjectDiffs = modifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs, libraryConfig);
+            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs,
+                    libraryConfig, updateDBMapping);
         }
 
         // Find all test suites that execute the source code methods that have changed
@@ -412,14 +423,16 @@ public class TestSelector {
 
     /**
      * Partition modified source diffs into source-project and per-library buckets.
-     * For each library bucket, run method-impact analysis and record the impacted
-     * method IDs as pending via {@link PendingLibraryImpactedMethodsRecorder}.
+     * For each library bucket, run method-impact analysis and (when {@code updateDBMapping} is
+     * {@code true}) record the impacted method IDs as pending via
+     * {@link PendingLibraryImpactedMethodsRecorder}.
      *
      * @return the source-project diffs (those not belonging to any tracked library).
      */
     private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
             List<SourceFileDiffContext> allModifiedSourceDiffs, TiaData tiaData,
-            List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig) {
+            List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig,
+            boolean updateDBMapping) {
 
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         if (trackedLibraries.isEmpty()) {
@@ -433,7 +446,7 @@ public class TestSelector {
                 sourceProjectDiffs, libraryDiffBuckets);
 
         recordImpactedMethodsForLibraryBuckets(libraryDiffBuckets, trackedLibraries,
-                tiaData, sourceFilesDirs, libraryConfig);
+                tiaData, sourceFilesDirs, libraryConfig, updateDBMapping);
 
         return sourceProjectDiffs;
     }
@@ -487,12 +500,18 @@ public class TestSelector {
     /**
      * For each library bucket, run method-impact analysis on the library's diffs
      * and record the impacted method IDs as pending via the recorder.
+     *
+     * <p>When {@code updateDBMapping} is {@code false} the partitioning still runs (so library-owned
+     * diffs are kept out of the source-project bucket and don't trigger immediate test selection),
+     * but the recorder is not invoked — non-primary builds must not write pending rows or advance
+     * the high water mark on a shared mapping DB.
      */
     private void recordImpactedMethodsForLibraryBuckets(
             Map<String, List<SourceFileDiffContext>> libraryDiffBuckets,
             Map<String, TrackedLibrary> trackedLibraries,
             TiaData tiaData, List<String> sourceFilesDirs,
-            LibraryImpactAnalysisConfig libraryConfig) {
+            LibraryImpactAnalysisConfig libraryConfig,
+            boolean updateDBMapping) {
 
         PendingLibraryImpactedMethodsRecorder recorder = new PendingLibraryImpactedMethodsRecorder();
 
@@ -500,6 +519,12 @@ public class TestSelector {
             String groupArtifact = entry.getKey();
             List<SourceFileDiffContext> libraryDiffs = entry.getValue();
             TrackedLibrary trackedLibrary = trackedLibraries.get(groupArtifact);
+
+            if (!updateDBMapping) {
+                log.info("Library '{}' has {} modified source files — skipping pending-stamp persist (updateDBMapping=false).",
+                        groupArtifact, libraryDiffs.size());
+                continue;
+            }
 
             log.info("Library '{}' has {} modified source files — analyzing impacted methods.",
                     groupArtifact, libraryDiffs.size());
