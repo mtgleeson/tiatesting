@@ -334,7 +334,7 @@ The Gradle plugin supports three source-project configurations:
 
 1. **Same project** — `sourceProjectDir` is omitted (or points at the current project). The plugin resolves coordinates against the current project's `runtimeClasspath`.
 2. **Sibling subproject** — `sourceProjectDir` points at another subproject in the same Gradle build. The plugin resolves against that subproject's `runtimeClasspath`.
-3. **External Gradle build** — `sourceProjectDir` points at a separate Gradle project on disk (but in the same VCS repository). The plugin uses the Gradle Tooling API to load that project and read its resolved classpath, which spins up a short Gradle daemon against the source project on first use (so the source project must be buildable).
+3. **External Gradle build** — `sourceProjectDir` points at a separate Gradle project on disk (but in the same VCS repository). The plugin uses the Gradle Tooling API to load that project and read its resolved classpath, which spins up a short Gradle daemon against the source project on first use (so the source project must be buildable). When tracking an in-repo library (`sourceLibs` entry pointing at an external Gradle build), the library project must apply a publishing plugin (`maven-publish` or `ivy-publish`) and declare a publication — Tia reads its declared version from the publication, since a project's own classpath cannot list itself.
 
 `build.gradle`
 ```gradle

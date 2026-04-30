@@ -12,6 +12,8 @@ import org.gradle.tooling.model.GradleModuleVersion;
 import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
 import org.gradle.tooling.model.eclipse.EclipseProject;
 import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
+import org.gradle.tooling.model.gradle.GradlePublication;
+import org.gradle.tooling.model.gradle.ProjectPublications;
 import org.slf4j.Logger;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
@@ -264,32 +266,45 @@ public class LibraryJarResolver implements LibraryMetadataReader {
     }
 
     /**
-     * Read library build metadata from an external Gradle build via the Tooling API.
-     * Uses the {@link EclipseProject} model's classpath entries to find matching coordinates.
+     * Read library build metadata from an external Gradle build via the Tooling API. Uses the
+     * {@link ProjectPublications} model — the library's own classpath would never list itself, so
+     * we look up its declared publication ({@code maven-publish} / {@code ivy-publish}) for the
+     * group:name match and read the version from there.
      */
     private List<LibraryBuildMetadata> readMetadataFromExternalGradleBuild(File libraryProjectDir,
                                                                            List<String> coordinates) {
-        List<LibraryBuildMetadata> result = new ArrayList<>();
-
         try (ProjectConnection conn = GradleConnector.newConnector()
                 .forProjectDirectory(libraryProjectDir)
                 .connect()) {
-            EclipseProject eclipse = conn.getModel(EclipseProject.class);
-            for (EclipseExternalDependency dep : eclipse.getClasspath()) {
-                GradleModuleVersion v = dep.getGradleModuleVersion();
-                if (v == null) continue;
-                String ga = v.getGroup() + ":" + v.getName();
-                for (String coord : coordinates) {
-                    if (coord.trim().equals(ga)) {
-                        result.add(new LibraryBuildMetadata(coord, v.getVersion()));
-                    }
-                }
-            }
+            ProjectPublications publications = conn.getModel(ProjectPublications.class);
+            return matchPublications(publications.getPublications(), coordinates);
         } catch (Exception e) {
             log.warn("Failed to read library build metadata from " + libraryProjectDir.getAbsolutePath()
                     + ": " + e.getMessage());
+            return new ArrayList<>();
         }
+    }
 
+    /**
+     * Match a set of {@code groupId:artifactId} coordinates against a project's publications and
+     * emit a {@link LibraryBuildMetadata} entry per match. Package-private for unit testing.
+     */
+    static List<LibraryBuildMetadata> matchPublications(Iterable<? extends GradlePublication> publications,
+                                                        List<String> coordinates) {
+        List<LibraryBuildMetadata> result = new ArrayList<>();
+        if (publications == null) {
+            return result;
+        }
+        for (GradlePublication pub : publications) {
+            GradleModuleVersion id = pub.getId();
+            if (id == null) continue;
+            String ga = id.getGroup() + ":" + id.getName();
+            for (String coord : coordinates) {
+                if (coord.trim().equals(ga)) {
+                    result.add(new LibraryBuildMetadata(coord, id.getVersion()));
+                }
+            }
+        }
         return result;
     }
 

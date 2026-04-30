@@ -1,17 +1,24 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.tooling.model.DomainObjectSet;
+import org.gradle.tooling.model.GradleModuleVersion;
+import org.gradle.tooling.model.ProjectIdentifier;
 import org.gradle.tooling.model.eclipse.ClasspathAttribute;
 import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
+import org.gradle.tooling.model.gradle.GradlePublication;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,6 +85,68 @@ class LibraryJarResolverFilterTest {
     void nullDirectoryIsExcluded() {
         FakeSourceDir entry = new FakeSourceDir(null);
         assertFalse(LibraryJarResolver.isMainCodeSourceDir(entry, null));
+    }
+
+    @Test
+    void matchPublicationsReturnsVersionForMatchingCoordinate() {
+        // The reported runtime bug: a library's metadata read returned no version, so the
+        // recorder skipped the pending stamp. Fix: look up the library's own publication and
+        // read its declared version.
+        List<GradlePublication> pubs = Collections.singletonList(
+                new FakePublication("com.example", "spock-lib", "1.1.1-SNAPSHOT"));
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                pubs, Arrays.asList("com.example:spock-lib"));
+        assertEquals(1, result.size());
+        assertEquals("com.example:spock-lib", result.get(0).getGroupArtifact());
+        assertEquals("1.1.1-SNAPSHOT", result.get(0).getDeclaredVersion());
+    }
+
+    @Test
+    void matchPublicationsIgnoresNonMatchingPublications() {
+        List<GradlePublication> pubs = Arrays.asList(
+                new FakePublication("com.other", "different-lib", "9.9.9"),
+                new FakePublication("com.example", "spock-lib", "1.1.1-SNAPSHOT"));
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                pubs, Arrays.asList("com.example:spock-lib"));
+        assertEquals(1, result.size());
+        assertEquals("1.1.1-SNAPSHOT", result.get(0).getDeclaredVersion());
+    }
+
+    @Test
+    void matchPublicationsHandlesNoPublications() {
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                Collections.<GradlePublication>emptyList(),
+                Arrays.asList("com.example:spock-lib"));
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void matchPublicationsHandlesNullPublicationsArg() {
+        // ProjectPublications.getPublications() should never be null in practice, but the helper
+        // is defensive — better than NPE inside the connect() try/catch swallowing the cause.
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                null, Arrays.asList("com.example:spock-lib"));
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void matchPublicationsTrimsCoordinateWhitespace() {
+        List<GradlePublication> pubs = Collections.singletonList(
+                new FakePublication("com.example", "spock-lib", "1.1.1-SNAPSHOT"));
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                pubs, Arrays.asList("  com.example:spock-lib  "));
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void matchPublicationsSupportsMultipleCoordinates() {
+        List<GradlePublication> pubs = Arrays.asList(
+                new FakePublication("com.example", "lib-a", "1.0"),
+                new FakePublication("com.example", "lib-b", "2.0"),
+                new FakePublication("com.example", "lib-c", "3.0"));
+        List<LibraryBuildMetadata> result = LibraryJarResolver.matchPublications(
+                pubs, Arrays.asList("com.example:lib-a", "com.example:lib-c"));
+        assertEquals(2, result.size());
     }
 
     @Test
@@ -161,5 +230,32 @@ class LibraryJarResolverFilterTest {
         @Override public Iterator<T> iterator() { return super.iterator(); }
         @Override public List<T> getAll() { return new ArrayList<>(this); }
         @Override public T getAt(int index) { return get(index); }
+    }
+
+    /**
+     * Minimal in-memory fake for the Tooling-API publication model. Only implements what
+     * {@link LibraryJarResolver#matchPublications} actually inspects.
+     */
+    private static class FakePublication implements GradlePublication {
+        private final GradleModuleVersion id;
+        FakePublication(String group, String name, String version) {
+            this.id = new FakeModuleVersion(group, name, version);
+        }
+        @Override public GradleModuleVersion getId() { return id; }
+        @Override public ProjectIdentifier getProjectIdentifier() { return null; }
+    }
+
+    private static class FakeModuleVersion implements GradleModuleVersion {
+        private final String group;
+        private final String name;
+        private final String version;
+        FakeModuleVersion(String group, String name, String version) {
+            this.group = group;
+            this.name = name;
+            this.version = version;
+        }
+        @Override public String getGroup() { return group; }
+        @Override public String getName() { return name; }
+        @Override public String getVersion() { return version; }
     }
 }
