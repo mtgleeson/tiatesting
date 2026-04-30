@@ -8,9 +8,16 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
+import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
+import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 public class TiaSpockGitGradlePluginTestExtension {
@@ -52,6 +59,8 @@ public class TiaSpockGitGradlePluginTestExtension {
                     if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
                         testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
                     }
+
+                    forwardLibraryMetadata(testTask, tiaTaskExtension, resolver);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -162,4 +171,108 @@ public class TiaSpockGitGradlePluginTestExtension {
         return enabled;
     }
 
+    /**
+     * Pre-resolve library metadata on the Gradle side and forward it to the test JVM as flat
+     * system properties. The test JVM uses {@link LibraryMetadataSystemProperties} to rebuild a
+     * {@code LibraryImpactAnalysisConfig} so {@code TestSelector} can run reconcile / partition /
+     * stamp / drain in-process — without needing a Gradle {@code Project} reference.
+     *
+     * <p>Why pre-resolve here: {@link LibraryJarResolver} requires either the current Gradle
+     * {@code Project} or a Tooling-API connection. Neither is available inside the forked test JVM.
+     * The plugin runs the resolver once at task-action time and forwards the results.
+     *
+     * <p>The {@code tiaLibraryJars} CSV (set above) is a separate concern — it feeds JaCoCo so
+     * library classes are included in coverage. The metadata forwarded here drives TIA's selection
+     * logic.
+     */
+    private void forwardLibraryMetadata(Test testTask, TiaBaseTaskExtension tiaTaskExtension,
+                                        LibraryJarResolver resolver) {
+        String sourceLibs = tiaTaskExtension.getSourceLibs();
+        if (sourceLibs == null || sourceLibs.trim().isEmpty()) {
+            return;
+        }
+
+        List<CoordinateAndDir> parsed = parseSourceLibs(sourceLibs);
+        if (parsed.isEmpty()) {
+            return;
+        }
+
+        String sourceProjectDir = tiaTaskExtension.getSourceProjectDir();
+        List<PreResolvedLibraryMetadataReader.Entry> entries = new ArrayList<>(parsed.size());
+
+        for (CoordinateAndDir cd : parsed) {
+            List<String> coordSingleton = Collections.singletonList(cd.coordinate);
+
+            String declaredVersion = null;
+            List<String> sourceDirs = Collections.emptyList();
+            if (cd.projectDir != null && !cd.projectDir.isEmpty()) {
+                List<LibraryBuildMetadata> metadata = resolver.readLibraryBuildMetadata(cd.projectDir, coordSingleton);
+                if (!metadata.isEmpty()) {
+                    declaredVersion = metadata.get(0).getDeclaredVersion();
+                }
+                sourceDirs = resolver.readSourceDirectories(cd.projectDir);
+            }
+
+            String resolvedVersion = null;
+            String resolvedJar = null;
+            List<ResolvedSourceProjectLibrary> resolved =
+                    resolver.resolveLibrariesInSourceProject(sourceProjectDir, coordSingleton);
+            if (!resolved.isEmpty()) {
+                resolvedVersion = resolved.get(0).getResolvedVersion();
+                resolvedJar = resolved.get(0).getJarFilePath();
+            }
+
+            entries.add(new PreResolvedLibraryMetadataReader.Entry(
+                    cd.coordinate, cd.projectDir, declaredVersion, sourceDirs, resolvedVersion, resolvedJar));
+        }
+
+        String encoded = LibraryMetadataSystemProperties.formatEntries(entries);
+        if (!encoded.isEmpty()) {
+            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_LIBRARIES_METADATA, encoded);
+        }
+        if (sourceProjectDir != null && !sourceProjectDir.isEmpty()) {
+            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_SOURCE_PROJECT_DIR, sourceProjectDir);
+        }
+        String policy = tiaTaskExtension.getLibraryVersionPolicy();
+        if (policy != null && !policy.isEmpty()) {
+            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_LIBRARY_VERSION_POLICY, policy);
+        }
+    }
+
+    /**
+     * Parse the user-facing {@code sourceLibs} CSV into {@code (coordinate, projectDir)} pairs.
+     * Accepts both {@code groupId:artifactId} and {@code groupId:artifactId:projectDir} forms,
+     * matching {@link org.tiatesting.gradle.plugin.TiaBasePlugin#buildLibraryImpactAnalysisConfig()}.
+     */
+    private List<CoordinateAndDir> parseSourceLibs(String sourceLibs) {
+        List<CoordinateAndDir> result = new ArrayList<>();
+        for (String raw : sourceLibs.split(",")) {
+            String entry = raw.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                result.add(new CoordinateAndDir(
+                        segments[0].trim() + ":" + segments[1].trim(),
+                        segments[2].trim()));
+            } else if (segments.length == 2) {
+                result.add(new CoordinateAndDir(entry, null));
+            } else {
+                LOGGER.warn("Invalid sourceLibs entry '{}' — expected groupId:artifactId or "
+                        + "groupId:artifactId:projectDir, skipping.", entry);
+            }
+        }
+        return result;
+    }
+
+    private static final class CoordinateAndDir {
+        final String coordinate;
+        final String projectDir;
+
+        CoordinateAndDir(String coordinate, String projectDir) {
+            this.coordinate = coordinate;
+            this.projectDir = projectDir;
+        }
+    }
 }
