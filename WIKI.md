@@ -174,7 +174,7 @@ The library metadata Tia reasons about — the declared version, the resolved ve
 - **Maven**: the test runner forks a separate JVM (Surefire/Failsafe), and selection has to run before the fork so the agent can apply it. The plugin mojo runs `TestSelector.selectTestsToIgnore` directly, including library reconcile / stamp / drain, then writes `ignored-tests.txt`, `selected-tests.txt`, and `drain-result.ser` for the forked test JVM to consume.
 - **Gradle/Spock**: the Spock global extension runs *inside* the forked test JVM and drives selection there. The Gradle plugin resolves library metadata at task-action time (where it has access to the `Project`) and forwards the results as flat system properties; the test JVM rebuilds a `LibraryImpactAnalysisConfig` from those properties using a pre-resolved metadata reader. No filesystem handoff.
 
-This split exists because Maven's mojos run in a different process from the test runner, while Gradle's plugin runs in the same daemon and can configure the test task directly. The stamp/drain semantics are identical across both — only the plumbing differs.
+This split exists because of *when* each build tool's plugin code can compute and pass dynamic values to the forked test JVM — not because of any difference in how the JVMs themselves share data. Both fork separate test JVMs and both share startup state via `-D` system properties at fork time; the difference is the lifecycle hook the plugin gets. See the chapter [How Tia exchanges data with the test runner](#chapter-how-tia-exchanges-data-with-the-test-runner-gradle-vs-maven) for the full picture. The stamp/drain semantics are identical across both build systems — only the plumbing differs.
 
 A consequence specific to Gradle/Spock: each forked test JVM independently constructs the global extension and, on `updateDBMapping=true` runs, reaches the persist phase. The persist contract today scopes deletion to the suites the *current* fork saw, so multi-fork runs (`maxParallelForks > 1` or `forkEvery > 0`) corrupt the mapping by wiping suites owned by sibling forks. Documented as a single-fork requirement until the persist phase is reworked to be fork-aware. Library writes (reconcile + stamp) are idempotent / merge-safe under multi-fork, so library tracking specifically isn't the failure mode — the test-suite mapping is.
 
@@ -185,3 +185,58 @@ A consequence specific to Gradle/Spock: each forked test JVM independently const
 - **Track a separate "last observed release tag" via VCS.** Same detection-fragility problem, plus requires Tia to read VCS tags, which it doesn't otherwise need.
 
 The per-stamp flag is the minimum persisted state that correctly encodes "drain-on-equal" vs "hold-for-next" without forcing the drainer to understand policy. That separation keeps the drainer simple and policy-extensible.
+
+---
+
+## Chapter: How Tia exchanges data with the test runner (Gradle vs Maven)
+
+A recurring source of confusion when reading Tia's code is why the Maven and Gradle paths look architecturally different — Maven writes files (`ignored-tests.txt`, `selected-tests.txt`, `drain-result.ser`), Gradle uses system properties. The instinct is to assume one runtime can share state in-process and the other can't. That's not what's going on. This chapter unpacks what's actually different and why each path made the choice it did.
+
+### Both build tools fork a separate JVM for tests
+
+Maven Surefire and Failsafe fork a JVM to run tests. Gradle's `Test` task does the same (configurable via `forkEvery` and `maxParallelForks`, but a fork happens by default). In both cases the build-tool process is one JVM and the test runner is another.
+
+So Spock, JUnit5, and any other test framework run in the **forked test JVM** — not in the build-tool's JVM. There is no shared heap, no shared classloader, no in-process method call between the plugin code and the test framework code. Whatever data needs to flow has to cross a process boundary.
+
+### Both build tools share startup state the same way: `-D` system properties
+
+When a parent process forks a child JVM, the standard mechanism for passing key/value config is JVM arguments — specifically `-Dkey=value`. The child reads them via `System.getProperty(...)`. There's no magic.
+
+- **Maven Surefire** has `<systemPropertyVariables>` in its plugin config; Surefire turns those into `-D` args when launching the test JVM.
+- **Gradle's `Test` task** exposes `task.systemProperty(key, value)` / `task.systemProperties(map)`; Gradle turns those into `-D` args when launching the test worker.
+
+Both paths are forked-process system-property propagation. The mechanism is identical.
+
+### The real difference is *when* the plugin can compute the values
+
+What separates the two is the lifecycle hook each build tool gives plugin authors:
+
+- **Gradle's `Test` task** lets plugins register a `task.doFirst { ... }` action that runs in the Gradle daemon **immediately before** the fork. Inside that action, plugin code has full access to the project model, can run arbitrary computation (e.g. resolve library metadata via the Tooling API), and can call `task.systemProperty(...)` with the result. Gradle then includes those properties when launching the fork. Dynamic values flow naturally from plugin computation to forked test JVM.
+
+- **Maven Surefire** reads its plugin configuration (including `<systemPropertyVariables>`) from the project's static XML config. By the time a Tia mojo realises it needs to inject specific data, the configuration phase has passed. The closest workaround Tia's Maven mojo uses is mutating the project's `argLine` property at runtime (`AbstractTiaAgentMojo.execute` updates `projectProperties.setProperty(name, newValue)`); Surefire then includes that string in the fork's JVM args. This works for the agent JAR path and a handful of options, but it's awkward for arbitrary structured key/value data and offers no clean per-property API.
+
+So the reason Tia-Maven leans on files isn't that it *can't* use system properties — it's that the *ergonomics* of dynamically setting many or large-valued properties through Surefire's static config model are bad enough that files end up cleaner.
+
+### Why Tia-Maven uses files
+
+Two practical limits push Maven specifically toward files for its biggest payloads:
+
+1. **Size.** The ignored-tests list can be thousands of entries (test classes × parametrizations × fully-qualified paths). Operating-system command-line argument limits (`ARG_MAX` on Unix, much smaller on Windows) make stuffing all of it into a single `-D` arg fragile. A file is unbounded.
+2. **Structure.** `LibraryImpactDrainResult` is a serialized Java object, not a string. To force it into a `-D` arg you'd base64-encode the bytes — uglier than just writing the bytes to a file.
+
+The Tia agent in the forked JVM reads file paths from `AgentOptions` (which *is* passed via JVM args, since that's a small fixed string) and loads the contents at startup.
+
+### Why Tia-Gradle/Spock uses system properties
+
+The size/structure limits don't bite on Gradle for two reasons:
+
+1. **Selection runs *inside* the test JVM.** `TiaSpockGlobalExtension` is loaded by Spock at test-JVM startup, opens the Tia DB directly, and computes the ignored-tests list there. The huge list of ignored tests never crosses a process boundary — it's computed where it's used. The only data the plugin needs to forward is the inputs that aren't reachable from inside the test JVM (anything that requires Gradle's `Project` or Tooling API).
+2. **Library metadata is small and bounded.** A handful of coordinates × a few string fields per coordinate fits comfortably in one system property. The `tiaLibrariesMetadata` flat-string format documented in the previous chapter is well within `ARG_MAX` for any realistic project.
+
+So Gradle gets to use system properties for everything that needs to cross the boundary, with no file artefacts and no parallel "data file" lifecycle to manage.
+
+### When this design might shift
+
+The current asymmetry is pragmatic, not principled. If Maven Surefire ever exposed a hook that lets a mojo inject system properties at fork time (the way Gradle's `doFirst` does), Tia-Maven could move some payloads off files. Conversely, if a Gradle test task someday accumulates a large enough payload to push past `ARG_MAX`, it'd need to fall back to a file like Maven. Neither pressure exists today.
+
+The takeaway for anyone reading the code: **the plumbing difference is about lifecycle ergonomics and payload size, not about JVM-to-JVM communication capability**. Both build tools use the same underlying mechanism (`-D` args at fork time); each Tia integration picks the carrier (file vs system property) that fits its lifecycle and data shape.
