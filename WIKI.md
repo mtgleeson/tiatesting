@@ -167,6 +167,17 @@ The stamp/drain model assumes Tia sees each release once. Two implications worth
 - **Tia must run on every release of a tracked library.** If a release is skipped, the stamp/drain pairing breaks — under `BUMP_AT_RELEASE` the HWM won't advance, and a batch stamped at the skipped version will hold forever.
 - **The authoritative Tia run must operate on a clean working tree.** Tia reads the library version from the build file currently on disk; uncommitted version bumps look identical to committed ones and can cause premature drains. This is documented in the README's "Primary build requirement" section and applies to both policies.
 
+### Where library resolution actually happens
+
+The library metadata Tia reasons about — the declared version, the resolved version on the source project's classpath, the JAR path — has to be obtained from the build system. That resolution is plugin-side (it requires Maven's `ProjectBuilder` or Gradle's `Project` / Tooling API), but selection itself happens in different places on the two build systems:
+
+- **Maven**: the test runner forks a separate JVM (Surefire/Failsafe), and selection has to run before the fork so the agent can apply it. The plugin mojo runs `TestSelector.selectTestsToIgnore` directly, including library reconcile / stamp / drain, then writes `ignored-tests.txt`, `selected-tests.txt`, and `drain-result.ser` for the forked test JVM to consume.
+- **Gradle/Spock**: the Spock global extension runs *inside* the forked test JVM and drives selection there. The Gradle plugin resolves library metadata at task-action time (where it has access to the `Project`) and forwards the results as flat system properties; the test JVM rebuilds a `LibraryImpactAnalysisConfig` from those properties using a pre-resolved metadata reader. No filesystem handoff.
+
+This split exists because Maven's mojos run in a different process from the test runner, while Gradle's plugin runs in the same daemon and can configure the test task directly. The stamp/drain semantics are identical across both — only the plumbing differs.
+
+A consequence specific to Gradle/Spock: each forked test JVM independently constructs the global extension and, on `updateDBMapping=true` runs, reaches the persist phase. The persist contract today scopes deletion to the suites the *current* fork saw, so multi-fork runs (`maxParallelForks > 1` or `forkEvery > 0`) corrupt the mapping by wiping suites owned by sibling forks. Documented as a single-fork requirement until the persist phase is reworked to be fork-aware. Library writes (reconcile + stamp) are idempotent / merge-safe under multi-fork, so library tracking specifically isn't the failure mode — the test-suite mapping is.
+
 ### Why this design over alternatives considered
 
 - **Auto-detect the policy from git history.** Fragile: requires parsing tags, understanding release plugin conventions per build system, and handling projects that don't tag releases at all. A user-declared policy is one config line and unambiguous.

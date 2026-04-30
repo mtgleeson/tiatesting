@@ -13,6 +13,13 @@ dependencies {
     implementation 'org.spockframework:spock-core:2.0-groovy-3.0'
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
     implementation "org.jacoco:org.jacoco.core:${jacocoVersion}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {
