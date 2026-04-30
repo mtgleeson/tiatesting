@@ -2,10 +2,11 @@ package org.tiatesting.spock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
-import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.List;
 
@@ -21,9 +22,10 @@ public class TiaSpockTestRunInitializer {
     }
 
     TestSelectorResult selectTests(final List<String> sourceFilesDirs, final List<String> testFilesDirs,
-                                   boolean checkLocalChanges, boolean updateDBMapping){
+                                   boolean checkLocalChanges, boolean updateDBMapping,
+                                   LibraryImpactAnalysisConfig libraryConfig){
         TestSelector testSelector = new TestSelector(dataStore);
         return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges,
-                null, updateDBMapping);
+                libraryConfig, updateDBMapping);
     }
 }
