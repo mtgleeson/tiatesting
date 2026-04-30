@@ -15,6 +15,14 @@ dependencies {
     implementation project(':tia-core')
     implementation gradleApi()
     implementation 'org.gradle:gradle-tooling-api:8.10'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation gradleTestKit()
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {

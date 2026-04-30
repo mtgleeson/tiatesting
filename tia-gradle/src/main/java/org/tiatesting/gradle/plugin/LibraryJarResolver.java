@@ -136,6 +136,22 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         }
     }
 
+    private static String canonicalPath(File f){
+        return canonical(f).getAbsolutePath();
+    }
+
+    /**
+     * A directory passes for "Gradle project root" if it contains any of the standard build/settings
+     * files. Used to detect the common misconfiguration where {@code projectDir} points at a source
+     * directory rather than the library's project root.
+     */
+    static boolean looksLikeGradleProjectRoot(File dir){
+        return new File(dir, "build.gradle").isFile()
+                || new File(dir, "build.gradle.kts").isFile()
+                || new File(dir, "settings.gradle").isFile()
+                || new File(dir, "settings.gradle.kts").isFile();
+    }
+
     private List<String> resolveFromGradleProject(Project gradleProject, List<String> coordinates){
         Configuration conf = gradleProject.getConfigurations().findByName("runtimeClasspath");
         if (conf == null){
@@ -216,6 +232,12 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         File libDir = new File(libraryProjectDir);
         if (!libDir.isDirectory()) {
             log.warn("Library project directory '" + libraryProjectDir + "' does not exist.");
+            return result;
+        }
+        if (!looksLikeGradleProjectRoot(libDir)) {
+            log.warn("Library project directory '" + libraryProjectDir + "' has no build.gradle / "
+                    + "build.gradle.kts / settings.gradle — expected the library's project root, "
+                    + "not a source directory. Skipping library build metadata read.");
             return result;
         }
 
@@ -378,10 +400,22 @@ public class LibraryJarResolver implements LibraryMetadataReader {
                     libraryProjectDir);
             return Collections.emptyList();
         }
+        if (!looksLikeGradleProjectRoot(libDir)) {
+            log.warn("Library project directory '{}' has no build.gradle / build.gradle.kts / "
+                    + "settings.gradle — expected the library's project root, not a source directory. "
+                    + "Skipping source directory read.", libraryProjectDir);
+            return Collections.emptyList();
+        }
 
         return readSourceDirsFromExternalGradleBuild(libDir);
     }
 
+    /**
+     * Read source directories for a sibling subproject. Uses {@code main.getAllJava().getSrcDirs()}
+     * which returns Java + jointly-compiled languages (Groovy, Scala) and naturally excludes
+     * resource directories and test source sets. Kotlin sources are not included because the Kotlin
+     * compiler doesn't participate in joint compilation; that's a known limitation.
+     */
     private List<String> readSourceDirsFromGradleProject(Project gradleProject) {
         List<String> result = new ArrayList<>();
         SourceSetContainer sourceSets = gradleProject.getExtensions()
@@ -392,13 +426,27 @@ public class LibraryJarResolver implements LibraryMetadataReader {
 
         SourceSet main = sourceSets.findByName(SourceSet.MAIN_SOURCE_SET_NAME);
         if (main != null) {
-            for (File srcDir : main.getJava().getSrcDirs()) {
-                result.add(srcDir.getAbsolutePath());
+            for (File srcDir : main.getAllJava().getSrcDirs()) {
+                result.add(canonicalPath(srcDir));
             }
         }
         return result;
     }
 
+    /**
+     * Read source directories for an external Gradle build via the Tooling API. Filters the
+     * Eclipse model's source directories to keep only main-scope code dirs (excludes test sources
+     * and resource directories).
+     *
+     * <p>Filter rules:
+     * <ul>
+     *     <li>If {@code gradle_used_by_scope} classpath attribute is present, keep entries whose
+     *         value contains {@code main}.</li>
+     *     <li>When the attribute is absent (older Gradle / non-standard model), fall back to
+     *         path convention: keep entries whose path contains {@code /src/main/}.</li>
+     *     <li>Always exclude entries whose leaf directory name is {@code resources}.</li>
+     * </ul>
+     */
     private List<String> readSourceDirsFromExternalGradleBuild(File libraryProjectDir) {
         List<String> result = new ArrayList<>();
         try (ProjectConnection conn = GradleConnector.newConnector()
@@ -406,13 +454,58 @@ public class LibraryJarResolver implements LibraryMetadataReader {
                 .connect()) {
             EclipseProject eclipse = conn.getModel(EclipseProject.class);
             for (EclipseSourceDirectory srcDir : eclipse.getSourceDirectories()) {
-                result.add(srcDir.getDirectory().getAbsolutePath());
+                File dir = srcDir.getDirectory();
+                if (!isMainCodeSourceDir(srcDir, dir)) {
+                    continue;
+                }
+                result.add(canonicalPath(dir));
             }
         } catch (Exception e) {
             log.warn("Failed to read source directories from external Gradle build at {}: {}",
                     libraryProjectDir.getAbsolutePath(), e.getMessage());
         }
         return result;
+    }
+
+    /**
+     * Decide whether an Eclipse source directory entry should be included as a tracked library
+     * source dir. See {@link #readSourceDirsFromExternalGradleBuild} for the filter rules.
+     */
+    static boolean isMainCodeSourceDir(EclipseSourceDirectory srcDir, File dir) {
+        if (dir == null) {
+            return false;
+        }
+        if ("resources".equals(dir.getName())) {
+            return false;
+        }
+
+        String scope = readClasspathAttribute(srcDir, "gradle_used_by_scope");
+        if (scope != null && !scope.isEmpty()) {
+            // Attribute present: trust it. Values can be "main", "test", or "main,test".
+            for (String s : scope.split(",")) {
+                if ("main".equals(s.trim())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Attribute missing: fall back to path convention.
+        String path = dir.getAbsolutePath().replace(File.separatorChar, '/');
+        return path.contains("/src/main/");
+    }
+
+    private static String readClasspathAttribute(EclipseSourceDirectory srcDir, String name) {
+        try {
+            for (org.gradle.tooling.model.eclipse.ClasspathAttribute attr : srcDir.getClasspathAttributes()) {
+                if (name.equals(attr.getName())) {
+                    return attr.getValue();
+                }
+            }
+        } catch (Exception e) {
+            // Older Tooling API or model providers may not support classpath attributes.
+        }
+        return null;
     }
 
     private List<String> matchExternalClasspath(EclipseProject eclipse, List<String> coordinates,
