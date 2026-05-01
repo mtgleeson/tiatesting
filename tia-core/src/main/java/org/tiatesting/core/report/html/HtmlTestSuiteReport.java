@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static j2html.TagCreator.*;
-import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
 import static org.tiatesting.core.report.html.HtmlSourceMethodReport.METHODS_FOLDER;
 
 public class HtmlTestSuiteReport {
@@ -25,6 +24,11 @@ public class HtmlTestSuiteReport {
     protected static final String TIA_TEST_SUITES_HTML = "tia-test-suites.html";
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
+
+    /** Path back to the assets dir from a one-level-deep page. */
+    private static final String ASSETS_REL = "../" + HtmlAssetCopier.ASSETS_DIR_NAME;
+    /** Path back to the report root from a one-level-deep page. */
+    private static final String ROOT_REL = "../";
 
     public HtmlTestSuiteReport(String filenameExt, File reportOutputDir){
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
@@ -37,29 +41,31 @@ public class HtmlTestSuiteReport {
         generateSourceMethodReport(tiaData);
     }
 
+    private int pendingCount(TiaData tiaData) {
+        return tiaData.getPendingLibraryImpactedMethods() != null
+                ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
+    }
+
     private void generateTestSuiteReportData(TiaData tiaData){
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + TIA_TEST_SUITES_HTML;
         log.info("Writing the test suite report to {}", fileName);
 
-        try {
-            FileWriter writer = new FileWriter(fileName);
+        try (FileWriter writer = new FileWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
-                    head(
-                            link().attr("href=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1/dist/style.css\" rel=\"stylesheet\" type=\"text/css\""),
-                            script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
-                    ), body(
-                            header(
-                                    h2("Tia: Test Suites")
-                            ),
-                            p(
-                                    a("back to Summary").attr("href=\"../"+ INDEX_HTML  +"\"")
-                            ),
-                            table(attrs("#tiaTable"),
-                                    thead(
-                                            tr(
+                    HtmlLayout.pageHead("Test Suites", ASSETS_REL),
+                    body(
+                            HtmlLayout.topNav(HtmlLayout.NavKey.TEST_SUITES, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
+                            main(
+                                    HtmlLayout.breadcrumb(
+                                            HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
+                                            HtmlLayout.Crumb.current("Test Suites")
+                                    ),
+                                    h2("Test Suites"),
+                                    table(attrs("#tiaTable"),
+                                            thead(tr(
                                                     th("Name"),
                                                     th("Avg run time (ms)").attr(numberDataType),
                                                     th("Num runs").attr(numberDataType),
@@ -68,32 +74,27 @@ public class HtmlTestSuiteReport {
                                                     th("Num fails").attr(numberDataType),
                                                     th("Fail %").attr(numberDataType),
                                                     th("Num methods").attr(numberDataType)
-                                            )
-                                    ), tbody(
-                                            each(tiaData.getTestSuitesTracked().values(), testSuiteTracker ->
+                                            )),
+                                            tbody(each(tiaData.getTestSuitesTracked().values(), testSuiteTracker ->
                                                     tr(
-                                                            td(a(testSuiteTracker.getName()).attr("href=\"" + testSuiteTracker.getName() + ".html\"")),
+                                                            td(a(testSuiteTracker.getName())
+                                                                    .withHref(testSuiteTracker.getName() + ".html")),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getAvgRunTime())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumRuns())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumSuccessRuns())),
                                                             td(getAvgSuccess(testSuiteTracker.getTestStats())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumFailRuns())),
                                                             td(getAvgFail(testSuiteTracker.getTestStats())),
-                                                            td(String.valueOf(testSuiteTracker.getClassesImpacted().stream().reduce(0, (sub, classImpactTracker)
-                                                                    -> sub + classImpactTracker.getMethodsImpacted().size(), Integer :: sum)))
+                                                            td(String.valueOf(testSuiteTracker.getClassesImpacted().stream().reduce(0,
+                                                                    (sub, classImpactTracker) -> sub + classImpactTracker.getMethodsImpacted().size(),
+                                                                    Integer::sum)))
                                                     )
-                                            )
+                                            ))
                                     )
-                            )
-                    ),
-                    script("const dataTable = new simpleDatatables.DataTable(\"#tiaTable\", {\n" +
-                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
-                            "\tsearchable: true,\n" +
-                            "\tfixedHeight: true,\n" +
-                            "\tpaging: true,\n" +
-                            "\tperPage: 20,\n" +
-                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                            "})")
+                            ),
+                            HtmlLayout.pageFooter(),
+                            HtmlLayout.simpleDatatablesInit("#tiaTable", ASSETS_REL)
+                    )
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -120,61 +121,41 @@ public class HtmlTestSuiteReport {
                 .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
                 .collect(Collectors.toSet());
 
-        try {
-            FileWriter writer = new FileWriter(fileName);
-            final String numberDataType = "data-type=\"number\"";
-
+        try (FileWriter writer = new FileWriter(fileName)) {
             html(
-                    head(
-                            link().attr("href=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1/dist/style.css\" rel=\"stylesheet\" type=\"text/css\""),
-                            script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
-                    ), body(
-                            header(
-                                    h2("Test Suite: " + testSuiteTracker.getName())
-                            ),
-                            div(
-                                    p(
-                                            a("go to Test Suites").attr("href=tia-test-suites.html")
+                    HtmlLayout.pageHead("Test Suite — " + testSuiteTracker.getName(), ASSETS_REL),
+                    body(
+                            HtmlLayout.topNav(HtmlLayout.NavKey.TEST_SUITES, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
+                            main(
+                                    HtmlLayout.breadcrumb(
+                                            HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
+                                            HtmlLayout.Crumb.link("Test Suites", TIA_TEST_SUITES_HTML),
+                                            HtmlLayout.Crumb.current(testSuiteTracker.getName())
                                     ),
+                                    h2("Test Suite: " + testSuiteTracker.getName()),
+
                                     h3("Stats"),
                                     p(
-                                            div("Avg run time (ms): " + testSuiteTracker.getTestStats().getAvgRunTime()),
-                                            br(),
-                                            div("Num runs: " + testSuiteTracker.getTestStats().getNumRuns()),
-                                            br(),
-                                            div("Num successes: " + testSuiteTracker.getTestStats().getNumSuccessRuns()),
-                                            br(),
-                                            div("Success: " + getAvgSuccess(testSuiteTracker.getTestStats()) + "%"),
-                                            br(),
-                                            div("Num fails: " + testSuiteTracker.getTestStats().getNumFailRuns()),
-                                            br(),
-                                            div("Fail: " + getAvgFail(testSuiteTracker.getTestStats()) + "%"),
-                                            br()
+                                            span("Avg run time (ms): " + testSuiteTracker.getTestStats().getAvgRunTime()), br(),
+                                            span("Num runs: " + testSuiteTracker.getTestStats().getNumRuns()), br(),
+                                            span("Num successes: " + testSuiteTracker.getTestStats().getNumSuccessRuns()), br(),
+                                            span("Success: " + getAvgSuccess(testSuiteTracker.getTestStats()) + "%"), br(),
+                                            span("Num fails: " + testSuiteTracker.getTestStats().getNumFailRuns()), br(),
+                                            span("Fail: " + getAvgFail(testSuiteTracker.getTestStats()) + "%")
                                     ),
-                                    h3("Source methods executed by the test suite")
-                            ),
-                            table(attrs("#tiaSourceMethodTable"),
-                                    thead(
-                                            tr(
-                                                    th("Name")
-                                            )
-                                    ), tbody(
-                                            each(methodIds, methodId ->
-                                                    tr(
-                                                            td(a(tiaData.getMethodsTracked().get(methodId).getNameForDisplay()).attr("href=\"../" + METHODS_FOLDER + "/" + methodId + ".html\""))
-                                                    )
-                                            )
+
+                                    h3("Source methods executed by the test suite"),
+                                    table(attrs("#tiaSourceMethodTable"),
+                                            thead(tr(th("Name"))),
+                                            tbody(each(methodIds, methodId ->
+                                                    tr(td(a(tiaData.getMethodsTracked().get(methodId).getNameForDisplay())
+                                                            .withHref(ROOT_REL + METHODS_FOLDER + "/" + methodId + ".html")))
+                                            ))
                                     )
-                            )
-                    ),
-                    script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", {\n" +
-                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
-                            "\tsearchable: true,\n" +
-                            "\tfixedHeight: true,\n" +
-                            "\tpaging: true,\n" +
-                            "\tperPage: 20,\n" +
-                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                            "})")
+                            ),
+                            HtmlLayout.pageFooter(),
+                            HtmlLayout.simpleDatatablesInit("#tiaSourceMethodTable", ASSETS_REL)
+                    )
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -182,11 +163,17 @@ public class HtmlTestSuiteReport {
     }
 
     private String getAvgSuccess(TestStats stats){
+        if (stats.getNumRuns() == 0) {
+            return "0";
+        }
         double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
         return avgFormat.format(percSuccess);
     }
 
     private String getAvgFail(TestStats stats){
+        if (stats.getNumRuns() == 0) {
+            return "0";
+        }
         double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
         return avgFormat.format(percFail);
     }

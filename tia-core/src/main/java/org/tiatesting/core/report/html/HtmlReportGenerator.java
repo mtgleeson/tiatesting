@@ -19,29 +19,52 @@ public class HtmlReportGenerator implements ReportGenerator {
 
     @Override
     public void generateReports(TiaData tiaData) {
+        copyStaticAssets();
         generateSummaryReport(tiaData);
         generateTestSuiteReport(tiaData);
         generateSourceMethodReport(tiaData);
+        generateSourceCodeLandingReport(tiaData);
+        generateLibraryReport(tiaData);
     }
 
     @Override
     public String generateSummaryReport(TiaData tiaData) {
-        HtmlSummaryReport htmlSummaryReport = new HtmlSummaryReport(filenameExt, reportOutputDir);
-        htmlSummaryReport.generateSummaryReport(tiaData);
+        new HtmlSummaryReport(filenameExt, reportOutputDir).generateSummaryReport(tiaData);
         return null;
     }
 
     @Override
     public String generateTestSuiteReport(TiaData tiaData) {
-        HtmlTestSuiteReport htmlTestSuiteReport = new HtmlTestSuiteReport(filenameExt, reportOutputDir);
-        htmlTestSuiteReport.generateTestSuiteReport(tiaData);
+        new HtmlTestSuiteReport(filenameExt, reportOutputDir).generateTestSuiteReport(tiaData);
         return null;
     }
 
     @Override
     public String generateSourceMethodReport(TiaData tiaData) {
-        HtmlSourceMethodReport htmlSourceMethodReport = new HtmlSourceMethodReport(filenameExt, reportOutputDir);
-        htmlSourceMethodReport.generateSourceMethodReport(tiaData);
+        new HtmlSourceMethodReport(filenameExt, reportOutputDir).generateSourceMethodReport(tiaData);
         return null;
+    }
+
+    private void generateSourceCodeLandingReport(TiaData tiaData) {
+        new HtmlSourceCodeLandingReport(filenameExt, reportOutputDir).generateReport(tiaData);
+    }
+
+    private void generateLibraryReport(TiaData tiaData) {
+        new HtmlLibraryReport(filenameExt, reportOutputDir).generateReport(tiaData);
+    }
+
+    /**
+     * Extract bundled CSS / JS / images from the {@code tia-core} JAR into
+     * {@code <reportOutputDir>/html/<branch>/assets/} so every page can reference them
+     * via relative URLs.
+     */
+    private void copyStaticAssets() {
+        File branchDir = new File(reportOutputDir.getAbsoluteFile()
+                + File.separator + "html" + File.separator + filenameExt);
+        if (!branchDir.exists() && !branchDir.mkdirs()) {
+            log.warn("Failed to create per-branch report dir, asset copy may fail: {}",
+                    branchDir.getAbsolutePath());
+        }
+        HtmlAssetCopier.copyAssetsTo(branchDir);
     }
 }

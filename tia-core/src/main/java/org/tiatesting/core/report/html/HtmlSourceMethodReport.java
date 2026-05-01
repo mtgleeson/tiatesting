@@ -10,23 +10,23 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.util.*;
 
 import static j2html.TagCreator.*;
-import static org.tiatesting.core.report.html.HtmlSummaryReport.INDEX_HTML;
 import static org.tiatesting.core.report.html.HtmlTestSuiteReport.TEST_SUITES_FOLDER;
 
 public class HtmlSourceMethodReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlSourceMethodReport.class);
     protected static final String TIA_SOURCE_METHODS_HTML = "tia-source-methods.html";
-    protected static final String TIA_SOURCE_METHODS__TEST_JS = "tia-source-methods-tests.js";
     protected static final String METHODS_FOLDER = "methods";
     private final File reportOutputDir;
     private final DecimalFormat avgFormat = new DecimalFormat("###.#");
+
+    /** Path back to the assets dir from a one-level-deep page. */
+    private static final String ASSETS_REL = "../" + HtmlAssetCopier.ASSETS_DIR_NAME;
+    /** Path back to the report root from a one-level-deep page. */
+    private static final String ROOT_REL = "../";
 
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
@@ -40,54 +40,51 @@ public class HtmlSourceMethodReport {
         generateMethodReportFiles(tiaData, methodToTestSuites);
     }
 
+    private int pendingCount(TiaData tiaData) {
+        return tiaData.getPendingLibraryImpactedMethods() != null
+                ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
+    }
+
     private void generateSourceMethodsReportFile(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS_HTML;
         log.info("Writing the source methods report to {}", fileName);
 
-        try {
-            FileWriter writer = new FileWriter(fileName);
+        try (FileWriter writer = new FileWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
-                    head(
-                            link().attr("href=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1/dist/style.css\" rel=\"stylesheet\" type=\"text/css\""),
-                            script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
-                    ), body(
-                            header(
-                                    h2("Tia: Source Methods")
-                            ),
-                            p(
-                                    a("back to Summary").attr("href=\"../"+ INDEX_HTML  +"\"")
-                            ),
-                            table(attrs("#tiaSourceMethodsTable"),
-                                    thead(
-                                            tr(
+                    HtmlLayout.pageHead("Source Methods", ASSETS_REL),
+                    body(
+                            HtmlLayout.topNav(HtmlLayout.NavKey.SOURCE_CODE, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
+                            main(
+                                    HtmlLayout.breadcrumb(
+                                            HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
+                                            HtmlLayout.Crumb.link("Source Code", ROOT_REL + "source-code.html"),
+                                            HtmlLayout.Crumb.current("Methods")
+                                    ),
+                                    h2("Source Methods"),
+                                    table(attrs("#tiaSourceMethodsTable"),
+                                            thead(tr(
                                                     th("Method"),
                                                     th("Num Test Suites").attr(numberDataType),
                                                     th("Line start").attr(numberDataType),
                                                     th("Line end").attr(numberDataType)
-                                            )
-                                    ), tbody(
-                                            each(methodToTestSuites, mapEntry ->
+                                            )),
+                                            tbody(each(methodToTestSuites, mapEntry ->
                                                     tr(
-                                                            td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay()).attr("href=\"" + mapEntry.getKey() + ".html\"")),
+                                                            td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay())
+                                                                    .withHref(mapEntry.getKey() + ".html")),
                                                             td(String.valueOf(mapEntry.getValue().getTestSuites().size())),
                                                             td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberStart())),
                                                             td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberEnd()))
                                                     )
-                                            )
+                                            ))
                                     )
-                            )
-                    ),
-                    script("const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodsTable\", {\n" +
-                            "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
-                            "\tsearchable: true,\n" +
-                            "\tfixedHeight: true,\n" +
-                            "\tpaging: true,\n" +
-                            "\tperPage: 20,\n" +
-                            "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                            "})")
+                            ),
+                            HtmlLayout.pageFooter(),
+                            HtmlLayout.simpleDatatablesInit("#tiaSourceMethodsTable", ASSETS_REL)
+                    )
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -99,8 +96,6 @@ public class HtmlSourceMethodReport {
     private void generateMethodReportFiles(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
         long startTime = System.currentTimeMillis();
         log.info("Writing the method data including test suites reports to {}", reportOutputDir.getAbsoluteFile());
-
-        writeMethodTestSuiteJSFile();
 
         methodToTestSuites.entrySet().parallelStream().forEach(entry -> {
             writeTestSuitesReportFiles(tiaData, entry.getKey(), entry.getValue());
@@ -114,36 +109,31 @@ public class HtmlSourceMethodReport {
         String fileName = reportOutputDir + File.separator + methodTrackedHashCode + ".html";
         fileName = fileName.replaceAll("<", "").replaceAll(">", "");
 
-        try {
-            BufferedWriter writer = new BufferedWriter((new FileWriter(fileName)));
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
-                    head(
-                            link().attr("href=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1/dist/style.css\" rel=\"stylesheet\" type=\"text/css\""),
-                            script().attr("src=\"https://cdn.jsdelivr.net/npm/simple-datatables@8.0.1\" type=\"text/javascript\"")
-                    ),
+                    HtmlLayout.pageHead("Source Method — " + methodImpactTracker.getNameForDisplay(), ASSETS_REL),
                     body(
-                            header(
-                                    h2("Source Method: " + methodImpactTracker.getNameForDisplay())
-                            ),
-                            div(
-                                    p(
-                                            a("go to Source Methods").attr("href=tia-source-methods.html"),
-                                            br()
+                            HtmlLayout.topNav(HtmlLayout.NavKey.SOURCE_CODE, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
+                            main(
+                                    HtmlLayout.breadcrumb(
+                                            HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
+                                            HtmlLayout.Crumb.link("Source Code", ROOT_REL + "source-code.html"),
+                                            HtmlLayout.Crumb.link("Methods", TIA_SOURCE_METHODS_HTML),
+                                            HtmlLayout.Crumb.current(methodImpactTracker.getNameForDisplay())
                                     ),
+                                    h2("Source Method: " + methodImpactTracker.getNameForDisplay()),
+
                                     h3("Coverage"),
                                     p(
-                                            div("Line start: " + methodImpactTracker.getLineNumberStart()),
-                                            br(),
-                                            div("Line end: " + methodImpactTracker.getLineNumberEnd()),
-                                            br()
+                                            span("Line start: " + methodImpactTracker.getLineNumberStart()), br(),
+                                            span("Line end: " + methodImpactTracker.getLineNumberEnd())
                                     ),
-                                    h3("Test suits that execute the source method")
-                            ),
-                            table(attrs("#tiaSourceMethodTable"),
-                                    thead(
-                                            tr(
+
+                                    h3("Test suites that execute the source method"),
+                                    table(attrs("#tiaSourceMethodTable"),
+                                            thead(tr(
                                                     th("Test Suite"),
                                                     th("Avg run time (ms)").attr(numberDataType),
                                                     th("Num runs").attr(numberDataType),
@@ -151,11 +141,11 @@ public class HtmlSourceMethodReport {
                                                     th("Success %").attr(numberDataType),
                                                     th("Num fails").attr(numberDataType),
                                                     th("Fail %").attr(numberDataType)
-                                            )
-                                    ), tbody(
-                                            each(classTestSuite.getTestSuites(), testSuiteTracker ->
+                                            )),
+                                            tbody(each(classTestSuite.getTestSuites(), testSuiteTracker ->
                                                     tr(
-                                                            td(a(testSuiteTracker.getName()).attr("href=\"../" + TEST_SUITES_FOLDER + "/" + testSuiteTracker.getName() + ".html\"")),
+                                                            td(a(testSuiteTracker.getName())
+                                                                    .withHref(ROOT_REL + TEST_SUITES_FOLDER + "/" + testSuiteTracker.getName() + ".html")),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getAvgRunTime())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumRuns())),
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumSuccessRuns())),
@@ -163,43 +153,30 @@ public class HtmlSourceMethodReport {
                                                             td(String.valueOf(testSuiteTracker.getTestStats().getNumFailRuns())),
                                                             td(getAvgFail(testSuiteTracker.getTestStats()))
                                                     )
-                                            )
+                                            ))
                                     )
-                            )
-                    ),
-                    script().attr("src=\"" + TIA_SOURCE_METHODS__TEST_JS + "\" type=\"text/javascript\"")
+                            ),
+                            HtmlLayout.pageFooter(),
+                            HtmlLayout.simpleDatatablesInit("#tiaSourceMethodTable", ASSETS_REL)
+                    )
             ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private void writeMethodTestSuiteJSFile(){
-        String jsContent = "const dataTable = new simpleDatatables.DataTable(\"#tiaSourceMethodTable\", { " +
-                "columns: [{ select: 0, sort: \"asc\" }], " +
-                "searchable: true, " +
-                "fixedHeight: true, " +
-                "paging: true, " +
-                "perPage: 20, " +
-                "perPageSelect: [10, 20, 50, [\"All\", -1]] " +
-                "});";
-
-        byte[] strToBytes = jsContent.getBytes();
-        String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS__TEST_JS;
-        Path path = Paths.get(fileName);
-        try {
-            Files.write(path, strToBytes);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     private String getAvgSuccess(TestStats stats){
+        if (stats.getNumRuns() == 0) {
+            return "0";
+        }
         double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
         return avgFormat.format(percSuccess);
     }
 
     private String getAvgFail(TestStats stats){
+        if (stats.getNumRuns() == 0) {
+            return "0";
+        }
         double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
         return avgFormat.format(percFail);
     }
@@ -209,12 +186,9 @@ public class HtmlSourceMethodReport {
     }
 
     /**
-     * Convert to a map containing a list of test suites for each impacted method.
-     * Use this for convenience lookup when finding the list of test suites to ignore for previously tracked methods
-     * that have been changed in the diff.
-     *
-     * @param tiaData keyed by method name, value is a list of test suites
-     * @return map keyed by the method id, with a map of class names to list of
+     * Convert to a map containing a list of test suites for each impacted method. Used for
+     * convenience lookup when finding the list of test suites to ignore for previously tracked
+     * methods that have been changed in the diff.
      */
     private Map<Integer, ClassTestSuite> buildMethodToTestSuiteMap(TiaData tiaData){
         Map<Integer, ClassTestSuite> methodTestSuites = new HashMap<>();
