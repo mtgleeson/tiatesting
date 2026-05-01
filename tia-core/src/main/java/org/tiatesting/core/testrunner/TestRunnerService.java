@@ -337,7 +337,7 @@ public class TestRunnerService {
             throw new RuntimeException(e);
         }
 
-        log.trace("Test classes found: " + testClasses);
+        log.debug("Test classes found: " + testClasses);
         return testClasses;
     }
 }

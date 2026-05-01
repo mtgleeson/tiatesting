@@ -91,7 +91,7 @@ public class MethodImpactAnalyzer {
 
         fileName = fileName.replaceAll("\\\\", "/"); // if Windows, switch to forward slash used in the test mapping
         fileName = fileName.substring(1); // remove beginning /
-        log.trace("File name to lookup tracked classes for methods - {}", fileName);
+        log.debug("File name to lookup tracked classes for methods - {}", fileName);
         return sourceFilesTracked.get(fileName);
     }
 
@@ -120,7 +120,7 @@ public class MethodImpactAnalyzer {
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
             int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line
             int methodLineEnd = methodImpactTracker.getLineNumberEnd() + 1; // add 1 to catch changes made to the end of the method (previously closing brace)
-            log.trace("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
+            log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
 
             boolean diffBeginIsWithinMethod = diffLineBegin >= methodLineBegin && diffLineBegin <= methodLineEnd;
             boolean diffEndIsWithinMethod = diffLineEnd >= methodLineBegin && diffLineEnd <= methodLineEnd;
