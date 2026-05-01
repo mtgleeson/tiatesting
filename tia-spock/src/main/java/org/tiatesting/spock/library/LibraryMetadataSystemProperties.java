@@ -48,6 +48,8 @@ public final class LibraryMetadataSystemProperties {
     /**
      * Read the three properties from {@link System} and build a config, or return {@code null}
      * when {@code tiaLibrariesMetadata} is unset / empty (no library config in effect).
+     *
+     * @return the assembled config, or {@code null} when no library metadata is set on system properties.
      */
     public static LibraryImpactAnalysisConfig fromSystemProperties() {
         return fromValues(
@@ -58,6 +60,16 @@ public final class LibraryMetadataSystemProperties {
 
     /**
      * Build a config from explicit values. Exposed for testing without touching system state.
+     *
+     * @param librariesMetadata flat-string encoding of all tracked libraries, in the format
+     *                          documented at the class level.
+     * @param sourceProjectDir absolute path of the source project (or {@code null} when the test
+     *                         project is the source project).
+     * @param libraryVersionPolicy the policy name ({@code BUMP_AFTER_RELEASE} or
+     *                             {@code BUMP_AT_RELEASE}); falls back to {@code BUMP_AFTER_RELEASE}
+     *                             when null/blank/unknown.
+     * @return the assembled config, or {@code null} when {@code librariesMetadata} is blank or
+     *         contains no parseable entries.
      */
     public static LibraryImpactAnalysisConfig fromValues(String librariesMetadata, String sourceProjectDir,
                                                          String libraryVersionPolicy) {
@@ -151,6 +163,11 @@ public final class LibraryMetadataSystemProperties {
     /**
      * Inverse of {@link #parseEntries} — formats a list of entries into the flat string. Used by
      * the Gradle plugin to populate {@code tiaLibrariesMetadata}, and by tests.
+     *
+     * @param entries the pre-resolved library metadata entries to encode; {@code null} or empty
+     *                returns an empty string. Entries with malformed coordinates are skipped.
+     * @return the encoded flat-string form (entries joined by {@code ,}, fields by {@code :},
+     *         source dirs by {@code |}).
      */
     public static String formatEntries(List<PreResolvedLibraryMetadataReader.Entry> entries) {
         if (entries == null || entries.isEmpty()) {
