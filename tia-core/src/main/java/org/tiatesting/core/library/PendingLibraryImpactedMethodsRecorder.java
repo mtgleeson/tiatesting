@@ -47,7 +47,7 @@ public class PendingLibraryImpactedMethodsRecorder {
 
         String stampVersion = readDeclaredVersionForLibrary(trackedLibrary, libraryConfig);
         if (stampVersion == null) {
-            log.warn("Could not determine declared version for library '{}' — skipping pending stamp.",
+            log.warn("Could not determine declared version for library '{}' —  skipping pending stamp.",
                     trackedLibrary.getGroupArtifact());
             return;
         }

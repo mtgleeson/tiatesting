@@ -176,7 +176,7 @@ public class PendingLibraryImpactedMethodsDrainer {
             return false;
         }
 
-        log.trace("Checking if SNAPSHOT stamp {} should be drained against release-resolved version {} " +
+        log.debug("Checking if SNAPSHOT stamp {} should be drained against release-resolved version {} " +
                 "for lib {} — comparing stamp target {} to resolved release",
                 stampVersion, resolvedVersion, library.getGroupArtifact(), stampTargetVersion);
         return compareVersions(resolvedVersion, stampTargetVersion) >= 0;
@@ -222,7 +222,7 @@ public class PendingLibraryImpactedMethodsDrainer {
             return false;
         }
 
-        log.trace("Checking if a release for lib {} should be drained: resolved version {}, tracked version {}",
+        log.debug("Checking if a release for lib {} should be drained: resolved version {}, tracked version {}",
                 library.getGroupArtifact(), resolvedVersion, stampVersion);
         return compareVersions(resolvedVersion, stampVersion) >= 0;
     }
@@ -236,7 +236,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         if (resolvedJarHash == null) {
             return false;
         }
-        log.trace("Checking if a snapshot for lib {} should be drained: resolved hash {}, tracked hash {}",
+        log.debug("Checking if a snapshot for lib {} should be drained: resolved hash {}, tracked hash {}",
                 library.getGroupArtifact(), resolvedJarHash, library.getLastSourceProjectJarHash());
         return !Objects.equals(resolvedJarHash, library.getLastSourceProjectJarHash());
     }
