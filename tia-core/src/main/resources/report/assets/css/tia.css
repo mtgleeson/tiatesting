@@ -1,0 +1,136 @@
+/* Tia report — small overrides on top of Pico classless. */
+
+.tia-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: inherit;
+}
+
+.tia-brand img {
+    height: 36px;
+    width: auto;
+}
+
+.tia-brand strong {
+    font-size: 1.15rem;
+}
+
+.tia-topnav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--pico-muted-border-color);
+    margin-bottom: 1rem;
+}
+
+.tia-topnav ul {
+    display: flex;
+    gap: 1.25rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tia-topnav a[aria-current="page"] {
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+.tia-breadcrumb {
+    margin: 0 0 1.25rem 0;
+    font-size: 0.92rem;
+    color: var(--pico-muted-color);
+}
+
+.tia-breadcrumb ol {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+}
+
+.tia-breadcrumb li + li::before {
+    content: "›";
+    margin-right: 0.4rem;
+    color: var(--pico-muted-color);
+}
+
+.tia-breadcrumb a {
+    color: inherit;
+}
+
+.tia-badge {
+    display: inline-block;
+    background: var(--pico-primary-background);
+    color: var(--pico-primary-inverse);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    font-size: 0.75rem;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+}
+
+.tia-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.tia-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+
+.tia-card article {
+    height: 100%;
+    margin: 0;
+}
+
+.tia-card article header {
+    margin-bottom: 0.4rem;
+    font-weight: 600;
+}
+
+.tia-empty {
+    color: var(--pico-muted-color);
+    font-style: italic;
+}
+
+footer.tia-footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--pico-muted-border-color);
+    color: var(--pico-muted-color);
+    font-size: 0.85rem;
+}
+
+/* Keep simple-datatables' "entries per page" label inline. Pico's classless rules make
+   <label> and <select> block-level / full-width by default, which stacks the text below
+   the dropdown. */
+.datatable-top label,
+.datatable-bottom label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+}
+
+.datatable-selector {
+    display: inline-block;
+    width: auto;
+    margin: 0;
+}
+
+/* Same treatment for the search input row. */
+.datatable-input {
+    display: inline-block;
+    width: auto;
+    margin: 0;
+}
