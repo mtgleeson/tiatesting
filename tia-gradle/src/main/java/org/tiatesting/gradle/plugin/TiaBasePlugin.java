@@ -50,7 +50,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public void createInfoTask() {
         project.task("tia-info").doLast(task -> {
-            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
             InfoReportGenerator reportGenerator = new InfoReportGenerator();
             System.out.println(reportGenerator.generateSummaryReport(dataStore));
         });
@@ -59,7 +59,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
             TiaData tiaData = dataStore.getTiaData(true);
             File reportOutputDir = getReportOutputDir();
             ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -71,7 +71,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
             TiaData tiaData = dataStore.getTiaData(true);
             File reportOutputDir = getReportOutputDir();
             ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -89,7 +89,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
-            final DataStore dataStore = new H2DataStore(getDbFilePath(), getVCSReader().getBranchName());
+            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
             List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -146,6 +146,30 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public String getDbFilePath() {
         return tiaTaskExtension.getDbFilePath();
+    }
+
+    /**
+     * Daemon-side tasks ({@code tia-select-tests}, {@code tia-info}, {@code tia-text-report},
+     * {@code tia-html-report}) construct H2DataStore directly in the Gradle daemon. The daemon's
+     * {@code user.dir} is set when the daemon process first starts and does not change between
+     * builds, so a relative path like {@code "."} in {@code dbFilePath} resolves against the
+     * daemon's cwd — not the project dir. The forked test JVM doesn't hit this because it gets a
+     * per-build {@code workingDir = projectDir}. Resolve relative paths against {@code projectDir}
+     * so daemon-side tasks find the same DB the test task wrote.
+     *
+     * @return the configured {@code dbFilePath} as an absolute path; relative paths are resolved
+     *         against {@code project.getProjectDir()}.
+     */
+    public String resolveDbFilePath() {
+        String path = getDbFilePath();
+        if (path == null) {
+            return null;
+        }
+        File f = new File(path);
+        if (f.isAbsolute()) {
+            return path;
+        }
+        return new File(project.getProjectDir(), path).getAbsolutePath();
     }
 
     public Boolean getEnabled() {
