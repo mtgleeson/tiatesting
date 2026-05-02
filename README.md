@@ -396,10 +396,10 @@ For Maven, it's recommended to add the following to your ~/.settings.xml file to
 </pluginGroups>
 ```
 
-### General Information about the state of Tia
+### Status — current state of the Tia DB
 Example output:
 ```
-Tia Info:
+Tia Status:
 DB last updated: 03/05/2024 23:05:04 PDT
 Test mapping valid for commit: 70d0624e4c2c6fab629d618f0ac406d5cbf009e3
 
@@ -410,33 +410,43 @@ Average run time: 459ms
 Number of successful runs: 1 (100%)
 Number of failed runs: 0 (0%)
 
-Pending failed tests: 
-none
+Tracked libraries:
+	com.example:libA
+		Project dir: /abs/path/to/libA
+		Last source-project version: 1.0.0
+		Last released version (HWM): 1.0.0
+
+Pending failed tests:
+	none
+
+Pending library changes:
+	com.example:libA
+		@ 1.1.0 — 3 methods pending
 ```
 
 **Maven, Junit5 and Git**
 ```
-mvn tia-junit5-git:info
+mvn tia-junit5-git:status
 ```
 
 **Maven, Junit5 and Perforce**
 ```
-mvn tia-junit5-perforce:info
+mvn tia-junit5-perforce:status
 ```
 
 **Maven, Junit4 and Git**
 ```
-mvn tia-junit4-git:info
+mvn tia-junit4-git:status
 ```
 
 **Maven, Junit4 and Perforce**
 ```
-mvn tia-junit4-perforce:info
+mvn tia-junit4-perforce:status
 ```
 
 **Gradle, Spock and Git**
 ```
-gradle tia-info
+gradle tia-status
 ```
 
 
