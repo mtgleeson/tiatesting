@@ -14,7 +14,7 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
-import org.tiatesting.core.report.InfoReportGenerator;
+import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
 
@@ -42,16 +42,16 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void apply(Project project) {
         this.project = project;
         this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
-        createInfoTask();
+        createStatusTask();
         createTextReportTask();
         createHtmlReportTask();
         createSelectTestsTask();
     }
 
-    public void createInfoTask() {
-        project.task("tia-info").doLast(task -> {
+    public void createStatusTask() {
+        project.task("tia-status").doLast(task -> {
             final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            InfoReportGenerator reportGenerator = new InfoReportGenerator();
+            StatusReportGenerator reportGenerator = new StatusReportGenerator();
             System.out.println(reportGenerator.generateSummaryReport(dataStore));
         });
     }
@@ -149,7 +149,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
-     * Daemon-side tasks ({@code tia-select-tests}, {@code tia-info}, {@code tia-text-report},
+     * Daemon-side tasks ({@code tia-select-tests}, {@code tia-status}, {@code tia-text-report},
      * {@code tia-html-report}) construct H2DataStore directly in the Gradle daemon. The daemon's
      * {@code user.dir} is set when the daemon process first starts and does not change between
      * builds, so a relative path like {@code "."} in {@code dbFilePath} resolves against the

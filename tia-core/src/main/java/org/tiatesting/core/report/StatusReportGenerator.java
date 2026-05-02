@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  * Generate core information about the stored DB and output it to the user.
  * This is intended as a quick snapshot as to the state of the stored DB for Tia.
  */
-public class InfoReportGenerator {
+public class StatusReportGenerator {
     public String generateSummaryReport(DataStore dataStore) {
         TiaData tiaData = dataStore.getTiaCore();
         Locale locale = Locale.getDefault();
@@ -29,7 +29,7 @@ public class InfoReportGenerator {
         String lineSep = System.lineSeparator();
 
         StringBuilder sb = new StringBuilder(lineSep);
-        sb.append("Tia Info:" + lineSep);
+        sb.append("Tia Status:" + lineSep);
         sb.append("DB last updated: " + (tiaData.getLastUpdated()!= null ? dtf.format(tiaData.getLastUpdated()) : "N/A") + lineSep);
         sb.append("Test mapping valid for commit: " + tiaData.getCommitValue() + lineSep + lineSep);
 
@@ -49,7 +49,7 @@ public class InfoReportGenerator {
         sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
 
         sb.append(formatTrackedLibraries(dataStore.readTrackedLibraries(), lineSep));
-        sb.append(lineSep);
+        sb.append(lineSep).append(lineSep);
 
         Set<String> getTestSuitesFailed = dataStore.getTestSuitesFailed();
         String failedTests = getTestSuitesFailed.stream().map(test ->
