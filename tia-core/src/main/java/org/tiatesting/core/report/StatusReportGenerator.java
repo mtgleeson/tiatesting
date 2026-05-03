@@ -72,7 +72,10 @@ public class StatusReportGenerator {
             sb.append("\t").append(lib.getGroupArtifact()).append(lineSep);
             sb.append("\t\tProject dir: ").append(orDash(lib.getProjectDir())).append(lineSep);
             sb.append("\t\tLast source-project version: ").append(orDash(lib.getLastSourceProjectVersion())).append(lineSep);
-            sb.append("\t\tLast released version (HWM): ").append(orDash(lib.getLastReleasedLibraryVersion())).append(lineSep);
+            String lastReleased = lib.getLastReleasedLibraryVersion();
+            if (lastReleased != null && !lastReleased.isEmpty()) {
+                sb.append("\t\tLast released version (HWM): ").append(lastReleased).append(lineSep);
+            }
         }
         // Trim the trailing line separator so callers control spacing.
         if (sb.length() >= lineSep.length()
