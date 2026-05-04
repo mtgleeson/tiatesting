@@ -194,7 +194,14 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-plugin-plugin</artifactId>
-                    <version>3.6.0</version>
+                    <!--
+                        3.13.0+ is required because earlier versions (3.6.0) build the descriptor
+                        scan classloader without provided-scope deps, which fails with
+                        "API of the mojo scanner is not compatible with this plugin version" /
+                        ClassNotFoundException for org.apache.maven.plugin.AbstractMojo when
+                        maven-plugin-api is declared as provided (the recommended scope).
+                    -->
+                    <version>3.13.0</version>
                     <executions>
                         <execution>
                             <id>help-mojo</id>
