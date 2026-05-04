@@ -23,7 +23,14 @@
     align-items: center;
     padding: 0.6rem 1rem;
     border-bottom: 1px solid var(--pico-muted-border-color);
-    margin-bottom: 1rem;
+    margin-bottom: 0;
+}
+
+/* Pico's classless rules pad <main> with --pico-block-spacing-vertical (≈1.25–1.5rem) at
+   the top, which pushes the breadcrumb well below the topnav. The topnav already has a
+   border-bottom for visual separation, so a smaller gap is enough. */
+body > main {
+    padding-top: 0.75rem;
 }
 
 .tia-topnav ul {
@@ -109,6 +116,23 @@ footer.tia-footer {
     border-top: 1px solid var(--pico-muted-border-color);
     color: var(--pico-muted-color);
     font-size: 0.85rem;
+}
+
+/* Left-align table column headers. simple-datatables wraps the header label in a <button>;
+   Pico's classless rules style every <button> with text-align: center and a horizontal
+   padding (~2rem), which both centres and inset the header text away from the column's
+   left edge. Force the sorter button to fill the th and align with the body cells'
+   left padding. */
+table th,
+.datatable-table th .datatable-sorter {
+    text-align: left;
+}
+
+.datatable-table th .datatable-sorter {
+    display: block;
+    width: 100%;
+    padding: 0;
+    margin: 0;
 }
 
 /* Keep simple-datatables' "entries per page" label inline. Pico's classless rules make
