@@ -4,6 +4,7 @@ import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -147,10 +148,12 @@ public class HtmlTestSuiteReport {
                                     h3("Source methods executed by the test suite"),
                                     table(attrs("#tiaSourceMethodTable"),
                                             thead(tr(th("Name"))),
-                                            tbody(each(methodIds, methodId ->
-                                                    tr(td(a(tiaData.getMethodsTracked().get(methodId).getNameForDisplay())
-                                                            .withHref(ROOT_REL + METHODS_FOLDER + "/" + methodId + ".html")))
-                                            ))
+                                            tbody(each(methodIds, methodId -> {
+                                                MethodImpactTracker method = tiaData.getMethodsTracked().get(methodId);
+                                                return tr(td(a(method.getShortNameForDisplay())
+                                                        .withHref(ROOT_REL + METHODS_FOLDER + "/" + methodId + ".html")
+                                                        .attr("title", method.getNameForDisplay())));
+                                            }))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
