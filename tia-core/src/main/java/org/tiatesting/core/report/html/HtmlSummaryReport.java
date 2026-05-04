@@ -68,7 +68,7 @@ public class HtmlSummaryReport {
                                     h2("Summary"),
                                     p(small("Report generated at: " + dtf.format(Instant.now()))),
 
-                                    h3("Tia DB"),
+                                    HtmlLayout.sectionHeading(HtmlLayout.ICON_DB, "Tia DB"),
                                     p(
                                             span("DB last updated: " + (tiaData.getLastUpdated() != null
                                                     ? dtf.format(tiaData.getLastUpdated()) : "N/A")), br(),
@@ -76,7 +76,7 @@ public class HtmlSummaryReport {
                                                     + (tiaData.getCommitValue() != null ? tiaData.getCommitValue() : "N/A"))
                                     ),
 
-                                    h3("Stats"),
+                                    HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Stats"),
                                     p(
                                             span("Number of test classes with mappings: " + numTestSuites), br(),
                                             span("Number of source methods tracked for tests: " + numSourceMethods)
@@ -90,10 +90,10 @@ public class HtmlSummaryReport {
                                                     + " (" + getAvgFail(stats) + "%)")
                                     ),
 
-                                    h3("Pending Failed Tests"),
+                                    HtmlLayout.sectionHeading(HtmlLayout.ICON_FAILED, "Pending Failed Tests"),
                                     renderPendingFailedTests(tiaData),
 
-                                    h3("Pending Library Changes"),
+                                    HtmlLayout.sectionHeading(HtmlLayout.ICON_LIBRARY, "Pending Library Changes"),
                                     renderPendingLibraryChanges(tiaData)
                             ),
                             HtmlLayout.pageFooter()
