@@ -42,14 +42,11 @@
     </properties>
 
     <!--
-        Maven 3.8.1+ is required because earlier versions are exposed to CVE-2021-26291
-        (maven-core resolves artifacts from non-HTTPS repos in transitively-included poms).
-        3.8.1 introduced the HTTP-blocker mitigation. Maven enforces this floor at plugin
-        discovery time — users on older Maven get a clear "requires Maven >= 3.8.1" error.
+        No <prerequisites> here: it only enforces a Maven floor for maven-plugin packaging,
+        and this module is packaging=jar (a shared library used by the wrapper plugins).
+        The Maven 3.8.1+ floor for CVE-2021-26291 is enforced on the wrapper plugins, which
+        is what end users actually invoke; this module is never used as a plugin directly.
     -->
-    <prerequisites>
-        <maven>3.8.1</maven>
-    </prerequisites>
 
     <!--
         These transitive deps of maven-core (provided scope) are flagged by vulnerability
