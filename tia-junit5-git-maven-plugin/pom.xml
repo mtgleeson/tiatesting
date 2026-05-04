@@ -134,7 +134,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central</publishingServerId>
-                    <tokenAuth>true</tokenAuth>
+                    <!--suppress XmlUnboundNsPrefix --><tokenAuth>true</tokenAuth>
                 </configuration>
             </plugin>
         </plugins>

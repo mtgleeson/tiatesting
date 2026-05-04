@@ -1,7 +1,6 @@
 package org.tiatesting.spock.git.gradle.plugin;
 
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.plugins.JavaPlugin;
@@ -11,9 +10,11 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.vcs.git.GitReader;
 
-import java.util.Iterator;
 import java.util.List;
 
+// Gradle locates plugin classes via META-INF/gradle-plugins/*.properties (string reference),
+// so the IDE can't see the usage and flags the class as unused.
+@SuppressWarnings("unused")
 public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
 
     private static final Logger LOGGER = Logging.getLogger(TiaSpockGitGradlePlugin.class);
@@ -27,8 +28,7 @@ public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
 
         // only apply the Spock Git Plugin to the test tasks if the user is executing a test task
         List<String> taskNames =  project.getGradle().getStartParameter().getTaskNames();
-        for (Iterator<Test> it = project.getTasks().withType(Test.class).iterator(); it.hasNext(); ) {
-            Task task = it.next();
+        for (Test task : project.getTasks().withType(Test.class)) {
             if (taskNames.contains(task.getName())){
                 applyPluginToTestTasks(project);
                 break;
@@ -45,14 +45,13 @@ public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
         TiaSpockGitGradlePluginTestExtension tiaTestExtension = project.getExtensions().create("tiaTest", TiaSpockGitGradlePluginTestExtension.class);
 
         // if any of the test plugins have Tia enabled and are updating the DB then when need to load/apply the jacoco plugin
-        for (final Iterator<Test> i = project.getTasks().withType(Test.class).iterator(); i.hasNext();) {
-            Test testTask = i.next();
+        for (Test testTask : project.getTasks().withType(Test.class)) {
             String enabledPropName = testTask.getName()+ ".tiaEnabled";
             String updateDBMappingPropName = testTask.getName()+ ".tiaUpdateDBMapping";
 
             if (project.hasProperty(enabledPropName) && project.hasProperty(updateDBMappingPropName)){
-                boolean tiaEnabled = Boolean.valueOf((String) project.property(enabledPropName));
-                boolean tiaUpdateDBMapping = Boolean.valueOf((String) project.property(updateDBMappingPropName));
+                boolean tiaEnabled = Boolean.parseBoolean((String) project.property(enabledPropName));
+                boolean tiaUpdateDBMapping = Boolean.parseBoolean((String) project.property(updateDBMappingPropName));
 
                 if (tiaEnabled && tiaUpdateDBMapping){
                     LOGGER.warn("TiaSpockGitGradlePlugin: applying Jacoco plugin");

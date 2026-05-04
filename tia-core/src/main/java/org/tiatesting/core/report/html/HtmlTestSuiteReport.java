@@ -108,9 +108,8 @@ public class HtmlTestSuiteReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the source method reports to {}", reportOutputDir.getAbsoluteFile());
 
-        tiaData.getTestSuitesTracked().values().parallelStream().forEach(testSuiteTracker -> {
-            writeSourceMethodsHtmlToFile(tiaData, testSuiteTracker);
-        });
+        tiaData.getTestSuitesTracked().values().parallelStream()
+                .forEach(testSuiteTracker -> writeSourceMethodsHtmlToFile(tiaData, testSuiteTracker));
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
@@ -189,6 +188,8 @@ public class HtmlTestSuiteReport {
     }
 
     private void createOutputDir() {
-        reportOutputDir.mkdirs();
+        if (!reportOutputDir.exists() && !reportOutputDir.mkdirs()) {
+            log.warn("Failed to create report output directory: {}", reportOutputDir.getAbsolutePath());
+        }
     }
 }
