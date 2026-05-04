@@ -99,9 +99,8 @@ public class HtmlSourceMethodReport {
         long startTime = System.currentTimeMillis();
         log.info("Writing the method data including test suites reports to {}", reportOutputDir.getAbsoluteFile());
 
-        methodToTestSuites.entrySet().parallelStream().forEach(entry -> {
-            writeTestSuitesReportFiles(tiaData, entry.getKey(), entry.getValue());
-        });
+        methodToTestSuites.entrySet().parallelStream().forEach(entry ->
+                writeTestSuitesReportFiles(tiaData, entry.getKey(), entry.getValue()));
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
@@ -117,7 +116,8 @@ public class HtmlSourceMethodReport {
         int secondLastDot = lastDot > 0 ? shortName.lastIndexOf('.', lastDot - 1) : -1;
         String classAndMethod = secondLastDot >= 0 ? shortName.substring(secondLastDot + 1) : shortName;
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+        try (FileWriter fileWriter = new FileWriter(fileName);
+             BufferedWriter writer = new BufferedWriter(fileWriter)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -194,7 +194,9 @@ public class HtmlSourceMethodReport {
     }
 
     private void createOutputDir() {
-        reportOutputDir.mkdirs();
+        if (!reportOutputDir.exists() && !reportOutputDir.mkdirs()) {
+            log.warn("Failed to create report output directory: {}", reportOutputDir.getAbsolutePath());
+        }
     }
 
     /**
@@ -211,7 +213,7 @@ public class HtmlSourceMethodReport {
                     ClassTestSuite classTestSuite = methodTestSuites.get(methodTrackedHashCode);
 
                     if (classTestSuite == null) {
-                        classTestSuite = new ClassTestSuite(classImpacted);
+                        classTestSuite = new ClassTestSuite();
                         methodTestSuites.put(methodTrackedHashCode, classTestSuite);
                     }
 
@@ -223,17 +225,8 @@ public class HtmlSourceMethodReport {
         return methodTestSuites;
     }
 
-    private class ClassTestSuite {
-        ClassImpactTracker classImpactTracker;
-        List<TestSuiteTracker> testSuites = new ArrayList<>();
-
-        public ClassTestSuite(ClassImpactTracker classImpactTracker){
-            this.classImpactTracker = classImpactTracker;
-        }
-
-        public ClassImpactTracker getClassImpactTracker() {
-            return classImpactTracker;
-        }
+    private static class ClassTestSuite {
+        final List<TestSuiteTracker> testSuites = new ArrayList<>();
 
         public List<TestSuiteTracker> getTestSuites() {
             return testSuites;
