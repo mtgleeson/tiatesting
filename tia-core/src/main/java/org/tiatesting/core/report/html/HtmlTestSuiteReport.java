@@ -64,7 +64,7 @@ public class HtmlTestSuiteReport {
                                             HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
                                             HtmlLayout.Crumb.current("Test Suites")
                                     ),
-                                    h2("Test Suites"),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_TEST_SUITE, "Test Suites"),
                                     table(attrs("#tiaTable"),
                                             thead(tr(
                                                     th("Name"),
@@ -133,7 +133,8 @@ public class HtmlTestSuiteReport {
                                             HtmlLayout.Crumb.link("Test Suites", TIA_TEST_SUITES_HTML),
                                             HtmlLayout.Crumb.current(testSuiteTracker.getName())
                                     ),
-                                    h2("Test Suite: " + testSuiteTracker.getName()),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_TEST_SUITE,
+                                            "Test Suite: " + testSuiteTracker.getName()),
 
                                     h3("Stats"),
                                     p(
