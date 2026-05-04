@@ -28,9 +28,11 @@ final class HtmlLayout {
     static final class Crumb {
         final String label;
         final String href;
-        Crumb(String label, String href) { this.label = label; this.href = href; }
-        static Crumb link(String label, String href) { return new Crumb(label, href); }
-        static Crumb current(String label) { return new Crumb(label, null); }
+        final String title;
+        Crumb(String label, String href, String title) { this.label = label; this.href = href; this.title = title; }
+        static Crumb link(String label, String href) { return new Crumb(label, href, null); }
+        static Crumb current(String label) { return new Crumb(label, null, null); }
+        static Crumb current(String label, String title) { return new Crumb(label, null, title); }
     }
 
     private HtmlLayout() {}
@@ -103,7 +105,13 @@ final class HtmlLayout {
         }
         List<DomContent> items = new ArrayList<>(crumbs.length);
         for (Crumb c : crumbs) {
-            items.add(c.href != null ? li(a(c.label).withHref(c.href)) : li(c.label));
+            if (c.href != null) {
+                items.add(li(a(c.label).withHref(c.href)));
+            } else if (c.title != null) {
+                items.add(li(c.label).attr("title", c.title));
+            } else {
+                items.add(li(c.label));
+            }
         }
         return nav(attrs(".tia-breadcrumb"), ol(each(items, item -> item)))
                 .attr("aria-label", "breadcrumb");

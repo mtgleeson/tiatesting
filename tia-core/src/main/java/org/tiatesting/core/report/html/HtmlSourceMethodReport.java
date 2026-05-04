@@ -71,15 +71,17 @@ public class HtmlSourceMethodReport {
                                                     th("Line start").attr(numberDataType),
                                                     th("Line end").attr(numberDataType)
                                             )),
-                                            tbody(each(methodToTestSuites, mapEntry ->
-                                                    tr(
-                                                            td(a(tiaData.getMethodsTracked().get(mapEntry.getKey()).getNameForDisplay())
-                                                                    .withHref(mapEntry.getKey() + ".html")),
-                                                            td(String.valueOf(mapEntry.getValue().getTestSuites().size())),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberStart())),
-                                                            td(String.valueOf(tiaData.getMethodsTracked().get(mapEntry.getKey()).getLineNumberEnd()))
-                                                    )
-                                            ))
+                                            tbody(each(methodToTestSuites, mapEntry -> {
+                                                MethodImpactTracker method = tiaData.getMethodsTracked().get(mapEntry.getKey());
+                                                return tr(
+                                                        td(a(method.getShortNameForDisplay())
+                                                                .withHref(mapEntry.getKey() + ".html")
+                                                                .attr("title", method.getNameForDisplay())),
+                                                        td(String.valueOf(mapEntry.getValue().getTestSuites().size())),
+                                                        td(String.valueOf(method.getLineNumberStart())),
+                                                        td(String.valueOf(method.getLineNumberEnd()))
+                                                );
+                                            }))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
@@ -121,9 +123,12 @@ public class HtmlSourceMethodReport {
                                             HtmlLayout.Crumb.link("Home", ROOT_REL + "index.html"),
                                             HtmlLayout.Crumb.link("Source Code", ROOT_REL + "source-code.html"),
                                             HtmlLayout.Crumb.link("Methods", TIA_SOURCE_METHODS_HTML),
-                                            HtmlLayout.Crumb.current(methodImpactTracker.getNameForDisplay())
+                                            HtmlLayout.Crumb.current(methodImpactTracker.getShortNameForDisplay(),
+                                                    methodImpactTracker.getNameForDisplay())
                                     ),
-                                    h2("Source Method: " + methodImpactTracker.getNameForDisplay()),
+                                    h2(text("Source Method: " + methodImpactTracker.getShortNameForDisplay()))
+                                            .attr("title", methodImpactTracker.getNameForDisplay()),
+                                    p(code(methodImpactTracker.getNameForDisplay())),
 
                                     h3("Coverage"),
                                     p(
