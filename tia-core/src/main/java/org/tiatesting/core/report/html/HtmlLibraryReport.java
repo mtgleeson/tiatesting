@@ -65,7 +65,7 @@ public class HtmlLibraryReport {
                                             HtmlLayout.Crumb.link("Source Code", ROOT_REL + "source-code.html"),
                                             HtmlLayout.Crumb.current("Libraries")
                                     ),
-                                    h2("Tracked Libraries"),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_LIBRARY, "Tracked Libraries"),
                                     tracked.isEmpty()
                                             ? p(span("No libraries tracked.").withClass("tia-empty"))
                                             : table(attrs("#tiaLibrariesTable"),

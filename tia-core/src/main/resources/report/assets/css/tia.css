@@ -110,6 +110,20 @@ body > main {
     font-style: italic;
 }
 
+/* Section headings on the summary page render an inline SVG icon next to the label. */
+.tia-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.tia-section-icon {
+    width: 1.1em;
+    height: 1.1em;
+    flex-shrink: 0;
+    color: var(--pico-primary);
+}
+
 footer.tia-footer {
     margin-top: 2.5rem;
     padding-top: 1rem;

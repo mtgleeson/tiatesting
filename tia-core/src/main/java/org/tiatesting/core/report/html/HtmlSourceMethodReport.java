@@ -63,7 +63,7 @@ public class HtmlSourceMethodReport {
                                             HtmlLayout.Crumb.link("Source Code", ROOT_REL + "source-code.html"),
                                             HtmlLayout.Crumb.current("Methods")
                                     ),
-                                    h2("Source Methods"),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_CODE, "Source Methods"),
                                     table(attrs("#tiaSourceMethodsTable"),
                                             thead(tr(
                                                     th("Method"),
@@ -126,7 +126,8 @@ public class HtmlSourceMethodReport {
                                             HtmlLayout.Crumb.current(methodImpactTracker.getShortNameForDisplay(),
                                                     methodImpactTracker.getNameForDisplay())
                                     ),
-                                    h2(text("Source Method: " + methodImpactTracker.getShortNameForDisplay()))
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_CODE,
+                                            "Source Method: " + methodImpactTracker.getShortNameForDisplay())
                                             .attr("title", methodImpactTracker.getNameForDisplay()),
                                     p(code(methodImpactTracker.getNameForDisplay())),
 

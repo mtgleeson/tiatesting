@@ -52,7 +52,7 @@ public class HtmlSourceCodeLandingReport {
                                             HtmlLayout.Crumb.link("Home", "index.html"),
                                             HtmlLayout.Crumb.current("Source Code")
                                     ),
-                                    h2("Source Code"),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_SOURCE_CODE, "Source Code"),
                                     p("Choose a source-code view."),
                                     div(attrs(".tia-card-grid"),
                                             a(attrs(".tia-card"),
