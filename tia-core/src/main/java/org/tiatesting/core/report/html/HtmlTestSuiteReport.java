@@ -118,6 +118,10 @@ public class HtmlTestSuiteReport {
     private void writeSourceMethodsHtmlToFile(TiaData tiaData, TestSuiteTracker testSuiteTracker){
         String fileName = reportOutputDir + File.separator + testSuiteTracker.getName() + ".html";
 
+        String fullName = testSuiteTracker.getName();
+        int lastDot = fullName.lastIndexOf('.');
+        String shortName = lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+
         Set<Integer> methodIds = testSuiteTracker.getClassesImpacted().stream()
                 .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
                 .collect(Collectors.toSet());
@@ -134,7 +138,9 @@ public class HtmlTestSuiteReport {
                                             HtmlLayout.Crumb.current(testSuiteTracker.getName())
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_TEST_SUITE,
-                                            "Test Suite: " + testSuiteTracker.getName()),
+                                            "Test Suite: " + shortName)
+                                            .attr("title", fullName),
+                                    p(code(fullName)),
 
                                     h3("Stats"),
                                     p(
@@ -146,7 +152,7 @@ public class HtmlTestSuiteReport {
                                             span("Fail: " + getAvgFail(testSuiteTracker.getTestStats()) + "%")
                                     ),
 
-                                    h3("Source methods executed by the test suite"),
+                                    h3("Impacted Source Methods"),
                                     table(attrs("#tiaSourceMethodTable"),
                                             thead(tr(th("Name"))),
                                             tbody(each(methodIds, methodId -> {
