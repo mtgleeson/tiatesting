@@ -631,14 +631,15 @@ Developers using Tia on their local workspace should configure Tia to analyse lo
 
 ## Credits
 A shout out to the following libraries that Tia uses:
- - Jacoco
- - H2
- - J2HTML
- - ByteBuddy
- - JGit
- - P4Java
- - Java Diff Utils
- - Simple-Datatables
+ - [Jacoco](https://www.eclemma.org/jacoco/)
+ - [H2 Database](https://www.h2database.com/)
+ - [J2HTML](https://j2html.com/)
+ - [ByteBuddy](https://bytebuddy.net/)
+ - [JGit](https://github.com/eclipse-jgit/jgit)
+ - [P4Java](https://github.com/perforce/p4java)
+ - [Java Diff Utils](https://github.com/java-diff-utils/java-diff-utils)
+ - [Simple-Datatables](https://fiduswriter.github.io/simple-datatables/)
+ - [Pico CSS](https://picocss.com/)
 
 ## Additional resources and solutions
  - [https://martinfowler.com/articles/rise-test-impact-analysis.html](https://martinfowler.com/articles/rise-test-impact-analysis.html)
