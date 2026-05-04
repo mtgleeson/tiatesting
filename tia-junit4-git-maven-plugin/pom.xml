@@ -40,9 +40,58 @@
         <gpg.skip>true</gpg.skip>
     </properties>
 
+    <!--
+        Maven 3.8.1+ is required because earlier versions are exposed to CVE-2021-26291
+        (maven-core resolves artifacts from non-HTTPS repos in transitively-included poms).
+        3.8.1 introduced the HTTP-blocker mitigation. Maven enforces this floor at plugin
+        discovery time — users on older Maven get a clear "requires Maven >= 3.8.1" error.
+    -->
     <prerequisites>
-        <maven>3.0.0</maven>
+        <maven>3.8.1</maven>
     </prerequisites>
+
+    <!--
+        These transitive deps of maven-core (provided scope) are flagged by vulnerability
+        scanners against their default versions shipped with Maven 3.6.x. At runtime the
+        user's Maven supplies the actual classes, so the real protection comes from the
+        <prerequisites> floor above; pinning here keeps tia's declared dependency tree
+        clean for static analysis tools (Mend, Snyk, Dependabot, etc.) and avoids shipping
+        stale transitive artifacts when one of these is ever resolved at compile scope.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- CVE-2025-48924 — pin to latest 3.x (Java 8 compatible). -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.18.0</version>
+            </dependency>
+            <!-- CVE-2025-67030 — pin to latest 3.x (Java 8 compatible). -->
+            <dependency>
+                <groupId>org.codehaus.plexus</groupId>
+                <artifactId>plexus-utils</artifactId>
+                <version>3.5.1</version>
+            </dependency>
+            <!-- CVE-2022-29599 — command injection; fixed in 3.3.0+. -->
+            <dependency>
+                <groupId>org.apache.maven.shared</groupId>
+                <artifactId>maven-shared-utils</artifactId>
+                <version>3.3.4</version>
+            </dependency>
+            <!-- CVE-2021-29425, CVE-2024-47554 — both fixed by 2.14.0+. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.18.0</version>
+            </dependency>
+            <!-- CVE-2023-2976, CVE-2020-8908 — fixed in 32.0.0-jre+. -->
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>33.4.0-jre</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -65,6 +114,7 @@
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
             <version>3.6.3</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.maven.plugin-tools</groupId>
@@ -74,8 +124,9 @@
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
-            <artifactId>maven-project</artifactId>
-            <version>2.2.1</version>
+            <artifactId>maven-core</artifactId>
+            <version>3.6.3</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
