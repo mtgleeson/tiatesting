@@ -111,6 +111,12 @@ public class HtmlSourceMethodReport {
         String fileName = reportOutputDir + File.separator + methodTrackedHashCode + ".html";
         fileName = fileName.replaceAll("<", "").replaceAll(">", "");
 
+        // Drop the package from the heading: keep only the trailing "ClassName.methodName".
+        String shortName = methodImpactTracker.getShortNameForDisplay();
+        int lastDot = shortName.lastIndexOf('.');
+        int secondLastDot = lastDot > 0 ? shortName.lastIndexOf('.', lastDot - 1) : -1;
+        String classAndMethod = secondLastDot >= 0 ? shortName.substring(secondLastDot + 1) : shortName;
+
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
             final String numberDataType = "data-type=\"number\"";
 
@@ -127,7 +133,7 @@ public class HtmlSourceMethodReport {
                                                     methodImpactTracker.getNameForDisplay())
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_CODE,
-                                            "Source Method: " + methodImpactTracker.getShortNameForDisplay())
+                                            "Source Method: " + classAndMethod)
                                             .attr("title", methodImpactTracker.getNameForDisplay()),
                                     p(code(methodImpactTracker.getNameForDisplay())),
 
@@ -137,7 +143,7 @@ public class HtmlSourceMethodReport {
                                             span("Line end: " + methodImpactTracker.getLineNumberEnd())
                                     ),
 
-                                    h3("Test suites that execute the source method"),
+                                    h3("Impacted Test Suites"),
                                     table(attrs("#tiaSourceMethodTable"),
                                             thead(tr(
                                                     th("Test Suite"),
