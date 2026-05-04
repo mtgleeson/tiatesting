@@ -21,6 +21,12 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ## Getting Started
 
+### Requirements
+
+- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit4-git-maven-plugin`, `tia-junit4-perforce-maven-plugin`, `tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the security rationale (CVE-2021-26291) and the design decision behind picking 3.8.1 specifically.
+- **Java**: 8 or newer.
+- **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
+
 ### Maven, JUnit5 and Git
 1. Registering the Tia LaunchSessionListener.
    
@@ -613,7 +619,9 @@ Developers using Tia on their local workspace should configure Tia to analyse lo
 **Note:** The build machine(s) that are designated to be the 'primary' (which update the test suite to source code mapping) need to run the tests suites **sequentially**. This is important to allow Tia to correctly associate the source code coverage with each test suite.  
 
 ## Supported Build Automation Tools, VCS and Test Runners
-### Maven 3
+### Maven 3.8.1+
+
+Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [Wiki](WIKI.md) for the rationale.
 
 | |Git|Perforce|
 |-|---|--------|
