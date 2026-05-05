@@ -64,11 +64,11 @@
                 <artifactId>commons-lang3</artifactId>
                 <version>3.18.0</version>
             </dependency>
-            <!-- CVE-2025-67030 — fixed in 4.x; 4.0.2 is Java 8 compatible. -->
+            <!-- CVE-2025-67030 — Mend "Insufficient Information" entry; pin to latest available 4.0.x line. -->
             <dependency>
                 <groupId>org.codehaus.plexus</groupId>
                 <artifactId>plexus-utils</artifactId>
-                <version>4.0.2</version>
+                <version>4.0.3</version>
             </dependency>
             <!-- CVE-2022-29599 — command injection; fixed in 3.3.0+. -->
             <dependency>
