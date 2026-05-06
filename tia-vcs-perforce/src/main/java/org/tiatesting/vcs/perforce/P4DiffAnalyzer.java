@@ -470,14 +470,23 @@ public class P4DiffAnalyzer {
                                                      boolean forOriginal) {
         try {
             for (IFileSpec fileSpec : revisionFileSpecs) {
+                log.debug("Loading file content for fileSpec depotPath='{}', revision={}", fileSpec.getDepotPathString(), fileSpec.getEndRevision());
+
                 if (fileSpec.getDepotPathString() == null){
                     // The file doesn't exist in the CL. This could be due to the file being deleted in the original CL
                     // as well in the new CL (i.e. a merge CL bringing the delete action into the stream where it was already deleted).
-                    log.info("No file found in P4 for the CL. Looking up the original:  {}", forOriginal);
+                    log.info("No file found in P4 for the CL {}. Looking up the original:  {}", fileSpec.getChangelistId(), forOriginal);
                     continue;
                 }
 
-                InputStream inputStream = fileSpec.getContents(true);
+                InputStream inputStream;
+                try {
+                    inputStream = fileSpec.getContents(true);
+                } catch (P4JavaException e) {
+                    log.error("Failed to read P4 contents for fileSpec depotPath='{}', revision={}",
+                            fileSpec.getDepotPathString(), fileSpec.getEndRevision());
+                    throw e;
+                }
                 if (inputStream == null) {
                     log.warn("No input stream for {}", fileSpec.getDepotPathString());
                     continue;

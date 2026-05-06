@@ -141,8 +141,9 @@ public class HtmlSummaryReport {
                                         td(String.valueOf(batch.getSourceMethodIds() != null
                                                 ? batch.getSourceMethodIds().size() : 0)),
                                         td(batch.isUnknownNextVersion() ? "yes" : "no"),
-                                        td(batch.getStampJarHash() != null
-                                                ? truncateHash(batch.getStampJarHash()) : "—")
+                                        batch.getStampJarHash() != null
+                                                ? td(truncateHash(batch.getStampJarHash())).attr("title", batch.getStampJarHash())
+                                                : td("—")
                                 )
                         )
                 ))
