@@ -767,6 +767,10 @@ public class H2DataStore implements DataStore {
                 createTiaDB();
                 return tiaData;
             } else {
+                // Ensure schema migrations have run on this existing DB before any reads.
+                // Idempotent: safe to call on every load.
+                ensureSourceClassTestSuiteIndexExists(connection);
+
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
                 log.debug("SQL query time for core: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
@@ -846,76 +850,128 @@ public class H2DataStore implements DataStore {
         return sourceMethods;
     }
 
+    /**
+     * Load every test suite (and, optionally, the source-class / source-method coverage map for each)
+     * in a single bulk query.
+     *
+     * <p>Earlier versions ran one {@code SELECT * FROM tia_test_suite} followed by N per-suite
+     * {@code SELECT … JOIN tia_source_class_method WHERE tia_test_suite_id = ?} queries, parallelised
+     * via {@code parallelStream}. On a 1k-suite / 5.6M-edge DB that was 86%+ of total CPU because
+     * 1000 random-access B-tree walks all serialised on the same MVStore file. A single sequential
+     * left-join scan amortises the per-row cost over one cursor and lets the OS page cache stream
+     * the file linearly.
+     *
+     * <p>The output rows are ordered by {@code (tia_test_suite_id, tia_source_class_id)} so the
+     * reducer can detect group boundaries by comparing each row's id columns to the previous row's.
+     * {@code LEFT JOIN}s preserve the existing behaviour: a test suite with no classes still appears
+     * in the returned map (with an empty {@code classesImpacted} list); a class row with no
+     * matching method edge is dropped (matches the previous {@code INNER JOIN} between
+     * {@code tia_source_class} and {@code tia_source_class_method}).
+     */
     private Map<String, TestSuiteTracker> getTestSuitesData(Connection connection, boolean loadClassesData) throws SQLException {
-        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
-        String sql = "SELECT * FROM " + TABLE_TIA_TEST_SUITE;
-        Statement statement = connection.createStatement();
-        ResultSet resultSet = statement.executeQuery(sql);
-
-        while(resultSet.next()){
-            TestSuiteTracker testSuite = new TestSuiteTracker();
-            testSuite.setId(resultSet.getLong(COL_ID));
-            testSuite.setName(resultSet.getString(COL_NAME));
-            testSuite.getTestStats().setNumRuns(resultSet.getLong(COL_NUM_RUNS));
-            testSuite.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
-            testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
-            testSuite.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
-            testSuites.put(testSuite.getName(), testSuite);
+        if (!loadClassesData) {
+            return loadTestSuitesMetadataOnly(connection);
         }
 
-        if (loadClassesData){
-            testSuites.values().parallelStream().forEach( testSuite -> {
-                try {
-                    testSuite.setClassesImpacted(getSourceClasses(connection, testSuite.getId()));
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
+
+        // Aliased columns let us pull the suite + class + method data out of one cursor without
+        // ambiguous-column errors on the shared "id" / "source_filename" names.
+        String sql = "SELECT ts." + COL_ID + " AS suite_id, ts." + COL_NAME + " AS suite_name, " +
+                "ts." + COL_NUM_RUNS + " AS suite_num_runs, ts." + COL_AVG_RUN_TIME + " AS suite_avg_run_time, " +
+                "ts." + COL_NUM_SUCCESS_RUNS + " AS suite_num_success_runs, ts." + COL_NUM_FAIL_RUNS + " AS suite_num_fail_runs, " +
+                "sc." + COL_ID + " AS class_id, sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
+                "scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id " +
+                "FROM " + TABLE_TIA_TEST_SUITE + " ts " +
+                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS + " sc ON sc." + COL_TIA_TEST_SUITE_ID + " = ts." + COL_ID + " " +
+                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID + " " +
+                "ORDER BY ts." + COL_ID + ", sc." + COL_ID;
+
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(sql)) {
+
+            TestSuiteTracker currentSuite = null;
+            long currentSuiteId = -1;
+            ClassImpactTracker currentClass = null;
+            long currentClassId = -1;
+
+            while (rs.next()) {
+                long suiteId = rs.getLong("suite_id");
+
+                if (suiteId != currentSuiteId) {
+                    // Flush the in-progress class onto the previous suite before moving on.
+                    if (currentClass != null && currentSuite != null) {
+                        currentSuite.getClassesImpacted().add(currentClass);
+                    }
+                    currentClass = null;
+                    currentClassId = -1;
+
+                    currentSuite = new TestSuiteTracker();
+                    currentSuite.setId(suiteId);
+                    currentSuite.setName(rs.getString("suite_name"));
+                    currentSuite.getTestStats().setNumRuns(rs.getLong("suite_num_runs"));
+                    currentSuite.getTestStats().setAvgRunTime(rs.getLong("suite_avg_run_time"));
+                    currentSuite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
+                    currentSuite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
+                    currentSuite.setClassesImpacted(new ArrayList<>());
+                    testSuites.put(currentSuite.getName(), currentSuite);
+                    currentSuiteId = suiteId;
                 }
-            });
+
+                // LEFT JOINs may yield (suite, NULL class) rows for suites with no classes,
+                // and (suite, class, NULL method) rows for classes with no methods. Skip both —
+                // matches the previous behaviour where the INNER JOIN between tia_source_class
+                // and tia_source_class_method dropped classes with no method edges.
+                long classIdValue = rs.getLong("class_id");
+                if (rs.wasNull()) {
+                    continue;
+                }
+                int methodId = rs.getInt("method_id");
+                if (rs.wasNull()) {
+                    continue;
+                }
+
+                if (classIdValue != currentClassId) {
+                    if (currentClass != null) {
+                        currentSuite.getClassesImpacted().add(currentClass);
+                    }
+                    currentClass = new ClassImpactTracker(rs.getString("class_source_filename"), new HashSet<>());
+                    currentClassId = classIdValue;
+                }
+
+                currentClass.getMethodsImpacted().add(methodId);
+            }
+
+            // Flush the final class onto the final suite.
+            if (currentClass != null && currentSuite != null) {
+                currentSuite.getClassesImpacted().add(currentClass);
+            }
         }
 
         return testSuites;
     }
 
-    private List<ClassImpactTracker> getSourceClasses(Connection connection, long testSuiteId) throws SQLException {
-        List<ClassImpactTracker> sourceClasses = new ArrayList<>();
-        long startQueryTime = System.currentTimeMillis();
-        String sql = "SELECT " + COL_ID + ", " + COL_SOURCE_FILENAME + ", " + COL_TIA_SOURCE_METHOD_ID +
-                " FROM " + TABLE_TIA_SOURCE_CLASS +
-                " JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " TSCM " +
-                    "ON " + TABLE_TIA_SOURCE_CLASS + "." + COL_ID + " = TSCM." + COL_TIA_SOURCE_CLASS_ID +
-                " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId +
-                " ORDER BY " + TABLE_TIA_SOURCE_CLASS + "." + COL_ID;
-
-        connection = getConnection();
-        Statement statement = connection.createStatement();
-        ResultSet resultSet = statement.executeQuery(sql);
-        long currentSourceClassId = 0;
-        ClassImpactTracker sourceClass = null;
-
-        while (resultSet.next()){
-            long sourceClassId = resultSet.getLong(COL_ID);
-
-            if (sourceClassId != currentSourceClassId){
-                if (sourceClass != null){
-                    sourceClasses.add(sourceClass);
-                }
-                String classSourceFilename = resultSet.getString(COL_SOURCE_FILENAME);
-                Set<Integer> sourceClassMethods = new HashSet<>();
-                sourceClass = new ClassImpactTracker(classSourceFilename, sourceClassMethods);
-                currentSourceClassId = sourceClassId;
+    /**
+     * Cheap path used when the caller only needs suite-level stats (e.g. test-stats updates).
+     * Skips the class / method join entirely.
+     */
+    private Map<String, TestSuiteTracker> loadTestSuitesMetadataOnly(Connection connection) throws SQLException {
+        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
+        String sql = "SELECT * FROM " + TABLE_TIA_TEST_SUITE;
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(sql)) {
+            while (resultSet.next()) {
+                TestSuiteTracker testSuite = new TestSuiteTracker();
+                testSuite.setId(resultSet.getLong(COL_ID));
+                testSuite.setName(resultSet.getString(COL_NAME));
+                testSuite.getTestStats().setNumRuns(resultSet.getLong(COL_NUM_RUNS));
+                testSuite.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
+                testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
+                testSuite.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
+                testSuites.put(testSuite.getName(), testSuite);
             }
-
-            sourceClass.getMethodsImpacted().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
         }
-
-        connection.close();
-
-        // add the last source class
-        if (sourceClass != null){
-            sourceClasses.add(sourceClass);
-        }
-
-        return sourceClasses;
+        return testSuites;
     }
 
     private void createTiaDB(){
@@ -954,6 +1010,11 @@ public class H2DataStore implements DataStore {
                 COL_TIA_TEST_SUITE_ID + " BIGINT, " +
                 COL_SOURCE_FILENAME + " VARCHAR(500))";
 
+        // Index on tia_source_class.tia_test_suite_id is essential: without it, the bulk join in
+        // getTestSuitesData becomes a nested-loop scan of all tia_source_class rows for every
+        // suite — observed at ~30% of select-tests CPU on a 940K-row tia_source_class table.
+        String createSourceClassTestSuiteIndexSql = buildCreateSourceClassTestSuiteIndexSql();
+
         String createSourceClassMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS_METHOD +
                 " (" + COL_TIA_SOURCE_CLASS_ID + " BIGINT, " +
                 COL_TIA_SOURCE_METHOD_ID + " INT, " +
@@ -971,6 +1032,7 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(createTestSuiteTableSql);
             statement.executeUpdate(createTestSuiteNameIndexSql);
             statement.executeUpdate(createSourceClassTableSql);
+            statement.executeUpdate(createSourceClassTestSuiteIndexSql);
             statement.executeUpdate(createSourceClassMethodTableSql);
             statement.executeUpdate(createLibraryTableSql);
             statement.executeUpdate(createPendingLibraryMethodTableSql);
@@ -1044,6 +1106,26 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(buildCreatePendingLibraryImpactedMethodTableSql());
             log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD);
         }
+    }
+
+    /**
+     * DDL for the index on {@code tia_source_class.tia_test_suite_id}. Uses
+     * {@code CREATE INDEX IF NOT EXISTS} so it's safe to call repeatedly — both for new DBs
+     * (called from {@code createTiaDB}) and for migrating existing DBs missing the index.
+     */
+    private static String buildCreateSourceClassTestSuiteIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + COL_TIA_TEST_SUITE_ID + "_idx ON "
+                + TABLE_TIA_SOURCE_CLASS + " (" + COL_TIA_TEST_SUITE_ID + ")";
+    }
+
+    /**
+     * Migration: ensure the {@code tia_source_class.tia_test_suite_id} index exists on
+     * an already-populated DB. Without this index, the bulk join in {@code getTestSuitesData}
+     * degrades to a nested-loop scan of {@code tia_source_class}.
+     */
+    private void ensureSourceClassTestSuiteIndexExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(buildCreateSourceClassTestSuiteIndexSql());
     }
 
     private Connection getConnection(){
