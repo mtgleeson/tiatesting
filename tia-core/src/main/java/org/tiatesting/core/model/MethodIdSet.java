@@ -55,7 +55,13 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
         this.sorted = true;
     }
 
-    /** Copy constructor accepting any {@link Collection} of integer values. */
+    /**
+     * Copy constructor accepting any {@link Collection} of integer values. If {@code source}
+     * is itself a {@link MethodIdSet} the underlying {@code int[]} is copied directly;
+     * otherwise each element is added one-by-one (paying the autoboxing cost only at copy time).
+     *
+     * @param source the collection of method IDs to copy into the new set.
+     */
     public MethodIdSet(Collection<? extends Integer> source) {
         if (source instanceof MethodIdSet) {
             MethodIdSet other = (MethodIdSet) source;
@@ -74,8 +80,10 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
     }
 
     /**
-     * Add {@code id} maintaining the sorted-unique invariant. Returns {@code true} when the
-     * id was not already present.
+     * Add {@code id} maintaining the sorted-unique invariant.
+     *
+     * @param id the method ID to add.
+     * @return {@code true} if the id was not already present (i.e. the set was modified).
      */
     public boolean add(int id) {
         ensureSorted();
@@ -97,6 +105,8 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
      * Append without sorting. Use only when the caller commits to calling
      * {@link #finishBulkBuild()} before any read or set-like operation. Cheaper than
      * {@link #add(int)} for the bulk-load case because it avoids the O(n) shift per insert.
+     *
+     * @param id the method ID to append; duplicates are tolerated and removed at finalisation.
      */
     public void appendForBulkBuild(int id) {
         ensureCapacity(size + 1);
@@ -151,6 +161,10 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
     /**
      * Bulk merge another {@link MethodIdSet}. Faster than the default
      * {@link AbstractSet#addAll(Collection)} which boxes every element.
+     *
+     * @param other the set whose ids should be merged into this set; {@code null} or empty is a no-op.
+     * @return {@code true} if the merge changed this set (i.e. {@code other} contained at least one
+     *         id not already present).
      */
     public boolean addAll(MethodIdSet other) {
         if (other == null || other.isEmpty()) {
@@ -229,6 +243,9 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
     /**
      * Returns the contents as a defensive copy of the internal array trimmed to {@link #size()}.
      * Mostly useful for tests and serialization-style use cases.
+     *
+     * @return a fresh {@code int[]} of length {@link #size()} containing the set's ids in
+     *         ascending order; modifications to the returned array do not affect this set.
      */
     public int[] toIntArray() {
         ensureSorted();

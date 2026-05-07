@@ -220,6 +220,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * Build the library impact analysis configuration from the Maven plugin parameters.
      * Coordinates in {@link #tiaSourceLibs} should be in the format
      * {@code groupId:artifactId} or {@code groupId:artifactId:projectDir}.
+     *
+     * @return the library impact analysis configuration parsed from the mojo's
+     *         {@code tiaSourceLibs}, {@code tiaSourceProjectDir}, and
+     *         {@code tiaLibraryVersionPolicy} parameters.
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getTiaSourceLibs();
