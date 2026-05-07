@@ -8,6 +8,9 @@ import org.apache.maven.project.ProjectBuilder;
 import org.apache.maven.project.ProjectBuildingException;
 import org.apache.maven.project.ProjectBuildingRequest;
 import org.apache.maven.project.ProjectBuildingResult;
+import org.eclipse.aether.DefaultRepositorySystemSession;
+import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.util.repository.SimpleArtifactDescriptorPolicy;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
@@ -81,7 +84,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
 
         MavenProject sourceProject;
         try {
-            ProjectBuildingRequest request = new DefaultProjectBuildingRequest(baseRequest);
+            ProjectBuildingRequest request = newQuietRequest();
             request.setResolveDependencies(true);
             ProjectBuildingResult result = projectBuilder.build(pomFile, request);
             sourceProject = result.getProject();
@@ -258,7 +261,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
      */
     private MavenProject loadMavenProject(File pomFile, boolean resolveDependencies) {
         try {
-            ProjectBuildingRequest request = new DefaultProjectBuildingRequest(baseRequest);
+            ProjectBuildingRequest request = newQuietRequest();
             request.setResolveDependencies(resolveDependencies);
             ProjectBuildingResult result = projectBuilder.build(pomFile, request);
             return result.getProject();
@@ -267,6 +270,36 @@ class LibraryJarResolver implements LibraryMetadataReader {
                     + ": " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Build a {@link ProjectBuildingRequest} that suppresses the noisy
+     * {@code "The POM for X is invalid, transitive dependencies (if any) will not be available"}
+     * warning emitted by Maven's resolver when a tracked library's POM trips strict descriptor
+     * validation while being read as a transitive of the source project.
+     *
+     * <p>The warning fires from {@code DefaultArtifactDescriptorReader} regardless of any
+     * project-level validation level we set on the building request itself, because transitive
+     * descriptor reads use the {@link RepositorySystemSession}'s
+     * {@link org.eclipse.aether.resolution.ArtifactDescriptorPolicy} rather than the request's.
+     * The fix is to clone the session and install a {@link SimpleArtifactDescriptorPolicy} that
+     * silently ignores both invalid and missing descriptors. Tia only needs the resolved-artifact
+     * set to locate JAR files for {@code tiaSourceLibs} coordinates — transitives with broken
+     * POMs aren't actionable for test-impact analysis, so swallowing the warning has no behavioural
+     * cost for Tia's use case.
+     *
+     * @return a per-call request whose repository session ignores invalid/missing descriptors;
+     *         falls back to a plain copy of {@link #baseRequest} if no session is present.
+     */
+    private ProjectBuildingRequest newQuietRequest() {
+        ProjectBuildingRequest request = new DefaultProjectBuildingRequest(baseRequest);
+        RepositorySystemSession baseSession = baseRequest.getRepositorySession();
+        if (baseSession instanceof DefaultRepositorySystemSession) {
+            DefaultRepositorySystemSession quiet = new DefaultRepositorySystemSession(baseSession);
+            quiet.setArtifactDescriptorPolicy(new SimpleArtifactDescriptorPolicy(true, true));
+            request.setRepositorySession(quiet);
+        }
+        return request;
     }
 
     private static Artifact findArtifact(Set<Artifact> artifacts, String groupId, String artifactId){
