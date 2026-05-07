@@ -357,6 +357,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
         }
 
         @Override
+        @SuppressWarnings("NullableProblems")  // OutputStream's @NotNull on b is satisfied by Objects.requireNonNull below; avoid pulling in org.jetbrains:annotations just for the override
         public synchronized void write(byte[] b, int off, int len) {
             Objects.requireNonNull(b);
             for (int i = 0; i < len; i++) {
