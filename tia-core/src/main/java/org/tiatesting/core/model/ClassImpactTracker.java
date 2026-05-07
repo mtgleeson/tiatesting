@@ -35,7 +35,15 @@ public class ClassImpactTracker implements Serializable {
         this.methodsImpacted = methodsImpacted;
     }
 
-    /** Backwards-compatible constructor accepting any {@code Collection<Integer>}. */
+    /**
+     * Backwards-compatible constructor accepting any {@code Collection<Integer>}. If the
+     * supplied collection is already a {@link MethodIdSet} it is adopted directly (preserving
+     * reference semantics for callers that mutate it after construction); otherwise its
+     * contents are copied into a fresh {@link MethodIdSet}.
+     *
+     * @param sourceFilename the source-file path for the class.
+     * @param methodsImpacted the set of method IDs invoked by the test suite for this class.
+     */
     public ClassImpactTracker(String sourceFilename, Collection<Integer> methodsImpacted) {
         this.sourceFilename = sourceFilename;
         this.methodsImpacted = methodsImpacted instanceof MethodIdSet
