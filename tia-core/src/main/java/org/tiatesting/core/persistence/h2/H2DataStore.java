@@ -858,23 +858,25 @@ public class H2DataStore implements DataStore {
      * <p>Earlier versions ran one {@code SELECT * FROM tia_test_suite} followed by N per-suite
      * {@code SELECT … JOIN tia_source_class_method WHERE tia_test_suite_id = ?} queries, parallelised
      * via {@code parallelStream}. On a 1k-suite / 5.6M-edge DB that was 86%+ of total CPU because
-     * 1000 random-access B-tree walks all serialised on the same MVStore file. A single sequential
-     * left-join scan amortises the per-row cost over one cursor and lets the OS page cache stream
-     * the file linearly.
+     * 1000 random-access B-tree walks all serialised on the same MVStore file. A single bulk join
+     * amortises the per-row cost over one cursor.
      *
-     * <p>The output rows are ordered by {@code (tia_test_suite_id, tia_source_class_id)} so the
-     * reducer can detect group boundaries by comparing each row's id columns to the previous row's.
-     * {@code LEFT JOIN}s preserve the existing behaviour: a test suite with no classes still appears
-     * in the returned map (with an empty {@code classesImpacted} list); a class row with no
-     * matching method edge is dropped (matches the previous {@code INNER JOIN} between
+     * <p>The query intentionally does <strong>not</strong> use {@code ORDER BY}: at 5.6M rows H2
+     * could not fold the sort into the index and instead spilled the result set to a temp file
+     * (visible as {@code MVSortedTempResult} in profiling — ~56% of post-fix CPU). The reducer
+     * therefore tolerates rows arriving in any order: it keeps id-keyed maps for both the suite
+     * and the class layer, so an arbitrary row updates the right tracker via two hash lookups.
+     * After the loop, every {@link MethodIdSet} is finalised once.
+     *
+     * <p>{@code LEFT JOIN}s preserve the existing behaviour: a test suite with no classes still
+     * appears in the returned map (with an empty {@code classesImpacted} list); a class row with
+     * no matching method edge is dropped (matches the previous {@code INNER JOIN} between
      * {@code tia_source_class} and {@code tia_source_class_method}).
      */
     private Map<String, TestSuiteTracker> getTestSuitesData(Connection connection, boolean loadClassesData) throws SQLException {
         if (!loadClassesData) {
             return loadTestSuitesMetadataOnly(connection);
         }
-
-        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
 
         // Aliased columns let us pull the suite + class + method data out of one cursor without
         // ambiguous-column errors on the shared "id" / "source_filename" names.
@@ -885,38 +887,33 @@ public class H2DataStore implements DataStore {
                 "scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id " +
                 "FROM " + TABLE_TIA_TEST_SUITE + " ts " +
                 "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS + " sc ON sc." + COL_TIA_TEST_SUITE_ID + " = ts." + COL_ID + " " +
-                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID + " " +
-                "ORDER BY ts." + COL_ID + ", sc." + COL_ID;
+                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID;
+
+        // Suite trackers keyed by both id (for fast lookup during the unordered scan) and name
+        // (the public return-shape); the two maps share the same TestSuiteTracker instances.
+        Map<Long, TestSuiteTracker> suitesById = new HashMap<>();
+        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
+        // ClassImpactTrackers keyed by their tia_source_class.id while we're still building.
+        // Cleared after the loop — only TestSuiteTracker references survive.
+        Map<Long, ClassImpactTracker> classesById = new HashMap<>();
 
         try (Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery(sql)) {
 
-            TestSuiteTracker currentSuite = null;
-            long currentSuiteId = -1;
-            ClassImpactTracker currentClass = null;
-            long currentClassId = -1;
-
             while (rs.next()) {
                 long suiteId = rs.getLong("suite_id");
-
-                if (suiteId != currentSuiteId) {
-                    // Flush the in-progress class onto the previous suite before moving on.
-                    if (currentClass != null && currentSuite != null) {
-                        currentSuite.getClassesImpacted().add(currentClass);
-                    }
-                    currentClass = null;
-                    currentClassId = -1;
-
-                    currentSuite = new TestSuiteTracker();
-                    currentSuite.setId(suiteId);
-                    currentSuite.setName(rs.getString("suite_name"));
-                    currentSuite.getTestStats().setNumRuns(rs.getLong("suite_num_runs"));
-                    currentSuite.getTestStats().setAvgRunTime(rs.getLong("suite_avg_run_time"));
-                    currentSuite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
-                    currentSuite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
-                    currentSuite.setClassesImpacted(new ArrayList<>());
-                    testSuites.put(currentSuite.getName(), currentSuite);
-                    currentSuiteId = suiteId;
+                TestSuiteTracker suite = suitesById.get(suiteId);
+                if (suite == null) {
+                    suite = new TestSuiteTracker();
+                    suite.setId(suiteId);
+                    suite.setName(rs.getString("suite_name"));
+                    suite.getTestStats().setNumRuns(rs.getLong("suite_num_runs"));
+                    suite.getTestStats().setAvgRunTime(rs.getLong("suite_avg_run_time"));
+                    suite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
+                    suite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
+                    suite.setClassesImpacted(new ArrayList<>());
+                    suitesById.put(suiteId, suite);
+                    testSuites.put(suite.getName(), suite);
                 }
 
                 // LEFT JOINs may yield (suite, NULL class) rows for suites with no classes,
@@ -932,27 +929,23 @@ public class H2DataStore implements DataStore {
                     continue;
                 }
 
-                if (classIdValue != currentClassId) {
-                    if (currentClass != null) {
-                        // Lock in the previous class's method-id set before moving on.
-                        currentClass.getMethodsImpacted().finishBulkBuild();
-                        currentSuite.getClassesImpacted().add(currentClass);
-                    }
-                    currentClass = new ClassImpactTracker(rs.getString("class_source_filename"), new MethodIdSet());
-                    currentClassId = classIdValue;
+                ClassImpactTracker classTracker = classesById.get(classIdValue);
+                if (classTracker == null) {
+                    classTracker = new ClassImpactTracker(rs.getString("class_source_filename"), new MethodIdSet());
+                    classesById.put(classIdValue, classTracker);
+                    suite.getClassesImpacted().add(classTracker);
                 }
 
                 // appendForBulkBuild avoids the per-row Integer.valueOf allocation and the
-                // O(n) shift that add(int) does to keep the array sorted; finishBulkBuild
-                // sorts + dedupes once when we're done with this class.
-                currentClass.getMethodsImpacted().appendForBulkBuild(methodId);
+                // O(n) shift that add(int) does to keep the array sorted. finishBulkBuild
+                // (called once per class below) sorts + dedupes the underlying int[].
+                classTracker.getMethodsImpacted().appendForBulkBuild(methodId);
             }
+        }
 
-            // Flush the final class onto the final suite.
-            if (currentClass != null && currentSuite != null) {
-                currentClass.getMethodsImpacted().finishBulkBuild();
-                currentSuite.getClassesImpacted().add(currentClass);
-            }
+        // Finalise every class's method-id set so subsequent contains/equals/iteration is correct.
+        for (ClassImpactTracker classTracker : classesById.values()) {
+            classTracker.getMethodsImpacted().finishBulkBuild();
         }
 
         return testSuites;
