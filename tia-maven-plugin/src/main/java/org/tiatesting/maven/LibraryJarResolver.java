@@ -16,10 +16,15 @@ import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 
 import java.io.File;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -86,7 +91,8 @@ class LibraryJarResolver implements LibraryMetadataReader {
         try {
             ProjectBuildingRequest request = newQuietRequest();
             request.setResolveDependencies(true);
-            ProjectBuildingResult result = projectBuilder.build(pomFile, request);
+            ProjectBuildingResult result = withSuppressedMavenNoiseWarnings(() ->
+                    projectBuilder.build(pomFile, request));
             sourceProject = result.getProject();
             log.debug("Resolved source project build config file " + pomFile.getAbsolutePath());
         } catch (ProjectBuildingException e){
@@ -263,12 +269,132 @@ class LibraryJarResolver implements LibraryMetadataReader {
         try {
             ProjectBuildingRequest request = newQuietRequest();
             request.setResolveDependencies(resolveDependencies);
-            ProjectBuildingResult result = projectBuilder.build(pomFile, request);
+            ProjectBuildingResult result = withSuppressedMavenNoiseWarnings(() ->
+                    projectBuilder.build(pomFile, request));
             return result.getProject();
         } catch (ProjectBuildingException e) {
             log.warn("Failed to load Maven project at " + pomFile.getAbsolutePath()
                     + ": " + e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * The exact warning prefixes emitted by Maven's resolver when reading a library's POM that
+     * Tia's use case can't act on. Lines whose serialised form starts with any of these are
+     * filtered out by {@link #withSuppressedMavenNoiseWarnings(BuildSupplier)}.
+     */
+    private static final String[] SUPPRESSED_WARN_PREFIXES = {
+            "[WARNING] Non-parseable repository update policy",
+            "[WARN] Non-parseable repository update policy",
+            "Non-parseable repository update policy"
+    };
+
+    /**
+     * Functional shape of {@link ProjectBuilder#build(File, ProjectBuildingRequest)} so the
+     * suppressed-warnings wrapper can take a lambda.
+     */
+    @FunctionalInterface
+    private interface BuildSupplier {
+        ProjectBuildingResult build() throws ProjectBuildingException;
+    }
+
+    /**
+     * Run a Maven {@code projectBuilder.build} call with a {@code System.err} replacement that
+     * drops a small allowlist of warning lines that Tia can't act on (currently just the
+     * "Non-parseable repository update policy …" warning emitted by
+     * {@code DefaultUpdatePolicyAnalyzer} when a transitive POM references an unbound property
+     * inside its repository {@code <updatePolicy>}). Maven's resolver doesn't expose an API to
+     * override the update-policy analyzer, and SLF4J runtime level changes are binding-specific,
+     * so a scoped {@code System.err} filter is the most reliable cross-binding suppression.
+     *
+     * <p>The original {@code System.err} is restored in a {@code finally} block. The filter only
+     * inspects line prefixes — Tia's own {@code log.warn(...)} output is unaffected because Tia
+     * uses Maven's plugin logger which writes through a different code path.
+     *
+     * @param supplier the build call to run.
+     * @return whatever the supplier returned.
+     * @throws ProjectBuildingException if the build call throws.
+     */
+    private ProjectBuildingResult withSuppressedMavenNoiseWarnings(BuildSupplier supplier) throws ProjectBuildingException {
+        PrintStream originalErr = System.err;
+        PrintStream filteredErr;
+        try {
+            filteredErr = new PrintStream(new PrefixFilteringOutputStream(originalErr, SUPPRESSED_WARN_PREFIXES),
+                    true, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            // UTF-8 is required by the Java spec; fall through and just run unfiltered if it ever fails.
+            return supplier.build();
+        }
+        System.setErr(filteredErr);
+        try {
+            return supplier.build();
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    /**
+     * {@link OutputStream} adapter that buffers writes into lines and forwards each finished line
+     * to the delegate only when its content does not start with any of the suppression prefixes.
+     */
+    private static final class PrefixFilteringOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private final String[] suppressedPrefixes;
+        private final StringBuilder lineBuffer = new StringBuilder(256);
+
+        PrefixFilteringOutputStream(OutputStream delegate, String[] suppressedPrefixes) {
+            this.delegate = delegate;
+            this.suppressedPrefixes = suppressedPrefixes;
+        }
+
+        @Override
+        public synchronized void write(int b) {
+            lineBuffer.append((char) (b & 0xff));
+            if (b == '\n') {
+                flushLine();
+            }
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) {
+            Objects.requireNonNull(b);
+            for (int i = 0; i < len; i++) {
+                write(b[off + i]);
+            }
+        }
+
+        @Override
+        public synchronized void flush() {
+            if (lineBuffer.length() > 0) {
+                flushLine();
+            }
+            try {
+                delegate.flush();
+            } catch (java.io.IOException ignored) {
+                // matches PrintStream's swallow-IOException behaviour for stderr
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            flush();
+            // Don't close the delegate — we don't own System.err.
+        }
+
+        private void flushLine() {
+            String line = lineBuffer.toString();
+            lineBuffer.setLength(0);
+            for (String prefix : suppressedPrefixes) {
+                if (line.startsWith(prefix)) {
+                    return;
+                }
+            }
+            try {
+                delegate.write(line.getBytes(StandardCharsets.UTF_8));
+            } catch (java.io.IOException ignored) {
+                // matches PrintStream's swallow-IOException behaviour
+            }
         }
     }
 
