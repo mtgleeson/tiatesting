@@ -8,6 +8,7 @@ import org.jacoco.core.runtime.RemoteControlWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
@@ -100,7 +101,9 @@ public class JacocoClient {
                         log.trace("Class {} contains line coverage from source file {}", bundleClass.getName(), sourceFilename);
 
                         ClassImpactTracker classImpactTracker = classImpactTrackers.get(sourceFilename);
-                        Set<Integer> methodsImpactedForClass = classImpactTracker == null ? new HashSet<>() : classImpactTracker.getMethodsImpacted();
+                        MethodIdSet methodsImpactedForClass = classImpactTracker == null
+                                ? new MethodIdSet()
+                                : classImpactTracker.getMethodsImpacted();
 
                         if (classImpactTracker == null){
                             classImpactTrackers.put(sourceFilename, new ClassImpactTracker(sourceFilename, methodsImpactedForClass));

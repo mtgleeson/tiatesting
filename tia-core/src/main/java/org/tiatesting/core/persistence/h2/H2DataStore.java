@@ -6,6 +6,7 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -933,17 +934,23 @@ public class H2DataStore implements DataStore {
 
                 if (classIdValue != currentClassId) {
                     if (currentClass != null) {
+                        // Lock in the previous class's method-id set before moving on.
+                        currentClass.getMethodsImpacted().finishBulkBuild();
                         currentSuite.getClassesImpacted().add(currentClass);
                     }
-                    currentClass = new ClassImpactTracker(rs.getString("class_source_filename"), new HashSet<>());
+                    currentClass = new ClassImpactTracker(rs.getString("class_source_filename"), new MethodIdSet());
                     currentClassId = classIdValue;
                 }
 
-                currentClass.getMethodsImpacted().add(methodId);
+                // appendForBulkBuild avoids the per-row Integer.valueOf allocation and the
+                // O(n) shift that add(int) does to keep the array sorted; finishBulkBuild
+                // sorts + dedupes once when we're done with this class.
+                currentClass.getMethodsImpacted().appendForBulkBuild(methodId);
             }
 
             // Flush the final class onto the final suite.
             if (currentClass != null && currentSuite != null) {
+                currentClass.getMethodsImpacted().finishBulkBuild();
                 currentSuite.getClassesImpacted().add(currentClass);
             }
         }

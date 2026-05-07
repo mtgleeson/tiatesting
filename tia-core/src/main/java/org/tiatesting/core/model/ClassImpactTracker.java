@@ -3,6 +3,7 @@ package org.tiatesting.core.model;
 import org.tiatesting.core.sourcefile.FileExtensions;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
 
@@ -22,13 +23,24 @@ public class ClassImpactTracker implements Serializable {
 
     /**
      * Set of methods that were invoked for the class as part of running a test suite.
-     * This set contains the unique hashcode associated with the method.
+     * This set contains the unique hashcode associated with the method. Backed by a
+     * primitive-int storage to keep heap and GC pressure low on large databases —
+     * {@link MethodIdSet} still implements {@link Set Set&lt;Integer&gt;} so all existing
+     * callers see the same API.
      */
-    private Set<Integer> methodsImpacted;
+    private MethodIdSet methodsImpacted;
 
-    public ClassImpactTracker(String sourceFilename, Set<Integer> methodsImpacted) {
+    public ClassImpactTracker(String sourceFilename, MethodIdSet methodsImpacted) {
         this.sourceFilename = sourceFilename;
         this.methodsImpacted = methodsImpacted;
+    }
+
+    /** Backwards-compatible constructor accepting any {@code Collection<Integer>}. */
+    public ClassImpactTracker(String sourceFilename, Collection<Integer> methodsImpacted) {
+        this.sourceFilename = sourceFilename;
+        this.methodsImpacted = methodsImpacted instanceof MethodIdSet
+                ? (MethodIdSet) methodsImpacted
+                : new MethodIdSet(methodsImpacted);
     }
 
     public String getSourceFilename() {
@@ -41,7 +53,7 @@ public class ClassImpactTracker implements Serializable {
                 .replaceAll("." + FileExtensions.GROOVY_FILE_EXT, "");
     }
 
-    public Set<Integer> getMethodsImpacted() {
+    public MethodIdSet getMethodsImpacted() {
         return methodsImpacted;
     }
 
