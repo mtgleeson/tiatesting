@@ -23,6 +23,41 @@ test {
     useJUnitPlatform()
 }
 
+// Generates a synthetic Tia H2 database for profiling select-tests on a realistic-size workload.
+// See tia-core/src/test/java/org/tiatesting/core/perf/GenerateLargeTiaDb.java for arg semantics.
+// Example:
+//   ./gradlew :tia-core:generateLargeTiaDb \
+//     -PoutDb=/tmp/tia-perf -PtestSuites=1000 -PsourceMethods=50000 \
+//     -PavgClassesPerSuite=936 -PavgMethodsPerClass=6 -Pseed=42 -Pbranch=main
+tasks.register('generateLargeTiaDb', JavaExec) {
+    group = 'verification'
+    description = 'Generates a synthetic Tia H2 DB for profiling. Tunable via -P properties.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.tiatesting.core.perf.GenerateLargeTiaDb'
+
+    def passthrough = ['outDb', 'testSuites', 'sourceMethods',
+                       'avgClassesPerSuite', 'avgMethodsPerClass', 'seed', 'branch']
+    args = passthrough.findAll { project.hasProperty(it) }
+            .collect { (it == 'outDb' ? 'out' : it) + '=' + project.property(it) }
+}
+
+// Times the select-tests read path against an existing H2 DB. Pair with async-profiler / JFR
+// via -PjvmArgs="..." (see ProfileSelectTests.java javadoc for examples).
+tasks.register('profileSelectTests', JavaExec) {
+    group = 'verification'
+    description = 'Times the select-tests read path against a Tia DB. Tunable via -P properties.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.tiatesting.core.perf.ProfileSelectTests'
+
+    def passthrough = ['outDb', 'branch', 'iterations']
+    args = passthrough.findAll { project.hasProperty(it) }
+            .collect { (it == 'outDb' ? 'out' : it) + '=' + project.property(it) }
+
+    if (project.hasProperty('jvmArgs')) {
+        jvmArgs = project.property('jvmArgs').split(/\s+/) as List
+    }
+}
+
 publishing {
     publications {
         mavenJava(MavenPublication) {
