@@ -23,7 +23,7 @@ import java.util.Set;
  * Resolves a TIA {@code tiaSourceLibs} CSV ({@code groupId:artifactId,...}) to a CSV of absolute
  * JAR file paths by loading the source project's {@code pom.xml} via Maven's {@link ProjectBuilder}
  * and matching declared coordinates against the project's resolved artifacts.
- *
+ * <br>
  * The source project may be a different Maven project from the one running TIA, so library
  * resolution must go through the source project's own pom rather than the test project's
  * injected {@link MavenProject}. The source project is required to be a Maven build — cross-
@@ -146,7 +146,11 @@ class LibraryJarResolver implements LibraryMetadataReader {
             return result;
         }
 
-        MavenProject libraryProject = loadMavenProject(pomFile);
+        // Library-only metadata (groupId / artifactId / version) doesn't need the transitive
+        // dependency graph; skipping resolution avoids the noisy "POM for X is invalid,
+        // transitive dependencies will not be available" warning that Maven's resolver emits
+        // when a transitive pom in the library's graph fails strict model validation.
+        MavenProject libraryProject = loadMavenProject(pomFile, false);
         if (libraryProject == null) {
             return result;
         }
@@ -180,7 +184,9 @@ class LibraryJarResolver implements LibraryMetadataReader {
             return result;
         }
 
-        MavenProject sourceProject = loadMavenProject(pomFile);
+        // Source-project resolution genuinely needs the transitive graph because we read
+        // sourceProject.getArtifacts() to locate the resolved JAR for each tiaSourceLibs coord.
+        MavenProject sourceProject = loadMavenProject(pomFile, true);
         if (sourceProject == null) {
             return result;
         }
@@ -220,7 +226,8 @@ class LibraryJarResolver implements LibraryMetadataReader {
             return result;
         }
 
-        MavenProject libraryProject = loadMavenProject(pomFile);
+        // Source roots come from the project's own model — no transitive resolution needed.
+        MavenProject libraryProject = loadMavenProject(pomFile, false);
         if (libraryProject == null) {
             return result;
         }
@@ -241,11 +248,18 @@ class LibraryJarResolver implements LibraryMetadataReader {
 
     /**
      * Load a Maven project from a pom file, returning {@code null} on failure.
+     *
+     * @param resolveDependencies when {@code true}, Maven walks the transitive dependency graph
+     *                            and populates {@link MavenProject#getArtifacts()} — required for
+     *                            source-project resolution. When {@code false}, only the project's
+     *                            own model is parsed; this is sufficient for reading the library's
+     *                            own coordinates / source roots and avoids transitive-pom validation
+     *                            warnings that aren't relevant to tia.
      */
-    private MavenProject loadMavenProject(File pomFile) {
+    private MavenProject loadMavenProject(File pomFile, boolean resolveDependencies) {
         try {
             ProjectBuildingRequest request = new DefaultProjectBuildingRequest(baseRequest);
-            request.setResolveDependencies(true);
+            request.setResolveDependencies(resolveDependencies);
             ProjectBuildingResult result = projectBuilder.build(pomFile, request);
             return result.getProject();
         } catch (ProjectBuildingException e) {
