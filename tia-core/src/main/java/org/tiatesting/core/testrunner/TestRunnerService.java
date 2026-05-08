@@ -236,18 +236,30 @@ public class TestRunnerService {
         // We have the updated list of method ids. But the stored method data will have the details associated before the test run
         // which will potentially have incorrect line numbers. This happens for 2 reasons.
         // 1. This happens when a method(s) exist in a source file that had its line numbers changes due to a source file change.
-        // 2. We also need to account for other methods that had their lines numbers updated but weren't executed in the test,
+        // 2. We also need to account for other methods that had their line numbers updated but weren't executed in the test,
         // i.e. new lines of code were added to a method, this causes that method to be executed in this test run. But, the methods in
         // the file below this will all be pushed down and have updated line numbers. So we need to update those indexed
         // methods in the DB as well.
         Map<Integer, MethodImpactTracker> newMethodTracker = new HashMap<>();
 
         for (Integer methodImpactedId : methodsImpactedAfterTestRun){
-            if (methodTrackerFromTestRun.containsKey(methodImpactedId)){
-                newMethodTracker.put(methodImpactedId, methodTrackerFromTestRun.get(methodImpactedId));
-            } else {
-                newMethodTracker.put(methodImpactedId, methodTrackerOnDisk.get(methodImpactedId));
+            MethodImpactTracker tracker = methodTrackerFromTestRun.containsKey(methodImpactedId)
+                    ? methodTrackerFromTestRun.get(methodImpactedId)
+                    : methodTrackerOnDisk.get(methodImpactedId);
+
+            if (tracker == null) {
+                // The id is referenced from tia_source_class_method but neither this run's
+                // JaCoCo results nor the tia_source_method table on disk knows about it.
+                // Most likely an orphan left behind by an earlier run that aborted between
+                // updating the join table and the truncate+insert of tia_source_method.
+                // Skip the orphan rather than NPE downstream in persistSourceMethods.
+                log.error("Source method id {} is referenced from tia_source_class_method but " +
+                        "has no entry in tia_source_method (and was not invoked in this run); " +
+                        "dropping orphan reference.", methodImpactedId);
+                continue;
             }
+
+            newMethodTracker.put(methodImpactedId, tracker);
         }
 
         return newMethodTracker;
