@@ -647,35 +647,71 @@ public class H2DataStore implements DataStore {
             return;
         }
 
-        Statement statement = connection.createStatement();
+        // Per-test-suite atomicity: the DELETE-then-INSERT for one suite's classes + its
+        // class-method edges is wrapped in one transaction, so a failure midway through the
+        // re-insert leaves the suite's previous mappings intact rather than half-wiped.
+        // Wrapping the entire outer persistTestSuites loop would put millions of edges in
+        // one transaction and risk MVStore undo-log blow-up; per-suite is the right balance —
+        // each suite is internally consistent, and at worst a partial outer-loop failure
+        // leaves some suites updated and some not (which is what would happen anyway).
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
 
-        // delete the existing source class and methods before inserting the new data from the test run
-        String deleteClassMethodSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID +
-                " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS +
-                " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId + ")";
-        log.debug("Deleting test suite class methods: {}", deleteClassMethodSql);
-        statement.executeUpdate(deleteClassMethodSql);
+        try (Statement statement = connection.createStatement()) {
+            // delete the existing source class and methods before inserting the new data from the test run
+            String deleteClassMethodSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID +
+                    " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS +
+                    " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId + ")";
+            log.debug("Deleting test suite class methods: {}", deleteClassMethodSql);
+            statement.executeUpdate(deleteClassMethodSql);
 
-        String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
-        log.debug("Deleting test suite class: {}", deleteClassSql);
-        statement.executeUpdate(deleteClassSql);
+            String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
+            log.debug("Deleting test suite class: {}", deleteClassSql);
+            statement.executeUpdate(deleteClassSql);
 
-        for (ClassImpactTracker sourceClass : sourceClasses){
-            String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS + " (" +
-                    COL_TIA_TEST_SUITE_ID + ", " +
-                    COL_SOURCE_FILENAME + ") " +
-                    "VALUES (" +
-                    testSuiteId + ", '" +
-                    sourceClass.getSourceFilename() + "')";
+            for (ClassImpactTracker sourceClass : sourceClasses){
+                String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS + " (" +
+                        COL_TIA_TEST_SUITE_ID + ", " +
+                        COL_SOURCE_FILENAME + ") " +
+                        "VALUES (" +
+                        testSuiteId + ", '" +
+                        sourceClass.getSourceFilename() + "')";
 
-            log.debug("Persisting test suite class: {}", insertSql);
-            statement.executeUpdate(insertSql, Statement.RETURN_GENERATED_KEYS);
-            ResultSet rs = statement.getGeneratedKeys();
-            rs.next();
-            persistTestSuiteClassMethods(connection, rs.getLong(COL_ID), sourceClass.getMethodsImpacted());
+                log.debug("Persisting test suite class: {}", insertSql);
+                statement.executeUpdate(insertSql, Statement.RETURN_GENERATED_KEYS);
+                try (ResultSet rs = statement.getGeneratedKeys()) {
+                    rs.next();
+                    persistTestSuiteClassMethods(connection, rs.getLong(COL_ID), sourceClass.getMethodsImpacted());
+                }
+            }
+
+            connection.commit();
+        } catch (Exception e) {
+            // Catch Exception (not just SQLException) so any failure in this block — including
+            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // any exception in this class as a stop-the-world condition: roll back, then
+            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
+            throw e;
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore — the connection is about to be closed by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
         }
     }
 
+    /**
+     * Insert the (class, method) edge rows for one source class. Runs inside the surrounding
+     * transaction opened by {@link #persistTestSuiteClasses(Connection, long, List)} — must not
+     * touch {@code connection.setAutoCommit(...)} or the rollback semantics on its caller break.
+     */
     private void persistTestSuiteClassMethods(Connection connection, long testSuiteClassId, Set<Integer> sourceMethodIds) throws SQLException {
         if (sourceMethodIds.isEmpty()){
             return;
@@ -686,17 +722,16 @@ public class H2DataStore implements DataStore {
                 COL_TIA_SOURCE_METHOD_ID + ") " +
                 "VALUES (? , ?)";
 
-        connection.setAutoCommit(true);
-        PreparedStatement ps = connection.prepareStatement(insertSql);
+        try (PreparedStatement ps = connection.prepareStatement(insertSql)) {
+            for (Integer sourceMethodId : sourceMethodIds){
+                ps.setLong(1, testSuiteClassId);
+                ps.setLong(2, sourceMethodId);
+                ps.addBatch();
+            }
 
-        for (Integer sourceMethodId : sourceMethodIds){
-            ps.setLong(1, testSuiteClassId);
-            ps.setLong(2, sourceMethodId);
-            ps.addBatch();
+            log.debug("Persisting test suite class methods: {}", insertSql);
+            ps.executeBatch();
         }
-
-        log.debug("Persisting test suite class methods: {}", insertSql);
-        ps.executeBatch();
     }
 
     private void persistTestSuitesFailed(Connection connection, Set<String> testSuitesFailed) throws SQLException {
@@ -704,24 +739,53 @@ public class H2DataStore implements DataStore {
             return;
         }
 
-        String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_TEST_SUITES_FAILED;
-        log.debug("Truncating failed test suites: {}", truncateSql);
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(truncateSql);
+        // TRUNCATE + INSERT must be atomic. H2's TRUNCATE is transactional, so an exception
+        // during the INSERT rolls the truncate back too — leaving the previous failed-test
+        // rows intact rather than wiping them. Same pattern (and same negligible cost) as
+        // persistSourceMethods.
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
 
-        if (testSuitesFailed.isEmpty()){
-            return;
+        try (Statement statement = connection.createStatement()) {
+            String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_TEST_SUITES_FAILED;
+            log.debug("Truncating failed test suites: {}", truncateSql);
+            statement.executeUpdate(truncateSql);
+
+            if (testSuitesFailed.isEmpty()){
+                connection.commit();
+                return;
+            }
+
+            StringBuilder insertSqlBuilder = new StringBuilder("INSERT INTO " + TABLE_TIA_TEST_SUITES_FAILED + " (" + COL_TEST_SUITE_NAME + ") values ");
+            for (String testSuite : testSuitesFailed){
+                insertSqlBuilder.append("('" + testSuite + "'),");
+            }
+            String insertSql = insertSqlBuilder.toString();
+            insertSql = insertSql.substring(0, insertSql.length()-1);
+
+            log.debug("Persisting failed test suites: {}", insertSql);
+            statement.executeUpdate(insertSql);
+
+            connection.commit();
+        } catch (Exception e) {
+            // Catch Exception (not just SQLException) so any failure in this block — including
+            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // any exception in this class as a stop-the-world condition: roll back, then
+            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
+            throw e;
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore — the connection is about to be closed by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
         }
-
-        StringBuilder insertSqlBuilder = new StringBuilder("INSERT INTO " + TABLE_TIA_TEST_SUITES_FAILED + " (" + COL_TEST_SUITE_NAME + ") values ");
-        for (String testSuite : testSuitesFailed){
-            insertSqlBuilder.append("('" + testSuite + "'),");
-        }
-        String insertSql = insertSqlBuilder.toString();
-        insertSql = insertSql.substring(0, insertSql.length()-1);
-
-        log.debug("Persisting failed test suites: {}", insertSql);
-        statement.executeUpdate(insertSql);
     }
 
     private void persistSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
@@ -729,32 +793,62 @@ public class H2DataStore implements DataStore {
             return;
         }
 
-        String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
-        log.debug("Truncating indexed source methods: {}", truncateSql);
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(truncateSql);
+        // TRUNCATE + INSERT must be atomic. H2's TRUNCATE is transactional (unlike MySQL/InnoDB),
+        // so wrapping both statements in one transaction means an exception during the INSERT
+        // rolls the truncate back too, leaving the previous tia_source_method rows intact rather
+        // than wiping the table. Negligible perf cost — the entire bulk insert was already a
+        // single batched multi-VALUES statement.
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
 
-        if (sourceMethods.isEmpty()){
-            return;
+        try (Statement statement = connection.createStatement()) {
+            String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
+            log.debug("Truncating indexed source methods: {}", truncateSql);
+            statement.executeUpdate(truncateSql);
+
+            if (sourceMethods.isEmpty()){
+                connection.commit();
+                return;
+            }
+
+            StringBuilder insertSqlBuilder = new StringBuilder("INSERT INTO " + TABLE_TIA_SOURCE_METHOD + " (" +
+                    COL_ID + ", " +
+                    COL_METHOD_NAME + ", " +
+                    COL_LINE_NUMBER_START + ", " +
+                    COL_LINE_NUMBER_END + ") values ");
+
+            for (Map.Entry<Integer, MethodImpactTracker> entry : sourceMethods.entrySet()){
+                insertSqlBuilder.append("(" + entry.getKey() + ", '" +
+                        entry.getValue().getMethodName() + "', " +
+                        entry.getValue().getLineNumberStart() + ", " +
+                        entry.getValue().getLineNumberEnd() + "),");
+            }
+            String insertSql = insertSqlBuilder.toString();
+            insertSql = insertSql.substring(0, insertSql.length()-1);
+
+            log.debug("Persisting indexed source methods: {}", insertSql);
+            statement.executeUpdate(insertSql);
+
+            connection.commit();
+        } catch (Exception e) {
+            // Catch Exception (not just SQLException) so any failure in this block — including
+            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // any exception in this class as a stop-the-world condition: roll back, then
+            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
+            throw e;
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore — the connection is about to be closed by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
         }
-
-        StringBuilder insertSqlBuilder = new StringBuilder("INSERT INTO " + TABLE_TIA_SOURCE_METHOD + " (" +
-                COL_ID + ", " +
-                COL_METHOD_NAME + ", " +
-                COL_LINE_NUMBER_START + ", " +
-                COL_LINE_NUMBER_END + ") values ");
-
-        for (Map.Entry<Integer, MethodImpactTracker> entry : sourceMethods.entrySet()){
-            insertSqlBuilder.append("(" + entry.getKey() + ", '" +
-                    entry.getValue().getMethodName() + "', " +
-                    entry.getValue().getLineNumberStart() + ", " +
-                    entry.getValue().getLineNumberEnd() + "),");
-        }
-        String insertSql = insertSqlBuilder.toString();
-        insertSql = insertSql.substring(0, insertSql.length()-1);
-
-        log.debug("Persisting indexed source methods: {}", insertSql);
-        statement.executeUpdate(insertSql);
     }
 
     private TiaData readTiaDataFromDB(){
