@@ -74,9 +74,15 @@ publishing {
     }
 }
 
-signing {
-    useGpgCmd()
-    sign publishing.publications.mavenJava
+// Signing is opt-in via -Prelease. Otherwise the signing task isn't even registered, so
+// contributors without gpg installed (fresh Windows boxes, or anyone running
+// publishToMavenLocal for local development) avoid the "Could not start gpg.exe" failure.
+// Mirrors the Maven side's <gpg.skip>true</gpg.skip>-by-default + release profile pattern.
+if (project.hasProperty('release')) {
+    signing {
+        useGpgCmd()
+        sign publishing.publications.mavenJava
+    }
 }
 
 // I've created my own tasks to publish the artifacts to Maven Central as currently the new Central Sonatype repo (central.sonatype.com) doesn't have an official Gradle plugin
