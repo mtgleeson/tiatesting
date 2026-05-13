@@ -389,55 +389,51 @@ class LibraryJarResolver implements LibraryMetadataReader {
     }
 
     /**
-     * Fully-qualified names of the SLF4J loggers that emit the warnings Tia suppresses for its
-     * Maven plugin use case. The names match the source class of the Maven 3.x resolver/aether
-     * components that log via {@code org.slf4j.Logger}.
-     *
-     * <p>"The POM for X is invalid …" is actually emitted by {@code LoggingRepositoryListener},
-     * but in Maven 3.x that listener doesn't own its logger — it borrows the Plexus-injected
-     * logger from {@code DefaultRepositorySystemSessionFactory}, which is the field passed into
-     * its constructor. So the underlying SLF4J logger name (what {@code LoggerFactory.getLogger}
-     * resolves to) is the factory's class. The listener's class is also listed as a defensive
-     * fallback for distributions whose Plexus wiring names the logger differently.
-     */
-    private static final String[] NOISY_LOGGER_NAMES = {
-            // Maven 3.x source of the logger instance that LoggingRepositoryListener uses to emit
-            // "The POM for X is invalid, transitive dependencies (if any) will not be available …".
-            "org.apache.maven.internal.aether.DefaultRepositorySystemSessionFactory",
-            // Defensive: if any distribution wires LoggingRepositoryListener with its own SLF4J
-            // logger (named after the listener class) silence it too.
-            "org.apache.maven.internal.aether.LoggingRepositoryListener",
-            // Emits "Non-parseable repository update policy …" when a transitive POM references
-            // an unbound property inside its repository <updatePolicy>.
-            "org.eclipse.aether.internal.impl.DefaultUpdatePolicyAnalyzer",
-    };
-
-    /**
      * The level constant used by {@code org.slf4j.impl.SimpleLogger} for ERROR. Set
      * {@code currentLogLevel} to this value to suppress WARN (and below) for a given logger.
      */
     private static final int SIMPLE_LOGGER_LEVEL_ERROR = 40;
 
     /**
-     * Reflectively raise the {@code currentLogLevel} field on each of the {@link #NOISY_LOGGER_NAMES}
-     * loggers to ERROR so any WARN-level output they would have emitted while the wrapped build
-     * runs is dropped at source. Returns one override entry per logger that was successfully
-     * mutated, so the caller can restore the original levels in a {@code finally} block.
+     * Reflectively raise the {@code currentLogLevel} field of every cached
+     * {@code org.slf4j.impl.SimpleLogger} (or subclass like {@code MavenSimpleLogger}) currently
+     * sitting at WARN-or-below to ERROR, so any WARN-level output they would have emitted while
+     * the wrapped {@code projectBuilder.build(...)} runs is dropped at source. Returns one
+     * override entry per logger that was successfully mutated, so the caller can restore the
+     * original levels in a {@code finally} block.
      *
-     * <p>Implementation note: Maven 3.x ships {@code maven-slf4j-provider} whose logger class
-     * is {@code org.slf4j.impl.SimpleLogger} (or {@code MavenSimpleLogger} extending it). That
-     * class has no public level-mutator, so we walk up the inheritance chain to find
-     * {@code SimpleLogger} and {@code setAccessible(true)} the protected {@code currentLogLevel}
-     * field. Any failure (different binding, security manager, reflection blocked) is swallowed —
-     * the secondary stream filter still runs.
+     * <p>The earlier name-targeted approach was brittle: the warning "The POM for X is invalid"
+     * is emitted by {@code LoggingRepositoryListener}, which borrows a Plexus-injected logger
+     * from {@code DefaultRepositorySystemSessionFactory}, which in turn is named according to
+     * how Sisu's Plexus-Logger extension chose to call {@code LoggerManager.getLoggerForComponent}
+     * — a detail that varies across Maven distributions and is not stable to depend on. Walking
+     * the SLF4J binding's own logger cache and silencing all currently-cached SimpleLoggers for
+     * the duration of the build avoids that fragility entirely. The wrapped build only loads a
+     * library's pom — no user-actionable WARN output is expected from it, so blanket
+     * WARN-suppression for that scope is acceptable.
+     *
+     * <p>Implementation: discover the binding's {@code loggerMap} via reflection on
+     * {@link LoggerFactory#getILoggerFactory()}, iterate the cached loggers, and for any whose
+     * declaring class chain contains {@code org.slf4j.impl.SimpleLogger}, capture the original
+     * {@code currentLogLevel} and overwrite with {@link #SIMPLE_LOGGER_LEVEL_ERROR}. Any failure
+     * (different binding, reflection blocked, security manager) is swallowed — the secondary
+     * stream-filter wrapper still runs as a fallback.
      *
      * @return list of overrides (one per logger that was successfully silenced); never null.
      */
     private List<LoggerLevelOverride> silenceNoisyLoggers() {
         List<LoggerLevelOverride> overrides = new ArrayList<>();
-        for (String name : NOISY_LOGGER_NAMES) {
-            try {
-                Logger logger = LoggerFactory.getLogger(name);
+        try {
+            Object loggerFactory = LoggerFactory.getILoggerFactory();
+            java.util.Collection<?> cachedLoggers = extractCachedLoggers(loggerFactory);
+            if (cachedLoggers == null) {
+                return overrides;
+            }
+            for (Object cachedLogger : cachedLoggers) {
+                if (!(cachedLogger instanceof Logger)) {
+                    continue;
+                }
+                Logger logger = (Logger) cachedLogger;
                 Class<?> cls = logger.getClass();
                 Field levelField = null;
                 while (cls != null) {
@@ -451,19 +447,53 @@ class LibraryJarResolver implements LibraryMetadataReader {
                 if (levelField == null) {
                     continue;
                 }
-                levelField.setAccessible(true);
-                int original = levelField.getInt(logger);
-                if (original == SIMPLE_LOGGER_LEVEL_ERROR) {
-                    // Already at or above ERROR; nothing to do, no restore needed.
-                    continue;
+                try {
+                    levelField.setAccessible(true);
+                    int original = levelField.getInt(logger);
+                    if (original >= SIMPLE_LOGGER_LEVEL_ERROR) {
+                        // Already at or above ERROR — nothing WARN-level to suppress; skip restore.
+                        continue;
+                    }
+                    levelField.setInt(logger, SIMPLE_LOGGER_LEVEL_ERROR);
+                    overrides.add(new LoggerLevelOverride(logger, levelField, original));
+                } catch (Throwable ignored) {
+                    // Skip this logger; continue with the rest.
                 }
-                levelField.setInt(logger, SIMPLE_LOGGER_LEVEL_ERROR);
-                overrides.add(new LoggerLevelOverride(logger, levelField, original));
-            } catch (Throwable ignored) {
-                // Best-effort: secondary stream-filter remains as fallback.
             }
+        } catch (Throwable ignored) {
+            // Best-effort: secondary stream-filter remains as fallback.
         }
         return overrides;
+    }
+
+    /**
+     * Pull the cached-logger collection out of an SLF4J binding's logger factory via reflection.
+     * Both {@code SimpleLoggerFactory} (which Maven's binding extends) and its
+     * {@code MavenSimpleLoggerFactory} subclass keep their cache in a {@code loggerMap}
+     * {@link java.util.concurrent.ConcurrentMap} field declared on {@code SimpleLoggerFactory}.
+     * We walk the class hierarchy because the field is declared on the superclass.
+     *
+     * @return the collection of cached logger instances, or {@code null} when the factory does
+     *         not expose a compatible {@code loggerMap} field (foreign SLF4J binding).
+     */
+    private static java.util.Collection<?> extractCachedLoggers(Object loggerFactory) {
+        Class<?> cls = loggerFactory.getClass();
+        while (cls != null) {
+            try {
+                Field mapField = cls.getDeclaredField("loggerMap");
+                mapField.setAccessible(true);
+                Object value = mapField.get(loggerFactory);
+                if (value instanceof java.util.Map) {
+                    return ((java.util.Map<?, ?>) value).values();
+                }
+                return null;
+            } catch (NoSuchFieldException ignored) {
+                cls = cls.getSuperclass();
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
