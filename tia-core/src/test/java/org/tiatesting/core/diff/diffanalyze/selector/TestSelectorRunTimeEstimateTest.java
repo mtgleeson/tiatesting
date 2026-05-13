@@ -1,0 +1,207 @@
+package org.tiatesting.core.diff.diffanalyze.selector;
+
+import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TiaData;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Verifies {@link TestSelector#estimateRunTime(Set, TiaData)} computes the correct total
+ * runtime for a selected test set, applies the median {@code avgRunTime} as a fallback for
+ * tests without recorded stats, and excludes zero-valued {@code avgRunTime}s from the
+ * median calculation.
+ */
+class TestSelectorRunTimeEstimateTest {
+
+    /**
+     * All selected tests have recorded stats — the total is a straight sum of
+     * {@code avgRunTime}, no fallback is needed, and the median is reported as {@code 0}.
+     */
+    @Test
+    void estimateRunTime_allSelectedHaveStats_sumsAvgRunTime(){
+        // given
+        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("test1", "test2", "test3");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(600L, estimate.getEstimatedRunTimeMs());
+        assertTrue(estimate.getSelectedTestsWithoutStats().isEmpty());
+        assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * One selected test is missing stats — the median {@code avgRunTime} across tracked
+     * suites is used for that test, and the missing test name is captured for display.
+     */
+    @Test
+    void estimateRunTime_someSelectedMissingStats_appliesMedianFallback(){
+        // given
+        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("test1", "test2", "newTest");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(100L + 200L + 200L, estimate.getEstimatedRunTimeMs());
+        assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
+        assertEquals(200L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * Every selected test is new — the total is purely the median multiplied by the count
+     * of missing tests, and all missing names are captured.
+     */
+    @Test
+    void estimateRunTime_allSelectedMissingStats_appliesMedianForAll(){
+        // given
+        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("newTest1", "newTest2");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(400L, estimate.getEstimatedRunTimeMs());
+        assertEquals(setOf("newTest1", "newTest2"), estimate.getSelectedTestsWithoutStats());
+        assertEquals(200L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * No tracked test suites exist at all — the median is {@code 0}, so missing tests
+     * contribute nothing to the total but are still listed for the output note.
+     */
+    @Test
+    void estimateRunTime_noTrackedStatsAtAll_medianIsZero(){
+        // given
+        TiaData tiaData = buildTiaData();
+        Set<String> testsToRun = setOf("newTest");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(0L, estimate.getEstimatedRunTimeMs());
+        assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
+        assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * Tracked tests with {@code avgRunTime == 0} (tracked but never recorded a real run)
+     * must be excluded from the median calculation so they don't drag it down to zero.
+     */
+    @Test
+    void estimateRunTime_zeroAvgRunTimesExcludedFromMedian(){
+        // given
+        TiaData tiaData = buildTiaData(entry("zero1", 0L), entry("test1", 100L),
+                entry("test2", 200L), entry("zero2", 0L));
+        Set<String> testsToRun = setOf("test1", "newTest");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        // median of [100, 200] (lower of two middles) = 100; total = 100 + 100
+        assertEquals(200L, estimate.getEstimatedRunTimeMs());
+        assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
+        assertEquals(100L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * Even-sized populations return the lower of the two middle values to keep the
+     * calculation integer-only and deterministic.
+     */
+    @Test
+    void estimateRunTime_evenSizedMedianTakesLowerMiddle(){
+        // given
+        TiaData tiaData = buildTiaData(entry("t1", 10L), entry("t2", 20L),
+                entry("t3", 30L), entry("t4", 40L));
+        Set<String> testsToRun = setOf("newTest");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(20L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertEquals(20L, estimate.getEstimatedRunTimeMs());
+        assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
+    }
+
+    /**
+     * An empty {@code testsToRun} set yields a zero total with no missing tests recorded
+     * and no median computed (no missing tests to apply it to).
+     */
+    @Test
+    void estimateRunTime_emptyTestsToRun_returnsZero(){
+        // given
+        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L));
+        Set<String> testsToRun = Collections.emptySet();
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(0L, estimate.getEstimatedRunTimeMs());
+        assertTrue(estimate.getSelectedTestsWithoutStats().isEmpty());
+        assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * Build a {@link TiaData} pre-populated with the given test-name → {@code avgRunTime}
+     * entries. Each entry produces a {@link TestSuiteTracker} carrying a {@link TestStats}
+     * with the supplied {@code avgRunTime}.
+     *
+     * @param entries the entries to seed; may be empty
+     * @return a {@link TiaData} whose {@code testSuitesTracked} map contains the entries
+     */
+    @SafeVarargs
+    private static TiaData buildTiaData(Map.Entry<String, Long>... entries){
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        for (Map.Entry<String, Long> e : entries){
+            TestSuiteTracker tracker = new TestSuiteTracker(e.getKey());
+            TestStats stats = new TestStats();
+            stats.setAvgRunTime(e.getValue());
+            tracker.setTestStats(stats);
+            tracked.put(e.getKey(), tracker);
+        }
+        TiaData tiaData = new TiaData();
+        tiaData.setTestSuitesTracked(tracked);
+        return tiaData;
+    }
+
+    /**
+     * Build a {@link Map.Entry} pair for use with {@link #buildTiaData}.
+     *
+     * @param name the test suite name
+     * @param avgRunTime the {@code avgRunTime} (ms) to assign
+     * @return a name → avgRunTime entry
+     */
+    private static Map.Entry<String, Long> entry(String name, long avgRunTime){
+        return new java.util.AbstractMap.SimpleEntry<>(name, avgRunTime);
+    }
+
+    /**
+     * Build an ordered {@link Set} of the given strings, preserving insertion order so that
+     * assertion failures show the expected values in a stable order.
+     *
+     * @param values the values to add to the set
+     * @return a {@link LinkedHashSet} containing the values
+     */
+    private static Set<String> setOf(String... values){
+        return new LinkedHashSet<>(Arrays.asList(values));
+    }
+}
