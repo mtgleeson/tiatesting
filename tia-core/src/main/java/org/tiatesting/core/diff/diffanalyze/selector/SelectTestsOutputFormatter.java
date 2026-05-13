@@ -2,25 +2,61 @@ package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.tiatesting.core.report.ReportUtils;
 
-import java.util.stream.Collectors;
+import java.util.Map;
 
 /**
- * Builds the user-facing output appended after the "Selected tests to run" block in the
- * {@code tia-select-tests} task (Maven + Gradle). Shared so both plugins produce identical
- * wording.
+ * Builds the user-facing output for the {@code tia-select-tests} task (Maven + Gradle).
+ * Shared so both plugins produce identical wording.
+ *
+ * <p>Provides two related blocks:
+ * <ul>
+ *   <li>{@link #formatSelectedTestsList} — the tab-indented list of selected tests with each
+ *       test's estimated runtime in brackets after its name.</li>
+ *   <li>{@link #formatEstimateBlock} — the total estimated runtime, plus a single-line note
+ *       when some selected tests have no recorded run-time data.</li>
+ * </ul>
  */
 public class SelectTestsOutputFormatter {
 
     private SelectTestsOutputFormatter() {}
 
     /**
-     * Build the estimate-runtime block for a {@link TestSelectorResult}. Returns an empty
-     * string when {@code testsToRun} is empty (no estimate to display).
+     * Build the tab-indented list of selected tests with each test's estimated runtime in
+     * brackets after the name (e.g. {@code "\tcom.example.FooSpec (1m 30s)"}). Tests with no
+     * recorded run-time data and no available median are shown with {@code (no run data)}.
      *
-     * <p>When the result includes selected tests without recorded stats, an additional note
-     * is appended listing those tests. The note explicitly states the median run time used
-     * (or notes that the tests were excluded when no historical stats are available to
-     * derive a median).
+     * <p>Returns an empty string when no tests are selected.
+     *
+     * @param result the test-selection result
+     * @param lineSep the line separator to use between rows
+     * @return the formatted test list, or an empty string when {@code testsToRun} is empty
+     */
+    public static String formatSelectedTestsList(final TestSelectorResult result, final String lineSep){
+        if (result.getTestsToRun().isEmpty()){
+            return "";
+        }
+
+        Map<String, Long> perTestTimes = result.getSelectedTestRunTimesMs();
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (String testName : result.getTestsToRun()){
+            if (!first){
+                sb.append(lineSep);
+            }
+            first = false;
+            sb.append('\t').append(testName).append(' ').append(formatBracketedTime(perTestTimes, testName));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Build the estimate-runtime block for a {@link TestSelectorResult}. Returns an empty
+     * string when {@code testsToRun} is empty.
+     *
+     * <p>When the result includes selected tests without recorded stats, a single-line note
+     * is appended stating the count of new tests and the median run time substituted for
+     * them. When no historical stats are available to derive a median, the note instead
+     * states the new tests were excluded from the estimate.
      *
      * @param result the test-selection result
      * @param lineSep the line separator to use between lines (e.g. {@code "\n"} or
@@ -42,18 +78,31 @@ public class SelectTestsOutputFormatter {
             long median = result.getMedianRunTimeMsAppliedToMissing();
             sb.append(lineSep).append(lineSep);
             if (median > 0){
-                sb.append("Note: the following ").append(n)
-                  .append(" selected test(s) have no recorded run time. A median run time of ")
+                sb.append("Note: ").append(n)
+                  .append(" selected test(s) have not previously been run by Tia. A median run time of ")
                   .append(ReportUtils.prettyDuration(median))
-                  .append(" (calculated from all tracked test suites) was used to estimate their contribution to the total:");
+                  .append(" (calculated from all tracked test suites) was used for them.");
             } else {
-                sb.append("Note: the following ").append(n)
-                  .append(" selected test(s) have no recorded run time and were excluded from the estimate (no historical stats are available to derive a median run time):");
+                sb.append("Note: ").append(n)
+                  .append(" selected test(s) have not previously been run by Tia. No historical stats are available to derive a median run time, so they were excluded from the estimate.");
             }
-            sb.append(lineSep)
-              .append(result.getSelectedTestsWithoutStats().stream()
-                      .collect(Collectors.joining(lineSep + "\t", "\t", "")));
         }
         return sb.toString();
+    }
+
+    /**
+     * Format the per-test runtime in brackets. Returns {@code "(no run data)"} when the test
+     * has no entry in the map or the recorded value is {@code 0}.
+     *
+     * @param perTestTimes per-test runtime map (ms)
+     * @param testName the test suite name to look up
+     * @return the bracketed runtime string
+     */
+    private static String formatBracketedTime(final Map<String, Long> perTestTimes, final String testName){
+        Long ms = perTestTimes.get(testName);
+        if (ms == null || ms <= 0){
+            return "(no run data)";
+        }
+        return "(" + ReportUtils.prettyDuration(ms) + ")";
     }
 }

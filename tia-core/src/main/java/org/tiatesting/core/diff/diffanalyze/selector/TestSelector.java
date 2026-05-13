@@ -40,17 +40,17 @@ public class TestSelector {
 
     /**
      * Find the list of tests that should not be run.
-     *
+     * <br>
      * Build the list of source files that have been changed since the previously analyzed commit.
      * For the source files that have changed, do a diff to find the methods that have changed.
      * Build the list of test suites that need to be run based on the methods that have been changed.
      * Add the tests that failed on the previous run - force them to be re-run.
-     *
+     * <br>
      * Finally, find the list of all known tracked test suites that are associated with the list of tests to run. This
      * is the ignore list returned.
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
-     *
+     * <br>
      * When a {@link LibraryImpactAnalysisConfig} is non-null and enabled, the reconciler synchronises
      * declared libraries against the persisted {@code tia_library} rows before proceeding with test selection.
      *
@@ -79,7 +79,7 @@ public class TestSelector {
         if (!hasStoredMapping(tiaData)){
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
-                    0L, Collections.emptySet(), 0L);
+                    0L, Collections.emptySet(), 0L, Collections.emptyMap());
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
@@ -96,7 +96,8 @@ public class TestSelector {
         RunTimeEstimate estimate = estimateRunTime(testsToRun, tiaData);
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
-                estimate.getMedianRunTimeMsAppliedToMissing());
+                estimate.getMedianRunTimeMsAppliedToMissing(),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -119,14 +120,18 @@ public class TestSelector {
     static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final TiaData tiaData){
         long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
+        Map<String, Long> perTestRunTimes = new HashMap<>();
         Map<String, TestSuiteTracker> tracked = tiaData.getTestSuitesTracked();
 
         for (String testName : testsToRun){
             TestSuiteTracker tracker = tracked.get(testName);
             if (tracker == null){
                 withoutStats.add(testName);
+                perTestRunTimes.put(testName, 0L); // placeholder, replaced with median below
             } else {
-                totalMs += tracker.getTestStats().getAvgRunTime();
+                long avg = tracker.getTestStats().getAvgRunTime();
+                totalMs += avg;
+                perTestRunTimes.put(testName, avg);
             }
         }
 
@@ -134,9 +139,12 @@ public class TestSelector {
         if (!withoutStats.isEmpty()){
             median = computeMedianAvgRunTime(tracked);
             totalMs += median * (long) withoutStats.size();
+            for (String testName : withoutStats){
+                perTestRunTimes.put(testName, median);
+            }
         }
 
-        return new RunTimeEstimate(totalMs, withoutStats, median);
+        return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes);
     }
 
     /**
@@ -176,6 +184,7 @@ public class TestSelector {
         private final long estimatedRunTimeMs;
         private final Set<String> selectedTestsWithoutStats;
         private final long medianRunTimeMsAppliedToMissing;
+        private final Map<String, Long> selectedTestRunTimesMs;
 
         /**
          * @param estimatedRunTimeMs total estimated runtime (ms) for the selected tests,
@@ -184,12 +193,18 @@ public class TestSelector {
          * @param medianRunTimeMsAppliedToMissing median {@code avgRunTime} (ms) applied to
          *                                        each test in {@code selectedTestsWithoutStats},
          *                                        or {@code 0} when no fallback was applied
+         * @param selectedTestRunTimesMs per-test runtime (ms) keyed by test suite name; covers
+         *                               every entry in {@code testsToRun}, with the median
+         *                               value (or {@code 0} when no median is available) used
+         *                               for tests without stats
          */
         RunTimeEstimate(long estimatedRunTimeMs, Set<String> selectedTestsWithoutStats,
-                        long medianRunTimeMsAppliedToMissing) {
+                        long medianRunTimeMsAppliedToMissing,
+                        Map<String, Long> selectedTestRunTimesMs) {
             this.estimatedRunTimeMs = estimatedRunTimeMs;
             this.selectedTestsWithoutStats = selectedTestsWithoutStats;
             this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
+            this.selectedTestRunTimesMs = selectedTestRunTimesMs;
         }
 
         /** @return the total estimated runtime (ms) for the selected tests */
@@ -200,6 +215,9 @@ public class TestSelector {
 
         /** @return median {@code avgRunTime} (ms) substituted for tests without stats */
         long getMedianRunTimeMsAppliedToMissing() { return medianRunTimeMsAppliedToMissing; }
+
+        /** @return per-test runtime (ms) keyed by test suite name */
+        Map<String, Long> getSelectedTestRunTimesMs() { return selectedTestRunTimesMs; }
     }
 
     private boolean hasStoredMapping(TiaData tiaData){
@@ -359,7 +377,7 @@ public class TestSelector {
             }
         }
         testFilePath = testFilePath.replaceAll("\\\\", "/"); // if on Windows, change back slash to forward slash
-        testFilePath = testFilePath.startsWith("/") ? testFilePath.substring(1, testFilePath.length()) : testFilePath; // trim leading /
+        testFilePath = testFilePath.startsWith("/") ? testFilePath.substring(1) : testFilePath; // trim leading /
         testFilePath = testFilePath.replaceAll("\\/", ".");
 
         return testFilePath;
@@ -445,10 +463,7 @@ public class TestSelector {
         tiaData.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
             for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
                 for (Integer methodTrackedHashCode : classImpacted.getMethodsImpacted()) {
-                    if (methodTestSuites.get(methodTrackedHashCode) == null) {
-                        methodTestSuites.put(methodTrackedHashCode, new HashSet<>());
-                    }
-
+                    methodTestSuites.computeIfAbsent(methodTrackedHashCode, k -> new HashSet<>());
                     methodTestSuites.get(methodTrackedHashCode).add(testSuiteName);
                 }
             }

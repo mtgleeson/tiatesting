@@ -2,6 +2,7 @@ package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -17,17 +18,19 @@ import java.util.Set;
  */
 public class TestSelectorResult {
 
-    private Set<String> testsToRun;
+    private final Set<String> testsToRun;
 
-    private Set<String> testsToIgnore;
+    private final Set<String> testsToIgnore;
 
-    private LibraryImpactDrainResult libraryImpactDrainResult;
+    private final LibraryImpactDrainResult libraryImpactDrainResult;
 
-    private long estimatedRunTimeMs;
+    private final long estimatedRunTimeMs;
 
-    private Set<String> selectedTestsWithoutStats;
+    private final Set<String> selectedTestsWithoutStats;
 
-    private long medianRunTimeMsAppliedToMissing;
+    private final long medianRunTimeMsAppliedToMissing;
+
+    private final Map<String, Long> selectedTestRunTimesMs;
 
     /**
      * Construct a {@link TestSelectorResult}.
@@ -43,18 +46,25 @@ public class TestSelectorResult {
      *                                        each test in {@code selectedTestsWithoutStats}, or
      *                                        {@code 0} if no fallback was needed or no historical
      *                                        stats exist
+     * @param selectedTestRunTimesMs per-test estimated runtime (ms) keyed by test suite name,
+     *                               covering every entry in {@code testsToRun}; tests without
+     *                               stats carry the median value or {@code 0} when no median
+     *                               is available. Must not be {@code null} (use an empty map
+     *                               instead)
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
                                long estimatedRunTimeMs,
                                Set<String> selectedTestsWithoutStats,
-                               long medianRunTimeMsAppliedToMissing) {
+                               long medianRunTimeMsAppliedToMissing,
+                               Map<String, Long> selectedTestRunTimesMs) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.estimatedRunTimeMs = estimatedRunTimeMs;
         this.selectedTestsWithoutStats = selectedTestsWithoutStats;
         this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
+        this.selectedTestRunTimesMs = selectedTestRunTimesMs;
     }
 
     /**
@@ -102,6 +112,15 @@ public class TestSelectorResult {
      */
     public long getMedianRunTimeMsAppliedToMissing() {
         return medianRunTimeMsAppliedToMissing;
+    }
+
+    /**
+     * @return per-test estimated runtime (ms) keyed by test suite name. Every name in
+     *         {@link #getTestsToRun()} has an entry; tests without recorded stats carry the
+     *         median value or {@code 0} when no median is available. Never {@code null}.
+     */
+    public Map<String, Long> getSelectedTestRunTimesMs() {
+        return selectedTestRunTimesMs;
     }
 
     @Override

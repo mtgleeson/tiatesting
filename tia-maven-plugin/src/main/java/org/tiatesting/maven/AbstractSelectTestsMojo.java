@@ -12,7 +12,6 @@ import org.tiatesting.core.vcs.VCSReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Mojo used to display the tests selected by Tia based on the changes it will analyse.
@@ -41,7 +40,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         if (testsToRun.isEmpty()){
             System.out.println("none");
         } else {
-            System.out.println(testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n\t", "\t", "")));
+            System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
             System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
         }
     }
