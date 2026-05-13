@@ -10,6 +10,7 @@ import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
@@ -107,6 +108,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             } else {
                 System.out.println("\t" + testsToRun.stream().map(String::valueOf).collect(
                         Collectors.joining(lineSep + "\t", "", "")));
+                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
             }
         });
     }

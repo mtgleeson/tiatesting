@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
@@ -41,6 +42,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             System.out.println("none");
         } else {
             System.out.println(testsToRun.stream().map(String::valueOf).collect(Collectors.joining("\n\t", "\t", "")));
+            System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
         }
     }
 
