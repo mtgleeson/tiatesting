@@ -26,6 +26,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Resolves a TIA {@code tiaSourceLibs} CSV ({@code groupId:artifactId,...}) to a CSV of absolute
@@ -298,6 +299,14 @@ class LibraryJarResolver implements LibraryMetadataReader {
     };
 
     /**
+     * Matches ANSI CSI escape sequences (e.g. SGR colour codes like {@code [33m}) emitted
+     * by MavenSimpleLogger when colour output is enabled. Stripped from each captured line before
+     * prefix matching so the bracketed level marker (e.g. {@code [WARNING]}) is comparable as
+     * plain text regardless of whether the build is running attached to a TTY.
+     */
+    private static final Pattern ANSI_ESCAPE_PATTERN = Pattern.compile("\\u001b\\[[\\d;]*[A-Za-z]");
+
+    /**
      * Functional shape of {@link ProjectBuilder#build(File, ProjectBuildingRequest)} so the
      * suppressed-warnings wrapper can take a lambda.
      */
@@ -412,8 +421,14 @@ class LibraryJarResolver implements LibraryMetadataReader {
         private void flushLine() {
             String line = lineBuffer.toString();
             lineBuffer.setLength(0);
+            // MavenSimpleLogger wraps the level marker in ANSI colour codes when stdout/stderr
+            // is attached to a TTY (e.g. "[[33mWARNING[m] The POM for ..."), so a plain
+            // startsWith match against "[WARNING] ..." would miss colourised output. Strip ANSI
+            // CSI sequences before prefix matching so the suppression list works regardless of
+            // whether the build is running attached to a terminal.
+            String forPrefixCheck = ANSI_ESCAPE_PATTERN.matcher(line).replaceAll("");
             for (String prefix : suppressedPrefixes) {
-                if (line.startsWith(prefix)) {
+                if (forPrefixCheck.startsWith(prefix)) {
                     return;
                 }
             }
