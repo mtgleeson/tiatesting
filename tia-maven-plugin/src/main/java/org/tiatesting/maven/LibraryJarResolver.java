@@ -392,11 +392,21 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * Fully-qualified names of the SLF4J loggers that emit the warnings Tia suppresses for its
      * Maven plugin use case. The names match the source class of the Maven 3.x resolver/aether
      * components that log via {@code org.slf4j.Logger}.
+     *
+     * <p>"The POM for X is invalid …" is actually emitted by {@code LoggingRepositoryListener},
+     * but in Maven 3.x that listener doesn't own its logger — it borrows the Plexus-injected
+     * logger from {@code DefaultRepositorySystemSessionFactory}, which is the field passed into
+     * its constructor. So the underlying SLF4J logger name (what {@code LoggerFactory.getLogger}
+     * resolves to) is the factory's class. The listener's class is also listed as a defensive
+     * fallback for distributions whose Plexus wiring names the logger differently.
      */
     private static final String[] NOISY_LOGGER_NAMES = {
-            // Emits "The POM for X is invalid, transitive dependencies (if any) will not be available …"
-            // when a transitive POM fails strict descriptor validation.
-            "org.apache.maven.repository.internal.DefaultArtifactDescriptorReader",
+            // Maven 3.x source of the logger instance that LoggingRepositoryListener uses to emit
+            // "The POM for X is invalid, transitive dependencies (if any) will not be available …".
+            "org.apache.maven.internal.aether.DefaultRepositorySystemSessionFactory",
+            // Defensive: if any distribution wires LoggingRepositoryListener with its own SLF4J
+            // logger (named after the listener class) silence it too.
+            "org.apache.maven.internal.aether.LoggingRepositoryListener",
             // Emits "Non-parseable repository update policy …" when a transitive POM references
             // an unbound property inside its repository <updatePolicy>.
             "org.eclipse.aether.internal.impl.DefaultUpdatePolicyAnalyzer",
