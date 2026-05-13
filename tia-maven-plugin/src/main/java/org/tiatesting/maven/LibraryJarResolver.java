@@ -287,7 +287,14 @@ class LibraryJarResolver implements LibraryMetadataReader {
     private static final String[] SUPPRESSED_WARN_PREFIXES = {
             "[WARNING] Non-parseable repository update policy",
             "[WARN] Non-parseable repository update policy",
-            "Non-parseable repository update policy"
+            "Non-parseable repository update policy",
+            // SimpleArtifactDescriptorPolicy(true, true) prevents Aether from throwing on an
+            // invalid descriptor, but DefaultArtifactDescriptorReader still emits this WARN line
+            // unconditionally — we suppress it here. Maven's plugin SLF4J binding may route the
+            // line to either stderr or stdout, so we cover the bare and bracket-prefixed forms.
+            "[WARNING] The POM for",
+            "[WARN] The POM for",
+            "The POM for"
     };
 
     /**
@@ -300,37 +307,56 @@ class LibraryJarResolver implements LibraryMetadataReader {
     }
 
     /**
-     * Run a Maven {@code projectBuilder.build} call with a {@code System.err} replacement that
-     * drops a small allowlist of warning lines that Tia can't act on (currently just the
-     * "Non-parseable repository update policy …" warning emitted by
-     * {@code DefaultUpdatePolicyAnalyzer} when a transitive POM references an unbound property
-     * inside its repository {@code <updatePolicy>}). Maven's resolver doesn't expose an API to
-     * override the update-policy analyzer, and SLF4J runtime level changes are binding-specific,
-     * so a scoped {@code System.err} filter is the most reliable cross-binding suppression.
+     * Run a Maven {@code projectBuilder.build} call with {@code System.err} <em>and</em>
+     * {@code System.out} replacements that drop a small allowlist of warning lines Tia can't
+     * act on:
+     * <ul>
+     *   <li>{@code "Non-parseable repository update policy …"} — emitted by
+     *       {@code DefaultUpdatePolicyAnalyzer} when a transitive POM references an unbound
+     *       property inside its repository {@code <updatePolicy>}.</li>
+     *   <li>{@code "The POM for X is invalid …"} — emitted by
+     *       {@code DefaultArtifactDescriptorReader} when a transitive POM fails strict model
+     *       validation. {@link SimpleArtifactDescriptorPolicy} (installed by
+     *       {@link #newQuietRequest()}) only stops the resolver from throwing, not from
+     *       logging.</li>
+     * </ul>
      *
-     * <p>The original {@code System.err} is restored in a {@code finally} block. The filter only
-     * inspects line prefixes — Tia's own {@code log.warn(...)} output is unaffected because Tia
-     * uses Maven's plugin logger which writes through a different code path.
+     * <p>Maven's resolver doesn't expose an API to override either of these log calls, and
+     * SLF4J runtime level changes are binding-specific (and would silence WARN globally for
+     * the JVM), so a scoped stream filter is the most reliable cross-binding suppression.
+     * Both stdout and stderr are wrapped because the Maven plugin SLF4J binding can route
+     * WARN to either stream depending on version and configuration.
      *
-     * @param supplier the build call to run.
-     * @return whatever the supplier returned.
-     * @throws ProjectBuildingException if the build call throws.
+     * <p>The originals are restored in a {@code finally} block, so the filter is active only
+     * for the duration of the supplied build call. The filter inspects line prefixes —
+     * Tia's own {@code log.warn(...)} output is unaffected because Tia uses Maven's plugin
+     * logger, which writes through a different code path.
+     *
+     * @param supplier the build call to run
+     * @return whatever the supplier returned
+     * @throws ProjectBuildingException if the build call throws
      */
     private ProjectBuildingResult withSuppressedMavenNoiseWarnings(BuildSupplier supplier) throws ProjectBuildingException {
         PrintStream originalErr = System.err;
+        PrintStream originalOut = System.out;
         PrintStream filteredErr;
+        PrintStream filteredOut;
         try {
             filteredErr = new PrintStream(new PrefixFilteringOutputStream(originalErr, SUPPRESSED_WARN_PREFIXES),
+                    true, StandardCharsets.UTF_8.name());
+            filteredOut = new PrintStream(new PrefixFilteringOutputStream(originalOut, SUPPRESSED_WARN_PREFIXES),
                     true, StandardCharsets.UTF_8.name());
         } catch (UnsupportedEncodingException e) {
             // UTF-8 is required by the Java spec; fall through and just run unfiltered if it ever fails.
             return supplier.build();
         }
         System.setErr(filteredErr);
+        System.setOut(filteredOut);
         try {
             return supplier.build();
         } finally {
             System.setErr(originalErr);
+            System.setOut(originalOut);
         }
     }
 
