@@ -5,10 +5,10 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 
+import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -41,6 +41,8 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(600L, estimate.getEstimatedRunTimeMs());
         assertTrue(estimate.getSelectedTestsWithoutStats().isEmpty());
         assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertEquals(perTestMap(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L)),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -60,6 +62,9 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(100L + 200L + 200L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
         assertEquals(200L, estimate.getMedianRunTimeMsAppliedToMissing());
+        // newTest's per-test entry equals the median
+        assertEquals(perTestMap(entry("test1", 100L), entry("test2", 200L), entry("newTest", 200L)),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -79,6 +84,8 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(400L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest1", "newTest2"), estimate.getSelectedTestsWithoutStats());
         assertEquals(200L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertEquals(perTestMap(entry("newTest1", 200L), entry("newTest2", 200L)),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -98,6 +105,8 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
         assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+        // newTest carries 0 in the per-test map — the formatter renders this as "(no run data)"
+        assertEquals(perTestMap(entry("newTest", 0L)), estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -119,6 +128,8 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(200L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
         assertEquals(100L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertEquals(perTestMap(entry("test1", 100L), entry("newTest", 100L)),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -139,6 +150,7 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(20L, estimate.getMedianRunTimeMsAppliedToMissing());
         assertEquals(20L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
+        assertEquals(perTestMap(entry("newTest", 20L)), estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -158,6 +170,30 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
         assertTrue(estimate.getSelectedTestsWithoutStats().isEmpty());
         assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertTrue(estimate.getSelectedTestRunTimesMs().isEmpty());
+    }
+
+    /**
+     * A selected test that is tracked but has {@code avgRunTime == 0} (tracked but never
+     * recorded a real run) carries {@code 0} in the per-test map and is <em>not</em> treated
+     * as "missing stats" — it has an entry in {@code testSuitesTracked}, just with a zero
+     * value.
+     */
+    @Test
+    void estimateRunTime_trackedTestWithZeroAvgRunTime_recordedAsZeroNotMissing(){
+        // given
+        TiaData tiaData = buildTiaData(entry("zeroTest", 0L), entry("test1", 100L), entry("test2", 200L));
+        Set<String> testsToRun = setOf("zeroTest", "test1");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+
+        // then
+        assertEquals(100L, estimate.getEstimatedRunTimeMs());
+        assertTrue(estimate.getSelectedTestsWithoutStats().isEmpty());
+        assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
+        assertEquals(perTestMap(entry("zeroTest", 0L), entry("test1", 100L)),
+                estimate.getSelectedTestRunTimesMs());
     }
 
     /**
@@ -191,7 +227,23 @@ class TestSelectorRunTimeEstimateTest {
      * @return a name → avgRunTime entry
      */
     private static Map.Entry<String, Long> entry(String name, long avgRunTime){
-        return new java.util.AbstractMap.SimpleEntry<>(name, avgRunTime);
+        return new AbstractMap.SimpleEntry<>(name, avgRunTime);
+    }
+
+    /**
+     * Build a {@code Map<String, Long>} of expected per-test runtimes for comparison
+     * against {@link TestSelector.RunTimeEstimate#getSelectedTestRunTimesMs()}.
+     *
+     * @param entries the entries to include in the map
+     * @return a {@link HashMap} containing the entries
+     */
+    @SafeVarargs
+    private static Map<String, Long> perTestMap(Map.Entry<String, Long>... entries){
+        Map<String, Long> map = new HashMap<>();
+        for (Map.Entry<String, Long> e : entries){
+            map.put(e.getKey(), e.getValue());
+        }
+        return map;
     }
 
     /**

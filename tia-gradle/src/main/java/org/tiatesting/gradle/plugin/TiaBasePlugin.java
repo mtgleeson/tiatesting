@@ -26,7 +26,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Base Gradle plugin for Tia. Creates the new standard tasks for interacting with Tia.
@@ -106,8 +105,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             if (testsToRun.isEmpty()){
                 System.out.println("none");
             } else {
-                System.out.println("\t" + testsToRun.stream().map(String::valueOf).collect(
-                        Collectors.joining(lineSep + "\t", "", "")));
+                System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
                 System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
             }
         });
