@@ -39,7 +39,8 @@ class SelectTestsOutputFormatterTest {
 
     /**
      * Every selected test has recorded stats — the estimate block is a single runtime line
-     * with no follow-up note.
+     * with no follow-up note. The {@code ms} component is omitted when the duration is
+     * one second or more.
      */
     @Test
     void formatEstimateBlock_allSelectedHaveStats_printsRuntimeOnly(){
@@ -52,7 +53,8 @@ class SelectTestsOutputFormatterTest {
         String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
 
         // then
-        assertEquals(LINE_SEP + "Estimated total run time: 1s 500ms", output);
+        // 1500ms is >= 1s, so the ms component is dropped
+        assertEquals(LINE_SEP + "Estimated total run time: 1s", output);
     }
 
     /**
@@ -154,6 +156,31 @@ class SelectTestsOutputFormatterTest {
 
         // then
         assertEquals("\ttest1 (500ms)" + LINE_SEP + "\tnewTest (200ms)", output);
+    }
+
+    /**
+     * Durations of one second or more drop the {@code ms} component from the per-test
+     * bracketed display — sub-second precision isn't useful at the second/minute/hour level.
+     * Durations under one second keep the {@code ms} unit.
+     */
+    @Test
+    void formatSelectedTestsList_durationAboveOneSecond_dropsMsComponent(){
+        // given
+        Set<String> testsToRun = setOf("fastTest", "slowTest", "verySlowTest");
+        TestSelectorResult result = buildResult(testsToRun, 0L, setOf(), 0L,
+                perTestMap(
+                        "fastTest", 750L,       // < 1s — keep ms
+                        "slowTest", 1500L,      // 1.5s — drop ms → "1s"
+                        "verySlowTest", 90500L  // 1m 30.5s — drop ms → "1m 30s"
+                ));
+
+        // when
+        String output = SelectTestsOutputFormatter.formatSelectedTestsList(result, LINE_SEP);
+
+        // then
+        assertEquals("\tfastTest (750ms)" + LINE_SEP
+                + "\tslowTest (1s)" + LINE_SEP
+                + "\tverySlowTest (1m 30s)", output);
     }
 
     /**

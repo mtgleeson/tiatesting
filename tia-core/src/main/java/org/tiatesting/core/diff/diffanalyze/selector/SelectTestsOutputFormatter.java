@@ -15,6 +15,11 @@ import java.util.Map;
  *   <li>{@link #formatEstimateBlock} — the total estimated runtime, plus a single-line note
  *       when some selected tests have no recorded run-time data.</li>
  * </ul>
+ *
+ * <p>All durations are formatted with the {@code dropMsWhenAboveSecond} flag on
+ * {@link ReportUtils#prettyDuration(long, boolean)} so the {@code ms} component is dropped
+ * when the value is one second or more — sub-second precision is rarely meaningful at the
+ * minute or hour level.
  */
 public class SelectTestsOutputFormatter {
 
@@ -71,7 +76,7 @@ public class SelectTestsOutputFormatter {
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);
         sb.append("Estimated total run time: ")
-          .append(ReportUtils.prettyDuration(result.getEstimatedRunTimeMs()));
+          .append(ReportUtils.prettyDuration(result.getEstimatedRunTimeMs(), true));
 
         if (!result.getSelectedTestsWithoutStats().isEmpty()){
             int n = result.getSelectedTestsWithoutStats().size();
@@ -80,7 +85,7 @@ public class SelectTestsOutputFormatter {
             if (median > 0){
                 sb.append("Note: ").append(n)
                   .append(" selected test(s) have not previously been run by Tia. A median run time of ")
-                  .append(ReportUtils.prettyDuration(median))
+                  .append(ReportUtils.prettyDuration(median, true))
                   .append(" (calculated from all tracked test suites) was used for them.");
             } else {
                 sb.append("Note: ").append(n)
@@ -103,6 +108,6 @@ public class SelectTestsOutputFormatter {
         if (ms == null || ms <= 0){
             return "(no run data)";
         }
-        return "(" + ReportUtils.prettyDuration(ms) + ")";
+        return "(" + ReportUtils.prettyDuration(ms, true) + ")";
     }
 }
