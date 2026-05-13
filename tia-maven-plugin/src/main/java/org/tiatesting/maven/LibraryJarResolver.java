@@ -11,6 +11,8 @@ import org.apache.maven.project.ProjectBuildingResult;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.util.repository.SimpleArtifactDescriptorPolicy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
@@ -19,6 +21,7 @@ import java.io.File;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -346,6 +349,17 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * @throws ProjectBuildingException if the build call throws
      */
     private ProjectBuildingResult withSuppressedMavenNoiseWarnings(BuildSupplier supplier) throws ProjectBuildingException {
+        // Primary mechanism: raise the level of the specific SLF4J loggers that emit Tia's
+        // suppressed warnings so they never produce output for the duration of the build call.
+        // This is necessary because Maven 3.6+ configures maven-slf4j-provider with
+        // cacheOutputStream=true and logFile=System.out — the binding captures a strong reference
+        // to System.out at init time, so a System.setOut() swap later has no effect on its output.
+        List<LoggerLevelOverride> levelOverrides = silenceNoisyLoggers();
+
+        // Secondary mechanism: keep the stream-filter wrapper so installs running an alternate
+        // SLF4J binding (or a future Maven that no longer caches the stream) still benefit from
+        // the suppression. When the primary mechanism succeeds the filter sees no matching lines
+        // and is effectively a no-op.
         PrintStream originalErr = System.err;
         PrintStream originalOut = System.out;
         PrintStream filteredErr;
@@ -357,7 +371,11 @@ class LibraryJarResolver implements LibraryMetadataReader {
                     true, StandardCharsets.UTF_8.name());
         } catch (UnsupportedEncodingException e) {
             // UTF-8 is required by the Java spec; fall through and just run unfiltered if it ever fails.
-            return supplier.build();
+            try {
+                return supplier.build();
+            } finally {
+                restoreLoggerLevels(levelOverrides);
+            }
         }
         System.setErr(filteredErr);
         System.setOut(filteredOut);
@@ -366,6 +384,108 @@ class LibraryJarResolver implements LibraryMetadataReader {
         } finally {
             System.setErr(originalErr);
             System.setOut(originalOut);
+            restoreLoggerLevels(levelOverrides);
+        }
+    }
+
+    /**
+     * Fully-qualified names of the SLF4J loggers that emit the warnings Tia suppresses for its
+     * Maven plugin use case. The names match the source class of the Maven 3.x resolver/aether
+     * components that log via {@code org.slf4j.Logger}.
+     */
+    private static final String[] NOISY_LOGGER_NAMES = {
+            // Emits "The POM for X is invalid, transitive dependencies (if any) will not be available …"
+            // when a transitive POM fails strict descriptor validation.
+            "org.apache.maven.repository.internal.DefaultArtifactDescriptorReader",
+            // Emits "Non-parseable repository update policy …" when a transitive POM references
+            // an unbound property inside its repository <updatePolicy>.
+            "org.eclipse.aether.internal.impl.DefaultUpdatePolicyAnalyzer",
+    };
+
+    /**
+     * The level constant used by {@code org.slf4j.impl.SimpleLogger} for ERROR. Set
+     * {@code currentLogLevel} to this value to suppress WARN (and below) for a given logger.
+     */
+    private static final int SIMPLE_LOGGER_LEVEL_ERROR = 40;
+
+    /**
+     * Reflectively raise the {@code currentLogLevel} field on each of the {@link #NOISY_LOGGER_NAMES}
+     * loggers to ERROR so any WARN-level output they would have emitted while the wrapped build
+     * runs is dropped at source. Returns one override entry per logger that was successfully
+     * mutated, so the caller can restore the original levels in a {@code finally} block.
+     *
+     * <p>Implementation note: Maven 3.x ships {@code maven-slf4j-provider} whose logger class
+     * is {@code org.slf4j.impl.SimpleLogger} (or {@code MavenSimpleLogger} extending it). That
+     * class has no public level-mutator, so we walk up the inheritance chain to find
+     * {@code SimpleLogger} and {@code setAccessible(true)} the protected {@code currentLogLevel}
+     * field. Any failure (different binding, security manager, reflection blocked) is swallowed —
+     * the secondary stream filter still runs.
+     *
+     * @return list of overrides (one per logger that was successfully silenced); never null.
+     */
+    private List<LoggerLevelOverride> silenceNoisyLoggers() {
+        List<LoggerLevelOverride> overrides = new ArrayList<>();
+        for (String name : NOISY_LOGGER_NAMES) {
+            try {
+                Logger logger = LoggerFactory.getLogger(name);
+                Class<?> cls = logger.getClass();
+                Field levelField = null;
+                while (cls != null) {
+                    try {
+                        levelField = cls.getDeclaredField("currentLogLevel");
+                        break;
+                    } catch (NoSuchFieldException ignored) {
+                        cls = cls.getSuperclass();
+                    }
+                }
+                if (levelField == null) {
+                    continue;
+                }
+                levelField.setAccessible(true);
+                int original = levelField.getInt(logger);
+                if (original == SIMPLE_LOGGER_LEVEL_ERROR) {
+                    // Already at or above ERROR; nothing to do, no restore needed.
+                    continue;
+                }
+                levelField.setInt(logger, SIMPLE_LOGGER_LEVEL_ERROR);
+                overrides.add(new LoggerLevelOverride(logger, levelField, original));
+            } catch (Throwable ignored) {
+                // Best-effort: secondary stream-filter remains as fallback.
+            }
+        }
+        return overrides;
+    }
+
+    /**
+     * Restore each logger's {@code currentLogLevel} field to the value captured before
+     * {@link #silenceNoisyLoggers()} ran. Failures are swallowed because there is no useful
+     * recovery — the JVM will continue with the override left in place rather than crashing.
+     */
+    private void restoreLoggerLevels(List<LoggerLevelOverride> overrides) {
+        for (LoggerLevelOverride override : overrides) {
+            try {
+                override.levelField.setInt(override.logger, override.originalLevel);
+            } catch (Throwable ignored) {
+                // Nothing actionable; leaving the logger at ERROR is preferable to throwing
+                // out of a finally block during a Maven plugin execution.
+            }
+        }
+    }
+
+    /**
+     * Captures the state needed to undo a {@link #silenceNoisyLoggers()} override: the logger
+     * instance whose level was mutated, the {@code currentLogLevel} field reflected on its
+     * declaring class, and the level value the logger had before the override.
+     */
+    private static final class LoggerLevelOverride {
+        final Logger logger;
+        final Field levelField;
+        final int originalLevel;
+
+        LoggerLevelOverride(Logger logger, Field levelField, int originalLevel) {
+            this.logger = logger;
+            this.levelField = levelField;
+            this.originalLevel = originalLevel;
         }
     }
 
