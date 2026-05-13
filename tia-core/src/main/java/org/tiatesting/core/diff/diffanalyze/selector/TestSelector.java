@@ -77,7 +77,9 @@ public class TestSelector {
         }
 
         if (!hasStoredMapping(tiaData)){
-            return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null); // run all tests - don't ignore any
+            // run all tests - don't ignore any
+            return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
+                    0L, Collections.emptySet(), 0L);
         }
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
@@ -90,7 +92,114 @@ public class TestSelector {
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
 
         log.debug("Ignoring tests: {}", testsToIgnore);
-        return new TestSelectorResult(testsToRun, testsToIgnore, drainResult);
+
+        RunTimeEstimate estimate = estimateRunTime(testsToRun, tiaData);
+        return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
+                estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
+                estimate.getMedianRunTimeMsAppliedToMissing());
+    }
+
+    /**
+     * Estimate the total runtime for the given set of selected tests.
+     *
+     * <p>For each test in {@code testsToRun} that has a tracked {@link TestSuiteTracker} in
+     * {@code tiaData}, the test's persisted {@code avgRunTime} (ms) contributes to the total.
+     * Tests not present in {@code testSuitesTracked} (typically newly-added test files) are
+     * collected into the {@code selectedTestsWithoutStats} set. When at least one such test
+     * exists, the median {@code avgRunTime} across all tracked suites with a positive
+     * {@code avgRunTime} is computed and added once per missing test. If no tracked suite has
+     * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
+     * nothing to the total.
+     *
+     * @param testsToRun the names of the selected test suites
+     * @param tiaData the loaded Tia data containing per-suite stats
+     * @return a {@link RunTimeEstimate} carrying the total estimated runtime (ms), the names
+     *         of selected tests with no stats, and the median value applied to those tests
+     */
+    static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final TiaData tiaData){
+        long totalMs = 0L;
+        Set<String> withoutStats = new HashSet<>();
+        Map<String, TestSuiteTracker> tracked = tiaData.getTestSuitesTracked();
+
+        for (String testName : testsToRun){
+            TestSuiteTracker tracker = tracked.get(testName);
+            if (tracker == null){
+                withoutStats.add(testName);
+            } else {
+                totalMs += tracker.getTestStats().getAvgRunTime();
+            }
+        }
+
+        long median = 0L;
+        if (!withoutStats.isEmpty()){
+            median = computeMedianAvgRunTime(tracked);
+            totalMs += median * (long) withoutStats.size();
+        }
+
+        return new RunTimeEstimate(totalMs, withoutStats, median);
+    }
+
+    /**
+     * Compute the median {@code avgRunTime} (ms) across all tracked test suites that have a
+     * positive recorded {@code avgRunTime}. Suites with {@code avgRunTime == 0} (tracked but
+     * never recorded a real run) are excluded so they don't drag the median to zero.
+     *
+     * <p>For an even-sized population, the lower of the two middle values is returned. This
+     * keeps the calculation deterministic and integer-only and avoids overstating the median
+     * when the population is small.
+     *
+     * @param tracked the map of tracked test suites keyed by name
+     * @return the median {@code avgRunTime} (ms), or {@code 0} when no tracked suite has a
+     *         positive {@code avgRunTime}
+     */
+    private static long computeMedianAvgRunTime(final Map<String, TestSuiteTracker> tracked){
+        List<Long> positive = new ArrayList<>(tracked.size());
+        for (TestSuiteTracker tracker : tracked.values()){
+            long avg = tracker.getTestStats().getAvgRunTime();
+            if (avg > 0){
+                positive.add(avg);
+            }
+        }
+        if (positive.isEmpty()){
+            return 0L;
+        }
+        Collections.sort(positive);
+        return positive.get((positive.size() - 1) / 2);
+    }
+
+    /**
+     * Holder for the result of {@link #estimateRunTime(Set, TiaData)}. Package-private so
+     * unit tests can destructure it without going through the full {@code selectTestsToIgnore}
+     * entry point.
+     */
+    static class RunTimeEstimate {
+        private final long estimatedRunTimeMs;
+        private final Set<String> selectedTestsWithoutStats;
+        private final long medianRunTimeMsAppliedToMissing;
+
+        /**
+         * @param estimatedRunTimeMs total estimated runtime (ms) for the selected tests,
+         *                           including the median-fallback contribution
+         * @param selectedTestsWithoutStats names of selected tests with no recorded stats
+         * @param medianRunTimeMsAppliedToMissing median {@code avgRunTime} (ms) applied to
+         *                                        each test in {@code selectedTestsWithoutStats},
+         *                                        or {@code 0} when no fallback was applied
+         */
+        RunTimeEstimate(long estimatedRunTimeMs, Set<String> selectedTestsWithoutStats,
+                        long medianRunTimeMsAppliedToMissing) {
+            this.estimatedRunTimeMs = estimatedRunTimeMs;
+            this.selectedTestsWithoutStats = selectedTestsWithoutStats;
+            this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
+        }
+
+        /** @return the total estimated runtime (ms) for the selected tests */
+        long getEstimatedRunTimeMs() { return estimatedRunTimeMs; }
+
+        /** @return names of selected tests with no recorded run-time stats */
+        Set<String> getSelectedTestsWithoutStats() { return selectedTestsWithoutStats; }
+
+        /** @return median {@code avgRunTime} (ms) substituted for tests without stats */
+        long getMedianRunTimeMsAppliedToMissing() { return medianRunTimeMsAppliedToMissing; }
     }
 
     private boolean hasStoredMapping(TiaData tiaData){
