@@ -9,6 +9,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -53,6 +54,15 @@ public class H2DataStore implements DataStore {
     private static final String COL_STAMP_VERSION = "stamp_version";
     private static final String COL_STAMP_JAR_HASH = "stamp_jar_hash";
     private static final String COL_UNKNOWN_NEXT_VERSION = "unknown_next_version";
+    private static final String TABLE_TIA_TEST_RUN_HISTORY = "tia_test_run_history";
+    private static final String COL_RUN_TIMESTAMP = "run_timestamp";
+    private static final String COL_BRANCH = "branch";
+    private static final String COL_NUM_SUITES_RAN = "num_suites_ran";
+    private static final String COL_NUM_SUITES_IGNORED = "num_suites_ignored";
+    private static final String COL_NUM_SUITES_FAILED = "num_suites_failed";
+    private static final String COL_DURATION_MS = "duration_ms";
+    private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
+    private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
     private final String jdbcURL;
     private final String username = "sa";
@@ -545,6 +555,87 @@ public class H2DataStore implements DataStore {
         }
     }
 
+    @Override
+    public void persistTestRunHistoryEntry(final TestRunHistoryEntry entry) {
+        Connection connection = getConnection();
+
+        try {
+            ensureTestRunHistoryTableExists(connection);
+            String sql = "MERGE INTO " + TABLE_TIA_TEST_RUN_HISTORY + " ("
+                    + COL_ID + ", "
+                    + COL_RUN_TIMESTAMP + ", "
+                    + COL_BRANCH + ", "
+                    + COL_COMMIT_VALUE + ", "
+                    + COL_NUM_SUITES_RAN + ", "
+                    + COL_NUM_SUITES_IGNORED + ", "
+                    + COL_NUM_SUITES_FAILED + ", "
+                    + COL_DURATION_MS + ", "
+                    + COL_UPDATED_DB_MAPPING + ") "
+                    + "KEY (" + COL_ID + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, entry.getId());
+            ps.setLong(2, entry.getRunTimestampMs());
+            ps.setString(3, entry.getBranch());
+            ps.setString(4, entry.getCommit());
+            ps.setInt(5, entry.getNumSuitesRan());
+            ps.setInt(6, entry.getNumSuitesIgnored());
+            ps.setInt(7, entry.getNumSuitesFailed());
+            ps.setLong(8, entry.getDurationMs());
+            ps.setBoolean(9, entry.isUpdatedDbMapping());
+            ps.executeUpdate();
+            log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    @Override
+    public List<TestRunHistoryEntry> readTestRunHistory() {
+        List<TestRunHistoryEntry> history = new ArrayList<>();
+        Connection connection = getConnection();
+
+        try {
+            // Ensure table exists for older DBs that pre-date this feature; reads return empty
+            // until the first insert.
+            ensureTestRunHistoryTableExists(connection);
+
+            String sql = "SELECT * FROM " + TABLE_TIA_TEST_RUN_HISTORY
+                    + " ORDER BY " + COL_RUN_TIMESTAMP + " DESC";
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
+
+            while (resultSet.next()) {
+                history.add(new TestRunHistoryEntry(
+                        resultSet.getString(COL_ID),
+                        resultSet.getLong(COL_RUN_TIMESTAMP),
+                        resultSet.getString(COL_BRANCH),
+                        resultSet.getString(COL_COMMIT_VALUE),
+                        resultSet.getInt(COL_NUM_SUITES_RAN),
+                        resultSet.getInt(COL_NUM_SUITES_IGNORED),
+                        resultSet.getInt(COL_NUM_SUITES_FAILED),
+                        resultSet.getLong(COL_DURATION_MS),
+                        resultSet.getBoolean(COL_UPDATED_DB_MAPPING)));
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return history;
+    }
+
     /**
      * Group flat pending rows from a result set into batches keyed by
      * {@code (groupArtifact, stampVersion)}.
@@ -865,6 +956,7 @@ public class H2DataStore implements DataStore {
                 // Ensure schema migrations have run on this existing DB before any reads.
                 // Idempotent: safe to call on every load.
                 ensureSourceClassTestSuiteIndexExists(connection);
+                ensureTestRunHistoryTableExists(connection);
 
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
@@ -884,6 +976,9 @@ public class H2DataStore implements DataStore {
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setPendingLibraryImpactedMethods(readAllPendingLibraryImpactedMethods());
                 log.debug("SQL query time for pending library methods: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                startQueryTime = System.currentTimeMillis();
+                tiaData.setTestRunHistory(readTestRunHistory());
+                log.debug("SQL query time for test run history: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
                 return tiaData;
             }
         } catch (SQLException e) {
@@ -1116,6 +1211,8 @@ public class H2DataStore implements DataStore {
 
         String createLibraryTableSql = buildCreateLibraryTableSql();
         String createPendingLibraryMethodTableSql = buildCreatePendingLibraryImpactedMethodTableSql();
+        String createTestRunHistoryTableSql = buildCreateTestRunHistoryTableSql();
+        String createTestRunHistoryIndexSql = buildCreateTestRunHistoryIndexSql();
 
         try {
             Connection connection = getConnection();
@@ -1130,6 +1227,8 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(createSourceClassMethodTableSql);
             statement.executeUpdate(createLibraryTableSql);
             statement.executeUpdate(createPendingLibraryMethodTableSql);
+            statement.executeUpdate(createTestRunHistoryTableSql);
+            statement.executeUpdate(createTestRunHistoryIndexSql);
             connection.close();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1200,6 +1299,43 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(buildCreatePendingLibraryImpactedMethodTableSql());
             log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD);
         }
+    }
+
+    /**
+     * Build the DDL for the {@code tia_test_run_history} table.
+     */
+    private String buildCreateTestRunHistoryTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_HISTORY + " ("
+                + COL_ID + " VARCHAR(64) NOT NULL PRIMARY KEY, "
+                + COL_RUN_TIMESTAMP + " BIGINT NOT NULL, "
+                + COL_BRANCH + " VARCHAR(255), "
+                + COL_COMMIT_VALUE + " VARCHAR(255), "
+                + COL_NUM_SUITES_RAN + " INT, "
+                + COL_NUM_SUITES_IGNORED + " INT, "
+                + COL_NUM_SUITES_FAILED + " INT, "
+                + COL_DURATION_MS + " BIGINT, "
+                + COL_UPDATED_DB_MAPPING + " BOOLEAN)";
+    }
+
+    /**
+     * Build the DDL for the index on {@code tia_test_run_history.run_timestamp}. Backs the
+     * default sort by recency in the report read path ({@code ORDER BY run_timestamp DESC}).
+     */
+    private String buildCreateTestRunHistoryIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + IDX_TEST_RUN_HISTORY_TS + " ON "
+                + TABLE_TIA_TEST_RUN_HISTORY + " (" + COL_RUN_TIMESTAMP + ")";
+    }
+
+    /**
+     * Ensure the {@code tia_test_run_history} table and its timestamp index exist on an
+     * already-populated DB. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS}; called
+     * on every load and before each insert so DBs created before this feature gain the
+     * table on first contact.
+     */
+    private void ensureTestRunHistoryTableExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(buildCreateTestRunHistoryTableSql());
+        statement.executeUpdate(buildCreateTestRunHistoryIndexSql());
     }
 
     /**

@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -159,6 +160,16 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
         // pending library methods are only supported in the H2 data store
+    }
+
+    @Override
+    public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
+        // test run history is only supported in the H2 data store
+    }
+
+    @Override
+    public List<TestRunHistoryEntry> readTestRunHistory() {
+        return new ArrayList<>();
     }
 
     /**
