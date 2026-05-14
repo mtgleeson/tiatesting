@@ -45,6 +45,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     testTask.systemProperty("tiaEnabled", true);
                     testTask.systemProperty("tiaUpdateDBMapping", tiaTaskExtension.getUpdateDBMapping());
                     testTask.systemProperty("tiaUpdateDBStats", tiaTaskExtension.getUpdateDBStats());
+                    testTask.systemProperty("tiaUpdateDBTestRunHistory", tiaTaskExtension.getUpdateDBTestRunHistory());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
@@ -99,6 +100,15 @@ public class TiaSpockGitGradlePluginTestExtension {
             tiaTaskExt.setUpdateDBStats(tiaProjectExt.getUpdateDBStats());
         }
 
+        if (tiaTaskExt.getUpdateDBTestRunHistory() == null){
+            // Project extension may not have set it explicitly. Default to true so users
+            // get the history log without having to opt in.
+            tiaTaskExt.setUpdateDBTestRunHistory(
+                    tiaProjectExt.getUpdateDBTestRunHistory() != null
+                            ? tiaProjectExt.getUpdateDBTestRunHistory()
+                            : Boolean.TRUE);
+        }
+
         if (tiaTaskExt.getProjectDir() == null){
             tiaTaskExt.setProjectDir(tiaProjectExt.getProjectDir());
         }
@@ -151,8 +161,11 @@ public class TiaSpockGitGradlePluginTestExtension {
         boolean enabled = tiaTaskExtension.getEnabled() != null ? tiaTaskExtension.getEnabled() : false;
         boolean updateDBMapping = tiaTaskExtension.getUpdateDBMapping() != null ? tiaTaskExtension.getUpdateDBMapping() : false;
         boolean updateDBStats = tiaTaskExtension.getUpdateDBStats() != null ? tiaTaskExtension.getUpdateDBStats() : false;
+        boolean updateDBTestRunHistory = tiaTaskExtension.getUpdateDBTestRunHistory() != null
+                ? tiaTaskExtension.getUpdateDBTestRunHistory() : true;
         LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping: " + updateDBMapping
-                + ", update stats: " + updateDBStats);
+                + ", update stats: " + updateDBStats
+                + ", update test run history: " + updateDBTestRunHistory);
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run

@@ -97,6 +97,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     boolean tiaUpdateDBStats;
 
     /**
+     * Should this run log a row to the {@code tia_test_run_history} table? Defaults to
+     * {@code true} — the history log is cheap and only useful when continuously populated.
+     */
+    @Parameter(property = "tiaUpdateDBTestRunHistory", defaultValue = "true")
+    boolean tiaUpdateDBTestRunHistory = true;
+
+    /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     @Parameter(property = "tiaCheckLocalChanges")
@@ -192,6 +199,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public boolean isTiaUpdateDBStats() {
         return tiaUpdateDBStats;
+    }
+
+    /**
+     * @return whether this run should log a row to the {@code tia_test_run_history} table
+     */
+    public boolean isTiaUpdateDBTestRunHistory() {
+        return tiaUpdateDBTestRunHistory;
     }
 
     public boolean isTiaCheckLocalChanges() {
