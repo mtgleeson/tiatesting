@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -34,8 +35,23 @@ public class TestRunnerService {
         this.dataStore = dataStore;
     }
 
+    /**
+     * Persist the data accumulated by a Tia test run.
+     *
+     * @param updateDBMapping          should the test-suite to source-code mapping be updated
+     * @param updateDBStats            should the run stats be updated
+     * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
+     * @param commitValue              the VCS commit / changelist the run was against
+     * @param branch                   the VCS branch the run targeted (recorded with the history entry)
+     * @param runStartTimestampMs      UTC epoch millis when the test run started (used as both the
+     *                                 history entry timestamp and the duration baseline)
+     * @param testRunResult            the collected results of the test run
+     */
     public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
-                                   final String commitValue, final TestRunResult testRunResult){
+                                   final boolean updateDBTestRunHistory,
+                                   final String commitValue, final String branch,
+                                   final long runStartTimestampMs,
+                                   final TestRunResult testRunResult){
         if (updateDBMapping){
             log.info("Persisting core data with commit value: " + commitValue);
         }
@@ -52,6 +68,41 @@ public class TestRunnerService {
             updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
             applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult());
         }
+
+        if (updateDBTestRunHistory) {
+            persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs, testRunResult);
+        }
+    }
+
+    /**
+     * Build and persist a {@link TestRunHistoryEntry} for this run. Counts are derived from the
+     * data the listener already produced: ran = trackers actually populated; ignored = total
+     * runner-discovered suites minus ran; failed = failed-suite set size. Duration is the wall
+     * clock from {@code runStartTimestampMs} to now.
+     *
+     * @param updateDBMapping       was this run also updating the Tia mapping DB (stamped on the row)
+     * @param commitValue           VCS commit / changelist the run was against
+     * @param branch                VCS branch the run targeted
+     * @param runStartTimestampMs   when the run started (UTC epoch ms)
+     * @param testRunResult         the collected results of the test run
+     */
+    private void persistTestRunHistory(final boolean updateDBMapping, final String commitValue,
+                                       final String branch, final long runStartTimestampMs,
+                                       final TestRunResult testRunResult) {
+        int ran = testRunResult.getTestSuiteTrackers() != null
+                ? testRunResult.getTestSuiteTrackers().size() : 0;
+        int totalSeen = testRunResult.getRunnerTestSuites() != null
+                ? testRunResult.getRunnerTestSuites().size() : 0;
+        int ignored = Math.max(0, totalSeen - ran);
+        int failed = testRunResult.getTestSuitesFailed() != null
+                ? testRunResult.getTestSuitesFailed().size() : 0;
+        long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
+
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(
+                branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs, updateDBMapping);
+        dataStore.persistTestRunHistoryEntry(entry);
+        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={})",
+                entry.getId(), ran, ignored, failed, durationMs);
     }
 
     /**

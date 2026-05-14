@@ -101,7 +101,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * {@code true} — the history log is cheap and only useful when continuously populated.
      */
     @Parameter(property = "tiaUpdateDBTestRunHistory", defaultValue = "true")
-    boolean tiaUpdateDBTestRunHistory = true;
+    boolean tiaUpdateDBTestRunHistory;
 
     /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
