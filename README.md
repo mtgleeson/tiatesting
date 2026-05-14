@@ -49,6 +49,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
     <tiaEnabled>true</tiaEnabled>
     <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
     <tiaUpdateDBStats>true</tiaUpdateDBStats>
+    <tiaUpdateDBTestRunHistory>true</tiaUpdateDBTestRunHistory>
     <tiaCheckLocalChanges>false</tiaCheckLocalChanges>
     <tiaProjectDir>.</tiaProjectDir>
     <tiaClassFilesDirs>/target/classes</tiaClassFilesDirs>
@@ -108,6 +109,7 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
                     <tiaEnabled>${tiaEnabled}</tiaEnabled>
                     <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
                     <tiaUpdateDBStats>${tiaUpdateDBStats}</tiaUpdateDBStats>
+                    <tiaUpdateDBTestRunHistory>${tiaUpdateDBTestRunHistory}</tiaUpdateDBTestRunHistory>
                     <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
                 </systemPropertyVariables>
             </configuration>
@@ -151,6 +153,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
     <tiaEnabled>true</tiaEnabled>
     <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
     <tiaUpdateDBStats>true</tiaUpdateDBStats>
+    <tiaUpdateDBTestRunHistory>true</tiaUpdateDBTestRunHistory>
     <tiaCheckLocalChanges>false</tiaCheckLocalChanges>
     <tiaProjectDir>.</tiaProjectDir>
     <tiaClassFilesDirs>/target/classes</tiaClassFilesDirs>
@@ -210,6 +213,7 @@ For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonat
                     <tiaEnabled>${tiaEnabled}</tiaEnabled>
                     <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
                     <tiaUpdateDBStats>${tiaUpdateDBStats}</tiaUpdateDBStats>
+                    <tiaUpdateDBTestRunHistory>${tiaUpdateDBTestRunHistory}</tiaUpdateDBTestRunHistory>
                     <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
                 </systemPropertyVariables>
                 <properties>
@@ -586,6 +590,7 @@ gradle tia-text-report
 |tiaUpdateDBMapping|updateDBMapping|true, false|When true, Tia will analyse all changes from the VCS since the last stored commit number in the DB, up to the head commit of the workspace. Only tests impacted by the detected changes will be run. The stored mapping in the Tia DB will be updated at the end of the test run (regardless if the test run was successful or failed).|false|false|
 |tiaCheckLocalChanges|checkLocalChanges|true, false|When true, Tia will analyse all the changes in the local workspace and only run the tests impacted by the local changes. **Note:** when updateDBMapping is true, checkLocalChanges will be disabled regardless of it's value. This is done to ensure the Tia DB is only updated based on analysed changes from VCS and not local changes.|false|false|
 |tiaUpdateDBStats|updateDBStats|true, false|When true, Tia will update the statistics for the test run and individual test suites that were executed in the run.|false|false|
+|tiaUpdateDBTestRunHistory|updateDBTestRunHistory|true, false|When true, Tia logs one row to the `tia_test_run_history` table on every Tia-enabled test run, capturing branch, commit, suite counts (ran / ignored / failed), duration, and whether the run also updated the mapping. The HTML report's "History" tab reads from this table.|true|false|
 |tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.||true|
 |tiaClassFilesDirs|classFilesDirs|<string>|Comma seperated list of paths to the folders containing the classes of the source code (not the test source code). Required for Jacoco to analyse the test coverage.||true|
 |tiaSourceFilesDirs|sourceFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the project being analysed.||true|
