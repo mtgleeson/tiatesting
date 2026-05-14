@@ -24,7 +24,7 @@ import static j2html.TagCreator.*;
 final class HtmlLayout {
 
     /** Identifies which top-nav entry is highlighted as the current page. */
-    enum NavKey { HOME, TEST_SUITES, SOURCE_CODE }
+    enum NavKey { HOME, TEST_SUITES, SOURCE_CODE, HISTORY }
 
     /** A single breadcrumb crumb. {@code href == null} marks the current page (rendered as text). */
     static final class Crumb {
@@ -75,7 +75,9 @@ final class HtmlLayout {
                         li(navLink("Test Suites", rootRel + "test-suites/tia-test-suites.html",
                                 active == NavKey.TEST_SUITES)),
                         li(navLinkWithBadge("Source Code", rootRel + "source-code.html",
-                                active == NavKey.SOURCE_CODE, pendingLibraryCount))
+                                active == NavKey.SOURCE_CODE, pendingLibraryCount)),
+                        li(navLink("History", rootRel + "history/tia-history.html",
+                                active == NavKey.HISTORY))
                 )
         );
     }
@@ -171,6 +173,13 @@ final class HtmlLayout {
             + "<path d=\"M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5z\"/>"
             + SVG_ICON_CLOSE;
 
+    /** Bootstrap Icons "clock-history" — Test Run History page. */
+    static final String ICON_HISTORY = SVG_ICON_OPEN
+            + "<path d=\"M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022zm2.004.45a7 7 0 0 0-.985-.299l.219-.976q.576.129 1.126.342zm1.37.71a7 7 0 0 0-.439-.27l.493-.87a8 8 0 0 1 .979.654l-.615.789a7 7 0 0 0-.418-.302zm1.834 1.79a7 7 0 0 0-.653-.796l.724-.69q.406.429.747.91zm.744 1.352a7 7 0 0 0-.214-.468l.893-.45a8 8 0 0 1 .45 1.088l-.95.313a7 7 0 0 0-.179-.483m.53 2.507a7 7 0 0 0-.1-1.025l.985-.17q.1.58.116 1.17zm-.131 1.538q.05-.254.081-.51l.993.123a8 8 0 0 1-.23 1.155l-.964-.267q.069-.247.12-.501m-.952 2.379q.276-.436.486-.908l.914.405q-.24.54-.555 1.038zm-.964 1.205q.183-.183.35-.378l.758.653a8 8 0 0 1-.401.432z\"/>"
+            + "<path d=\"M8 1a7 7 0 1 0 4.95 11.95l.707.707A8.001 8.001 0 1 1 8 0z\"/>"
+            + "<path d=\"M7.5 3a.5.5 0 0 1 .5.5v5.21l3.248 1.856a.5.5 0 0 1-.496.868l-3.5-2A.5.5 0 0 1 7 9V3.5a.5.5 0 0 1 .5-.5\"/>"
+            + SVG_ICON_CLOSE;
+
     /** Page heading (h2) with an inline SVG icon to its left. */
     static H2Tag pageHeading(String iconSvg, String label) {
         return h2(rawHtml(iconSvg), text(label)).withClass("tia-section-heading");
@@ -182,15 +191,62 @@ final class HtmlLayout {
     }
 
     /**
-     * Inline init for simple-datatables. Kept inline (rather than in a separate JS file) because
-     * each page selects a different table id and the config differs minimally — avoiding a JS
-     * file per page keeps the report directory tidy.
+     * Inline script that swaps every {@code <time data-epoch-ms="…">} element's text for the
+     * viewer's local-time rendering via {@code Date.toLocaleString()}. Pages that emit
+     * UTC-stored timestamps (e.g. the History page) include this once so the audience sees
+     * times in their own timezone.
+     *
+     * @return a script tag that runs once on {@code DOMContentLoaded}
+     */
+    static DomContent localTimeRenderingScript() {
+        // Run synchronously at the position the script tag appears (placed before any datatable
+        // init so the localized text becomes the table's authoritative cell content). Explicit
+        // options pin the format to {date, hour, minute, second} in the viewer's locale and
+        // timezone — no milliseconds, no timezone abbreviation. A DOMContentLoaded wrapper
+        // would defer until after simple-datatables has already captured the original cells,
+        // so we deliberately don't use one.
+        return script(rawHtml(
+                "(function () {\n" +
+                "  var opts = { year: 'numeric', month: '2-digit', day: '2-digit',\n" +
+                "               hour: '2-digit', minute: '2-digit', second: '2-digit' };\n" +
+                "  document.querySelectorAll('time[data-epoch-ms]').forEach(function (el) {\n" +
+                "    var ms = Number(el.getAttribute('data-epoch-ms'));\n" +
+                "    if (!isNaN(ms)) { el.textContent = new Date(ms).toLocaleString(undefined, opts); }\n" +
+                "  });\n" +
+                "})();"));
+    }
+
+    /**
+     * Inline init for simple-datatables, default sort by column 0 ascending. Kept inline
+     * (rather than in a separate JS file) because each page selects a different table id and
+     * the config differs minimally — avoiding a JS file per page keeps the report directory
+     * tidy.
+     *
+     * @param tableSelector CSS selector identifying the {@code <table>} element to wire up
+     * @param assetsRel relative path from the page to the bundled-assets directory
+     * @return script tags that load simple-datatables and instantiate it on the given table
      */
     static DomContent simpleDatatablesInit(String tableSelector, String assetsRel) {
+        return simpleDatatablesInit(tableSelector, assetsRel, 0, "asc");
+    }
+
+    /**
+     * Inline init for simple-datatables with caller-controlled initial sort. Same as
+     * {@link #simpleDatatablesInit(String, String)} but lets the page pick which column gets the
+     * default sort and in which direction.
+     *
+     * @param tableSelector CSS selector identifying the {@code <table>} element to wire up
+     * @param assetsRel relative path from the page to the bundled-assets directory
+     * @param sortColumnIndex zero-based column index to sort by initially
+     * @param sortDirection {@code "asc"} or {@code "desc"}
+     * @return script tags that load simple-datatables and instantiate it on the given table
+     */
+    static DomContent simpleDatatablesInit(String tableSelector, String assetsRel,
+                                           int sortColumnIndex, String sortDirection) {
         return joinScripts(
                 script().withSrc(assetsRel + "/js/simple-datatables.min.js"),
                 script(rawHtml("const dataTable = new simpleDatatables.DataTable(\"" + tableSelector + "\", {\n" +
-                        "\tcolumns: [{ select: 0, sort: \"asc\" }],\n" +
+                        "\tcolumns: [{ select: " + sortColumnIndex + ", sort: \"" + sortDirection + "\" }],\n" +
                         "\tsearchable: true,\n" +
                         "\tfixedHeight: true,\n" +
                         "\tpaging: true,\n" +
