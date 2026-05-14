@@ -1303,6 +1303,8 @@ public class H2DataStore implements DataStore {
 
     /**
      * Build the DDL for the {@code tia_test_run_history} table.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the history table
      */
     private String buildCreateTestRunHistoryTableSql() {
         return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_HISTORY + " ("
@@ -1320,6 +1322,8 @@ public class H2DataStore implements DataStore {
     /**
      * Build the DDL for the index on {@code tia_test_run_history.run_timestamp}. Backs the
      * default sort by recency in the report read path ({@code ORDER BY run_timestamp DESC}).
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the timestamp index
      */
     private String buildCreateTestRunHistoryIndexSql() {
         return "CREATE INDEX IF NOT EXISTS " + IDX_TEST_RUN_HISTORY_TS + " ON "
@@ -1331,6 +1335,9 @@ public class H2DataStore implements DataStore {
      * already-populated DB. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS}; called
      * on every load and before each insert so DBs created before this feature gain the
      * table on first contact.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if either DDL statement fails
      */
     private void ensureTestRunHistoryTableExists(Connection connection) throws SQLException {
         Statement statement = connection.createStatement();

@@ -103,7 +103,8 @@ class LibraryImpactEndToEndTest {
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), outcome.getDrainResult());
-        service.persistTestRunData(true, false, "newcommit", testRunResult);
+        // history logging is off in this end-to-end test to keep the focus on library drain cleanup
+        service.persistTestRunData(true, false, false, "newcommit", "main", System.currentTimeMillis(), testRunResult);
 
         assertTrue(dataStore.readPendingLibraryImpactedMethods("com.example:lib").isEmpty());
         TrackedLibrary updated = dataStore.readTrackedLibraries().get("com.example:lib");
@@ -636,7 +637,8 @@ class LibraryImpactEndToEndTest {
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), drainResult);
-        service.persistTestRunData(true, false, "newcommit", testRunResult);
+        // history logging is off in this end-to-end test to keep the focus on library drain cleanup
+        service.persistTestRunData(true, false, false, "newcommit", "main", System.currentTimeMillis(), testRunResult);
     }
 
     private static class StubMetadataReader implements LibraryMetadataReader {

@@ -63,6 +63,14 @@ public final class TestRunHistoryEntry implements Serializable {
      * Factory that derives the entry's id from {@code branch|commit|runTimestampMs} so two
      * persists of the same logical run produce the same row.
      *
+     * @param branch            VCS branch the run targeted
+     * @param commit            VCS HEAD commit / changelist the run targeted
+     * @param runTimestampMs    UTC epoch millis when the run started
+     * @param numSuitesRan      number of test suites that actually executed
+     * @param numSuitesIgnored  number of test suites the test runner saw but did not execute
+     * @param numSuitesFailed   number of test suites with at least one failed test
+     * @param durationMs        total wall-clock duration of the test run, in ms
+     * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
      * @return a new entry with a deterministic id
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
@@ -78,6 +86,9 @@ public final class TestRunHistoryEntry implements Serializable {
      * Compute the deterministic id for a {@code (branch, commit, runTimestampMs)} triple.
      * Exposed package-private for unit tests; otherwise reach it via {@link #create}.
      *
+     * @param branch          VCS branch the run targeted
+     * @param commit          VCS HEAD commit / changelist the run targeted
+     * @param runTimestampMs  UTC epoch millis when the run started
      * @return a UUID v3 (MD5-based) string derived from the triple
      */
     static String deriveId(String branch, String commit, long runTimestampMs) {

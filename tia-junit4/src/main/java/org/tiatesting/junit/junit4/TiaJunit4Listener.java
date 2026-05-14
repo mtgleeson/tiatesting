@@ -51,12 +51,16 @@ public class TiaJunit4Listener extends RunListener {
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
+    private final boolean updateDBTestRunHistory;
+    private final String branch;
     private long testRunStartTime;
     private final TestStats testRunStats = new TestStats();
 
     public TiaJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
+        // updateDBTestRunHistory defaults to TRUE — log unless explicitly switched off.
+        this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
         this.coverageClient = new JacocoClient();
 
@@ -69,7 +73,8 @@ public class TiaJunit4Listener extends RunListener {
         this.runnerTestSuites = new ConcurrentHashMap<>();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
-        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        this.branch = vcsReader.getBranchName();
+        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
         vcsReader.close();
@@ -85,8 +90,8 @@ public class TiaJunit4Listener extends RunListener {
      */
     private boolean isEnabled(){
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        log.info("Tia Junit4Listener: enabled: {}, update mapping: {}, update stats: {}",
-                enabled, updateDBMapping, updateDBStats);
+        log.info("Tia Junit4Listener: enabled: {}, update mapping: {}, update stats: {}, update test run history: {}",
+                enabled, updateDBMapping, updateDBStats, updateDBTestRunHistory);
 
         /*
          * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
@@ -100,8 +105,9 @@ public class TiaJunit4Listener extends RunListener {
             }
         }
 
-        // only enable the Tia JUnit runner is TIa is enabled and we're updating the mapping and/or updating the stats
-        return enabled && (updateDBMapping || updateDBStats);
+        // Enable the listener if Tia is on AND at least one DB write is requested. The history
+        // log defaults on, so this is almost always true when Tia is enabled.
+        return enabled && (updateDBMapping || updateDBStats || updateDBTestRunHistory);
     }
 
     private void setSelectedTests(){
@@ -257,7 +263,7 @@ public class TiaJunit4Listener extends RunListener {
      */
     @Override
     public void testRunFinished(Result result) {
-        if (!enabled || (!updateDBMapping && !updateDBStats)){
+        if (!enabled || (!updateDBMapping && !updateDBStats && !updateDBTestRunHistory)){
             // not enabled, or not updating the DB in any way
             return;
         }
@@ -269,7 +275,8 @@ public class TiaJunit4Listener extends RunListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, drainResult);
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+                headCommit, branch, testRunStartTime, testRunResult);
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.

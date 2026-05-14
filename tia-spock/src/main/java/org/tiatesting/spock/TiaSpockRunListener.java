@@ -29,6 +29,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final JacocoClient coverageClient;
     private final DataStore dataStore;
     private final String headCommit;
+    private final String branch;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
@@ -36,12 +37,25 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Set<String> selectedTests;
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
+    private final boolean updateDBTestRunHistory;
     private final SpecificationUtil specificationUtil;
     private final LibraryImpactDrainResult libraryImpactDrainResult;
     private boolean stopStepRan;
 
+    /**
+     * Construct the Spock run listener.
+     *
+     * @param vcsReader               VCS reader (provides branch + head commit; closed here)
+     * @param dataStore               persistence backend
+     * @param selectedTests           tests Tia selected to run
+     * @param updateDBMapping         persist test-suite ↔ method mapping
+     * @param updateDBStats           persist run stats
+     * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
+     * @param libraryImpactDrainResult drain result from selection (may be {@code null})
+     */
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final boolean updateDBMapping, final boolean updateDBStats,
+                               final boolean updateDBTestRunHistory,
                                final LibraryImpactDrainResult libraryImpactDrainResult){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
@@ -54,8 +68,10 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.selectedTests = selectedTests;
         this.updateDBMapping = updateDBMapping;
         this.updateDBStats = updateDBStats;
+        this.updateDBTestRunHistory = updateDBTestRunHistory;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.headCommit = vcsReader.getHeadCommit();
+        this.branch = vcsReader.getBranchName();
 
         vcsReader.close();
         if (updateDBMapping){
@@ -137,7 +153,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult);
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+                headCommit, branch, testRunStartTime, testRunResult);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){

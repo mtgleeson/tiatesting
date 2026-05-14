@@ -48,6 +48,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final TestRunnerService testRunnerService;
     private final JacocoClient coverageClient;
     private final String headCommit;
+    private final String branch;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private final Set<String> testSuitesFailed;
@@ -63,12 +64,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
+    private final boolean updateDBTestRunHistory;
     private long testRunStartTime;
     private final TestStats testRunStats;
 
     public TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
+        // updateDBTestRunHistory defaults to TRUE — log a row unless explicitly switched off.
+        // The inverse predicate handles a missing system property as "enabled".
+        this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
         this.coverageClient = new JacocoClient();
 
@@ -82,7 +87,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.testRunStats = sharedTestRunData.getTestRunStats();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
-        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), vcsReader.getBranchName()) : null;
+        this.branch = vcsReader.getBranchName();
+        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
         vcsReader.close();
@@ -98,8 +104,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private boolean isEnabled(){
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        log.info("Tia TestExecutionListener: enabled: {}, update mapping: {}, update stats: {}",
-                enabled, updateDBMapping, updateDBStats);
+        log.info("Tia TestExecutionListener: enabled: {}, update mapping: {}, update stats: {}, update test run history: {}",
+                enabled, updateDBMapping, updateDBStats, updateDBTestRunHistory);
 
         /*
          * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
@@ -113,8 +119,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             }
         }
 
-        // only enable the Tia JUnit runner is TIa is enabled and we're updating the mapping and/or updating the stats
-        return enabled && (updateDBMapping || updateDBStats);
+        // Enable the listener if Tia is on AND at least one DB write is requested. The history
+        // log defaults on, so this is almost always true when Tia is enabled.
+        return enabled && (updateDBMapping || updateDBStats || updateDBTestRunHistory);
     }
 
     private void setSelectedTests(){
@@ -282,7 +289,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     @Override
     public void testPlanExecutionFinished(TestPlan testPlan) {
-        if (!enabled || (!updateDBMapping && !updateDBStats)){
+        if (!enabled || (!updateDBMapping && !updateDBStats && !updateDBTestRunHistory)){
             // not enabled, or not updating the DB in any way
             return;
         }
@@ -294,7 +301,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, drainResult);
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, headCommit, testRunResult);
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+                headCommit, branch, testRunStartTime, testRunResult);
     }
 
     private TestStats getStatsForTestRun(){
