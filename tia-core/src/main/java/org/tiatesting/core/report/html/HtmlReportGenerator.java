@@ -25,6 +25,7 @@ public class HtmlReportGenerator implements ReportGenerator {
         generateSourceMethodReport(tiaData);
         generateSourceCodeLandingReport(tiaData);
         generateLibraryReport(tiaData);
+        generateHistoryReport(tiaData);
     }
 
     @Override
@@ -51,6 +52,10 @@ public class HtmlReportGenerator implements ReportGenerator {
 
     private void generateLibraryReport(TiaData tiaData) {
         new HtmlLibraryReport(filenameExt, reportOutputDir).generateReport(tiaData);
+    }
+
+    private void generateHistoryReport(TiaData tiaData) {
+        new HtmlHistoryReport(filenameExt, reportOutputDir).generateReport(tiaData);
     }
 
     /**
