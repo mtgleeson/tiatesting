@@ -24,6 +24,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final boolean tiaEnabled;
     private final boolean tiaUpdateDBMapping;
     private final boolean tiaUpdateDBStats;
+    private final boolean tiaUpdateDBTestRunHistory;
     private final List<String> sourceFilesDirs;
     private final List<String> testFilesDirs;
     private final boolean checkLocalChanges;
@@ -44,6 +45,8 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         if (tiaEnabled){
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
+            // updateDBTestRunHistory defaults to TRUE — log unless explicitly switched off.
+            tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
             String dbFilePath = System.getProperty("tiaDBFilePath");
             dataStore = new H2DataStore(dbFilePath, vcsReader.getBranchName());
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
@@ -74,10 +77,12 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                     this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig);
             ignoredTests = testSelectorResult.getTestsToIgnore();
 
-            if (tiaUpdateDBMapping || tiaUpdateDBStats){
-                // the listener is used for collecting coverage and updating the stored test mapping
+            if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
+                // the listener is used for collecting coverage, updating the stored mapping,
+                // and/or recording the run in the history log
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testSelectorResult.getTestsToRun(),
-                        tiaUpdateDBMapping, tiaUpdateDBStats, testSelectorResult.getLibraryImpactDrainResult());
+                        tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory,
+                        testSelectorResult.getLibraryImpactDrainResult());
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;
@@ -85,6 +90,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         } else {
             tiaUpdateDBMapping = false;
             tiaUpdateDBStats = false;
+            tiaUpdateDBTestRunHistory = false;
             dataStore = null;
             sourceFilesDirs = null;
             testFilesDirs = null;
@@ -92,7 +98,8 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             this.checkLocalChanges = false;
         }
 
-        log.info("Tia: enabled: {}, update mapping: {}, update stats: {}", tiaEnabled, tiaUpdateDBMapping, tiaUpdateDBStats);
+        log.info("Tia: enabled: {}, update mapping: {}, update stats: {}, update test run history: {}",
+                tiaEnabled, tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory);
     }
 
     @Override
@@ -105,7 +112,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void visitSpec(SpecInfo spec){
         if (tiaEnabled){
-            if (tiaUpdateDBMapping || tiaUpdateDBStats){
+            if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
                 runnerTestSuites.add(specificationUtil.getSpecName(spec));
                 spec.addListener(tiaTestingSpockRunListener);
             }
@@ -118,7 +125,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
     @Override
     public void stop(){
-        if (tiaEnabled && (tiaUpdateDBMapping || tiaUpdateDBStats)) {
+        if (tiaEnabled && (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory)) {
             tiaTestingSpockRunListener.finishAllTests(runnerTestSuites, testRunStartTime);
         }
     }
