@@ -46,6 +46,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createTextReportTask();
         createHtmlReportTask();
         createSelectTestsTask();
+        createHistoryTask();
     }
 
     public void createStatusTask() {
@@ -108,6 +109,19 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
                 System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
             }
+        });
+    }
+
+    /**
+     * Task to print the most recent rows from {@code tia_test_run_history} to stdout.
+     * Mirrors {@link #createSelectTestsTask()} in shape but registers a {@link TiaHistoryTask}
+     * subclass instead of an inline {@code doLast} closure so the {@code --last N} CLI flag
+     * can be wired in via Gradle's {@code @Option} machinery. Default cap is 20.
+     */
+    public void createHistoryTask() {
+        project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
+            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setDbFilePathSupplier(this::resolveDbFilePath);
         });
     }
 
