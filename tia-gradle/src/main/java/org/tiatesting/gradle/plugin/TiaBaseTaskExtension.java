@@ -17,6 +17,7 @@ public class TiaBaseTaskExtension {
     private Boolean enabled;
     private Boolean updateDBMapping;
     private Boolean updateDBStats;
+    private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private File reportOutputDir;
 
@@ -119,6 +120,23 @@ public class TiaBaseTaskExtension {
 
     public void setUpdateDBMapping(Boolean updateDBMapping) {
         this.updateDBMapping = updateDBMapping;
+    }
+
+    /**
+     * @return whether this run should log a row to the {@code tia_test_run_history} table.
+     *         Defaults to {@code true}.
+     */
+    @Input
+    public Boolean getUpdateDBTestRunHistory() {
+        return updateDBTestRunHistory;
+    }
+
+    /**
+     * @param updateDBTestRunHistory whether this run should log a row to the
+     *                               {@code tia_test_run_history} table.
+     */
+    public void setUpdateDBTestRunHistory(Boolean updateDBTestRunHistory) {
+        this.updateDBTestRunHistory = updateDBTestRunHistory;
     }
 
     @Input
