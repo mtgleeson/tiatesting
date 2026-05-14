@@ -456,3 +456,22 @@ A subtlety worth knowing: the local-time-rendering script must run **before** th
 The log is gated by `tiaUpdateDBTestRunHistory` (default **true**). Unlike `tiaUpdateDBMapping` / `tiaUpdateDBStats` — which default to `false` because they're CI-only writes — the history log is cheap (one INSERT per run, no mapping mutation) and is only useful when continuously populated, so on-by-default is the sane choice.
 
 The flag participates in the listener's enablement predicate (`enabled && (updateDBMapping || updateDBStats || updateDBTestRunHistory)`). That means a project with Tia enabled but no DB mapping / stats writes still benefits from the history log — handy for local-only setups that just want a record of what they ran.
+
+### Inspecting from the CLI
+
+The HTML report is the rich view, but it requires a full `tia-html-report` invocation and a browser. For a quick look from the terminal there's a dedicated task — Maven goal `history`, Gradle task `tia-history` — that prints the most recent rows from `tia_test_run_history` to stdout as a fixed-width table. Sample output:
+
+```
+Displaying the latest 20 test runs from a total of 47
+
+Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Mapping  Id
+-------------------  ------------  --------  ---  -------  ------  --------  -------  --------
+2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    yes      550e8400
+2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       no       7c3e1a09
+```
+
+The number of rows is configurable: `mvn <plugin>:history -DtiaHistoryLast=N` for Maven, `./gradlew tia-history --last=N` for Gradle. The default is **20**, chosen so the output fits in a terminal screen without scrolling. Values `<= 0` (or non-numeric for `--last`) fail fast with a clear error.
+
+Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
+
+The renderer is `TestRunHistoryConsoleFormatter` in `tia-core`; both the Maven `AbstractHistoryMojo` and the Gradle `TiaHistoryTask` are thin shells over `DataStore.readTestRunHistory()` and the formatter, so the output is identical from either build tool.

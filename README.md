@@ -514,6 +514,48 @@ To see extra debugging including what test suites are being selected broken down
 gradle tia-select-tests --debug
 ```
 
+### Display the test-run history
+Prints the most recent rows from the `tia_test_run_history` table as a table — one row per run,
+with branch, 8-char commit, suite counts, duration, mapping flag, and 8-char id. Defaults to the
+latest 20 runs; use `-DtiaHistoryLast=N` (Maven) or `--last=N` (Gradle) to change the cap.
+
+Example output:
+```
+Displaying the latest 20 test runs from a total of 47
+
+Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Mapping  Id
+-------------------  ------------  --------  ---  -------  ------  --------  -------  --------
+2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    yes      550e8400
+2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       no       7c3e1a09
+```
+
+**Maven, Junit5 and Git**
+```
+tia-junit5-git:history
+tia-junit5-git:history -DtiaHistoryLast=50
+```
+
+**Maven, Junit5 and Perforce**
+```
+tia-junit5-perforce:history
+```
+
+**Maven, Junit4 and Git**
+```
+tia-junit4-git:history
+```
+
+**Maven, Junit4 and Perforce**
+```
+tia-junit4-perforce:history
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-history
+gradle tia-history --last=50
+```
+
 ### Html Report
 Generate a HTML report showing the current information about the Tia DB, the test suites and the source code.
 
