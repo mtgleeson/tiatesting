@@ -2,6 +2,7 @@ package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -157,4 +158,20 @@ public interface DataStore {
      * @param stampVersion the stamp version to delete.
      */
     void deletePendingLibraryImpactedMethods(final String groupArtifact, final String stampVersion);
+
+    /**
+     * Persist a single Tia test-run history entry. Idempotent on the entry's deterministic id —
+     * re-inserts of the same logical run are a no-op (MERGE on primary key).
+     *
+     * @param entry the entry to persist
+     */
+    void persistTestRunHistoryEntry(final TestRunHistoryEntry entry);
+
+    /**
+     * Read all persisted test-run history rows, ordered by {@code runTimestampMs} descending
+     * so the most-recent run is first.
+     *
+     * @return the test-run history list (empty when no rows have been persisted yet)
+     */
+    List<TestRunHistoryEntry> readTestRunHistory();
 }

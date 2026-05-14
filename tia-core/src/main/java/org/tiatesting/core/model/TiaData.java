@@ -46,6 +46,12 @@ public class TiaData implements Serializable {
      */
     private List<PendingLibraryImpactedMethod> pendingLibraryImpactedMethods = new ArrayList<>();
 
+    /**
+     * Log of past Tia test runs on the current branch, ordered most-recent-first.
+     * Populated from the {@code tia_test_run_history} table when {@link TiaData} is loaded.
+     */
+    private List<TestRunHistoryEntry> testRunHistory = new ArrayList<>();
+
     private TestStats testStats = new TestStats();
 
     /**
@@ -119,6 +125,22 @@ public class TiaData implements Serializable {
 
     public void setTestStats(TestStats testStats) {
         this.testStats = testStats;
+    }
+
+    /**
+     * @return the persisted history of past Tia test runs, ordered most-recent-first
+     */
+    public List<TestRunHistoryEntry> getTestRunHistory() {
+        return testRunHistory;
+    }
+
+    /**
+     * Replace the in-memory test-run-history list. Used by the data store on load.
+     *
+     * @param testRunHistory the new history list
+     */
+    public void setTestRunHistory(List<TestRunHistoryEntry> testRunHistory) {
+        this.testRunHistory = testRunHistory;
     }
 
     @Override

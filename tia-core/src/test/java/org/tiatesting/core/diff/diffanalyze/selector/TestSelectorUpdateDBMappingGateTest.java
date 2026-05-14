@@ -12,6 +12,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -361,6 +362,16 @@ class TestSelectorUpdateDBMappingGateTest {
         public void persistPendingLibraryImpactedMethods(PendingLibraryImpactedMethod pending) {
             persistPendingCalls.incrementAndGet();
             delegate.persistPendingLibraryImpactedMethods(pending);
+        }
+
+        @Override
+        public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
+            delegate.persistTestRunHistoryEntry(entry);
+        }
+
+        @Override
+        public List<TestRunHistoryEntry> readTestRunHistory() {
+            return delegate.readTestRunHistory();
         }
     }
 }
