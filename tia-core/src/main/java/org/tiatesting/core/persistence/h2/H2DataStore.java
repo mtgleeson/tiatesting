@@ -1398,6 +1398,14 @@ public class H2DataStore implements DataStore {
      * .close()} calls become near-free and the per-method open/close pattern in this class no
      * longer triggers a full flush per call.
      *
+     * <p>{@code DB_CLOSE_ON_EXIT=FALSE} is the necessary companion: it stops H2 from registering
+     * its JVM shutdown hook to close the database on exit. The shutdown hook is unsafe inside
+     * Maven plugins because Plexus tears down the plugin's {@link org.codehaus.plexus.classworlds.realm.ClassRealm}
+     * before the hook fires, so the hook's call to {@code DbException.get(...)} fails with a
+     * {@code NoClassDefFoundError: org/h2/api/ErrorCode}. Writes are still durable because every
+     * persist method commits its transaction explicitly via {@code connection.commit()}, which
+     * forces the MVStore to flush the changed pages.
+     *
      * @return the H2 JDBC URL for this {@code (dataStorePath, dbNameSuffix)} pair
      */
     private String buildJdbcUrl(){
@@ -1406,6 +1414,7 @@ public class H2DataStore implements DataStore {
         return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix
                 + ";PAGE_SIZE=" + pageSizeByte
                 + ";CACHE_SIZE=" + cacheSizeKB
-                + ";DB_CLOSE_DELAY=-1";
+                + ";DB_CLOSE_DELAY=-1"
+                + ";DB_CLOSE_ON_EXIT=FALSE";
     }
 }
