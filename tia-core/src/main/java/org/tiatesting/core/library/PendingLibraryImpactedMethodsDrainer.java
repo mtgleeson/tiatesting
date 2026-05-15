@@ -43,10 +43,13 @@ public class PendingLibraryImpactedMethodsDrainer {
      * @param dataStore the persistence layer to read pending batches and tracked libraries.
      * @param libraryConfig the library impact analysis configuration (provides the metadata reader).
      * @param tiaData the current TIA data with test-to-source mappings for resolving tests.
+     * @param methodToTestSuiteIndex shared lazy reverse-index from source method id → test suites
+     *                               (built once per run and shared with {@code TestSelector}).
      * @return a {@link DrainOutcome} containing the tests to add and the drain result.
      */
     public DrainOutcome drainPendingMethods(DataStore dataStore, LibraryImpactAnalysisConfig libraryConfig,
-                                            TiaData tiaData) {
+                                            TiaData tiaData,
+                                            MethodToTestSuiteIndex methodToTestSuiteIndex) {
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         Set<String> testsFromDrain = new LinkedHashSet<>();
 
@@ -58,7 +61,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         Map<String, ResolvedSourceProjectLibrary> resolvedLibraries =
                 resolveAllLibrariesOnSourceProject(libraryConfig, trackedLibraries);
 
-        Map<Integer, Set<String>> methodToTestSuiteMap = buildMethodToTestSuiteMap(tiaData);
+        Map<Integer, Set<String>> methodToTestSuiteMap = methodToTestSuiteIndex.getMap();
 
         for (TrackedLibrary library : trackedLibraries.values()) {
             drainPendingMethodsForLibrary(dataStore, library, resolvedLibraries,
@@ -292,30 +295,6 @@ public class PendingLibraryImpactedMethodsDrainer {
             }
         }
         return tests;
-    }
-
-    /**
-     * Build a reverse lookup from source method ID to the set of test suites that exercise
-     * that method, derived from the current {@code TiaData.testSuitesTracked}.
-     */
-    private Map<Integer, Set<String>> buildMethodToTestSuiteMap(TiaData tiaData) {
-        Map<Integer, Set<String>> map = new HashMap<>();
-
-        if (tiaData.getTestSuitesTracked() == null) {
-            return map;
-        }
-
-        for (Map.Entry<String, TestSuiteTracker> entry : tiaData.getTestSuitesTracked().entrySet()) {
-            String testSuiteName = entry.getKey();
-            TestSuiteTracker tracker = entry.getValue();
-            for (ClassImpactTracker classImpact : tracker.getClassesImpacted()) {
-                for (Integer methodId : classImpact.getMethodsImpacted()) {
-                    map.computeIfAbsent(methodId, k -> new LinkedHashSet<>()).add(testSuiteName);
-                }
-            }
-        }
-
-        return map;
     }
 
     /**
