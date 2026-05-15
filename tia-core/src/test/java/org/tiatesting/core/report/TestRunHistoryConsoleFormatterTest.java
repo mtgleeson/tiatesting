@@ -59,8 +59,8 @@ class TestRunHistoryConsoleFormatterTest {
                 Collections.singletonList(entry), 20, LF);
 
         // then
-        assertTrue(output.startsWith("Displaying the latest 20 test runs from a total of 1" + LF),
-                "header line should reflect limit and total. Output: " + output);
+        assertTrue(output.startsWith("Displaying the latest 1 test runs from a total of 1" + LF),
+                "header should report rows-shown (not the configured cap) when total < limit. Output: " + output);
         String[] lines = output.split(LF, -1);
         // header, blank, column-header, separator, data row, trailing-empty-from-final-LF
         assertEquals(6, lines.length, "Expected 6 lines (incl. trailing empty), got: " + lines.length);
@@ -71,7 +71,8 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * 5 entries with limit 20 should render all 5 — limit is a cap, not a target.
+     * 5 entries with limit 20 should render all 5 — limit is a cap, not a target. The header
+     * must report 5 (the count being shown), not the configured cap of 20.
      */
     @Test
     void fewerEntriesThanLimit_rendersAll() {
@@ -82,7 +83,8 @@ class TestRunHistoryConsoleFormatterTest {
         String output = TestRunHistoryConsoleFormatter.formatHistory(entries, 20, LF);
 
         // then
-        assertTrue(output.contains("from a total of 5"), output);
+        assertTrue(output.contains("Displaying the latest 5 test runs from a total of 5"),
+                "header should report rows-shown (not the configured cap). Output:\n" + output);
         assertEquals(5, countDataRows(output));
     }
 
