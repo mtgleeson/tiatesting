@@ -92,7 +92,7 @@ class LibraryImpactEndToEndTest {
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, drainConfig, tiaData);
+                drainer.drainPendingMethods(dataStore, drainConfig, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertTrue(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().contains("com.example.TestA"));
@@ -147,7 +147,7 @@ class LibraryImpactEndToEndTest {
                 Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
         assertEquals("1.0.0", outcome.getDrainResult().getDrainedBatchKeys().get(0).getStampVersion());
@@ -213,7 +213,7 @@ class LibraryImpactEndToEndTest {
                 Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertTrue(outcome.getDrainResult().hasDrainedBatches());
         assertFalse(outcome.getTestsToAdd().isEmpty());
@@ -263,7 +263,7 @@ class LibraryImpactEndToEndTest {
                 Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().isEmpty());
@@ -320,7 +320,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN: JAR hasn't changed, so drain should be blocked
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().isEmpty());
@@ -364,7 +364,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN: resolved version matches baseline → should NOT drain
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().isEmpty());
@@ -462,7 +462,7 @@ class LibraryImpactEndToEndTest {
                 Arrays.asList("com.example:a", "com.example:b"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertEquals(2, outcome.getDrainResult().getDrainedBatchKeys().size());
 
@@ -512,7 +512,7 @@ class LibraryImpactEndToEndTest {
                 Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         // Simulate cross-JVM transport via serialization
         File serFile = new File(tempDir, "drain-result.ser");
@@ -583,7 +583,7 @@ class LibraryImpactEndToEndTest {
         // DRAIN the remaining library
         TiaData tiaData = dataStore.getTiaData(true);
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config, tiaData, new MethodToTestSuiteIndex(tiaData));
 
         assertTrue(outcome.getDrainResult().hasDrainedBatches());
 
