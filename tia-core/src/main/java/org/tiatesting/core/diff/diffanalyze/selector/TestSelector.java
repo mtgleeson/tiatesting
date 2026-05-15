@@ -9,7 +9,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
-import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.MethodToTestSuiteIndex;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -82,11 +82,16 @@ public class TestSelector {
                     0L, Collections.emptySet(), 0L, Collections.emptyMap());
         }
 
+        // Shared lazy reverse index from method id → test suites. Built at most once per
+        // run and consumed by both the source-impact path (selectTestsToRun) and the library
+        // drain path (drainPendingLibraryMethodsIfConfigured); cheap if neither path needs it.
+        MethodToTestSuiteIndex methodToTestSuiteIndex = new MethodToTestSuiteIndex(tiaData);
+
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData, libraryConfig, updateDBMapping);
+                tiaData, libraryConfig, updateDBMapping, methodToTestSuiteIndex);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, checkLocalChanges, tiaData, testsToRun);
+                libraryConfig, checkLocalChanges, tiaData, testsToRun, methodToTestSuiteIndex);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
@@ -246,7 +251,8 @@ public class TestSelector {
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                          final TiaData tiaData, final LibraryImpactAnalysisConfig libraryConfig,
-                                         final boolean updateDBMapping){
+                                         final boolean updateDBMapping,
+                                         final MethodToTestSuiteIndex methodToTestSuiteIndex){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -272,7 +278,7 @@ public class TestSelector {
 
         // Find all test suites that execute the source code methods that have changed
         Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, tiaData, sourceFilesDirs);
-        Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods);
+        Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods, methodToTestSuiteIndex);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
         addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
@@ -399,12 +405,14 @@ public class TestSelector {
     /**
      * Build the list of test suites that need to be run based on the tracked methods that have been changed.
      *
-     * @param tiaData
-     * @param methodsImpacted
+     * @param tiaData                 the loaded Tia data (used to log impacted-method names)
+     * @param methodsImpacted         the set of method ids that the diff implicates
+     * @param methodToTestSuiteIndex  shared reverse-index from method id → test suites
      * @return the tests that should be executed based on the methods changed in the source code.
      */
-    private Set<String> findTestSuitesForImpactedMethods(TiaData tiaData, Set<Integer> methodsImpacted){
-        Map<Integer, Set<String>> methodTestSuites = buildMethodToTestSuiteMap(tiaData);
+    private Set<String> findTestSuitesForImpactedMethods(TiaData tiaData, Set<Integer> methodsImpacted,
+                                                         MethodToTestSuiteIndex methodToTestSuiteIndex){
+        Map<Integer, Set<String>> methodTestSuites = methodToTestSuiteIndex.getMap();
 
         Set<String> testsToRun = new HashSet<>();
         methodsImpacted.forEach( ( methodImpacted ) -> {
@@ -447,29 +455,6 @@ public class TestSelector {
         });
 
         return testsToIgnore;
-    }
-
-    /**
-     * Convert to a map containing a list of test suites for each impacted method.
-     * Use this for convenience lookup when finding the list of test suites to ignore for previously tracked methods
-     * that have been changed in the diff.
-     *
-     * @param tiaData keyed by method name, value is a list of test suites
-     * @return
-     */
-    private Map<Integer, Set<String>> buildMethodToTestSuiteMap(TiaData tiaData){
-        Map<Integer, Set<String>> methodTestSuites = new HashMap<>();
-
-        tiaData.getTestSuitesTracked().forEach((testSuiteName, testSuiteTracker) -> {
-            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
-                for (Integer methodTrackedHashCode : classImpacted.getMethodsImpacted()) {
-                    methodTestSuites.computeIfAbsent(methodTrackedHashCode, k -> new HashSet<>());
-                    methodTestSuites.get(methodTrackedHashCode).add(testSuiteName);
-                }
-            }
-        });
-
-        return methodTestSuites;
     }
 
     /**
@@ -643,7 +628,8 @@ public class TestSelector {
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
             LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
-            TiaData tiaData, Set<String> testsToRun) {
+            TiaData tiaData, Set<String> testsToRun,
+            MethodToTestSuiteIndex methodToTestSuiteIndex) {
 
         if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
@@ -651,7 +637,7 @@ public class TestSelector {
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, libraryConfig, tiaData);
+                drainer.drainPendingMethods(dataStore, libraryConfig, tiaData, methodToTestSuiteIndex);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
             log.info("Selected tests to run from pending library changes: {}", outcome.getTestsToAdd());
