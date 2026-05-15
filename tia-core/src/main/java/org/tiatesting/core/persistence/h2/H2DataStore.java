@@ -1387,10 +1387,25 @@ public class H2DataStore implements DataStore {
         return ds;
     }
 
+    /**
+     * Build the embedded-mode H2 JDBC URL for this datastore.
+     *
+     * <p>The {@code DB_CLOSE_DELAY=-1} flag keeps the underlying database open for the lifetime
+     * of the JVM, instead of H2's embedded-mode default of closing the entire database whenever
+     * the last open connection is closed. Closing the database forces an {@code MVStore.commit()}
+     * which flushes dirty pages — including the temp-result pages H2 writes to spill {@code ORDER
+     * BY} sorts that aren't covered by an index. With this flag, individual {@code Connection
+     * .close()} calls become near-free and the per-method open/close pattern in this class no
+     * longer triggers a full flush per call.
+     *
+     * @return the H2 JDBC URL for this {@code (dataStorePath, dbNameSuffix)} pair
+     */
     private String buildJdbcUrl(){
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
         long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
-        //return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE= " + cacheSizeKB + ";AUTO_SERVER=TRUE"; // using AUTO_SERVER adds about 15secs when it connects to the DB in the JVM for the first time, not sure if its needed?
-        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE=" + cacheSizeKB;
+        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix
+                + ";PAGE_SIZE=" + pageSizeByte
+                + ";CACHE_SIZE=" + cacheSizeKB
+                + ";DB_CLOSE_DELAY=-1";
     }
 }
