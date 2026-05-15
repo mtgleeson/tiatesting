@@ -77,8 +77,8 @@ public final class TestRunHistoryConsoleFormatter {
         int[] widths = computeColumnWidths(rows);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("Displaying the latest ").append(effectiveLimit)
-                .append(" test runs from a total of ").append(total).append(lineSep);
+        sb.append("Displaying the latest ").append(rowCount)
+                .append(" test runs from a total of ").append(total).append(".").append(lineSep);
         sb.append(lineSep);
 
         appendRow(sb, HEADERS, widths, lineSep);
