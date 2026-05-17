@@ -15,9 +15,13 @@ public abstract class AbstractHtmlReportMojo extends AbstractReportMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-        TiaData tiaData = dataStore.getTiaData(true);
-        ReportGenerator reportGenerator = new HtmlReportGenerator(vcsReader.getBranchName(), getTiaReportOutputDir());
-        reportGenerator.generateReports(tiaData);
+        try {
+            TiaData tiaData = dataStore.getTiaData(true);
+            ReportGenerator reportGenerator = new HtmlReportGenerator(vcsReader.getBranchName(), getTiaReportOutputDir());
+            reportGenerator.generateReports(tiaData);
+        } finally {
+            dataStore.close();
+        }
     }
 
 }

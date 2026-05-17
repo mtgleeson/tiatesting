@@ -85,8 +85,12 @@ public class TiaHistoryTask extends DefaultTask {
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
         DataStore dataStore = new H2DataStore(dbFilePathSupplier.get(), vcsReader.getBranchName());
-        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
-        System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
-                history, limit, System.lineSeparator()));
+        try {
+            List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+            System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
+                    history, limit, System.lineSeparator()));
+        } finally {
+            dataStore.close();
+        }
     }
 }
