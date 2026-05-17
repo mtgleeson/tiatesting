@@ -89,19 +89,27 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private TestSelectorResult getTestSelectorResult() {
         VCSReader gitReader = getVCSReader();
         DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName());
-        long startQueryTime = System.currentTimeMillis();
+        try {
+            long startQueryTime = System.currentTimeMillis();
 
-        List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-        StringUtil.sanitizeInputArray(sourceFilesDirs);
-        List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-        StringUtil.sanitizeInputArray(testFilesDirs);
+            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(sourceFilesDirs);
+            List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(testFilesDirs);
 
-        TestSelector testSelector = new TestSelector(dataStore);
-        LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
-        TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                testFilesDirs, isCheckLocalChanges(), libraryConfig, isTiaUpdateDBMapping());
-        getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
-        return testSelectorResult;
+            TestSelector testSelector = new TestSelector(dataStore);
+            LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, isTiaUpdateDBMapping());
+            getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
+            return testSelectorResult;
+        } finally {
+            // Release the H2 MVStore file lock before surefire forks the test JVM. With
+            // DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest of
+            // the build, and the test JVM's H2DataStore would fail with "Database may be
+            // already in use".
+            dataStore.close();
+        }
     }
 
     private void writeIgnoredTestsToFile(Set<String> testsToIgnore){
