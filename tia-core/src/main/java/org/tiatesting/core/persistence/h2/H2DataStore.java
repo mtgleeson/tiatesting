@@ -1376,6 +1376,32 @@ public class H2DataStore implements DataStore {
         statement.executeUpdate(buildCreateSourceClassTestSuiteIndexSql());
     }
 
+    /**
+     * Force-close the embedded H2 database so the underlying {@code .mv.db} file lock is
+     * released. Required when running inside a Maven plugin's JVM that will later fork a
+     * surefire/test JVM: without an explicit close, {@code DB_CLOSE_DELAY=-1} keeps the
+     * database open in the Maven JVM and the forked test JVM cannot open the same file —
+     * H2 reports {@code "Database may be already in use"}.
+     *
+     * <p>Issues {@code SHUTDOWN IMMEDIATELY} via a short-lived connection. Failures during
+     * close are swallowed (logged at debug) so cleanup errors never mask the real exception
+     * a calling {@code try}/{@code finally} block is unwinding.
+     */
+    @Override
+    public void close() {
+        // try-with-resources on Connection + Statement: SHUTDOWN IMMEDIATELY tears down the
+        // session, so the implicit close() calls typically throw "connection is closed" —
+        // that's expected and the outer catch swallows it. Failures during close are logged
+        // at debug so cleanup errors never mask the real exception a calling try/finally is
+        // unwinding.
+        try (Connection connection = getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("SHUTDOWN IMMEDIATELY");
+        } catch (Throwable t) {
+            log.debug("H2DataStore.close ignoring shutdown exception for {}: {}", jdbcURL, t.toString());
+        }
+    }
+
     private Connection getConnection(){
         Connection connection;
         try {
@@ -1411,8 +1437,8 @@ public class H2DataStore implements DataStore {
      *
      * <p>{@code DB_CLOSE_ON_EXIT=FALSE} is the necessary companion: it stops H2 from registering
      * its JVM shutdown hook to close the database on exit. The shutdown hook is unsafe inside
-     * Maven plugins because Plexus tears down the plugin's {@link org.codehaus.plexus.classworlds.realm.ClassRealm}
-     * before the hook fires, so the hook's call to {@code DbException.get(...)} fails with a
+     * Maven plugins because Plexus tears down the plugin's {@code ClassRealm} before the hook
+     * fires, so the hook's call to {@code DbException.get(...)} fails with a
      * {@code NoClassDefFoundError: org/h2/api/ErrorCode}. Writes are still durable because every
      * persist method commits its transaction explicitly via {@code connection.commit()}, which
      * forces the MVStore to flush the changed pages.

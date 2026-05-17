@@ -42,8 +42,12 @@ public abstract class AbstractHistoryMojo extends AbstractTiaMojo {
         }
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
-        System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
-                history, tiaHistoryLast, System.lineSeparator()));
+        try {
+            List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+            System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
+                    history, tiaHistoryLast, System.lineSeparator()));
+        } finally {
+            dataStore.close();
+        }
     }
 }

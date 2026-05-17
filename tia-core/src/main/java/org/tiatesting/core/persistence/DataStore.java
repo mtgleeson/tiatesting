@@ -11,7 +11,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public interface DataStore {
+public interface DataStore extends AutoCloseable {
+
+    /**
+     * Release any process-level resources the data store holds open — in particular the H2
+     * MVStore file lock that {@code DB_CLOSE_DELAY=-1} keeps in place for the lifetime of the
+     * JVM. Maven and Gradle plugin task code <strong>must</strong> call {@code close()} when
+     * done with a data store so the file lock is released before a forked test JVM (e.g.
+     * surefire) tries to open the same database file; the test JVM otherwise fails with
+     * {@code "Database may be already in use"}.
+     *
+     * <p>Overrides the {@link AutoCloseable#close()} declaration to drop the
+     * {@code throws Exception} so callers can use plain {@code try}/{@code finally} without
+     * a checked-exception wrapper. The default implementation here is a no-op so non-H2
+     * data stores ({@link SerializedDataStore}) don't need to opt in.
+     */
+    @Override
+    default void close() { }
 
     /**
      * Retrieve the full persisted Tia data.

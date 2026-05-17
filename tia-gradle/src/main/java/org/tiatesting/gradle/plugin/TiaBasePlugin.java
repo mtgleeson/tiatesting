@@ -52,8 +52,12 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createStatusTask() {
         project.task("tia-status").doLast(task -> {
             final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            StatusReportGenerator reportGenerator = new StatusReportGenerator();
-            System.out.println(reportGenerator.generateSummaryReport(dataStore));
+            try {
+                StatusReportGenerator reportGenerator = new StatusReportGenerator();
+                System.out.println(reportGenerator.generateSummaryReport(dataStore));
+            } finally {
+                dataStore.close();
+            }
         });
     }
 
@@ -61,11 +65,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
             final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            TiaData tiaData = dataStore.getTiaData(true);
-            File reportOutputDir = getReportOutputDir();
-            ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
-            reportGenerator.generateReports(tiaData);
-            System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+            try {
+                TiaData tiaData = dataStore.getTiaData(true);
+                File reportOutputDir = getReportOutputDir();
+                ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
+                reportGenerator.generateReports(tiaData);
+                System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+            } finally {
+                dataStore.close();
+            }
         });
     }
 
@@ -73,11 +81,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
             final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            TiaData tiaData = dataStore.getTiaData(true);
-            File reportOutputDir = getReportOutputDir();
-            ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
-            reportGenerator.generateReports(tiaData);
-            System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
+            try {
+                TiaData tiaData = dataStore.getTiaData(true);
+                File reportOutputDir = getReportOutputDir();
+                ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
+                reportGenerator.generateReports(tiaData);
+                System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
+            } finally {
+                dataStore.close();
+            }
         });
     }
 
@@ -91,23 +103,27 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
             final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
-            TestSelector testSelector = new TestSelector(dataStore);
-            LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
-            TestSelectorResult result = testSelector.selectTestsToIgnore(getVCSReader(), sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
-            Set<String> testsToRun = result.getTestsToRun();
-            String lineSep = System.lineSeparator();
+            try {
+                List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
+                StringUtil.sanitizeInputArray(sourceFilesDirs);
+                List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
+                StringUtil.sanitizeInputArray(testFilesDirs);
+                TestSelector testSelector = new TestSelector(dataStore);
+                LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+                TestSelectorResult result = testSelector.selectTestsToIgnore(getVCSReader(), sourceFilesDirs,
+                        testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
+                Set<String> testsToRun = result.getTestsToRun();
+                String lineSep = System.lineSeparator();
 
-            System.out.println("Selected tests to run: ");
-            if (testsToRun.isEmpty()){
-                System.out.println("none");
-            } else {
-                System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
-                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
+                System.out.println("Selected tests to run: ");
+                if (testsToRun.isEmpty()){
+                    System.out.println("none");
+                } else {
+                    System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
+                    System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
+                }
+            } finally {
+                dataStore.close();
             }
         });
     }

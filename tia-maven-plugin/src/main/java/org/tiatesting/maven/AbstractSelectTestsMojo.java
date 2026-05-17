@@ -25,23 +25,27 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         System.out.println("Displaying the tests selected by Tia:");
         final VCSReader vcsReader = getVCSReader();
         final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-        List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-        StringUtil.sanitizeInputArray(sourceFilesDirs);
-        List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-        StringUtil.sanitizeInputArray(testFilesDirs);
+        try {
+            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(sourceFilesDirs);
+            List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(testFilesDirs);
 
-        TestSelector testSelector = new TestSelector(dataStore);
-        LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
-        TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
-        Set<String> testsToRun = result.getTestsToRun();
-        System.out.println("Selected tests to run: ");
+            TestSelector testSelector = new TestSelector(dataStore);
+            LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
+            Set<String> testsToRun = result.getTestsToRun();
+            System.out.println("Selected tests to run: ");
 
-        if (testsToRun.isEmpty()){
-            System.out.println("none");
-        } else {
-            System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
-            System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
+            if (testsToRun.isEmpty()){
+                System.out.println("none");
+            } else {
+                System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
+                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
+            }
+        } finally {
+            dataStore.close();
         }
     }
 
