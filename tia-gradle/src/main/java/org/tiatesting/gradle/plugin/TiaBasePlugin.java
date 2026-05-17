@@ -51,12 +51,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public void createStatusTask() {
         project.task("tia-status").doLast(task -> {
-            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            try {
+            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
                 StatusReportGenerator reportGenerator = new StatusReportGenerator();
                 System.out.println(reportGenerator.generateSummaryReport(dataStore));
-            } finally {
-                dataStore.close();
             }
         });
     }
@@ -64,15 +61,12 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            try {
+            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
                 reportGenerator.generateReports(tiaData);
                 System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
-            } finally {
-                dataStore.close();
             }
         });
     }
@@ -80,15 +74,12 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            try {
+            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
                 reportGenerator.generateReports(tiaData);
                 System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
-            } finally {
-                dataStore.close();
             }
         });
     }
@@ -102,8 +93,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
-            final DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName());
-            try {
+            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
                 List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
                 StringUtil.sanitizeInputArray(sourceFilesDirs);
                 List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -122,8 +112,6 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
                     System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
                 }
-            } finally {
-                dataStore.close();
             }
         });
     }

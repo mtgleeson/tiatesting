@@ -84,13 +84,10 @@ public class TiaHistoryTask extends DefaultTask {
             throw new GradleException("--last must be a positive integer; received " + limit);
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
-        DataStore dataStore = new H2DataStore(dbFilePathSupplier.get(), vcsReader.getBranchName());
-        try {
+        try (DataStore dataStore = new H2DataStore(dbFilePathSupplier.get(), vcsReader.getBranchName())) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, limit, System.lineSeparator()));
-        } finally {
-            dataStore.close();
         }
     }
 }
