@@ -202,7 +202,7 @@ public final class GenerateLargeTiaDb {
                 + classIdx + ".java";
     }
 
-    /** Test-suite class name. Stored once per row in tia_test_suite (1K rows) — minor size impact, but kept consistent in style. */
+    /** Test-suite class name. Stored once per row in tia_test_suite (1K rows) - minor size impact, but kept consistent in style. */
     private static String testSuiteName(int suiteIdx) {
         int pkg = suiteIdx % 32;
         return DEEP_PKG_PREFIX.replace('/', '.') + "tests.subpkg" + pkg

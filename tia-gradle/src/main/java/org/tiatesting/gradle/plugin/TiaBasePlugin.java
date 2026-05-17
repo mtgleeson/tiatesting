@@ -167,7 +167,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * {@code tia-html-report}) construct H2DataStore directly in the Gradle daemon. The daemon's
      * {@code user.dir} is set when the daemon process first starts and does not change between
      * builds, so a relative path like {@code "."} in {@code dbFilePath} resolves against the
-     * daemon's cwd — not the project dir. The forked test JVM doesn't hit this because it gets a
+     * daemon's cwd - not the project dir. The forked test JVM doesn't hit this because it gets a
      * per-build {@code workingDir = projectDir}. Resolve relative paths against {@code projectDir}
      * so daemon-side tasks find the same DB the test task wrote.
      *
@@ -256,7 +256,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             } else if (segments.length == 2) {
                 coordinates.add(entry);
             } else {
-                LOGGER.warn("Invalid tiaSourceLibs entry '{}' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.", entry);
+                LOGGER.warn("Invalid tiaSourceLibs entry '{}' - expected groupId:artifactId or groupId:artifactId:projectDir, skipping.", entry);
             }
         }
 
@@ -271,7 +271,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         try {
             return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            LOGGER.warn("Invalid libraryVersionPolicy value '{}' — expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.", raw);
+            LOGGER.warn("Invalid libraryVersionPolicy value '{}' - expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.", raw);
             return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
         }
     }

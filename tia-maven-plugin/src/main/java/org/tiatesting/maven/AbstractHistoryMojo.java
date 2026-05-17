@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * Mojo used to print the most recent rows from the {@code tia_test_run_history} table to stdout.
- * Mirrors {@link AbstractSelectTestsMojo} — concrete subclasses live in each {@code *-maven-plugin}
+ * Mirrors {@link AbstractSelectTestsMojo} - concrete subclasses live in each {@code *-maven-plugin}
  * module and only need to supply a {@link VCSReader} via {@link #getVCSReader()}.
  *
  * <p>Invoked as {@code mvn <plugin>:history}. The number of rows printed is configurable via

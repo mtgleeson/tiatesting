@@ -33,12 +33,12 @@ import java.util.Set;
  *
  * <ol>
  *     <li><b>Same project</b>: {@code sourceProjectDir} is blank or equals the current project's
- *         directory — resolved against the current project's own {@code runtimeClasspath}.</li>
+ *         directory - resolved against the current project's own {@code runtimeClasspath}.</li>
  *     <li><b>Sibling subproject</b>: {@code sourceProjectDir} matches the directory of another
- *         project in the same Gradle build — resolved against that subproject's
+ *         project in the same Gradle build - resolved against that subproject's
  *         {@code runtimeClasspath}.</li>
  *     <li><b>External Gradle build</b>: {@code sourceProjectDir} is a separate Gradle project on
- *         disk — resolved via the Gradle Tooling API ({@link EclipseProject} model).</li>
+ *         disk - resolved via the Gradle Tooling API ({@link EclipseProject} model).</li>
  * </ol>
  *
  * This resolver only supports Gradle source projects. For Maven source projects use
@@ -110,7 +110,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         File externalDir = new File(sourceProjectDir);
         if (!externalDir.isDirectory()){
             log.warn("sourceProjectDir '" + sourceProjectDir
-                    + "' does not exist or is not a directory — skipping sourceLibs resolution.");
+                    + "' does not exist or is not a directory - skipping sourceLibs resolution.");
             return Collections.emptyList();
         }
         log.debug("Resolving sourceLibs against external Gradle build at {}", externalDir.getAbsolutePath());
@@ -158,7 +158,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         Configuration conf = gradleProject.getConfigurations().findByName("runtimeClasspath");
         if (conf == null){
             log.warn("No runtimeClasspath configuration on " + gradleProject.getPath()
-                    + " — skipping sourceLibs resolution.");
+                    + " - skipping sourceLibs resolution.");
             return Collections.emptyList();
         }
 
@@ -170,7 +170,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
             String[] parts = coord.split(":");
             if (parts.length != 2){
                 log.warn("Invalid sourceLibs coordinate '" + coord
-                        + "' — expected groupId:artifactId, skipping.");
+                        + "' - expected groupId:artifactId, skipping.");
                 continue;
             }
             String group = parts[0].trim();
@@ -217,7 +217,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
             return matchExternalClasspath(eclipse, coordinates, sourceProjectDir);
         } catch (Exception e){
             log.warn("Failed to load Gradle source project at " + sourceProjectDir.getAbsolutePath()
-                    + " — skipping sourceLibs resolution: " + e.getMessage());
+                    + " - skipping sourceLibs resolution: " + e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -238,7 +238,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
         }
         if (!looksLikeGradleProjectRoot(libDir)) {
             log.warn("Library project directory '" + libraryProjectDir + "' has no build.gradle / "
-                    + "build.gradle.kts / settings.gradle — expected the library's project root, "
+                    + "build.gradle.kts / settings.gradle - expected the library's project root, "
                     + "not a source directory. Skipping library build metadata read.");
             return result;
         }
@@ -267,7 +267,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
 
     /**
      * Read library build metadata from an external Gradle build via the Tooling API. Uses the
-     * {@link ProjectPublications} model — the library's own classpath would never list itself, so
+     * {@link ProjectPublications} model - the library's own classpath would never list itself, so
      * we look up its declared publication ({@code maven-publish} / {@code ivy-publish}) for the
      * group:name match and read the version from there.
      */
@@ -326,7 +326,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
 
         File externalDir = new File(sourceProjectDir);
         if (!externalDir.isDirectory()) {
-            log.warn("sourceProjectDir '" + sourceProjectDir + "' does not exist — skipping.");
+            log.warn("sourceProjectDir '" + sourceProjectDir + "' does not exist - skipping.");
             return result;
         }
 

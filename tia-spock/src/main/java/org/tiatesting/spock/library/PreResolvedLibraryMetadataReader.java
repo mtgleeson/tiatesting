@@ -13,13 +13,13 @@ import java.util.Map;
 /**
  * {@link LibraryMetadataReader} backed by metadata pre-resolved on the plugin side and forwarded
  * to the test JVM. Consumers (Spock global extension and others) build this reader from a parsed
- * representation of the {@code tiaLibrariesMetadata} system property — see
+ * representation of the {@code tiaLibrariesMetadata} system property - see
  * {@link LibraryMetadataSystemProperties}.
  *
  * <p>The reader is a pure lookup table: {@link #readLibraryBuildMetadata},
  * {@link #resolveLibrariesInSourceProject}, and {@link #readSourceDirectories} all return the
  * stored values for the requested coordinates and ignore the {@code libraryProjectDir} /
- * {@code sourceProjectDir} arguments — those are inputs to the plugin-side resolver, not the
+ * {@code sourceProjectDir} arguments - those are inputs to the plugin-side resolver, not the
  * test-JVM-side reader. Missing data produces an empty result, matching the contract of the
  * Maven/Gradle build-system-specific readers.
  */
@@ -67,7 +67,7 @@ public class PreResolvedLibraryMetadataReader implements LibraryMetadataReader {
                 continue;
             }
             // Match LibraryJarResolver: only report when at least the resolved version is known.
-            // A null jarPath is acceptable — the consumer (drainer / hash compare) handles it.
+            // A null jarPath is acceptable - the consumer (drainer / hash compare) handles it.
             if (isNonEmpty(entry.getResolvedVersion())) {
                 String jarPath = isNonEmpty(entry.getResolvedJar()) ? entry.getResolvedJar() : null;
                 result.add(new ResolvedSourceProjectLibrary(coord, entry.getResolvedVersion(), jarPath));

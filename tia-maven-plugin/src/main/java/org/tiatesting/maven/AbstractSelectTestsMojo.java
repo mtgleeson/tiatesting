@@ -15,7 +15,7 @@ import java.util.Set;
 
 /**
  * Mojo used to display the tests selected by Tia based on the changes it will analyse.
- * Note: this previews the selected tests but doesn't actually run them — selection runs with
+ * Note: this previews the selected tests but doesn't actually run them - selection runs with
  * {@code updateDBMapping=false} so library reconcile and pending-stamp persistence are skipped.
  * Drain analysis still runs (read-only) so the preview matches what the agent mojo would select.
  */

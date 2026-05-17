@@ -27,7 +27,7 @@ class TestRunHistoryConsoleFormatterTest {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
-     * An empty history list should render the explicit sentinel message and skip the table —
+     * An empty history list should render the explicit sentinel message and skip the table -
      * matches the CLI requirement that "no history yet" exits cleanly with a friendly message.
      */
     @Test
@@ -71,7 +71,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * 5 entries with limit 20 should render all 5 — limit is a cap, not a target. The header
+     * 5 entries with limit 20 should render all 5 - limit is a cap, not a target. The header
      * must report 5 (the count being shown), not the configured cap of 20.
      */
     @Test
@@ -106,7 +106,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * 25 entries with limit 5 — covers the {@code --last N} narrower-than-default path.
+     * 25 entries with limit 5 - covers the {@code --last N} narrower-than-default path.
      */
     @Test
     void customLimit_rendersExactlyNRows() {

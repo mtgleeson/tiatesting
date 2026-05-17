@@ -56,7 +56,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaSourceLibs;
 
     /**
-     * The file path to the root of the source project — the project whose pom declares the
+     * The file path to the root of the source project - the project whose pom declares the
      * dependencies used to resolve {@link #tiaSourceLibs} to JAR files. Defaults to
      * {@link #tiaProjectDir} when not set. Only needed when the project running the tests is
      * different from the source project being tracked.
@@ -98,7 +98,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     /**
      * Should this run log a row to the {@code tia_test_run_history} table? Defaults to
-     * {@code true} — the history log is cheap and only useful when continuously populated.
+     * {@code true} - the history log is cheap and only useful when continuously populated.
      */
     @Parameter(property = "tiaUpdateDBTestRunHistory", defaultValue = "true")
     boolean tiaUpdateDBTestRunHistory;
@@ -262,7 +262,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
                 coordinates.add(entry);
             } else {
                 getLog().warn("Invalid tiaSourceLibs entry '" + entry
-                        + "' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
+                        + "' - expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
             }
         }
 
@@ -280,7 +280,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
             return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
             getLog().warn("Invalid tiaLibraryVersionPolicy value '" + raw
-                    + "' — expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
+                    + "' - expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
             return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
         }
     }

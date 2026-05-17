@@ -22,7 +22,7 @@ class SelectTestsOutputFormatterTest {
     private static final String LINE_SEP = "\n";
 
     /**
-     * An empty {@code testsToRun} means there's nothing to estimate — the estimate block
+     * An empty {@code testsToRun} means there's nothing to estimate - the estimate block
      * formatter must return an empty string so the plugins don't print a stray runtime line.
      */
     @Test
@@ -38,7 +38,7 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * Every selected test has recorded stats — the estimate block is a single runtime line
+     * Every selected test has recorded stats - the estimate block is a single runtime line
      * with no follow-up note. The {@code ms} component is omitted when the duration is
      * one second or more.
      */
@@ -58,7 +58,7 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * Some selected tests lack stats but a positive median is available — the note states
+     * Some selected tests lack stats but a positive median is available - the note states
      * the median value explicitly and counts the new tests, but does <em>not</em> list them
      * (callers can find the names in {@link TestSelectorResult#getSelectedTestsWithoutStats}).
      */
@@ -84,7 +84,7 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * Missing stats with no historical data to derive a median — the note states the new
+     * Missing stats with no historical data to derive a median - the note states the new
      * tests were excluded from the estimate.
      */
     @Test
@@ -106,7 +106,7 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * An empty selection produces an empty list — nothing for the formatter to print.
+     * An empty selection produces an empty list - nothing for the formatter to print.
      */
     @Test
     void formatSelectedTestsList_emptyTestsToRun_returnsEmptyString(){
@@ -140,7 +140,7 @@ class SelectTestsOutputFormatterTest {
 
     /**
      * Tests without stats are shown with the substituted median value in brackets, just
-     * like tests with recorded stats — the per-test display doesn't single them out; the
+     * like tests with recorded stats - the per-test display doesn't single them out; the
      * estimate-block note tells the user the median was used.
      */
     @Test
@@ -160,7 +160,7 @@ class SelectTestsOutputFormatterTest {
 
     /**
      * Durations of one second or more drop the {@code ms} component from the per-test
-     * bracketed display — sub-second precision isn't useful at the second/minute/hour level.
+     * bracketed display - sub-second precision isn't useful at the second/minute/hour level.
      * Durations under one second keep the {@code ms} unit.
      */
     @Test
@@ -169,9 +169,9 @@ class SelectTestsOutputFormatterTest {
         Set<String> testsToRun = setOf("fastTest", "slowTest", "verySlowTest");
         TestSelectorResult result = buildResult(testsToRun, 0L, setOf(), 0L,
                 perTestMap(
-                        "fastTest", 750L,       // < 1s — keep ms
-                        "slowTest", 1500L,      // 1.5s — drop ms → "1s"
-                        "verySlowTest", 90500L  // 1m 30.5s — drop ms → "1m 30s"
+                        "fastTest", 750L,       // < 1s - keep ms
+                        "slowTest", 1500L,      // 1.5s - drop ms → "1s"
+                        "verySlowTest", 90500L  // 1m 30.5s - drop ms → "1m 30s"
                 ));
 
         // when
