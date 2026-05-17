@@ -24,8 +24,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     public void execute() {
         System.out.println("Displaying the tests selected by Tia:");
         final VCSReader vcsReader = getVCSReader();
-        final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-        try {
+        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName())) {
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
@@ -44,8 +43,6 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
                 System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
                 System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
             }
-        } finally {
-            dataStore.close();
         }
     }
 

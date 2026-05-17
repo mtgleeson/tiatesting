@@ -13,13 +13,10 @@ public abstract class AbstractTextReportMojo extends AbstractReportMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         final VCSReader vcsReader = getVCSReader();
-        final DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName());
-        try {
+        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName())) {
             TiaData tiaData = dataStore.getTiaData(true);
             ReportGenerator reportGenerator = new TextReportGenerator(vcsReader.getBranchName(), getTiaReportOutputDir());
             reportGenerator.generateReports(tiaData);
-        } finally {
-            dataStore.close();
         }
     }
 
