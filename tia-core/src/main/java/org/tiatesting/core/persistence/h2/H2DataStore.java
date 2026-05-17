@@ -446,7 +446,7 @@ public class H2DataStore implements DataStore {
                 return result;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? ORDER BY " + COL_STAMP_VERSION;
+                    + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, groupArtifact);
             result = buildPendingBatchesFromResultSet(ps.executeQuery());
@@ -472,8 +472,7 @@ public class H2DataStore implements DataStore {
             if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
                 return result;
             }
-            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " ORDER BY " + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION;
+            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD;
             Statement statement = connection.createStatement();
             result = buildPendingBatchesFromResultSet(statement.executeQuery(sql));
         } catch (SQLException e) {
@@ -639,6 +638,16 @@ public class H2DataStore implements DataStore {
     /**
      * Group flat pending rows from a result set into batches keyed by
      * {@code (groupArtifact, stampVersion)}.
+     *
+     * <p>The reducer uses a {@link LinkedHashMap}, so it tolerates rows arriving in arbitrary
+     * order — rows for the same batch are accumulated by key regardless of where they appear
+     * in the result. Callers therefore do not need to apply an {@code ORDER BY} in the SQL,
+     * which lets H2 skip materialising an {@code MVSortedTempResult} for these reads.
+     *
+     * @param resultSet the JDBC result set positioned before the first row
+     * @return one {@link PendingLibraryImpactedMethod} per distinct
+     *         {@code (groupArtifact, stampVersion)} pair in the result
+     * @throws SQLException if the underlying result-set traversal fails
      */
     private List<PendingLibraryImpactedMethod> buildPendingBatchesFromResultSet(ResultSet resultSet) throws SQLException {
         Map<String, PendingLibraryImpactedMethod> batchMap = new LinkedHashMap<>();
