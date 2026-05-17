@@ -43,9 +43,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Two gates are covered:
  * <ul>
- *     <li><b>Reconcile gate</b> — {@code TrackedLibraryReconciler} must not insert/update/delete
+ *     <li><b>Reconcile gate</b> - {@code TrackedLibraryReconciler} must not insert/update/delete
  *         {@code tia_library} rows when the run isn't the mapping owner.</li>
- *     <li><b>Stamp gate</b> — {@code PendingLibraryImpactedMethodsRecorder} must not persist
+ *     <li><b>Stamp gate</b> - {@code PendingLibraryImpactedMethodsRecorder} must not persist
  *         pending rows nor advance the BUMP_AT_RELEASE high water mark on a non-primary run.</li>
  * </ul>
  */
@@ -154,7 +154,7 @@ class TestSelectorUpdateDBMappingGateTest {
      * Preview path (Maven {@code tia-select-tests} mojo / Gradle {@code tia-select-tests} task):
      * {@code selectTestsToIgnore} is called with a real {@link LibraryImpactAnalysisConfig} and
      * {@code updateDBMapping=false}. A pending batch whose stamp is now resolvable in the source
-     * project must be drained into {@code testsToRun}, but the drain must not mutate the DB —
+     * project must be drained into {@code testsToRun}, but the drain must not mutate the DB -
      * post-test cleanup is the primary build's job.
      */
     @Test
@@ -183,7 +183,7 @@ class TestSelectorUpdateDBMappingGateTest {
         assertEquals(0, counting.deleteTrackedLibraryCalls.get(),
                 "Preview must not delete tracked-library rows.");
         assertEquals(0, counting.deletePendingCalls.get(),
-                "Preview must not delete drained pending rows — that's the primary build's job.");
+                "Preview must not delete drained pending rows - that's the primary build's job.");
 
         assertEquals(1, dataStore.readPendingLibraryImpactedMethods("com.example:lib").size(),
                 "Pending row must remain in DB after preview.");
@@ -280,7 +280,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
     /**
      * Stub reader: returns "1.0.0" as both declared and resolved version, no JAR path. Sufficient
-     * for reconcile (insert path reads declared version under BUMP_AFTER_RELEASE only — no-op there)
+     * for reconcile (insert path reads declared version under BUMP_AFTER_RELEASE only - no-op there)
      * and for the stamp recorder's declared-version read.
      */
     private static class StubMetadataReader implements LibraryMetadataReader {

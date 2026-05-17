@@ -982,9 +982,11 @@ public class H2DataStore implements DataStore {
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setLibrariesTracked(readTrackedLibraries());
                 log.debug("SQL query time for tracked libraries: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
-                startQueryTime = System.currentTimeMillis();
-                tiaData.setPendingLibraryImpactedMethods(readAllPendingLibraryImpactedMethods());
-                log.debug("SQL query time for pending library methods: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
+                // Lazy: only HTML reports consume tiaData.getPendingLibraryImpactedMethods().
+                // The select-tests selector + drainer use per-library reads instead, so paying
+                // for a full-table scan + result materialisation here on every load is wasted IO.
+                // The loader runs on first getter call and caches; reports trigger it naturally.
+                tiaData.setPendingLibraryImpactedMethodsLoader(this::readAllPendingLibraryImpactedMethods);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setTestRunHistory(readTestRunHistory());
                 log.debug("SQL query time for test run history: {}", (System.currentTimeMillis() - startQueryTime) / 1000);

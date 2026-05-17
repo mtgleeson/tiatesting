@@ -607,12 +607,12 @@ public class TestSelector {
             TrackedLibrary trackedLibrary = trackedLibraries.get(groupArtifact);
 
             if (!updateDBMapping) {
-                log.info("Library '{}' has {} modified source files — skipping pending-stamp persist (updateDBMapping=false).",
+                log.info("Library '{}' has {} modified source files - skipping pending-stamp persist (updateDBMapping=false).",
                         groupArtifact, libraryDiffs.size());
                 continue;
             }
 
-            log.info("Library '{}' has {} modified source files — analyzing impacted methods.",
+            log.info("Library '{}' has {} modified source files - analyzing impacted methods.",
                     groupArtifact, libraryDiffs.size());
 
             Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, tiaData, sourceFilesDirs);

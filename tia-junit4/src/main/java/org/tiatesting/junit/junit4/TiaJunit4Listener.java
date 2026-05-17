@@ -59,7 +59,7 @@ public class TiaJunit4Listener extends RunListener {
     public TiaJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
-        // updateDBTestRunHistory defaults to TRUE — log unless explicitly switched off.
+        // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
         this.coverageClient = new JacocoClient();

@@ -15,13 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies {@link MethodToTestSuiteIndex} — the shared lazy reverse-index used by
+ * Verifies {@link MethodToTestSuiteIndex} - the shared lazy reverse-index used by
  * {@code TestSelector} and {@code PendingLibraryImpactedMethodsDrainer}.
  */
 class MethodToTestSuiteIndexTest {
 
     /**
-     * Empty / null inputs return an empty map, never throwing — both call sites can hit this
+     * Empty / null inputs return an empty map, never throwing - both call sites can hit this
      * shape (e.g. a fresh DB with no tracked suites).
      */
     @Test
@@ -63,7 +63,7 @@ class MethodToTestSuiteIndexTest {
 
     /**
      * Two suites sharing one method produce a single index entry whose value contains both
-     * suite names — this is the reverse-lookup case the index exists for.
+     * suite names - this is the reverse-lookup case the index exists for.
      */
     @Test
     void overlappingSuites_collectAllExercisersPerMethod() {
@@ -86,7 +86,7 @@ class MethodToTestSuiteIndexTest {
     }
 
     /**
-     * A suite with multiple impacted classes contributes each class's methods to the index —
+     * A suite with multiple impacted classes contributes each class's methods to the index -
      * confirms the inner loop over {@code ClassImpactTracker}s isn't skipping anything.
      */
     @Test

@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TestSelectorRunTimeEstimateTest {
 
     /**
-     * All selected tests have recorded stats — the total is a straight sum of
+     * All selected tests have recorded stats - the total is a straight sum of
      * {@code avgRunTime}, no fallback is needed, and the median is reported as {@code 0}.
      */
     @Test
@@ -46,7 +46,7 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * One selected test is missing stats — the median {@code avgRunTime} across tracked
+     * One selected test is missing stats - the median {@code avgRunTime} across tracked
      * suites is used for that test, and the missing test name is captured for display.
      */
     @Test
@@ -68,7 +68,7 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * Every selected test is new — the total is purely the median multiplied by the count
+     * Every selected test is new - the total is purely the median multiplied by the count
      * of missing tests, and all missing names are captured.
      */
     @Test
@@ -89,7 +89,7 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * No tracked test suites exist at all — the median is {@code 0}, so missing tests
+     * No tracked test suites exist at all - the median is {@code 0}, so missing tests
      * contribute nothing to the total but are still listed for the output note.
      */
     @Test
@@ -105,7 +105,7 @@ class TestSelectorRunTimeEstimateTest {
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
         assertEquals(setOf("newTest"), estimate.getSelectedTestsWithoutStats());
         assertEquals(0L, estimate.getMedianRunTimeMsAppliedToMissing());
-        // newTest carries 0 in the per-test map — the formatter renders this as "(no run data)"
+        // newTest carries 0 in the per-test map - the formatter renders this as "(no run data)"
         assertEquals(perTestMap(entry("newTest", 0L)), estimate.getSelectedTestRunTimesMs());
     }
 
@@ -176,7 +176,7 @@ class TestSelectorRunTimeEstimateTest {
     /**
      * A selected test that is tracked but has {@code avgRunTime == 0} (tracked but never
      * recorded a real run) carries {@code 0} in the per-test map and is <em>not</em> treated
-     * as "missing stats" — it has an entry in {@code testSuitesTracked}, just with a zero
+     * as "missing stats" - it has an entry in {@code testSuitesTracked}, just with a zero
      * value.
      */
     @Test

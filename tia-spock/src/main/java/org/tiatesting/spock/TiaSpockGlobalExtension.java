@@ -45,7 +45,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
         if (tiaEnabled){
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
-            // updateDBTestRunHistory defaults to TRUE — log unless explicitly switched off.
+            // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
             tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
             String dbFilePath = System.getProperty("tiaDBFilePath");
             dataStore = new H2DataStore(dbFilePath, vcsReader.getBranchName());
@@ -69,7 +69,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
             // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When
             // unset (no tiaSourceLibs configured), libraryConfig is null and library partitioning /
-            // reconcile / stamp / drain are skipped — same as before.
+            // reconcile / stamp / drain are skipped - same as before.
             LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
 
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);

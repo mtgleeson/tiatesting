@@ -16,7 +16,7 @@ import java.util.Map;
  * {@link PreResolvedLibraryMetadataReader}.
  *
  * <p>The plugin pre-resolves all metadata (declared version, source dirs, resolved version + JAR
- * path) on the Gradle side — where it has access to the Project / Tooling API — and forwards the
+ * path) on the Gradle side - where it has access to the Project / Tooling API - and forwards the
  * results as a single comma-separated property:
  *
  * <pre>{@code
@@ -30,7 +30,7 @@ import java.util.Map;
  * <p>Globals are passed via two additional flat properties: {@code tiaSourceProjectDir} and
  * {@code tiaLibraryVersionPolicy}.
  *
- * <p>Path values must not contain {@code ,}, {@code :} or {@code |} — this matches the existing
+ * <p>Path values must not contain {@code ,}, {@code :} or {@code |} - this matches the existing
  * limitation on {@code tiaSourceLibs}.
  */
 public final class LibraryMetadataSystemProperties {
@@ -161,7 +161,7 @@ public final class LibraryMetadataSystemProperties {
     }
 
     /**
-     * Inverse of {@link #parseEntries} — formats a list of entries into the flat string. Used by
+     * Inverse of {@link #parseEntries} - formats a list of entries into the flat string. Used by
      * the Gradle plugin to populate {@code tiaLibrariesMetadata}, and by tests.
      *
      * @param entries the pre-resolved library metadata entries to encode; {@code null} or empty
@@ -181,7 +181,7 @@ public final class LibraryMetadataSystemProperties {
             }
             String[] coordParts = entry.getCoordinate().split(":");
             if (coordParts.length != 2) {
-                // Malformed coordinate — skip rather than corrupt the encoded form.
+                // Malformed coordinate - skip rather than corrupt the encoded form.
                 continue;
             }
             if (!first) {
