@@ -14,14 +14,14 @@ import java.util.Set;
 
 /**
  * Times each phase of the {@code select-tests} read path against an existing H2 DB.
- * Designed for attaching async-profiler / JFR — keeps the JVM lifetime short, runs
+ * Designed for attaching async-profiler / JFR - keeps the JVM lifetime short, runs
  * each phase in isolation so the flame graph cleanly attributes time.
  *
  * <p>Phases reported separately:
  * <ol>
  *     <li>{@code H2DataStore} construction (cheap; just opens the URL)</li>
- *     <li>{@code dataStore.getTiaData(true)} — reads test suites + classes + methods + libraries</li>
- *     <li>{@code TestSelector.selectTestsToIgnore} with an empty-diff VCS stub — exercises the
+ *     <li>{@code dataStore.getTiaData(true)} - reads test suites + classes + methods + libraries</li>
+ *     <li>{@code TestSelector.selectTestsToIgnore} with an empty-diff VCS stub - exercises the
  *         post-load selection logic on top of the loaded data</li>
  * </ol>
  *
@@ -64,15 +64,15 @@ public final class ProfileSelectTests {
         long t0 = System.nanoTime();
         H2DataStore dataStore = new H2DataStore(args.outDb, args.branch);
         long tConstruct = System.nanoTime();
-        printPhase("Phase 1 — H2DataStore construction", t0, tConstruct);
+        printPhase("Phase 1 - H2DataStore construction", t0, tConstruct);
 
-        // Phase 2 — full DB load. This is the suspected hotspot.
+        // Phase 2 - full DB load. This is the suspected hotspot.
         long tLoadStart = System.nanoTime();
         dataStore.getTiaData(true);
         long tLoadEnd = System.nanoTime();
-        printPhase("Phase 2 — getTiaData(true) full load", tLoadStart, tLoadEnd);
+        printPhase("Phase 2 - getTiaData(true) full load", tLoadStart, tLoadEnd);
 
-        // Phase 3 — selectTestsToIgnore with an empty-diff stub VCS reader.
+        // Phase 3 - selectTestsToIgnore with an empty-diff stub VCS reader.
         // This forces the selector through its end-to-end logic on the just-loaded data,
         // including drain analysis and ignore-set construction.
         TestSelector selector = new TestSelector(dataStore);
@@ -86,7 +86,7 @@ public final class ProfileSelectTests {
                 /* libraryConfig */ null,
                 /* updateDBMapping */ false);
         long tSelectEnd = System.nanoTime();
-        printPhase("Phase 3 — selectTestsToIgnore (empty diff)", tSelectStart, tSelectEnd);
+        printPhase("Phase 3 - selectTestsToIgnore (empty diff)", tSelectStart, tSelectEnd);
 
         System.out.println("  result.testsToRun=" + (result.getTestsToRun() == null ? 0 : result.getTestsToRun().size())
                 + " result.testsToIgnore=" + (result.getTestsToIgnore() == null ? 0 : result.getTestsToIgnore().size()));

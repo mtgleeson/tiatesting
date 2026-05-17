@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
  * <br>
  * The source project may be a different Maven project from the one running TIA, so library
  * resolution must go through the source project's own pom rather than the test project's
- * injected {@link MavenProject}. The source project is required to be a Maven build — cross-
+ * injected {@link MavenProject}. The source project is required to be a Maven build - cross-
  * build-system setups (e.g. Maven test project with a Gradle source project) are not currently
  * supported; the Gradle equivalent lives in {@code tia-gradle}.
  */
@@ -86,7 +86,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
         File pomFile = new File(sourceProjectDir, "pom.xml");
         if (!pomFile.isFile()){
             log.warn("Source project pom.xml not found at " + pomFile.getAbsolutePath()
-                    + " — skipping tiaSourceLibs resolution. tia-maven-plugin only supports Maven"
+                    + " - skipping tiaSourceLibs resolution. tia-maven-plugin only supports Maven"
                     + " source projects; for Gradle source projects use tia-gradle instead.");
             return null;
         }
@@ -101,7 +101,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
             log.debug("Resolved source project build config file " + pomFile.getAbsolutePath());
         } catch (ProjectBuildingException e){
             log.warn("Failed to load source project " + pomFile.getAbsolutePath()
-                    + " — skipping tiaSourceLibs resolution: " + e.getMessage());
+                    + " - skipping tiaSourceLibs resolution: " + e.getMessage());
             return null;
         }
 
@@ -113,7 +113,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
             String[] parts = coord.split(":");
             if (parts.length < 2 || parts.length > 3){
                 log.warn("Invalid tiaSourceLibs coordinate '" + coord
-                        + "' — expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
+                        + "' - expected groupId:artifactId or groupId:artifactId:projectDir, skipping.");
                 continue;
             }
             String groupId = parts[0].trim();
@@ -155,7 +155,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
         File pomFile = new File(libraryProjectDir, "pom.xml");
         if (!pomFile.isFile()) {
             log.warn("Library pom.xml not found at " + pomFile.getAbsolutePath()
-                    + " — cannot read library build metadata.");
+                    + " - cannot read library build metadata.");
             return result;
         }
 
@@ -193,7 +193,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
         File pomFile = new File(sourceProjectDir, "pom.xml");
         if (!pomFile.isFile()) {
             log.warn("Source project pom.xml not found at " + pomFile.getAbsolutePath()
-                    + " — cannot resolve libraries in source project.");
+                    + " - cannot resolve libraries in source project.");
             return result;
         }
 
@@ -235,11 +235,11 @@ class LibraryJarResolver implements LibraryMetadataReader {
         File pomFile = new File(libraryProjectDir, "pom.xml");
         if (!pomFile.isFile()) {
             log.warn("Library pom.xml not found at " + pomFile.getAbsolutePath()
-                    + " — cannot read source directories.");
+                    + " - cannot read source directories.");
             return result;
         }
 
-        // Source roots come from the project's own model — no transitive resolution needed.
+        // Source roots come from the project's own model - no transitive resolution needed.
         MavenProject libraryProject = loadMavenProject(pomFile, false);
         if (libraryProject == null) {
             return result;
@@ -263,7 +263,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * Load a Maven project from a pom file, returning {@code null} on failure.
      *
      * @param resolveDependencies when {@code true}, Maven walks the transitive dependency graph
-     *                            and populates {@link MavenProject#getArtifacts()} — required for
+     *                            and populates {@link MavenProject#getArtifacts()} - required for
      *                            source-project resolution. When {@code false}, only the project's
      *                            own model is parsed; this is sufficient for reading the library's
      *                            own coordinates / source roots and avoids transitive-pom validation
@@ -294,7 +294,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
             "Non-parseable repository update policy",
             // SimpleArtifactDescriptorPolicy(true, true) prevents Aether from throwing on an
             // invalid descriptor, but DefaultArtifactDescriptorReader still emits this WARN line
-            // unconditionally — we suppress it here. Maven's plugin SLF4J binding may route the
+            // unconditionally - we suppress it here. Maven's plugin SLF4J binding may route the
             // line to either stderr or stdout, so we cover the bare and bracket-prefixed forms.
             "[WARNING] The POM for",
             "[WARN] The POM for",
@@ -323,10 +323,10 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * {@code System.out} replacements that drop a small allowlist of warning lines Tia can't
      * act on:
      * <ul>
-     *   <li>{@code "Non-parseable repository update policy …"} — emitted by
+     *   <li>{@code "Non-parseable repository update policy …"} - emitted by
      *       {@code DefaultUpdatePolicyAnalyzer} when a transitive POM references an unbound
      *       property inside its repository {@code <updatePolicy>}.</li>
-     *   <li>{@code "The POM for X is invalid …"} — emitted by
+     *   <li>{@code "The POM for X is invalid …"} - emitted by
      *       {@code DefaultArtifactDescriptorReader} when a transitive POM fails strict model
      *       validation. {@link SimpleArtifactDescriptorPolicy} (installed by
      *       {@link #newQuietRequest()}) only stops the resolver from throwing, not from
@@ -340,7 +340,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * WARN to either stream depending on version and configuration.
      *
      * <p>The originals are restored in a {@code finally} block, so the filter is active only
-     * for the duration of the supplied build call. The filter inspects line prefixes —
+     * for the duration of the supplied build call. The filter inspects line prefixes -
      * Tia's own {@code log.warn(...)} output is unaffected because Tia uses Maven's plugin
      * logger, which writes through a different code path.
      *
@@ -352,7 +352,7 @@ class LibraryJarResolver implements LibraryMetadataReader {
         // Primary mechanism: raise the level of the specific SLF4J loggers that emit Tia's
         // suppressed warnings so they never produce output for the duration of the build call.
         // This is necessary because Maven 3.6+ configures maven-slf4j-provider with
-        // cacheOutputStream=true and logFile=System.out — the binding captures a strong reference
+        // cacheOutputStream=true and logFile=System.out - the binding captures a strong reference
         // to System.out at init time, so a System.setOut() swap later has no effect on its output.
         List<LoggerLevelOverride> levelOverrides = silenceNoisyLoggers();
 
@@ -406,10 +406,10 @@ class LibraryJarResolver implements LibraryMetadataReader {
      * is emitted by {@code LoggingRepositoryListener}, which borrows a Plexus-injected logger
      * from {@code DefaultRepositorySystemSessionFactory}, which in turn is named according to
      * how Sisu's Plexus-Logger extension chose to call {@code LoggerManager.getLoggerForComponent}
-     * — a detail that varies across Maven distributions and is not stable to depend on. Walking
+     * - a detail that varies across Maven distributions and is not stable to depend on. Walking
      * the SLF4J binding's own logger cache and silencing all currently-cached SimpleLoggers for
      * the duration of the build avoids that fragility entirely. The wrapped build only loads a
-     * library's pom — no user-actionable WARN output is expected from it, so blanket
+     * library's pom - no user-actionable WARN output is expected from it, so blanket
      * WARN-suppression for that scope is acceptable.
      *
      * <p>Implementation: discover the binding's {@code loggerMap} via reflection on

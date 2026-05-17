@@ -3,6 +3,7 @@ package org.tiatesting.core.model;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 
 public class TiaData implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -42,9 +43,33 @@ public class TiaData implements Serializable {
     private Map<String, TrackedLibrary> librariesTracked = new HashMap<>();
 
     /**
-     * Pending impacted source method batches from library changes, awaiting drain.
+     * Pending impacted source method batches from library changes, awaiting drain. Only
+     * consumed by the HTML report renderers; the selector and drainer use the per-library
+     * {@code DataStore.readPendingLibraryImpactedMethods(groupArtifact)} reads instead. To
+     * keep the {@code select-tests} read path from paying for a full-table scan it doesn't
+     * need, this field is lazy: the data-store load path may install a
+     * {@link #pendingLibraryImpactedMethodsLoader} via
+     * {@link #setPendingLibraryImpactedMethodsLoader(Supplier)} and skip the eager populate;
+     * the first call to {@link #getPendingLibraryImpactedMethods()} then invokes the loader
+     * and caches the result.
      */
     private List<PendingLibraryImpactedMethod> pendingLibraryImpactedMethods = new ArrayList<>();
+
+    /**
+     * When set, supplies the pending-method list on first access via
+     * {@link #getPendingLibraryImpactedMethods()}. Marked {@code transient} because the
+     * supplier typically closes over the {@code DataStore} and is not part of TiaData's
+     * persistable state.
+     */
+    private transient Supplier<List<PendingLibraryImpactedMethod>> pendingLibraryImpactedMethodsLoader;
+
+    /**
+     * Tracks whether {@link #pendingLibraryImpactedMethods} reflects a real load (eagerly
+     * populated, explicitly set, or already-resolved-via-loader). Starts {@code true} for the
+     * default empty list at construction. {@link #setPendingLibraryImpactedMethodsLoader} flips
+     * it to {@code false} so the next getter call triggers the loader exactly once.
+     */
+    private transient boolean pendingLibraryImpactedMethodsLoaded = true;
 
     /**
      * Log of past Tia test runs on the current branch, ordered most-recent-first.
@@ -111,12 +136,46 @@ public class TiaData implements Serializable {
         this.librariesTracked = librariesTracked;
     }
 
+    /**
+     * Return the pending-method list. On first call after
+     * {@link #setPendingLibraryImpactedMethodsLoader(Supplier)} was used to install a lazy
+     * loader, this invokes the loader and caches the result; subsequent calls return the
+     * cached list directly.
+     *
+     * @return the list of pending impacted-method batches (never null)
+     */
     public List<PendingLibraryImpactedMethod> getPendingLibraryImpactedMethods() {
+        if (!pendingLibraryImpactedMethodsLoaded && pendingLibraryImpactedMethodsLoader != null) {
+            pendingLibraryImpactedMethods = pendingLibraryImpactedMethodsLoader.get();
+            pendingLibraryImpactedMethodsLoaded = true;
+        }
         return pendingLibraryImpactedMethods;
     }
 
+    /**
+     * Eager setter. Marks the field as loaded so a previously-installed lazy loader is not
+     * consulted on the next getter call.
+     *
+     * @param pendingLibraryImpactedMethods the resolved list
+     */
     public void setPendingLibraryImpactedMethods(List<PendingLibraryImpactedMethod> pendingLibraryImpactedMethods) {
         this.pendingLibraryImpactedMethods = pendingLibraryImpactedMethods;
+        this.pendingLibraryImpactedMethodsLoaded = true;
+    }
+
+    /**
+     * Install a lazy loader for the pending-method list. The loader is invoked on the first
+     * subsequent call to {@link #getPendingLibraryImpactedMethods()}; the resolved list is
+     * cached so the loader runs at most once per TiaData instance.
+     *
+     * @param loader supplier that materialises the pending-method list, typically backed by
+     *               {@code DataStore.readAllPendingLibraryImpactedMethods()}. {@code null}
+     *               clears any previously-installed loader and leaves the current cached
+     *               value in place.
+     */
+    public void setPendingLibraryImpactedMethodsLoader(Supplier<List<PendingLibraryImpactedMethod>> loader) {
+        this.pendingLibraryImpactedMethodsLoader = loader;
+        this.pendingLibraryImpactedMethodsLoaded = (loader == null);
     }
 
     public TestStats getTestStats() {

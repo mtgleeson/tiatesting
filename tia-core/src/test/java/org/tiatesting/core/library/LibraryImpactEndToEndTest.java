@@ -119,7 +119,7 @@ class LibraryImpactEndToEndTest {
      * <p>Steps:
      * <ol>
      *   <li>Set up a tracked library at last_source_project_version 0.5.0 with three test suites.</li>
-     *   <li><b>Stamp:</b> Insert two pending batches — one at version 1.0.0 (method 10) and one at
+     *   <li><b>Stamp:</b> Insert two pending batches - one at version 1.0.0 (method 10) and one at
      *       version 3.0.0 (method 20).</li>
      *   <li><b>Drain:</b> Configure the source project as resolving the library at version 2.0.0.
      *       Run the drainer and verify only the 1.0.0 batch is drained (2.0.0 >= 1.0.0) while
@@ -141,7 +141,7 @@ class LibraryImpactEndToEndTest {
         dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
                 "com.example:lib", "3.0.0", null, new HashSet<>(Arrays.asList(20))));
 
-        // DRAIN: source project at 2.0.0 — only 1.0.0 batch should drain
+        // DRAIN: source project at 2.0.0 - only 1.0.0 batch should drain
         StubMetadataReader reader = new StubMetadataReader("1.0.0", "2.0.0", null);
         LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
                 Collections.singletonList("com.example:lib"), null, "/projects/source", reader);

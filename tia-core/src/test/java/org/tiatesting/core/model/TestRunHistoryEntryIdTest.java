@@ -24,7 +24,7 @@ class TestRunHistoryEntryIdTest {
         TestRunHistoryEntry first = TestRunHistoryEntry.create(branch, commit, ts, 1, 2, 0, 100L, true);
         TestRunHistoryEntry second = TestRunHistoryEntry.create(branch, commit, ts, 9, 9, 9, 999L, false);
 
-        // then — counts/duration/flag don't participate in the id; identity is by triple only.
+        // then - counts/duration/flag don't participate in the id; identity is by triple only.
         assertNotNull(first.getId());
         assertEquals(first.getId(), second.getId());
     }
@@ -69,7 +69,7 @@ class TestRunHistoryEntryIdTest {
 
     @Test
     void nullBranchAndCommitProduceStableId() {
-        // given a defensive nulls case — should still produce a non-null id
+        // given a defensive nulls case - should still produce a non-null id
         long ts = 42L;
 
         // when

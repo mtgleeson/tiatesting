@@ -47,7 +47,7 @@ class ReportUtilsTest {
     }
 
     /**
-     * Without the flag, the original behaviour is preserved — every non-zero component
+     * Without the flag, the original behaviour is preserved - every non-zero component
      * appears in the output, including {@code ms}.
      */
     @Test
