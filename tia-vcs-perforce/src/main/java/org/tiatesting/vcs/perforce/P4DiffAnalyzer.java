@@ -1,13 +1,9 @@
 package org.tiatesting.vcs.perforce;
 
-import com.perforce.p4java.core.IChangelist;
-import com.perforce.p4java.core.IChangelistSummary;
 import com.perforce.p4java.core.file.*;
 import com.perforce.p4java.exception.AccessException;
 import com.perforce.p4java.exception.ConnectionException;
 import com.perforce.p4java.exception.P4JavaException;
-import com.perforce.p4java.exception.RequestException;
-import com.perforce.p4java.option.server.GetChangelistsOptions;
 import com.perforce.p4java.option.server.GetExtendedFilesOptions;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -117,39 +113,42 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Get all source files impacted by changes in a given commit range - commitFrom -> commitTo.
+     * Find every file changed in the changelist range {@code clFrom..clTo} and build the
+     * corresponding {@link SourceFileDiffContext} entries.
      *
+     * <p>Resolves the file changes in a single {@code p4 files //stream/...@clFrom,clTo}
+     * round-trip via {@link com.perforce.p4java.server.IOptionsServer#getDepotFiles}.
+     * Each returned {@link IFileSpec} carries the changelist id, action, and revision for one
+     * file change inside the range; files changed in multiple CLs appear once per CL so
+     * {@code sortFileChanges} (called inside {@link #buildDiffContextsForFileSpecs}) can apply
+     * the action-override semantics described on {@code buildDiffContext} (e.g. add then edit
+     * collapses to add).
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param clTo the newest changelist number in the range being analysed
-     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the source project being analysed
-     * @return map keyed by the old file path (or new path for new files) and the value being the SourceFileDiffContext
+     * @param sourceAndTestFilesSpecs the list of source and test directory file specs for the
+     *                                source project being analysed
+     * @return map keyed by depot path with the value being the matching {@link SourceFileDiffContext}
      */
-    private Map<String, SourceFileDiffContext> getSourceFilesImpactedFromPreviousSubmit(P4Connection p4Connection,
+    Map<String, SourceFileDiffContext> getSourceFilesImpactedFromPreviousSubmit(P4Connection p4Connection,
                                                                                         String clFrom, String clTo,
                                                                                         List<IFileSpec> sourceAndTestFilesSpecs){
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         log.info("Finding the impacted sources code files in P4 for the changelist range from {} to {}", clFrom, clTo);
 
-        GetChangelistsOptions options = new GetChangelistsOptions();
         String streamName = p4Connection.getClient().getStream();
         String filePaths = streamName + "/...@" + clFrom + "," + clTo;
 
         try {
-            List<IChangelistSummary> changeLists = p4Connection.getServer().getChangelists(
-                    FileSpecBuilder.makeFileSpecList(filePaths), options);
+            List<IFileSpec> changedFiles = p4Connection.getServer().getDepotFiles(
+                    FileSpecBuilder.makeFileSpecList(filePaths), false);
 
-            // The list of file changes should be ordered based on time the change was made, with the latest changes at the
-            // end of the list (so the last change action takes precedence when a file is changed in multiple CLs).
-            changeLists.sort(Comparator.comparing(IChangelistSummary::getId));
-
-            if (changeLists.isEmpty()){
-                log.warn("Couldn't find any changelists for the P4 file paths {}", filePaths);
+            if (changedFiles == null || changedFiles.isEmpty()){
+                log.warn("Couldn't find any file changes for the P4 file paths {}", filePaths);
+                return sourceFileDiffContexts;
             }
 
-            for (IChangelistSummary changelistSummary : changeLists) {
-                buildDiffContextsForFilesInCL(p4Connection, changelistSummary, sourceFileDiffContexts, sourceAndTestFilesSpecs);
-            }
+            buildDiffContextsForFileSpecs(p4Connection, changedFiles, sourceFileDiffContexts, sourceAndTestFilesSpecs);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -214,18 +213,6 @@ public class P4DiffAnalyzer {
         }
 
         return sourceCodeFiles;
-    }
-
-    private void buildDiffContextsForFilesInCL(P4Connection p4Connection, IChangelistSummary changelistSummary,
-                                               Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                               List<IFileSpec> sourceAndTestFilesSpecs) {
-        try {
-            IChangelist changelist = p4Connection.getServer().getChangelist(changelistSummary.getId());
-            List<IFileSpec> fileSpecs = changelist.getFiles(false);
-            buildDiffContextsForFileSpecs(p4Connection, fileSpecs, sourceFileDiffContexts, sourceAndTestFilesSpecs);
-        } catch (ConnectionException | RequestException | AccessException e) {
-            throw new VCSAnalyzerException(e);
-        }
     }
 
     private <T extends IFileSpec> List<T> buildDiffContextsForFileSpecs(P4Connection p4Connection,

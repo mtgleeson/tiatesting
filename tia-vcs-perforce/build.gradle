@@ -12,6 +12,17 @@ dependencies {
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
     implementation 'com.perforce:p4java:2023.1.2512805'
     implementation group: 'commons-io', name: 'commons-io', version: '2.15.1'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    // Mockito 4.x is the last line supporting Java 8 (the project target). Mockito 5.x
+    // requires Java 11 at class-file level (major version 55) and fails to load here.
+    testImplementation 'org.mockito:mockito-core:4.11.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:4.11.0'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {
