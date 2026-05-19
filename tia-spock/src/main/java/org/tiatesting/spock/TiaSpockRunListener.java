@@ -35,6 +35,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Set<String> testSuitesProcessed;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private final Set<String> selectedTests;
+    private final int ignoredTestSuiteCount;
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
     private final boolean updateDBTestRunHistory;
@@ -48,12 +49,15 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * @param vcsReader               VCS reader (provides branch + head commit; closed here)
      * @param dataStore               persistence backend
      * @param selectedTests           tests Tia selected to run
+     * @param ignoredTestSuiteCount   number of test suites Tia chose to ignore for this run;
+     *                                persisted as {@code tia_test_run_history.num_suites_ignored}
      * @param updateDBMapping         persist test-suite ↔ method mapping
      * @param updateDBStats           persist run stats
      * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
      * @param libraryImpactDrainResult drain result from selection (may be {@code null})
      */
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
+                               final int ignoredTestSuiteCount,
                                final boolean updateDBMapping, final boolean updateDBStats,
                                final boolean updateDBTestRunHistory,
                                final LibraryImpactDrainResult libraryImpactDrainResult){
@@ -66,6 +70,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.specificationUtil = new SpecificationUtil();
         this.dataStore = dataStore;
         this.selectedTests = selectedTests;
+        this.ignoredTestSuiteCount = ignoredTestSuiteCount;
         this.updateDBMapping = updateDBMapping;
         this.updateDBStats = updateDBStats;
         this.updateDBTestRunHistory = updateDBTestRunHistory;
@@ -152,7 +157,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         log.info("Test run finished. Persisting the DB.");
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult);
+                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult);
     }

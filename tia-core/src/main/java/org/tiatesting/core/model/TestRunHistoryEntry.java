@@ -40,7 +40,11 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param branch VCS branch the run targeted
      * @param commit VCS HEAD commit / changelist the run targeted
      * @param numSuitesRan number of test suites that actually executed
-     * @param numSuitesIgnored number of test suites the test runner saw but did not execute
+     * @param numSuitesIgnored number of test suites Tia chose to ignore for this run. Sourced
+     *                         from the selector's {@code TestSelectorResult.testsToIgnore} via
+     *                         the {@code tiaIgnoredTestSuiteCount} system property. Engine-level
+     *                         skips that Tia did not cause (user {@code @Disabled}, surefire
+     *                         {@code groups} filters, etc.) are deliberately excluded.
      * @param numSuitesFailed number of test suites with at least one failed test
      * @param durationMs total wall-clock duration of the test run, in ms
      * @param updatedDbMapping whether this run persisted updates to the Tia mapping DB
@@ -67,7 +71,8 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param commit            VCS HEAD commit / changelist the run targeted
      * @param runTimestampMs    UTC epoch millis when the run started
      * @param numSuitesRan      number of test suites that actually executed
-     * @param numSuitesIgnored  number of test suites the test runner saw but did not execute
+     * @param numSuitesIgnored  number of test suites Tia chose to ignore for this run (does not
+     *                          include engine-level skips Tia did not cause)
      * @param numSuitesFailed   number of test suites with at least one failed test
      * @param durationMs        total wall-clock duration of the test run, in ms
      * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
@@ -113,7 +118,12 @@ public final class TestRunHistoryEntry implements Serializable {
     /** @return the number of suites that actually executed */
     public int getNumSuitesRan() { return numSuitesRan; }
 
-    /** @return the number of suites the runner saw but did not execute */
+    /**
+     * @return the number of test suites Tia chose to ignore for this run. Engine-level skips
+     *         that Tia did not cause (user {@code @Disabled}, surefire {@code groups} filters,
+     *         etc.) are deliberately excluded so the value reflects Tia's selection decision
+     *         only.
+     */
     public int getNumSuitesIgnored() { return numSuitesIgnored; }
 
     /** @return the number of suites that had at least one failed test */

@@ -11,7 +11,10 @@ import java.util.List;
 
 /**
  * Renders a list of {@link TestRunHistoryEntry} rows as a fixed-width plain-text table
- * for the {@code history} / {@code tia-history} CLI task.
+ * for the {@code history} / {@code tia-history} CLI task. The {@code Ignored} column is the
+ * count of test suites Tia chose to ignore for that run, taken from
+ * {@link TestRunHistoryEntry#getNumSuitesIgnored()}; engine-level skips Tia did not cause
+ * are excluded.
  *
  * <p>The output shape is:
  * <pre>
