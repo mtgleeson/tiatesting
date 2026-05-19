@@ -6,7 +6,6 @@ import com.perforce.p4java.exception.ConnectionException;
 import com.perforce.p4java.exception.P4JavaException;
 import com.perforce.p4java.option.server.GetExtendedFilesOptions;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
@@ -14,6 +13,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -433,7 +433,7 @@ public class P4DiffAnalyzer {
                 throw new VCSAnalyzerException("Couldn't find the source files in Perforce for revision " + cl);
             }
 
-            loadFileSpecsContentIntoDiffContext(revisionFileSpecs, sourceFileDiffContexts, forOriginal);
+            loadFileSpecsContentIntoDiffContext(p4Connection, revisionFileSpecs, sourceFileDiffContexts, forOriginal);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -453,38 +453,198 @@ public class P4DiffAnalyzer {
         }
     }
 
-    private void loadFileSpecsContentIntoDiffContext(List<IFileSpec> revisionFileSpecs, Map<String, SourceFileDiffContext> sourceFileDiffContexts,
+    /**
+     * Load content for every file in {@code revisionFileSpecs} at its requested revision into
+     * the matching {@link SourceFileDiffContext}. Fetches all files in a single
+     * {@code p4 print} round-trip per version - replaces the older per-file loop that made
+     * one round-trip per file.
+     *
+     * <p>Implementation: call {@code IServer.execStreamCmd("print", argv)} directly with
+     * a {@code String[]} of {@code //depot/path#rev} arguments. The higher-level
+     * {@code getFileContents(List<IFileSpec>, opts)} API can't be used here because p4java's
+     * internal {@code IFileSpec -> wire args} conversion drops the revision (it reads
+     * {@code IFileSpec.getDepotPathString()}, which is {@code null} for specs constructed
+     * from a {@code "//path#rev"} string) so the server always returns head. Going through
+     * {@code execStreamCmd} with explicit argv puts the {@code #rev} annotation on the wire
+     * verbatim - the exact equivalent of running {@code p4 print //path1#23 //path2#298}
+     * from the command line.
+     *
+     * <p>The returned stream is the concatenation of every file's {@code p4 print} output:
+     * each file is prefixed by a header line of the form
+     * {@code //depot/path#rev - <action> change <CL> (<type>)} followed by the raw file
+     * content bytes. {@link #parseBatchedPrintStream} locates the header line positions in
+     * the byte buffer and slices the content for each file as the bytes between two
+     * consecutive header lines (preserving line endings, leading blank lines and trailing
+     * newlines verbatim - important for line-level diff accuracy).
+     *
+     * @param p4Connection the Perforce connection used to call {@code execStreamCmd}
+     * @param revisionFileSpecs the file specs returned by {@code getDepotFiles} - each carries
+     *                          a depot path and the resolved revision for that path at the
+     *                          requested CL; specs with a null depot path (file missing at
+     *                          this revision) are skipped
+     * @param sourceFileDiffContexts the diff-context map keyed by depot path; each context's
+     *                               {@code sourceContentOriginal} or {@code sourceContentNew}
+     *                               is populated based on {@code forOriginal}
+     * @param forOriginal {@code true} when fetching the "before" version, {@code false} for
+     *                    the "after" version
+     */
+    private void loadFileSpecsContentIntoDiffContext(P4Connection p4Connection,
+                                                     List<IFileSpec> revisionFileSpecs,
+                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                      boolean forOriginal) {
+        List<String> expectedDepotPaths = new ArrayList<>(revisionFileSpecs.size());
+        List<String> argvList = new ArrayList<>(revisionFileSpecs.size());
+        for (IFileSpec fileSpec : revisionFileSpecs) {
+            String depotPath = fileSpec.getDepotPathString();
+            if (depotPath == null) {
+                // The file doesn't exist in the CL. This can happen when a file was deleted
+                // in the original CL as well as in the new CL (e.g. a merge CL bringing a
+                // delete action into a stream where the file was already deleted).
+                log.info("No file found in P4 for the CL {} (forOriginal={})",
+                        fileSpec.getChangelistId(), forOriginal);
+                continue;
+            }
+            expectedDepotPaths.add(depotPath);
+            argvList.add(depotPath + "#" + fileSpec.getEndRevision());
+        }
+        if (argvList.isEmpty()) {
+            return;
+        }
+
+        byte[] streamBytes;
         try {
-            for (IFileSpec fileSpec : revisionFileSpecs) {
-                log.debug("Loading file content for fileSpec depotPath='{}', revision={}", fileSpec.getDepotPathString(), fileSpec.getEndRevision());
-
-                if (fileSpec.getDepotPathString() == null){
-                    // The file doesn't exist in the CL. This could be due to the file being deleted in the original CL
-                    // as well in the new CL (i.e. a merge CL bringing the delete action into the stream where it was already deleted).
-                    log.info("No file found in P4 for the CL {}. Looking up the original:  {}", fileSpec.getChangelistId(), forOriginal);
-                    continue;
-                }
-
-                InputStream inputStream;
-                try {
-                    inputStream = fileSpec.getContents(true);
-                } catch (P4JavaException e) {
-                    log.error("Failed to read P4 contents for fileSpec depotPath='{}', revision={}",
-                            fileSpec.getDepotPathString(), fileSpec.getEndRevision());
-                    throw e;
-                }
-                if (inputStream == null) {
-                    log.warn("No input stream for {}", fileSpec.getDepotPathString());
-                    continue;
-                }
-
-                String fileContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
-                loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, fileSpec.getDepotPathString(), fileContent);
+            InputStream stream = p4Connection.getServer().execStreamCmd("print",
+                    argvList.toArray(new String[0]));
+            if (stream == null) {
+                throw new VCSAnalyzerException("Batched p4 print returned a null stream for "
+                        + argvList.size() + " files (forOriginal=" + forOriginal + ")");
+            }
+            try {
+                streamBytes = readAllBytes(stream);
+            } finally {
+                stream.close();
             }
         } catch (P4JavaException | IOException e) {
             throw new VCSAnalyzerException(e);
         }
+
+        Map<String, String> contentByDepotPath = parseBatchedPrintStream(streamBytes, expectedDepotPaths);
+
+        for (String depotPath : expectedDepotPaths) {
+            String content = contentByDepotPath.get(depotPath);
+            if (content == null) {
+                // We asked p4 print for this depot path but no header for it appeared in the
+                // response. Either p4java returned a partial stream or the demux missed a
+                // header - either way, silently leaving the diff context with null content
+                // would mis-select tests, so fail fast.
+                throw new VCSAnalyzerException("Batched p4 print returned no content for depot path "
+                        + depotPath + " (forOriginal=" + forOriginal + ")");
+            }
+            loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, depotPath, content);
+        }
+    }
+
+    /**
+     * Read every byte of {@code stream} into an in-memory byte array. The batched
+     * {@code p4 print} output is bounded by the total size of the changed source files in
+     * the range - kilobytes to a few megabytes in normal use - so buffering in memory is
+     * fine and keeps the parse loop simple.
+     *
+     * @param stream the input stream to drain (caller closes it)
+     * @return the byte contents
+     * @throws IOException if the underlying read fails
+     */
+    private byte[] readAllBytes(InputStream stream) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while ((n = stream.read(chunk)) != -1) {
+            buffer.write(chunk, 0, n);
+        }
+        return buffer.toByteArray();
+    }
+
+    /**
+     * Locate each {@code //depot/path#rev - ...} header line in {@code streamBytes} and slice
+     * the content for each file as the verbatim bytes between consecutive header line
+     * starts. Slicing by byte position (rather than reading line-by-line and rejoining)
+     * preserves line endings, leading blank lines and trailing newlines exactly as the
+     * server emitted them - critical so the line-level diff comparison in
+     * {@code MethodImpactAnalyzer} sees the same byte shape that the serial per-file fetch
+     * would have produced.
+     *
+     * @param streamBytes the raw stream contents
+     * @param expectedDepotPaths depot paths the caller requested (used to validate header
+     *                           candidates - prevents a content line that happens to look
+     *                           like a header from being mistaken for one)
+     * @return content keyed by depot path; files whose header was not found in the stream
+     *         are absent from the map
+     */
+    private Map<String, String> parseBatchedPrintStream(byte[] streamBytes,
+                                                        List<String> expectedDepotPaths) {
+        Set<String> expectedSet = new HashSet<>(expectedDepotPaths);
+        String stream = new String(streamBytes, StandardCharsets.UTF_8);
+
+        // Phase 1: find every header line's byte position and the byte index where its
+        // content begins (immediately after the header's terminating newline).
+        List<int[]> headerSpans = new ArrayList<>();   // [headerLineStartIdx, contentStartIdx]
+        List<String> headerDepotPaths = new ArrayList<>();
+        int pos = 0;
+        while (pos < stream.length()) {
+            int nlIdx = stream.indexOf('\n', pos);
+            int lineEnd = (nlIdx == -1) ? stream.length() : nlIdx;
+            int lineDataEnd = lineEnd;
+            if (lineDataEnd > pos && stream.charAt(lineDataEnd - 1) == '\r') {
+                lineDataEnd--; // strip trailing \r for header detection only
+            }
+            String line = stream.substring(pos, lineDataEnd);
+            String depotPath = parseHeaderDepotPath(line, expectedSet);
+            if (depotPath != null) {
+                int contentStartIdx = (nlIdx == -1) ? stream.length() : nlIdx + 1;
+                headerSpans.add(new int[]{pos, contentStartIdx});
+                headerDepotPaths.add(depotPath);
+            }
+            if (nlIdx == -1) {
+                break;
+            }
+            pos = nlIdx + 1;
+        }
+
+        // Phase 2: slice byte ranges between consecutive header line starts.
+        Map<String, String> contentByDepotPath = new HashMap<>();
+        for (int i = 0; i < headerSpans.size(); i++) {
+            int contentStart = headerSpans.get(i)[1];
+            int contentEnd = (i < headerSpans.size() - 1)
+                    ? headerSpans.get(i + 1)[0]
+                    : stream.length();
+            contentByDepotPath.put(headerDepotPaths.get(i), stream.substring(contentStart, contentEnd));
+        }
+        return contentByDepotPath;
+    }
+
+    /**
+     * Detect whether {@code line} is a {@code p4 print} header for one of the expected
+     * files. Header form: {@code //depot/path#<rev> - <action> change <CL> (<type>)}; the
+     * leading depot path must be a member of {@code expectedDepotPaths} (so a content line
+     * that happens to start with {@code //} can't be mistaken for a header).
+     *
+     * @param line a candidate line from the stream
+     * @param expectedDepotPaths the set of depot paths whose content the caller requested
+     * @return the depot path if {@code line} is a header for an expected file, otherwise null
+     */
+    private String parseHeaderDepotPath(String line, Set<String> expectedDepotPaths) {
+        if (line == null || !line.startsWith("//")) {
+            return null;
+        }
+        int hashIdx = line.indexOf('#');
+        if (hashIdx < 0) {
+            return null;
+        }
+        if (line.indexOf(" - ", hashIdx) < 0) {
+            return null;
+        }
+        String depot = line.substring(0, hashIdx);
+        return expectedDepotPaths.contains(depot) ? depot : null;
     }
 
     private void loadFileContentIntoDiffContext(Map<String, SourceFileDiffContext> sourceFileDiffContexts, boolean forOriginal,
