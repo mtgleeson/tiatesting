@@ -75,10 +75,16 @@ public class TestRunnerService {
     }
 
     /**
-     * Build and persist a {@link TestRunHistoryEntry} for this run. Counts are derived from the
-     * data the listener already produced: ran = trackers actually populated; ignored = total
-     * runner-discovered suites minus ran; failed = failed-suite set size. Duration is the wall
-     * clock from {@code runStartTimestampMs} to now.
+     * Build and persist a {@link TestRunHistoryEntry} for this run.
+     *
+     * <p>Counts: {@code ran} is the number of suite trackers the listener populated;
+     * {@code ignored} is the number of suites Tia chose to ignore, taken directly from the
+     * selector via {@link TestRunResult#getIgnoredTestSuiteCount()} (which sources it from the
+     * {@code tiaIgnoredTestSuiteCount} system property). Engine-level skips that Tia did not
+     * cause (user {@code @Disabled}, surefire {@code groups} filters, etc.) are deliberately
+     * excluded so the history column reflects Tia's selection decision only. {@code failed}
+     * is the failed-suite set size. {@code durationMs} is the wall clock from
+     * {@code runStartTimestampMs} to now.
      *
      * @param updateDBMapping       was this run also updating the Tia mapping DB (stamped on the row)
      * @param commitValue           VCS commit / changelist the run was against
@@ -91,9 +97,7 @@ public class TestRunnerService {
                                        final TestRunResult testRunResult) {
         int ran = testRunResult.getTestSuiteTrackers() != null
                 ? testRunResult.getTestSuiteTrackers().size() : 0;
-        int totalSeen = testRunResult.getRunnerTestSuites() != null
-                ? testRunResult.getRunnerTestSuites().size() : 0;
-        int ignored = Math.max(0, totalSeen - ran);
+        int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
         int failed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
         long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);

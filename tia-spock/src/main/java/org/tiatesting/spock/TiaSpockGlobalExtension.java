@@ -80,7 +80,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
                 // the listener is used for collecting coverage, updating the stored mapping,
                 // and/or recording the run in the history log
+                int ignoredTestSuiteCount = ignoredTests != null ? ignoredTests.size() : 0;
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testSelectorResult.getTestsToRun(),
+                        ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory,
                         testSelectorResult.getLibraryImpactDrainResult());
             } else {

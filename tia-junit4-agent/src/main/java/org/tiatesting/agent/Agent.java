@@ -26,6 +26,16 @@ public class Agent {
         setDrainResultFileSystemProperty(agentOptions.getDrainResultFile());
     }
 
+    /**
+     * Read the ignore-tests file written by the select-tests step, apply the {@code @Ignore}
+     * bytecode instrumentation to each entry, and publish the count as the
+     * {@code tiaIgnoredTestSuiteCount} system property so the test listener can record it on the
+     * history row. The count is the exact size of the set Tia chose to ignore - engine-level
+     * skips (user {@code @Ignore}, surefire {@code groups} filters, etc.) do not contribute.
+     *
+     * @param instrumentation the JVM instrumentation handle from {@code premain}
+     * @param ignoreTestsFile path to the newline-separated ignore-tests file written during selection
+     */
     private static void instrumentIgnoredTests(Instrumentation instrumentation, String ignoreTestsFile) {
         Set<String> testsToIgnore;
         try (Stream<String> lines = Files.lines(Paths.get(ignoreTestsFile))) {
@@ -34,6 +44,9 @@ public class Agent {
             throw new RuntimeException(e);
         }
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Ignore.class);
+        String count = Integer.toString(testsToIgnore.size());
+        log.trace("Setting system property for tiaIgnoredTestSuiteCount: {}", count);
+        System.setProperty("tiaIgnoredTestSuiteCount", count);
     }
 
     /**

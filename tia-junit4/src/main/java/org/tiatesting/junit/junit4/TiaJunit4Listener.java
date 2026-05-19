@@ -48,6 +48,12 @@ public class TiaJunit4Listener extends RunListener {
     The set of tests selected to run by Tia.
      */
     private Set<String> selectedTests;
+    /*
+    Count of test suites Tia chose to ignore for this run. Sourced from the
+    `tiaIgnoredTestSuiteCount` system property set by the agent at premain time.
+    Persisted as `tia_test_run_history.num_suites_ignored`.
+     */
+    private int ignoredTestSuiteCount;
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
@@ -79,6 +85,28 @@ public class TiaJunit4Listener extends RunListener {
         this.testClassesDir = System.getProperty("testClassesDir");
         vcsReader.close();
         setSelectedTests();
+        setIgnoredTestSuiteCount();
+    }
+
+    /**
+     * Read the count of test suites Tia chose to ignore for this run from the
+     * {@code tiaIgnoredTestSuiteCount} system property set by the agent at premain time.
+     * Defaults to {@code 0} when the property is unset, blank, or unparseable so the history
+     * row records "0 ignored" rather than failing the persist.
+     */
+    private void setIgnoredTestSuiteCount(){
+        String raw = System.getProperty("tiaIgnoredTestSuiteCount");
+        if (raw == null || raw.trim().isEmpty()){
+            this.ignoredTestSuiteCount = 0;
+        } else {
+            try {
+                this.ignoredTestSuiteCount = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException e) {
+                log.warn("Could not parse tiaIgnoredTestSuiteCount '{}'; defaulting to 0", raw);
+                this.ignoredTestSuiteCount = 0;
+            }
+        }
+        log.trace("Reading system property tiaIgnoredTestSuiteCount: {}", ignoredTestSuiteCount);
     }
 
     /**
@@ -274,7 +302,7 @@ public class TiaJunit4Listener extends RunListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult);
+                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount);
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult);
 
