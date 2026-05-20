@@ -190,7 +190,7 @@ revealOptions:
 
 # Test Impact Analysis for the JVM
 
-<p class="footnote">Speaker name &middot; date</p>
+<p class="footnote">Matt Gleeson &middot; May 2026</p>
 
 ---
 
@@ -259,7 +259,7 @@ Note: Spock support is independent of the JUnit 5 path even though Spock uses th
 
 <img class="diagram" src="assets/diagrams/selecting.svg" alt="Test-selection flow" />
 
-- No mapping yet on this branch? &rarr; runs everything (safe default).
+- No mapping yet on this branch? &rarr; runs everything ("seed" the DB).
 - Modified or newly-added test files &rarr; always run.
 - Tests that failed last run &rarr; always re-run.
 
@@ -282,6 +282,21 @@ Note: if there is no mapping for the branch at all, both runs and ignores are em
 - Mapping updates gated to CI via `tiaUpdateDBMapping=true`.
 - Local dev runs **read** but don't write &mdash; source-of-truth stays stable.
 - Fresh branch &rarr; runs everything until the first successful CI mapping commit.
+
+---
+
+## Two modes of operation
+
+- **Primary build mode** &mdash; the authoritative writer for a branch (typically CI).
+  - Owns the mapping DB: each green run updates the suite-to-method map and the run stats.
+  - Enabled with `tiaUpdateDBMapping=true`; selection still runs against VCS HEAD.
+  - Exactly one primary build per branch keeps the mapping deterministic.
+- **SE developer mode** &mdash; fast local feedback against your working tree.
+  - Selects tests against **uncommitted** edits via `tiaCheckLocalChanges=true`.
+  - **Read-only**: never writes to the mapping, so half-finished work can't pollute it.
+  - Same selection logic as CI &mdash; you run the same subset CI would run if you pushed now.
+
+Note: SE developer mode is what makes Tia feel fast in the inner loop. Primary build mode is what makes it correct across the team. Both modes share the same selector code path; only the inputs (HEAD vs working tree) and the write gate differ.
 
 ---
 
