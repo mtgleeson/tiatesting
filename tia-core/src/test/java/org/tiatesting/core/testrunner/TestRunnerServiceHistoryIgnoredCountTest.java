@@ -78,7 +78,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4);
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
@@ -89,7 +89,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         assertEquals(1, history.size(), "exactly one history row expected");
         TestRunHistoryEntry row = history.get(0);
         assertNotNull(row);
-        assertEquals(4, row.getNumSuitesRan(), "ran count comes from trackers");
+        assertEquals(4, row.getNumSuitesRan(), "ran count is the per-attempt suitesRanThisAttempt");
         assertEquals(7, row.getNumSuitesIgnored(), "ignored count comes from selector, not runner diff");
         assertEquals(0, row.getNumSuitesFailed(), "no failures in this run");
     }
@@ -115,7 +115,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4);
 
         // when
         service.persistTestRunData(false, false, true, "abc123", "main", System.currentTimeMillis(), testRunResult);
@@ -138,7 +138,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0);
 
         // when
         service.persistTestRunData(false, false, true, "first-run-commit", "main",
@@ -150,5 +150,65 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         assertEquals(0, history.get(0).getNumSuitesRan());
         assertEquals(0, history.get(0).getNumSuitesIgnored());
         assertEquals(0, history.get(0).getNumSuitesFailed());
+    }
+
+    /**
+     * Surefire retry scenario: the shared testSuiteTrackers map carries forward entries from
+     * earlier attempts (intentionally - the mapping path needs the cumulative coverage), so
+     * its size on the retry attempt is the wrong number for the history "Ran" column. The
+     * persist must take {@code suitesRanThisAttempt} instead - the per-listener-instance count
+     * that reflects only what this attempt ran.
+     */
+    @Test
+    void retryAttempt_ranComesFromThisAttemptNotCumulativeTrackers() {
+        // given - testSuiteTrackers has 10 entries (8 from the original attempt + 2 retried),
+        // but only 2 suites actually ran in this retry attempt
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        for (int i = 0; i < 8; i++) {
+            String name = "com.example.OriginalAttemptTest" + i;
+            trackers.put(name, new TestSuiteTracker(name));
+        }
+        trackers.put("com.example.RetriedA", new TestSuiteTracker("com.example.RetriedA"));
+        trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
+        TestRunResult testRunResult = new TestRunResult(
+                trackers, new HashSet<>(), new HashSet<>(),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2);
+
+        // when
+        service.persistTestRunData(false, false, true, "retry-commit", "main",
+                System.currentTimeMillis(), testRunResult);
+
+        // then - ran is 2 (this attempt), not 10 (cumulative trackers)
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+        assertEquals(1, history.size());
+        assertEquals(2, history.get(0).getNumSuitesRan(),
+                "ran count must come from suitesRanThisAttempt, not testSuiteTrackers.size()");
+    }
+
+    /**
+     * First (non-retry) attempt: every suite the listener saw finished in this attempt, so
+     * {@code suitesRanThisAttempt} equals {@code testSuiteTrackers.size()}. The persisted row
+     * matches that count - no regression from the fix.
+     */
+    @Test
+    void firstAttempt_ranMatchesTrackersWhenNoRetry() {
+        // given - 5 suites ran, no retry, so suitesRanThisAttempt == trackers.size()
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        for (int i = 0; i < 5; i++) {
+            String name = "com.example.SuiteTest" + i;
+            trackers.put(name, new TestSuiteTracker(name));
+        }
+        TestRunResult testRunResult = new TestRunResult(
+                trackers, new HashSet<>(), new HashSet<>(),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5);
+
+        // when
+        service.persistTestRunData(false, false, true, "first-attempt-commit", "main",
+                System.currentTimeMillis(), testRunResult);
+
+        // then
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+        assertEquals(1, history.size());
+        assertEquals(5, history.get(0).getNumSuitesRan());
     }
 }
