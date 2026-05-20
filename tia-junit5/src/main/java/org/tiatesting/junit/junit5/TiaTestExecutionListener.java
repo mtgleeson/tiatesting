@@ -67,6 +67,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     Persisted as `tia_test_run_history.num_suites_ignored`.
      */
     private int ignoredTestSuiteCount;
+    /*
+    Per-listener-instance set of suite names that finished in this attempt only. NOT sourced
+    from `sharedTestRunData` - a fresh set is created per re-run so the history row's "Ran"
+    count reflects what this attempt ran, not the cumulative count carried across retries by
+    the shared testSuiteTrackers map.
+     */
+    private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
@@ -307,6 +314,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         runnerTestSuites.add(testSuiteName);
+        suitesFinishedThisAttempt.add(testSuiteName);
     }
 
     /**
@@ -328,7 +336,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount);
+                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
+                suitesFinishedThisAttempt.size());
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult);
     }

@@ -54,6 +54,13 @@ public class TiaJunit4Listener extends RunListener {
     Persisted as `tia_test_run_history.num_suites_ignored`.
      */
     private int ignoredTestSuiteCount;
+    /*
+    Per-attempt set of suite names that finished between testRunStarted and testRunFinished.
+    JUnit4 reuses the same listener instance across Surefire retries, so we clear this set
+    in testRunStarted to make each attempt's history "Ran" count reflect only that attempt -
+    not the cumulative count carried across retries by testSuiteTrackers.
+     */
+    private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBStats;
@@ -162,6 +169,10 @@ public class TiaJunit4Listener extends RunListener {
             return;
         }
         testRunStartTime = System.currentTimeMillis();
+        // Reset the per-attempt suites-finished set. The listener instance is reused across
+        // Surefire retries, so without this clear the history row's "Ran" count would
+        // accumulate across attempts.
+        suitesFinishedThisAttempt.clear();
     }
 
     @Override
@@ -278,6 +289,7 @@ public class TiaJunit4Listener extends RunListener {
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
             runnerTestSuites.put(testSuiteName, previousRuns+1);
+            suitesFinishedThisAttempt.add(testSuiteName);
         }
     }
 
@@ -302,7 +314,8 @@ public class TiaJunit4Listener extends RunListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount);
+                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
+                suitesFinishedThisAttempt.size());
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult);
 
