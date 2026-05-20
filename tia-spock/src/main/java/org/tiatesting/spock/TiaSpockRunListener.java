@@ -156,8 +156,13 @@ public class TiaSpockRunListener extends AbstractRunListener {
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
+        // Spock is not affected by the JUnit5/JUnit4 retry-inflation bug: finishAllTests fires
+        // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
+        // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
+        // per-attempt count - there's no separate counter to thread through.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount);
+                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount,
+                testSuiteTrackers.size());
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult);
     }

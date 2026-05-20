@@ -17,11 +17,15 @@ public class TestRunResult {
     final TestStats testStats;
     final LibraryImpactDrainResult libraryImpactDrainResult;
     final int ignoredTestSuiteCount;
+    final int suitesRanThisAttempt;
 
     /**
      * Construct the collected result of a Tia-instrumented test run.
      *
-     * @param testSuiteTrackers          per-suite trackers (one entry per suite the runner actually executed)
+     * @param testSuiteTrackers          per-suite trackers (one entry per suite the runner actually executed).
+     *                                   On Surefire retry of failed tests this map accumulates across attempts -
+     *                                   the mapping path needs the cumulative coverage. For the history "Ran"
+     *                                   column use {@code suitesRanThisAttempt} instead.
      * @param testSuitesFailed           names of suites that failed
      * @param runnerTestSuites           every suite the runner discovered (executed + skipped + filtered)
      * @param selectedTests              the suites Tia selected to run, as read from the {@code tiaSelectedTests}
@@ -33,6 +37,10 @@ public class TestRunResult {
      *                                   from the {@code tiaIgnoredTestSuiteCount} system property; this is
      *                                   the value persisted to {@code tia_test_run_history} and reflects
      *                                   only Tia's selection decision, not engine-level skips or filters
+     * @param suitesRanThisAttempt       the count of test suites that finished in this listener attempt only -
+     *                                   not the cumulative count across Surefire retries. Persisted to
+     *                                   {@code tia_test_run_history.num_suites_ran} so each retry row reports
+     *                                   what that retry actually ran.
      */
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
@@ -41,7 +49,8 @@ public class TestRunResult {
                          Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
                          TestStats testStats,
                          LibraryImpactDrainResult libraryImpactDrainResult,
-                         int ignoredTestSuiteCount) {
+                         int ignoredTestSuiteCount,
+                         int suitesRanThisAttempt) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
@@ -50,6 +59,7 @@ public class TestRunResult {
         this.testStats = testStats;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.ignoredTestSuiteCount = ignoredTestSuiteCount;
+        this.suitesRanThisAttempt = suitesRanThisAttempt;
     }
 
     public Map<String, TestSuiteTracker> getTestSuiteTrackers() {
@@ -90,5 +100,16 @@ public class TestRunResult {
      */
     public int getIgnoredTestSuiteCount() {
         return ignoredTestSuiteCount;
+    }
+
+    /**
+     * @return the count of test suites that finished in this listener attempt only. On Surefire
+     *         retry the {@link #getTestSuiteTrackers()} map carries forward earlier attempts'
+     *         entries (intentionally - the mapping path needs the cumulative coverage), so its
+     *         {@code size()} over-counts for the history row. This counter is per-attempt and
+     *         is the value persisted to {@code tia_test_run_history.num_suites_ran}.
+     */
+    public int getSuitesRanThisAttempt() {
+        return suitesRanThisAttempt;
     }
 }
