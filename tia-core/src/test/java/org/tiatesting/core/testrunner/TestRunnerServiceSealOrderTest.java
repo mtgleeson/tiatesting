@@ -289,6 +289,11 @@ class TestRunnerServiceSealOrderTest {
             delegate.persistTestSuites(testSuites);
         }
         @Override
+        public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) {
+            callOrder.add("persistTestSuiteStatsOnly");
+            delegate.persistTestSuiteStatsOnly(testSuites);
+        }
+        @Override
         public void deleteTestSuites(Set<String> testSuites) {
             callOrder.add("deleteTestSuites");
             delegate.deleteTestSuites(testSuites);

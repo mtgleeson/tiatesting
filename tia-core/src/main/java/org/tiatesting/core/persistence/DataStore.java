@@ -108,11 +108,27 @@ public interface DataStore extends AutoCloseable {
     void persistSourceMethods(final Map<Integer, MethodImpactTracker> methodsTracked);
 
     /**
-     * Persist the test suites data to disk.
+     * Persist the full test suites data to disk - both the per-suite row (name + stats) AND the
+     * underlying suite-to-source-class-to-method edges. Used on primary-build runs that update
+     * the mapping ({@code updateDBMapping=true}).
+     *
+     * <p>For stats-only runs ({@code updateDBStats=true, updateDBMapping=false}) use
+     * {@link #persistTestSuiteStatsOnly(Map)} instead - that path skips the
+     * {@code tia_source_class} / {@code tia_source_class_method} writes, which would otherwise
+     * be a wasteful delete-then-reinsert of unchanged mapping rows.
      *
      * @param testSuites the test suites that should be persisted to disk.
      */
     void persistTestSuites(final Map<String, TestSuiteTracker> testSuites);
+
+    /**
+     * Persist only the stats columns of the per-suite row (no source-class / method edges).
+     * Used on stats-only runs where {@code updateDBStats=true} but {@code updateDBMapping=false}
+     * - the mapping rows must remain untouched.
+     *
+     * @param testSuites the test suites whose stats should be persisted to disk.
+     */
+    void persistTestSuiteStatsOnly(final Map<String, TestSuiteTracker> testSuites);
 
     /**
      * Delete the given test suites from disk.

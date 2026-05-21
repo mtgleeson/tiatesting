@@ -336,6 +336,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
         @Override public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuites(testSuites); }
+        @Override public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuiteStatsOnly(testSuites); }
         @Override public void deleteTestSuites(Set<String> testSuites) { delegate.deleteTestSuites(testSuites); }
         @Override public Map<String, TrackedLibrary> readTrackedLibraries() { return delegate.readTrackedLibraries(); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }

@@ -303,11 +303,32 @@ public class H2DataStore implements DataStore {
 
     @Override
     public void persistTestSuites(final Map<String, TestSuiteTracker> testSuites){
+        persistTestSuitesInternal(testSuites, true);
+    }
+
+    @Override
+    public void persistTestSuiteStatsOnly(final Map<String, TestSuiteTracker> testSuites){
+        persistTestSuitesInternal(testSuites, false);
+    }
+
+    /**
+     * Shared implementation behind {@link #persistTestSuites(Map)} and
+     * {@link #persistTestSuiteStatsOnly(Map)}. When {@code includeClassMappings} is {@code false}
+     * the suite-to-source-class / method edges are left untouched - the only writes are the
+     * MERGE on {@code tia_test_suite} (name + stats columns). This is the path used by
+     * stats-only runs.
+     *
+     * @param testSuites           the suites whose rows to persist
+     * @param includeClassMappings whether to also delete-and-reinsert the per-suite
+     *                             {@code tia_source_class} / {@code tia_source_class_method}
+     *                             edges; true for mapping-update runs, false for stats-only.
+     */
+    private void persistTestSuitesInternal(Map<String, TestSuiteTracker> testSuites, boolean includeClassMappings){
         long startTime = System.currentTimeMillis();
         Connection connection = getConnection();
 
         try {
-            persistTestSuites(connection, testSuites.values());
+            persistTestSuites(connection, testSuites.values(), includeClassMappings);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }finally {
@@ -709,7 +730,8 @@ public class H2DataStore implements DataStore {
         statement.executeUpdate(sql);
     }
 
-    private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites) throws SQLException {
+    private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites,
+                                   boolean includeClassMappings) throws SQLException {
         if (testSuites.isEmpty()){
             return;
         }
@@ -733,8 +755,11 @@ public class H2DataStore implements DataStore {
             log.debug("Persisting test suites: {}", mergeSql);
             statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
 
-            // only update the source classes mapping for the test suite if mapping data exists for this test run
-            if (!testSuite.getClassesImpacted().isEmpty()){
+            // only update the source classes mapping for the test suite if the caller is the
+            // full-mapping path AND mapping data exists for this test run. Stats-only runs
+            // (includeClassMappings=false) skip this entirely so tia_source_class /
+            // tia_source_class_method remain untouched.
+            if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
                 ResultSet rs = statement.getGeneratedKeys();
                 rs.next();
                 persistTestSuiteClasses(connection, rs.getLong(COL_ID), testSuite.getClassesImpacted());

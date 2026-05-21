@@ -158,6 +158,19 @@ public class TestRunnerService {
      * <p>
      * Also update the stats for the test suites if configured for the test run.
      *
+     * <p><b>Persistence routing.</b>
+     * <ul>
+     *   <li>Both flags false (history-only / SE-developer runs): early-return; no read,
+     *       no write. The test suite mapping table is not touched at all.</li>
+     *   <li>{@code updateDBMapping=true}: the merged map (with mapping + optional stats)
+     *       is persisted via {@link DataStore#persistTestSuites(Map)} - includes the
+     *       suite-to-source-class-to-method edges.</li>
+     *   <li>{@code updateDBStats=true} and {@code updateDBMapping=false}: only the stats
+     *       columns of each suite row are persisted via
+     *       {@link DataStore#persistTestSuiteStatsOnly(Map)} - the mapping edges remain
+     *       untouched.</li>
+     * </ul>
+     *
      * @param tiaData the Tia DB
      * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
      * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
@@ -166,6 +179,13 @@ public class TestRunnerService {
      */
     private void updateTestSuiteMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers,
                                         final Set<String> runnerTestSuites, final boolean updateDBMapping, final boolean updateDBStats){
+
+        if (!updateDBMapping && !updateDBStats) {
+            // History-only / SE-developer runs do not touch the test-suite mapping table.
+            // Skipping the read+persist here avoids a full delete-then-reinsert of every
+            // tia_source_class / tia_source_class_method row on every non-update run.
+            return;
+        }
 
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = dataStore.getTestSuitesTracked();
         tiaData.setTestSuitesTracked(testSuiteTrackersOnDisk);
@@ -186,7 +206,12 @@ public class TestRunnerService {
             tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
         }
 
-        dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+        if (updateDBMapping) {
+            dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+        } else {
+            // stats-only branch: leave the suite-to-source-class / method-edges untouched
+            dataStore.persistTestSuiteStatsOnly(tiaData.getTestSuitesTracked());
+        }
     }
 
     /**
