@@ -511,6 +511,12 @@ public class P4DiffAnalyzer {
             return;
         }
 
+        // TEMPORARY DIAGNOSTIC: print the full argv list so we can confirm whether a failing
+        // file's revision suffix is bogus (e.g. "#-1" or "#0" for newly-added files where
+        // IFileSpec.getEndRevision() isn't populated by getDepotFiles). Remove once Option A
+        // (@CL annotation in argv) lands.
+        log.info("p4 print batched argv (forOriginal={}): {}", forOriginal, argvList);
+
         byte[] streamBytes;
         try {
             InputStream stream = p4Connection.getServer().execStreamCmd("print",
