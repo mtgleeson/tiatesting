@@ -37,8 +37,10 @@ import static org.mockito.Mockito.when;
 /**
  * Verifies that {@link P4DiffAnalyzer#getSourceFilesImpactedFromPreviousSubmit} resolves a
  * changelist range with a single {@code p4 files} round-trip instead of the older per-CL
- * {@code p4 describe} loop. This is the stage 1 perf change on the {@code perf/p4-batch-fetch}
- * branch.
+ * {@code p4 describe} loop, AND that the range query uses {@code allRevs=true} so files
+ * changed in multiple CLs in the range come back one entry per (file, CL) - required for
+ * the action-override semantics in {@code buildDiffContext} (ADD-then-EDIT-in-range
+ * collapses to ADD).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -79,7 +81,7 @@ class P4DiffAnalyzerChangelistRangeTest {
         IFileSpec fooAddedAt101 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
         IFileSpec barEditedAt102 = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102);
         IFileSpec fooEditedAt103 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 103);
-        when(server.getDepotFiles(any(), eq(false)))
+        when(server.getDepotFiles(any(), eq(true)))
                 .thenReturn(Arrays.asList(fooAddedAt101, barEditedAt102, fooEditedAt103));
 
         // mock the `where` call inside buildDiffContextsForFileSpecs - returns local-path
@@ -93,7 +95,7 @@ class P4DiffAnalyzerChangelistRangeTest {
                 analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
 
         // then - exactly one range query, no per-CL fetches
-        verify(server, times(1)).getDepotFiles(any(), eq(false));
+        verify(server, times(1)).getDepotFiles(any(), eq(true));
         verify(server, never()).getChangelist(anyInt());
 
         // and - two distinct files end up in the diff contexts
@@ -116,7 +118,7 @@ class P4DiffAnalyzerChangelistRangeTest {
         IFileSpec barEditedAt102 = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102);
         IFileSpec fooEditedAt103 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 103);
         IFileSpec barDeletedAt103 = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.DELETE, 103);
-        when(server.getDepotFiles(any(), eq(false)))
+        when(server.getDepotFiles(any(), eq(true)))
                 .thenReturn(Arrays.asList(fooAddedAt101, barEditedAt102, fooEditedAt103, barDeletedAt103));
 
         IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0);
@@ -147,7 +149,7 @@ class P4DiffAnalyzerChangelistRangeTest {
     @Test
     void emptyRange_returnsEmptyMap() throws P4JavaException {
         // given
-        when(server.getDepotFiles(any(), eq(false))).thenReturn(new ArrayList<>());
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(new ArrayList<>());
 
         // when
         Map<String, SourceFileDiffContext> contexts =
@@ -156,6 +158,46 @@ class P4DiffAnalyzerChangelistRangeTest {
         // then
         assertTrue(contexts.isEmpty());
         verify(server, never()).getChangelist(anyInt());
+    }
+
+    /**
+     * Regression test for the {@code allRevs=true} requirement. With {@code allRevs=false},
+     * the range query returns only the highest revision per file - so a file added in one CL
+     * and edited in a later CL within the range comes back with action=EDIT alone, gets
+     * classified as MODIFY, and the forOriginal=true content fetch then tries to read the
+     * file at baseCl (where it didn't exist), producing "No file found in P4" log noise.
+     *
+     * <p>With {@code allRevs=true}, the same file comes back once per CL it was changed in,
+     * sortFileChanges orders them oldest-first, and the action-override logic in
+     * buildDiffContext collapses ADD-then-EDIT to ADD - so the forOriginal=true filter
+     * correctly skips it.
+     */
+    @Test
+    void rangeQuery_setsAllRevsTrue_soAddThenEditCollapsesToAdd() throws P4JavaException {
+        // given - Foo added at CL 101 AND edited at CL 103. With allRevs=true Perforce
+        // returns both entries; with allRevs=false it would only return the CL 103 EDIT.
+        IFileSpec fooAddedAt101 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 101);
+        IFileSpec fooEditedAt103 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 103);
+        when(server.getDepotFiles(any(), eq(true)))
+                .thenReturn(Arrays.asList(fooAddedAt101, fooEditedAt103));
+
+        IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0);
+        when(client.where(any())).thenReturn(Collections.singletonList(fooWhere));
+
+        // when
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+
+        // then - the range query was made with allRevs=true (NOT false). A revert of the
+        // production fix would fail this verify call.
+        verify(server, times(1)).getDepotFiles(any(), eq(true));
+        verify(server, never()).getDepotFiles(any(), eq(false));
+
+        // and - the resulting diff context correctly classifies Foo as ADD (not MODIFY)
+        SourceFileDiffContext foo = contexts.get(FOO_DEPOT);
+        assertNotNull(foo, "Foo should be in the contexts");
+        assertEquals(ChangeType.ADD, foo.getChangeType(),
+                "ADD-then-EDIT in the range must collapse to ADD, not stay as MODIFY");
     }
 
     /**
