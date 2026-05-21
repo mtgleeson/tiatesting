@@ -515,8 +515,13 @@ public class P4DiffAnalyzer {
                 // The file doesn't exist in the CL. This can happen when a file was deleted
                 // in the original CL as well as in the new CL (e.g. a merge CL bringing a
                 // delete action into a stream where the file was already deleted).
-                log.info("No file found in P4 for the CL {} (forOriginal={})",
-                        fileSpec.getChangelistId(), forOriginal);
+                // TEMPORARY: include originalPath + clientPath + statusMessage so we can
+                // identify which file is hitting this branch in the user's environment.
+                log.info("No file found in P4 for the CL {} (forOriginal={}) originalPath={} clientPath={} statusMessage={}",
+                        fileSpec.getChangelistId(), forOriginal,
+                        fileSpec.getOriginalPathString(),
+                        fileSpec.getClientPathString(),
+                        fileSpec.getStatusMessage());
                 continue;
             }
             expectedDepotPaths.add(depotPath);
