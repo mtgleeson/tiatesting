@@ -433,7 +433,7 @@ public class P4DiffAnalyzer {
                 throw new VCSAnalyzerException("Couldn't find the source files in Perforce for revision " + cl);
             }
 
-            loadFileSpecsContentIntoDiffContext(p4Connection, revisionFileSpecs, sourceFileDiffContexts, forOriginal);
+            loadFileSpecsContentIntoDiffContext(p4Connection, revisionFileSpecs, sourceFileDiffContexts, forOriginal, cl);
         } catch (P4JavaException e) {
             throw new VCSAnalyzerException(e);
         }
@@ -454,20 +454,31 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Load content for every file in {@code revisionFileSpecs} at its requested revision into
+     * Load content for every file in {@code revisionFileSpecs} at the given changelist into
      * the matching {@link SourceFileDiffContext}. Fetches all files in a single
      * {@code p4 print} round-trip per version - replaces the older per-file loop that made
      * one round-trip per file.
      *
      * <p>Implementation: call {@code IServer.execStreamCmd("print", argv)} directly with
-     * a {@code String[]} of {@code //depot/path#rev} arguments. The higher-level
+     * a {@code String[]} of {@code //depot/path@<CL>} arguments. The higher-level
      * {@code getFileContents(List<IFileSpec>, opts)} API can't be used here because p4java's
      * internal {@code IFileSpec -> wire args} conversion drops the revision (it reads
      * {@code IFileSpec.getDepotPathString()}, which is {@code null} for specs constructed
      * from a {@code "//path#rev"} string) so the server always returns head. Going through
-     * {@code execStreamCmd} with explicit argv puts the {@code #rev} annotation on the wire
-     * verbatim - the exact equivalent of running {@code p4 print //path1#23 //path2#298}
-     * from the command line.
+     * {@code execStreamCmd} with explicit argv puts the annotation on the wire verbatim -
+     * the exact equivalent of running {@code p4 print //path1@1234 //path2@1234} from the
+     * command line.
+     *
+     * <p>The {@code @CL} annotation (rather than {@code #rev}) is used because the file
+     * specs returned by {@code getDepotFiles(...@CL, false)} don't reliably populate a
+     * revision-number field across p4java versions and file-action types. The exact field
+     * (e.g. {@code endRevision} vs {@code headRev}) that carries the resolved revision
+     * varies, and for newly-added files at their first revision the populated field can be
+     * {@code -1} or {@code 0} - both of which produce a bogus {@code #rev} suffix that
+     * {@code p4 print} can't parse, dropping that file silently from the batched response.
+     * Using {@code @CL} sidesteps the ambiguity entirely: Perforce resolves the per-file
+     * revision at that CL on the server side, the same way {@code getDepotFiles} originally
+     * resolved it.
      *
      * <p>The returned stream is the concatenation of every file's {@code p4 print} output:
      * each file is prefixed by a header line of the form
@@ -479,19 +490,21 @@ public class P4DiffAnalyzer {
      *
      * @param p4Connection the Perforce connection used to call {@code execStreamCmd}
      * @param revisionFileSpecs the file specs returned by {@code getDepotFiles} - each carries
-     *                          a depot path and the resolved revision for that path at the
-     *                          requested CL; specs with a null depot path (file missing at
-     *                          this revision) are skipped
+     *                          a depot path for the file at the requested CL; specs with a
+     *                          null depot path (file missing at this revision) are skipped
      * @param sourceFileDiffContexts the diff-context map keyed by depot path; each context's
      *                               {@code sourceContentOriginal} or {@code sourceContentNew}
      *                               is populated based on {@code forOriginal}
      * @param forOriginal {@code true} when fetching the "before" version, {@code false} for
      *                    the "after" version
+     * @param cl the changelist id used as the {@code @CL} annotation in the argv (same id
+     *           that was passed to {@code getDepotFiles} to resolve the specs)
      */
     private void loadFileSpecsContentIntoDiffContext(P4Connection p4Connection,
                                                      List<IFileSpec> revisionFileSpecs,
                                                      Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                     boolean forOriginal) {
+                                                     boolean forOriginal,
+                                                     String cl) {
         List<String> expectedDepotPaths = new ArrayList<>(revisionFileSpecs.size());
         List<String> argvList = new ArrayList<>(revisionFileSpecs.size());
         for (IFileSpec fileSpec : revisionFileSpecs) {
@@ -505,16 +518,15 @@ public class P4DiffAnalyzer {
                 continue;
             }
             expectedDepotPaths.add(depotPath);
-            argvList.add(depotPath + "#" + fileSpec.getEndRevision());
+            argvList.add(depotPath + "@" + cl);
         }
         if (argvList.isEmpty()) {
             return;
         }
 
-        // TEMPORARY DIAGNOSTIC: print the full argv list so we can confirm whether a failing
-        // file's revision suffix is bogus (e.g. "#-1" or "#0" for newly-added files where
-        // IFileSpec.getEndRevision() isn't populated by getDepotFiles). Remove once Option A
-        // (@CL annotation in argv) lands.
+        // TEMPORARY DIAGNOSTIC: print the full argv list so we can confirm the new
+        // @CL form is correct and see whether the failing file is now resolved. Remove
+        // this once Option A is confirmed to fix the missing-header issue.
         log.info("p4 print batched argv (forOriginal={}): {}", forOriginal, argvList);
 
         byte[] streamBytes;
