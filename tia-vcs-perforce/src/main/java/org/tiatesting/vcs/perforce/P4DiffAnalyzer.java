@@ -233,13 +233,28 @@ public class P4DiffAnalyzer {
                                                                         Map<String, SourceFileDiffContext> sourceFileDiffContexts,
                                                                         List<IFileSpec> sourceAndTestFilesSpecs){
         List<T> sourceCodeFiles = filterValidSourceOrTestFiles(fileSpecs, sourceAndTestFilesSpecs);
-        List<String> sourceCodeFileDepotPaths = sourceCodeFiles.stream().map(IFileSpec::getDepotPathString).collect(Collectors.toList());
+
+        // Deduplicate depot paths for the `where` call. With allRevs=true on the upstream
+        // range query, a file changed in multiple CLs returns one IFileSpec entry per (file, CL)
+        // - so sourceCodeFiles can contain several specs sharing the same depot path. The
+        // `where` resolution from depot path to local path is identical regardless of CL, so
+        // we ask Perforce once per unique path and key the result map by depot path.
+        // The downstream iteration over sourceCodeFiles still sees all per-CL entries (needed
+        // for the action-override semantics in buildDiffContext).
+        List<String> uniqueDepotPaths = sourceCodeFiles.stream()
+                .map(IFileSpec::getDepotPathString)
+                .distinct()
+                .collect(Collectors.toList());
         Map<String, IFileSpec> localFileSpecs;
 
         try {
             // use P4 where command to find out the local paths for the changed files (local or submitted)
-            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceCodeFileDepotPaths));
-            localFileSpecs = whereFileSpecs.stream().collect(Collectors.toMap(IFileSpec::getDepotPathString, Function.identity()));
+            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(uniqueDepotPaths));
+            // (existing, replacement) -> existing : where-results for the same depot path are
+            // equivalent regardless of CL; pick the first to avoid throwing if p4 ever returns
+            // duplicates on its own.
+            localFileSpecs = whereFileSpecs.stream()
+                    .collect(Collectors.toMap(IFileSpec::getDepotPathString, Function.identity(), (existing, replacement) -> existing));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
