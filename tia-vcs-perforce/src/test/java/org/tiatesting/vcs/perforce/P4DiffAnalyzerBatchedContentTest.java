@@ -388,6 +388,88 @@ class P4DiffAnalyzerBatchedContentTest {
     }
 
     /**
+     * Regression test: a prior file in the batch whose content does NOT end with a trailing
+     * newline must not hide the next file's header from the parser.
+     *
+     * <p>The bug: when file A's content has no trailing {@code \n}, file B's header line is
+     * physically adjacent to A's content tail in the stream bytes:
+     * {@code <A's content>//pathB#1 - add change 1234 (text)\n}. A line-by-line scanner that
+     * tokenizes on {@code \n} sees that whole span as a single "line" starting with A's
+     * content (not {@code //}), fails the header-shape check, and silently drops B's content.
+     * The fix is to find each expected path's header via direct substring search with a
+     * boundary check (position 0 or preceded by {@code \n}), not via line tokenization.
+     *
+     * <p>Source files in the wild commonly lack a trailing newline (especially Java files
+     * with editor settings that don't enforce one), so this is a real-world batch shape that
+     * has to round-trip cleanly.
+     */
+    @Test
+    void priorFileWithoutTrailingNewline_doesNotHideNextFilesHeader() throws P4JavaException {
+        // given - two files; Foo's content deliberately does NOT end with '\n', and Bar's
+        // header sits directly against Foo's content tail in the stream bytes
+        IFileSpec fooBefore = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 101, 3);
+        IFileSpec barBefore = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102, 5);
+        IFileSpec fooAfter = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 101, 4);
+        IFileSpec barAfter = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102, 6);
+
+        when(server.getDepotFiles(any(), anyBoolean()))
+                .thenReturn(Arrays.asList(fooBefore, barBefore))
+                .thenReturn(Arrays.asList(fooBefore, barBefore))
+                .thenReturn(Arrays.asList(fooAfter, barAfter));
+
+        IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0, 0);
+        IFileSpec barWhere = spec(BAR_DEPOT, "/ws/Bar.java", null, 0, 0);
+        when(client.where(any()))
+                .thenReturn(sourceAndTestFilesSpecs)
+                .thenReturn(Arrays.asList(fooWhere, barWhere));
+
+        // Build the stream manually so we can omit the trailing newline on Foo's content.
+        // Shape:
+        //   //...Foo#3 - edit change 1 (text)\n
+        //   class Foo { v3 }                       <-- NO trailing \n
+        //   //...Bar#5 - edit change 1 (text)\n
+        //   class Bar { v5 }\n
+        String beforeStream =
+                FOO_DEPOT + "#3 - edit change 1 (text)\n" +
+                "class Foo { v3 }" +
+                BAR_DEPOT + "#5 - edit change 1 (text)\n" +
+                "class Bar { v5 }\n";
+        String afterStream =
+                FOO_DEPOT + "#4 - edit change 1 (text)\n" +
+                "class Foo { v4 }" +
+                BAR_DEPOT + "#6 - edit change 1 (text)\n" +
+                "class Bar { v6 }\n";
+
+        when(server.execStreamCmd(eq("print"), any(String[].class)))
+                .thenReturn(streamFor(beforeStream))
+                .thenReturn(streamFor(afterStream));
+
+        P4Context ctx = new P4Context(p4Connection, "main", "103");
+
+        // when
+        Set<SourceFileDiffContext> contexts =
+                analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+
+        // then - both files have content attributed correctly despite Foo's missing trailing \n
+        Map<String, SourceFileDiffContext> byPath = new HashMap<>();
+        for (SourceFileDiffContext c : contexts) {
+            byPath.put(c.getOldFilePath() != null ? c.getOldFilePath() : c.getNewFilePath(), c);
+        }
+        SourceFileDiffContext foo = byPath.get("/ws/Foo.java");
+        SourceFileDiffContext bar = byPath.get("/ws/Bar.java");
+        assertNotNull(foo, "Foo's diff context must be present");
+        assertNotNull(bar, "Bar's diff context must be present");
+        assertEquals("class Foo { v3 }", foo.getSourceContentOriginal(),
+                "Foo's before content must be sliced correctly even without a trailing newline");
+        assertEquals("class Foo { v4 }", foo.getSourceContentNew(),
+                "Foo's after content must be sliced correctly even without a trailing newline");
+        assertEquals("class Bar { v5 }\n", bar.getSourceContentOriginal(),
+                "Bar's before content must not be lost when prior file lacked a trailing newline");
+        assertEquals("class Bar { v6 }\n", bar.getSourceContentNew(),
+                "Bar's after content must not be lost when prior file lacked a trailing newline");
+    }
+
+    /**
      * A null stream from {@code execStreamCmd} means p4java returned nothing for the batch -
      * after upstream filtering every spec was expected to resolve, so a null stream is an
      * anomaly. The analyzer throws rather than silently mis-selecting tests.
