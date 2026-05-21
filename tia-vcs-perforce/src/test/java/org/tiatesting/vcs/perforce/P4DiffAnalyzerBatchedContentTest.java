@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,10 +43,17 @@ import static org.mockito.Mockito.when;
 /**
  * Verifies that {@link P4DiffAnalyzer} fetches per-revision file content with a single
  * batched {@code execStreamCmd("print", argv)} round-trip per version. The argv is built
- * with explicit {@code //depot/path#rev} strings so the wire request carries the revision
- * verbatim - this is the equivalent of running {@code p4 print //path1#23 //path2#298}
- * from the command line and avoids p4java's {@code IFileSpec -> wire args} conversion that
- * silently drops the rev for batched calls.
+ * with explicit {@code //depot/path@<CL>} strings so the server resolves the per-file
+ * revision at that changelist (the same way {@code getDepotFiles} originally resolved it).
+ * This is the equivalent of running {@code p4 print //path1@1234 //path2@1234} from the
+ * command line and avoids p4java's {@code IFileSpec -> wire args} conversion that silently
+ * drops the rev for batched calls.
+ *
+ * <p>The {@code @CL} annotation is used instead of {@code #rev} because the file specs
+ * returned by {@code getDepotFiles(...@CL, false)} don't reliably populate a revision-number
+ * field for all file-action types. Newly-added files at their first revision in particular
+ * can have {@code getEndRevision() == -1}, which produces a bogus {@code #-1} suffix that
+ * {@code p4 print} silently drops from the batched response.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -123,12 +131,13 @@ class P4DiffAnalyzerBatchedContentTest {
     }
 
     /**
-     * Each {@code argv} entry must carry {@code #rev} so the server honours the per-file
-     * revision. Without this, p4java's higher-level {@code getFileContents} API silently
-     * defaults to head and the "before" / "after" passes return identical content.
+     * Each {@code argv} entry must carry {@code @<CL>} so the server resolves the per-file
+     * revision at that changelist. Without this, p4java's higher-level {@code getFileContents}
+     * API silently defaults to head and the "before" / "after" passes return identical
+     * content.
      */
     @Test
-    void argv_includesPerFileRevisionAnnotation() throws P4JavaException {
+    void argv_usesAtCLAnnotation() throws P4JavaException {
         // given - one modified file at a tracked rev
         IFileSpec foo = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 101, 7);
 
@@ -157,13 +166,79 @@ class P4DiffAnalyzerBatchedContentTest {
         // when
         analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
-        // then - both passes' argvs include the depot path and the rev
+        // then - both passes' argvs use the @CL annotation, first against baseCl=100, second against clTo=103
         ArgumentCaptor<String[]> argvCaptor = ArgumentCaptor.forClass(String[].class);
         verify(server, times(2)).execStreamCmd(eq("print"), argvCaptor.capture());
-        for (String[] argv : argvCaptor.getAllValues()) {
-            assertEquals(1, argv.length);
-            assertEquals(FOO_DEPOT + "#7", argv[0]);
-        }
+        List<String[]> argvs = argvCaptor.getAllValues();
+        assertEquals(1, argvs.get(0).length);
+        assertEquals(FOO_DEPOT + "@100", argvs.get(0)[0],
+                "first batched print (forOriginal=true) must target baseCl");
+        assertEquals(1, argvs.get(1).length);
+        assertEquals(FOO_DEPOT + "@103", argvs.get(1)[0],
+                "second batched print (forOriginal=false) must target clTo");
+    }
+
+    /**
+     * Regression test for newly-added files mixed in with existing edits. Before the
+     * {@code @CL} fix, the argv was built as
+     * {@code depotPath + "#" + fileSpec.getEndRevision()}; for an ADDed file at its first
+     * revision p4java's {@code getDepotFiles} can leave {@code getEndRevision()} as
+     * {@code -1}, producing a bogus {@code //path#-1} argv that {@code p4 print} silently
+     * drops from the batched response (the failing file's content never makes it back, the
+     * other files in the batch succeed, and the analyzer throws "no content for depot path"
+     * for that one file). Switching to {@code @CL} sidesteps this entirely - Perforce
+     * resolves the per-file revision on the server side, so an ADDed file at rev 1 is just
+     * as routable as an EDIT at rev 23.
+     */
+    @Test
+    void argv_usesAtCLNotHashRev_soNewFilesInBatchStillResolve() throws P4JavaException {
+        // given - an existing edited file at rev 7 alongside a newly-added file whose spec
+        // has endRevision=-1 (the pathological case that was producing the failure)
+        IFileSpec barEdit = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102, 7);
+        IFileSpec fooNew = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.ADD, 103, -1);
+        IFileSpec barEditNewer = spec(BAR_DEPOT, "/ws/Bar.java", FileAction.EDIT, 102, 8);
+
+        when(server.getDepotFiles(any(), anyBoolean()))
+                // Stage 1: range query returns both files (one ADD, one EDIT)
+                .thenReturn(Arrays.asList(barEdit, fooNew))
+                // forOriginal=true: only the EDIT file is in the before-pass argv (ADD excluded)
+                .thenReturn(Collections.singletonList(barEdit))
+                // forOriginal=false: both files in the after-pass
+                .thenReturn(Arrays.asList(barEditNewer, fooNew));
+
+        IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0, 0);
+        IFileSpec barWhere = spec(BAR_DEPOT, "/ws/Bar.java", null, 0, 0);
+        when(client.where(any()))
+                .thenReturn(sourceAndTestFilesSpecs)
+                .thenReturn(Arrays.asList(fooWhere, barWhere));
+
+        when(server.execStreamCmd(eq("print"), any(String[].class)))
+                .thenReturn(streamFor(printedFiles(
+                        Collections.singletonList(BAR_DEPOT),
+                        Collections.singletonList(7),
+                        Collections.singletonList("class Bar { v7 }"))))
+                .thenReturn(streamFor(printedFiles(
+                        Arrays.asList(BAR_DEPOT, FOO_DEPOT),
+                        Arrays.asList(8, 1),
+                        Arrays.asList("class Bar { v8 }", "class Foo { new file }"))));
+
+        P4Context ctx = new P4Context(p4Connection, "main", "103");
+
+        // when
+        analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+
+        // then - the forOriginal=false argv carries @103 for BOTH files (not #-1 for the ADD)
+        ArgumentCaptor<String[]> argvCaptor = ArgumentCaptor.forClass(String[].class);
+        verify(server, times(2)).execStreamCmd(eq("print"), argvCaptor.capture());
+        String[] afterArgv = argvCaptor.getAllValues().get(1);
+        assertEquals(2, afterArgv.length);
+        // sort positions are deterministic by source-file-dir iteration, but exact order can
+        // vary; assert the set of values rather than positions.
+        Set<String> argvSet = new HashSet<>(Arrays.asList(afterArgv));
+        assertTrue(argvSet.contains(FOO_DEPOT + "@103"),
+                "argv must contain ADDed file's @CL form, not #-1. argv was: " + argvSet);
+        assertTrue(argvSet.contains(BAR_DEPOT + "@103"),
+                "argv must contain edited file's @CL form. argv was: " + argvSet);
     }
 
     /**
