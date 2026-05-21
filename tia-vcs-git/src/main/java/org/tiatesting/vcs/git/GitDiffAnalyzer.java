@@ -144,7 +144,7 @@ public class GitDiffAnalyzer {
      */
     private  Map<String, SourceFileDiffContext> getSourceFilesImpactedFromLocalChanges(Repository repository,
                                                                                        List<String> sourceAndTestDirs){
-        log.info("Finding the impacted sources code files in Git for local uncommited changes to HEAD");
+        log.info("Finding the impacted sources code files in Git for local uncommited changes to workspace HEAD");
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         AbstractTreeIterator commitTreeIterator = prepareTreeParser( repository,  Constants.HEAD );
         FileTreeIterator workTreeIterator = new FileTreeIterator( repository );
