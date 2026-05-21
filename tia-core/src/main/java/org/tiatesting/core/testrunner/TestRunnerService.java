@@ -38,6 +38,15 @@ public class TestRunnerService {
     /**
      * Persist the data accumulated by a Tia test run.
      *
+     * <p><b>Write ordering and crash safety.</b> The DB calls are sequenced so that
+     * {@link #updateTiaCoreData} (which writes the {@code commitValue} stamp) is the final
+     * mapping-related write. The invariant is: <em>if commit X is the stored value, every
+     * mapping write for X has completed.</em> A crash before the seal leaves the stored
+     * commit at the prior value; the next run diffs against that older commit and re-does
+     * the impacted work. Slightly wasteful on recovery, never under-selects. See the
+     * "Persist flow and crash safety" chapter in {@code WIKI.md} for the failure-mode
+     * taxonomy and the per-call atomicity guarantees that the H2 backend provides.
+     *
      * @param updateDBMapping          should the test-suite to source-code mapping be updated
      * @param updateDBStats            should the run stats be updated
      * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
@@ -60,7 +69,10 @@ public class TestRunnerService {
         }
 
         TiaData tiaData = dataStore.getTiaCore();
-        updateTiaCoreData(tiaData, commitValue, updateDBMapping, updateDBStats, testRunResult.getTestStats());
+
+        // 1. Mapping writes first. A crash anywhere in this block leaves the stored commit
+        //    value at its prior setting, so the next run re-diffs against that older commit
+        //    and re-does the work.
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(), updateDBMapping, updateDBStats);
 
         if (updateDBMapping){
@@ -69,6 +81,13 @@ public class TestRunnerService {
             applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult());
         }
 
+        // 2. Seal: writing the commit value last is what makes commit X "official". Until this
+        //    line executes, the stored commit value is unchanged and the next run will treat
+        //    everything since the prior commit as unmapped.
+        updateTiaCoreData(tiaData, commitValue, updateDBMapping, updateDBStats, testRunResult.getTestStats());
+
+        // 3. History row is audit-only and has no select-tests consistency implications;
+        //    written after the seal so history rows only exist for fully-sealed runs.
         if (updateDBTestRunHistory) {
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs, testRunResult);
         }
