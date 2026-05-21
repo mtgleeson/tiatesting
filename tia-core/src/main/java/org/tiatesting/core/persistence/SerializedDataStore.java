@@ -123,6 +123,16 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
+    public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) {
+        // Serialized data store has no notion of separate stats vs mapping tables - the file
+        // is the whole DB. The caller (TestRunnerService.updateTestSuiteMapping) only merges
+        // stats fields into the in-memory map for stats-only runs, so writing the whole map
+        // produces an on-disk file with unchanged mapping and updated stats. Delegating to
+        // persistTestSuites is correct here.
+        persistTestSuites(testSuites);
+    }
+
+    @Override
     public void deleteTestSuites(Set<String> testSuites) {
         // do nothing, the deleted test suites will be serialized in persistTestSuites(testSuites);
     }
