@@ -201,6 +201,56 @@ class P4DiffAnalyzerChangelistRangeTest {
     }
 
     /**
+     * Regression test for a follow-on bug from the {@code allRevs=true} change. With
+     * {@code allRevs=true} a file changed in multiple CLs in the range returns one spec
+     * per (file, CL) - so {@code sourceCodeFiles} contains several entries sharing the
+     * same depot path. Before deduplication, that list of depot paths was passed verbatim
+     * to {@code client.where()} and the resulting list collected into a map via
+     * {@code Collectors.toMap(IFileSpec::getDepotPathString, ...)}, which threw
+     * {@code IllegalStateException: Duplicate key <path>} because the where-result for
+     * each duplicate input was the same.
+     *
+     * <p>The fix dedupes the depot-path list before the {@code where} call. The downstream
+     * iteration over {@code sourceCodeFiles} still sees all per-CL entries (which is what
+     * the action-override semantics need).
+     */
+    @Test
+    void duplicateDepotPathsInRange_dedupedBeforeWhereCall() throws P4JavaException {
+        // given - Foo edited in two CLs in the range. allRevs=true returns one IFileSpec
+        // per (file, CL), so Foo appears twice in the upstream getDepotFiles result.
+        IFileSpec fooEditedAt101 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 101);
+        IFileSpec fooEditedAt103 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 103);
+        when(server.getDepotFiles(any(), eq(true)))
+                .thenReturn(Arrays.asList(fooEditedAt101, fooEditedAt103));
+
+        IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0);
+        when(client.where(any())).thenReturn(Collections.singletonList(fooWhere));
+
+        // when - no IllegalStateException ("Duplicate key") is thrown
+        Map<String, SourceFileDiffContext> contexts =
+                analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "100", "103", sourceAndTestFilesSpecs);
+
+        // then - the where call received a deduplicated list (one entry, not two). Capture
+        // its argument and assert size == 1 by depot path. A revert of the dedup fix would
+        // make this list size 2 (and would also throw the duplicate-key exception before
+        // reaching this assertion).
+        org.mockito.ArgumentCaptor<List<IFileSpec>> whereArgCaptor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(client).where(whereArgCaptor.capture());
+        List<IFileSpec> whereInput = whereArgCaptor.getValue();
+        long uniqueDepotPathCount = whereInput.stream()
+                .map(IFileSpec::getOriginalPathString)
+                .distinct()
+                .count();
+        assertEquals(uniqueDepotPathCount, whereInput.size(),
+                "client.where() must be called with a deduplicated list of depot paths");
+
+        // and - the diff context for Foo is present and correctly tracks the file
+        SourceFileDiffContext foo = contexts.get(FOO_DEPOT);
+        assertNotNull(foo, "Foo should be in the contexts");
+    }
+
+    /**
      * Build a Mockito-stubbed {@link IFileSpec} with just the fields the analyzer reads. p4java's
      * IFileSpec has dozens of methods; we stub only the ones touched by {@code buildDiffContextsForFileSpecs}
      * + {@code sortFileChanges} and rely on Mockito defaults (null / 0) for the rest.
