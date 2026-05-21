@@ -20,6 +20,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -524,11 +526,6 @@ public class P4DiffAnalyzer {
             return;
         }
 
-        // TEMPORARY DIAGNOSTIC: print the full argv list so we can confirm the new
-        // @CL form is correct and see whether the failing file is now resolved. Remove
-        // this once Option A is confirmed to fix the missing-header issue.
-        log.info("p4 print batched argv (forOriginal={}): {}", forOriginal, argvList);
-
         byte[] streamBytes;
         try {
             InputStream stream = p4Connection.getServer().execStreamCmd("print",
@@ -598,71 +595,82 @@ public class P4DiffAnalyzer {
      * @return content keyed by depot path; files whose header was not found in the stream
      *         are absent from the map
      */
+    /**
+     * Matches the portion of a p4 print header that comes <em>after</em> {@code <path>#}, up
+     * to the end of the header line. Shape: {@code <digits> - <whatever> (<type>)}. The
+     * {@code <whatever>} segment varies by action ({@code edit change 1234},
+     * {@code integrate change 1234 from //other#3}, etc.) so we don't pin its internal
+     * structure; only the bookend digits, the {@code  - }, and the trailing parenthesised
+     * file-type segment are load-bearing.
+     */
+    private static final Pattern P4_PRINT_HEADER_TAIL =
+            Pattern.compile("\\d+ - .* \\([^)]+\\)");
+
     private Map<String, String> parseBatchedPrintStream(byte[] streamBytes,
                                                         List<String> expectedDepotPaths) {
-        Set<String> expectedSet = new HashSet<>(expectedDepotPaths);
         String stream = new String(streamBytes, StandardCharsets.UTF_8);
 
-        // Phase 1: find every header line's byte position and the byte index where its
-        // content begins (immediately after the header's terminating newline).
-        List<int[]> headerSpans = new ArrayList<>();   // [headerLineStartIdx, contentStartIdx]
+        // Phase 1: locate every expected file's header by direct substring search and
+        // header-shape validation. We do NOT require the header to be preceded by '\n' -
+        // a source file whose content lacks a trailing '\n' makes the next file's header
+        // physically adjacent to the prior file's content tail in the stream bytes
+        // ("<prior content tail>//nextFile#1 - add change 1234 (text)\n"). Java source
+        // files commonly omit the trailing newline, so this case must be handled.
+        //
+        // Instead of a boundary check, we validate the full header-line shape after the
+        // path's '#' (digits, ' - ', whatever, ' (<type>)'). The chance of source code
+        // accidentally containing this exact substring sequence for one of THIS run's
+        // expected depot paths is vanishingly small.
+        List<int[]> headerSpans = new ArrayList<>();   // [headerStartIdx, contentStartIdx]
         List<String> headerDepotPaths = new ArrayList<>();
-        int pos = 0;
-        while (pos < stream.length()) {
-            int nlIdx = stream.indexOf('\n', pos);
-            int lineEnd = (nlIdx == -1) ? stream.length() : nlIdx;
-            int lineDataEnd = lineEnd;
-            if (lineDataEnd > pos && stream.charAt(lineDataEnd - 1) == '\r') {
-                lineDataEnd--; // strip trailing \r for header detection only
+        for (String expectedPath : expectedDepotPaths) {
+            String needle = expectedPath + "#";
+            int searchFrom = 0;
+            while (searchFrom <= stream.length() - needle.length()) {
+                int idx = stream.indexOf(needle, searchFrom);
+                if (idx < 0) {
+                    break;
+                }
+
+                int afterHash = idx + needle.length();
+                int nlIdx = stream.indexOf('\n', afterHash);
+                int lineEnd = (nlIdx == -1) ? stream.length() : nlIdx;
+                int lineDataEnd = lineEnd;
+                if (lineDataEnd > afterHash && stream.charAt(lineDataEnd - 1) == '\r') {
+                    lineDataEnd--; // ignore CR for header-shape validation
+                }
+
+                Matcher m = P4_PRINT_HEADER_TAIL.matcher(stream);
+                m.region(afterHash, lineDataEnd);
+                if (m.matches()) {
+                    int contentStart = (nlIdx == -1) ? stream.length() : nlIdx + 1;
+                    headerSpans.add(new int[]{idx, contentStart});
+                    headerDepotPaths.add(expectedPath);
+                    break;  // first valid header for this path wins; move to next path
+                }
+                searchFrom = idx + 1;
             }
-            String line = stream.substring(pos, lineDataEnd);
-            String depotPath = parseHeaderDepotPath(line, expectedSet);
-            if (depotPath != null) {
-                int contentStartIdx = (nlIdx == -1) ? stream.length() : nlIdx + 1;
-                headerSpans.add(new int[]{pos, contentStartIdx});
-                headerDepotPaths.add(depotPath);
-            }
-            if (nlIdx == -1) {
-                break;
-            }
-            pos = nlIdx + 1;
         }
 
-        // Phase 2: slice byte ranges between consecutive header line starts.
-        Map<String, String> contentByDepotPath = new HashMap<>();
+        // Phase 2: sort header positions in stream order (p4's response order isn't
+        // guaranteed to match the order of expectedDepotPaths), then slice content for
+        // each file as the bytes between its header's end and the next header's start.
+        List<Integer> orderedIndices = new ArrayList<>(headerSpans.size());
         for (int i = 0; i < headerSpans.size(); i++) {
-            int contentStart = headerSpans.get(i)[1];
-            int contentEnd = (i < headerSpans.size() - 1)
-                    ? headerSpans.get(i + 1)[0]
+            orderedIndices.add(i);
+        }
+        orderedIndices.sort((a, b) -> Integer.compare(headerSpans.get(a)[0], headerSpans.get(b)[0]));
+
+        Map<String, String> contentByDepotPath = new HashMap<>();
+        for (int i = 0; i < orderedIndices.size(); i++) {
+            int spanIdx = orderedIndices.get(i);
+            int contentStart = headerSpans.get(spanIdx)[1];
+            int contentEnd = (i < orderedIndices.size() - 1)
+                    ? headerSpans.get(orderedIndices.get(i + 1))[0]
                     : stream.length();
-            contentByDepotPath.put(headerDepotPaths.get(i), stream.substring(contentStart, contentEnd));
+            contentByDepotPath.put(headerDepotPaths.get(spanIdx), stream.substring(contentStart, contentEnd));
         }
         return contentByDepotPath;
-    }
-
-    /**
-     * Detect whether {@code line} is a {@code p4 print} header for one of the expected
-     * files. Header form: {@code //depot/path#<rev> - <action> change <CL> (<type>)}; the
-     * leading depot path must be a member of {@code expectedDepotPaths} (so a content line
-     * that happens to start with {@code //} can't be mistaken for a header).
-     *
-     * @param line a candidate line from the stream
-     * @param expectedDepotPaths the set of depot paths whose content the caller requested
-     * @return the depot path if {@code line} is a header for an expected file, otherwise null
-     */
-    private String parseHeaderDepotPath(String line, Set<String> expectedDepotPaths) {
-        if (line == null || !line.startsWith("//")) {
-            return null;
-        }
-        int hashIdx = line.indexOf('#');
-        if (hashIdx < 0) {
-            return null;
-        }
-        if (line.indexOf(" - ", hashIdx) < 0) {
-            return null;
-        }
-        String depot = line.substring(0, hashIdx);
-        return expectedDepotPaths.contains(depot) ? depot : null;
     }
 
     private void loadFileContentIntoDiffContext(Map<String, SourceFileDiffContext> sourceFileDiffContexts, boolean forOriginal,
