@@ -118,13 +118,21 @@ public class P4DiffAnalyzer {
      * Find every file changed in the changelist range {@code clFrom..clTo} and build the
      * corresponding {@link SourceFileDiffContext} entries.
      *
-     * <p>Resolves the file changes in a single {@code p4 files //stream/...@clFrom,clTo}
-     * round-trip via {@link com.perforce.p4java.server.IOptionsServer#getDepotFiles}.
-     * Each returned {@link IFileSpec} carries the changelist id, action, and revision for one
-     * file change inside the range; files changed in multiple CLs appear once per CL so
-     * {@code sortFileChanges} (called inside {@link #buildDiffContextsForFileSpecs}) can apply
-     * the action-override semantics described on {@code buildDiffContext} (e.g. add then edit
-     * collapses to add).
+     * <p>Resolves the file changes in a single {@code p4 files -a //stream/...@clFrom,clTo}
+     * round-trip via {@link com.perforce.p4java.server.IOptionsServer#getDepotFiles} with
+     * {@code allRevs=true}. The {@code allRevs} flag tells Perforce to return <em>every</em>
+     * revision of each file <strong>within the CL range</strong> (not every revision ever) -
+     * so a file that was added and then edited in the range appears twice in the result, once
+     * for the ADD CL and once for the EDIT CL. {@code sortFileChanges} (called inside
+     * {@link #buildDiffContextsForFileSpecs}) orders these per-CL entries oldest-first so the
+     * action-override logic in {@code buildDiffContext} can collapse ADD-then-EDIT to ADD
+     * correctly.
+     *
+     * <p>The earlier {@code allRevs=false} form returned only the highest revision in the
+     * range per file - so an ADD-then-EDIT file came back with action=EDIT alone and was
+     * mis-classified as MODIFY. The forOriginal=true pass then tried to fetch the file at
+     * baseCl where it didn't exist, producing "No file found in P4" log lines.
+     *
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param clFrom the oldest changelist number in the range being analysed
      * @param clTo the newest changelist number in the range being analysed
@@ -142,8 +150,11 @@ public class P4DiffAnalyzer {
         String filePaths = streamName + "/...@" + clFrom + "," + clTo;
 
         try {
+            // allRevs=true so files changed in multiple CLs in the range come back one entry
+            // per (file, CL) - required for the action-override semantics in buildDiffContext
+            // (ADD-then-EDIT in the range collapses to ADD).
             List<IFileSpec> changedFiles = p4Connection.getServer().getDepotFiles(
-                    FileSpecBuilder.makeFileSpecList(filePaths), false);
+                    FileSpecBuilder.makeFileSpecList(filePaths), true);
 
             if (changedFiles == null || changedFiles.isEmpty()){
                 log.warn("Couldn't find any file changes for the P4 file paths {}", filePaths);
@@ -512,16 +523,15 @@ public class P4DiffAnalyzer {
         for (IFileSpec fileSpec : revisionFileSpecs) {
             String depotPath = fileSpec.getDepotPathString();
             if (depotPath == null) {
-                // The file doesn't exist in the CL. This can happen when a file was deleted
-                // in the original CL as well as in the new CL (e.g. a merge CL bringing a
-                // delete action into a stream where the file was already deleted).
-                // TEMPORARY: include originalPath + clientPath + statusMessage so we can
-                // identify which file is hitting this branch in the user's environment.
-                log.info("No file found in P4 for the CL {} (forOriginal={}) originalPath={} clientPath={} statusMessage={}",
-                        fileSpec.getChangelistId(), forOriginal,
-                        fileSpec.getOriginalPathString(),
-                        fileSpec.getClientPathString(),
-                        fileSpec.getStatusMessage());
+                // The file doesn't exist in the CL. With allRevs=true on the range query in
+                // getSourceFilesImpactedFromPreviousSubmit, this should be rare - the
+                // action-override semantics in buildDiffContext correctly classify
+                // ADD-then-EDIT-in-range as ADD, so the forOriginal=true pass skips it via
+                // the changeType filter rather than reaching this branch. The remaining
+                // legitimate case is merge-of-delete (file deleted in both the original CL
+                // and the new CL).
+                log.info("No file found in P4 for the CL {} (forOriginal={})",
+                        fileSpec.getChangelistId(), forOriginal);
                 continue;
             }
             expectedDepotPaths.add(depotPath);
