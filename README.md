@@ -28,17 +28,9 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
 
 ### Maven, JUnit5 and Git
-1. Registering the Tia LaunchSessionListener.
-   
-Tia uses a LauncherSessionListener to plugin to the Junit5 framework for updating test coverage mappings and stats. To register the Tia LaunchSessionListener use Java’s [ServiceLoader](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/ServiceLoader.html) mechanism. Create a file called org.junit.platform.launcher.LauncherSessionListener in the /test/resources/META-INF/services folder of your test project. This file should contain the list of of Junit5 session listeners. Add the following line to this file (if you already have this file, add the following as a separate line).
+Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5-git` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
 
-`/test/resources/META-INF/services/org.junit.platform.launcher.LauncherSessionListener`
-```
-org.tiatesting.junit.junit5.TiaLauncherSessionListener
-```
-
-2. Congifuring your test project POM for Tia.
-Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
+Configure your test project POM for Tia by including the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
 For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git-maven-plugin&smo=true) and [tia-junit5-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git&smo=true).
 
 **Note:** If your tests live in the same project as your source code, you need to include and configure Jacoco to run in TCP server mode (see below). If your source code lives in a different project to your tests, you need to ensure your project that contains your source code is configured to run with Jacoco in TCP server mode. You can then omit the Jacoco configuration below from your test project pom.xml.
