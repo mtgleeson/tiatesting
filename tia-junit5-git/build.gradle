@@ -13,6 +13,14 @@ dependencies {
     implementation project(':tia-vcs-git')
     implementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: junit5PlatformVersion
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies // includes org.slf4j
+
+    testImplementation "org.junit.jupiter:junit-jupiter:${junit5EngineVersion}"
+    testImplementation 'org.mockito:mockito-core:4.11.0'
+    testRuntimeOnly "org.slf4j:slf4j-simple:${slf4jVersion}"
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {
