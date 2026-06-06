@@ -6,6 +6,7 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -32,8 +33,9 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
 
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, false);
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
             Set<String> testsToRun = result.getTestsToRun();
             System.out.println("Selected tests to run: ");
 

@@ -41,6 +41,18 @@ public class GitReader implements VCSReader {
         return gitDiffAnalyzer.buildDiffFilesContext(gitContext, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Walks the JGit {@link org.eclipse.jgit.diff.DiffEntry} list for either the commit range
+     * ({@code commitFrom} to head) or the local workspace and emits each entry's old and new
+     * path directly. No content is loaded and no file-type filter is applied.
+     */
+    @Override
+    public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
+        return gitDiffAnalyzer.getChangedFilePaths(gitContext, baseChangeNum, checkLocalChanges);
+    }
+
     @Override
     public void close() {
         log.debug("Closing the Git Repository resource");

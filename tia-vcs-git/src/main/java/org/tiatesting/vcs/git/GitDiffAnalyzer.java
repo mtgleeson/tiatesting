@@ -65,6 +65,64 @@ public class GitDiffAnalyzer {
     }
 
     /**
+     * Return the repo-relative, forward-slash-normalised paths of every file changed either since
+     * the previously stored commit or in the local workspace. No file content is loaded and no
+     * file-type filter is applied (paths for all file types are returned). For renames and
+     * copies both the source and destination paths are included; the {@code /dev/null}
+     * placeholder used by JGit for adds (old path) and deletes (new path) is excluded.
+     *
+     * @param gitContext object used to hold data about a Git repository being analysed by Tia.
+     * @param commitFrom the oldest commit number in the range being analysed; ignored when
+     *                   {@code checkLocalChanges} is {@code true}.
+     * @param checkLocalChanges when {@code true}, return paths for files modified in the
+     *                          local workspace rather than the commit range.
+     * @return the set of changed file paths; never {@code null}, may be empty.
+     */
+    protected Set<String> getChangedFilePaths(final GitContext gitContext, final String commitFrom,
+                                              final boolean checkLocalChanges) {
+        Set<String> changedPaths = new HashSet<>();
+        Repository repository = gitContext.getRepository();
+
+        try (DiffFormatter diffFormatter = new DiffFormatter(null)) {
+            diffFormatter.setRepository(repository);
+
+            List<DiffEntry> diffEntries;
+            if (checkLocalChanges) {
+                AbstractTreeIterator commitTreeIterator = prepareTreeParser(repository, Constants.HEAD);
+                FileTreeIterator workTreeIterator = new FileTreeIterator(repository);
+                diffEntries = diffFormatter.scan(commitTreeIterator, workTreeIterator);
+            } else {
+                ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
+                ObjectId commitToObjectId = gitContext.getHeadObjectId();
+                diffEntries = diffFormatter.scan(commitFromObjectId, commitToObjectId);
+            }
+
+            for (DiffEntry diffEntry : diffEntries) {
+                addPathIfReal(changedPaths, diffEntry.getOldPath());
+                addPathIfReal(changedPaths, diffEntry.getNewPath());
+            }
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        return changedPaths;
+    }
+
+    /**
+     * Add a JGit diff path to the set unless it is the {@code /dev/null} placeholder used for
+     * the absent side of an add or delete. Paths from JGit are already repo-relative and use
+     * forward slashes, so no further normalisation is required.
+     *
+     * @param paths the accumulator set.
+     * @param diffPath the JGit-reported path; may be {@code /dev/null}.
+     */
+    private void addPathIfReal(final Set<String> paths, final String diffPath) {
+        if (diffPath != null && !DiffEntry.DEV_NULL.equals(diffPath)) {
+            paths.add(diffPath);
+        }
+    }
+
+    /**
      * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
      * For each impacted source code file, load the file content from the starting revision and the head revision.
      *

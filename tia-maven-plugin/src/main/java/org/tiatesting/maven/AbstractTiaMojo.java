@@ -8,9 +8,13 @@ import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryVersionPolicy;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionRule;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,6 +138,29 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaVcsClientName;
 
     /**
+     * Static test selection rules. Each rule maps a regex over the repo-relative paths of
+     * changed files to a set of test suites that should be force-run regardless of dynamic
+     * coverage-based selection. Rules are additive: their selected suites are unioned into
+     * the dynamic test selection.
+     *
+     * <p>Configured as a nested element list in the plugin block, e.g.
+     * <pre>{@code
+     * <tiaStaticTestSelectionRules>
+     *   <tiaStaticTestSelectionRule>
+     *     <name>db-migrations</name>
+     *     <filePathPattern>src/main/resources/db/migrations/.*\.sql$</filePathPattern>
+     *     <mode>SUITE_NAMES</mode>
+     *     <suiteNamePatterns>
+     *       <suiteNamePattern>.*MigrationIT$</suiteNamePattern>
+     *     </suiteNamePatterns>
+     *   </tiaStaticTestSelectionRule>
+     * </tiaStaticTestSelectionRules>
+     * }</pre>
+     */
+    @Parameter
+    List<MavenStaticTestSelectionRule> tiaStaticTestSelectionRules;
+
+    /**
      * Maven project builder used to load the source project's pom so its declared dependencies
      * can be resolved when mapping {@code tiaSourceLibs} coordinates to JAR files.
      */
@@ -228,6 +255,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaVcsClientName;
     }
 
+    /**
+     * @return the configured static test selection rules, or an empty list when not configured.
+     */
+    public List<MavenStaticTestSelectionRule> getTiaStaticTestSelectionRules() {
+        return tiaStaticTestSelectionRules != null ? tiaStaticTestSelectionRules : Collections.emptyList();
+    }
+
     public abstract VCSReader getVCSReader();
 
     /**
@@ -282,6 +316,55 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
             getLog().warn("Invalid tiaLibraryVersionPolicy value '" + raw
                     + "' - expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
             return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
+        }
+    }
+
+    /**
+     * Build the static test selection configuration from the Maven nested
+     * {@code <tiaStaticTestSelectionRules>} block. Validates each entry, parses its mode, and
+     * pre-compiles its regex patterns. Returns {@link StaticTestSelectionConfig#EMPTY} when
+     * no rules are configured.
+     *
+     * @return the parsed static test selection config.
+     * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
+     *                                  mode, or contains an invalid regex.
+     */
+    protected StaticTestSelectionConfig buildStaticTestSelectionConfig() {
+        List<MavenStaticTestSelectionRule> rawRules = getTiaStaticTestSelectionRules();
+        if (rawRules.isEmpty()) {
+            return StaticTestSelectionConfig.EMPTY;
+        }
+
+        List<StaticTestSelectionRule> compiledRules = new ArrayList<>(rawRules.size());
+        for (MavenStaticTestSelectionRule raw : rawRules) {
+            StaticTestSelectionRuleMode mode = parseStaticTestSelectionRuleMode(raw.getMode(), raw.getFilePathPattern());
+            compiledRules.add(new StaticTestSelectionRule(
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns()));
+        }
+        return new StaticTestSelectionConfig(compiledRules);
+    }
+
+    /**
+     * Parse the raw mode string from the Maven config into the core enum. Empty or unknown
+     * values produce a clear error rather than a silent default; we'd rather fail the build
+     * than mis-route a rule.
+     *
+     * @param raw the raw mode string from the Maven config.
+     * @param filePathPattern the rule's file-path pattern, used in the error message.
+     * @return the parsed enum value.
+     * @throws IllegalArgumentException if the value does not match a known mode.
+     */
+    private StaticTestSelectionRuleMode parseStaticTestSelectionRuleMode(final String raw,
+                                                                         final String filePathPattern) {
+        if (raw == null || raw.trim().isEmpty()) {
+            throw new IllegalArgumentException("Static test selection rule '" + filePathPattern
+                    + "': mode is required (one of RUN_ALL, SUITE_NAMES).");
+        }
+        try {
+            return StaticTestSelectionRuleMode.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Static test selection rule '" + filePathPattern
+                    + "': unknown mode '" + raw + "'. Expected one of RUN_ALL, SUITE_NAMES.");
         }
     }
 }

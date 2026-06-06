@@ -1,9 +1,13 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class TiaBaseTaskExtension {
     private String projectDir;
@@ -20,6 +24,7 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private File reportOutputDir;
+    private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
 
     @Input
     public String getProjectDir() {
@@ -156,6 +161,41 @@ public class TiaBaseTaskExtension {
 
     public void setReportOutputDir(File reportOutputDir) {
         this.reportOutputDir = reportOutputDir;
+    }
+
+    /**
+     * Static test selection rules. Each rule maps a regex over the repo-relative paths of
+     * changed files to a set of test suites that should be force-run regardless of dynamic
+     * coverage-based selection. Rules are additive: their selected suites are unioned into
+     * the dynamic test selection.
+     *
+     * <p>Configured via the Gradle DSL, e.g.
+     * <pre>{@code
+     * tia {
+     *     staticTestSelectionRules = [
+     *         [name: "db-migrations",
+     *          filePathPattern: "src/main/resources/db/migrations/.*\\.sql\\$",
+     *          mode: "SUITE_NAMES",
+     *          suiteNamePatterns: [".*MigrationIT\\$"]]
+     *     ]
+     * }
+     * }</pre>
+     *
+     * @return the configured rules; never {@code null}, may be empty.
+     */
+    @Nested
+    @org.gradle.api.tasks.Optional
+    public List<GradleStaticTestSelectionRule> getStaticTestSelectionRules() {
+        return staticTestSelectionRules;
+    }
+
+    /**
+     * @param staticTestSelectionRules the static test selection rules; {@code null} is treated as empty.
+     */
+    public void setStaticTestSelectionRules(List<GradleStaticTestSelectionRule> staticTestSelectionRules) {
+        this.staticTestSelectionRules = (staticTestSelectionRules != null)
+                ? staticTestSelectionRules
+                : Collections.emptyList();
     }
 
 }

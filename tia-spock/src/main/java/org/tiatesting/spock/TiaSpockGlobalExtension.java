@@ -8,6 +8,7 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
@@ -73,8 +74,11 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
 
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
+            // Static test selection config is plumbed from a later stage (forwarded via
+            // system properties from the Gradle/Maven plugin); for now the Spock-side selection
+            // sees no static rules.
             TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
-                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig);
+                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, StaticTestSelectionConfig.EMPTY);
             ignoredTests = testSelectorResult.getTestsToIgnore();
 
             if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){

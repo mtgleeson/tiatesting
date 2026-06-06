@@ -38,6 +38,25 @@ public interface VCSReader {
                                                      final List<String> testFilesDirs, final boolean checkLocalChanges);
 
     /**
+     * Get the repo-relative, forward-slash-normalised paths of every file changed in the
+     * commit range from {@code baseChangeNum} to the current head (or the local workspace
+     * when {@code checkLocalChanges} is {@code true}). No file content is loaded and no
+     * file-type filter is applied — paths for source, test, and arbitrary non-Java files
+     * (e.g. {@code .sql}, {@code .properties}) are all returned. Deletes and renames are
+     * included.
+     *
+     * <p>Intended for static test selection rules that match changed file paths against
+     * user-supplied regexes; the existing {@link #buildDiffFilesContext} path remains the
+     * input to method-level impact analysis and is unaffected.
+     *
+     * @param baseChangeNum the current commit number stored in the mapping.
+     * @param checkLocalChanges when {@code true}, return paths for files modified in the
+     *                          local workspace rather than the commit range.
+     * @return the set of changed file paths; never {@code null}, may be empty.
+     */
+    Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges);
+
+    /**
      * Do any clean up action when no further interactions with the VCS are needed.
      */
     void close();
