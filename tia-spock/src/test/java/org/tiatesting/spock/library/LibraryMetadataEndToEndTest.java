@@ -71,7 +71,7 @@ class LibraryMetadataEndToEndTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.<String>emptyList(),
-                Collections.<String>emptyList(), false, config, true);
+                Collections.<String>emptyList(), false, config, null, true);
 
         // Reconciler must have inserted the library row using the resolved baseline.
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:lib"),
@@ -94,7 +94,7 @@ class LibraryMetadataEndToEndTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.<String>emptyList(),
-                Collections.<String>emptyList(), false, config, false);
+                Collections.<String>emptyList(), false, config, null, false);
 
         assertTrue(dataStore.readTrackedLibraries().isEmpty(),
                 "Non-primary build (updateDBMapping=false) must not insert tia_library rows.");
@@ -124,6 +124,9 @@ class LibraryMetadataEndToEndTest {
                                                                            List<String> sourceFilesDirs,
                                                                            List<String> testFilesDirs,
                                                                            boolean checkLocalChanges) {
+            return new HashSet<>();
+        }
+        @Override public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return new HashSet<>();
         }
         @Override public void close() { }

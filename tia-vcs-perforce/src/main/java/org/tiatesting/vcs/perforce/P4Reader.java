@@ -52,6 +52,19 @@ public class P4Reader implements VCSReader {
         return p4DiffAnalyzer.buildDiffFilesContext(p4Context, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Walks the P4 file specs returned by either the submit-range query
+     * ({@code getDepotFiles(...@from,to)} with {@code allRevs=true}) or the local-changes query
+     * ({@code getExtendedFiles(//...)} with opened-files=true) and returns each depot path with
+     * the client's stream prefix stripped (so the result is repo-relative and forward-slash).
+     */
+    @Override
+    public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
+        return p4DiffAnalyzer.getChangedFilePaths(p4Context, baseChangeNum, checkLocalChanges);
+    }
+
     @Override
     public void close() {
         log.debug("Closing the P4 connection resource");
