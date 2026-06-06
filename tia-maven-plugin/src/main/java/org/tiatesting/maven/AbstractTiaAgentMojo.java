@@ -9,6 +9,7 @@ import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -102,8 +103,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, isTiaUpdateDBMapping());
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, isTiaUpdateDBMapping());
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;
         }

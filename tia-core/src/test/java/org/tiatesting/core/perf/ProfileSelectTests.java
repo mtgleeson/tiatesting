@@ -84,6 +84,7 @@ public final class ProfileSelectTests {
                 Collections.emptyList(),
                 /* checkLocalChanges */ false,
                 /* libraryConfig */ null,
+                /* staticMappingConfig */ null,
                 /* updateDBMapping */ false);
         long tSelectEnd = System.nanoTime();
         printPhase("Phase 3 - selectTestsToIgnore (empty diff)", tSelectStart, tSelectEnd);
@@ -117,6 +118,11 @@ public final class ProfileSelectTests {
         @Override
         public Set<SourceFileDiffContext> buildDiffFilesContext(String baseChangeNum, List<String> sourceFilesDirs,
                                                                  List<String> testFilesDirs, boolean checkLocalChanges) {
+            return new HashSet<>();
+        }
+
+        @Override
+        public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return new HashSet<>();
         }
 

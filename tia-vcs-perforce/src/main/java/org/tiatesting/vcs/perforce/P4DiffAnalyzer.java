@@ -65,6 +65,97 @@ public class P4DiffAnalyzer {
     }
 
     /**
+     * Return the repo-relative, forward-slash-normalised paths of every file changed either in the
+     * CL range from {@code baseCl} to head or in the local workspace. No file content is loaded
+     * and no file-type filter is applied (paths for all file types are returned). Depot paths are
+     * normalised by stripping the client's stream prefix (e.g.
+     * {@code //apps/example/tia-test-project/src/main/resources/db/V001.sql} becomes
+     * {@code src/main/resources/db/V001.sql}). Paths that do not start with the stream prefix
+     * are skipped so the contract stays repo-relative.
+     *
+     * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
+     * @param baseCl the current changelist stored in the mapping; ignored when {@code checkLocalChanges} is {@code true}.
+     * @param checkLocalChanges when {@code true}, return paths for files opened in the local
+     *                          workspace rather than the CL range.
+     * @return the set of changed file paths; never {@code null}, may be empty.
+     */
+    protected Set<String> getChangedFilePaths(final P4Context p4Context, final String baseCl,
+                                              final boolean checkLocalChanges) {
+        String streamPrefix = p4Context.getP4Connection().getClient().getStream() + "/";
+        Set<String> changedPaths = new HashSet<>();
+
+        try {
+            List<? extends IFileSpec> rawChangedFiles = checkLocalChanges
+                    ? getLocalChangedFileSpecs(p4Context.getP4Connection())
+                    : getRangeChangedFileSpecs(p4Context.getP4Connection(), baseCl, p4Context.getHeadCL());
+
+            for (IFileSpec fileSpec : rawChangedFiles) {
+                String depotPath = fileSpec.getDepotPathString();
+                if (depotPath == null) {
+                    continue;
+                }
+                if (depotPath.startsWith(streamPrefix)) {
+                    changedPaths.add(depotPath.substring(streamPrefix.length()));
+                } else {
+                    log.trace("Skipping changed file outside the client's stream: {}", depotPath);
+                }
+            }
+        } catch (P4JavaException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        return changedPaths;
+    }
+
+    /**
+     * Query Perforce for every file changed in the changelist range {@code baseCl+1..headCl}.
+     * Mirrors the submit-range query in {@link #getSourceFilesImpactedFromPreviousSubmit} but
+     * applies no file-type or source-dir filter. Returns an empty list when the workspace head
+     * is already at {@code baseCl}.
+     *
+     * @param p4Connection the Perforce connection.
+     * @param baseCl the previously stored changelist value.
+     * @param headCl the current head changelist value.
+     * @return list of changed file specs (may contain duplicate depot paths for files changed
+     *         in multiple CLs in the range; the caller deduplicates via {@link java.util.Set}).
+     * @throws P4JavaException if the underlying P4 call fails.
+     */
+    private List<IFileSpec> getRangeChangedFileSpecs(final P4Connection p4Connection,
+                                                     final String baseCl, final String headCl)
+            throws P4JavaException {
+        if (baseCl.equals(headCl)) {
+            return Collections.emptyList();
+        }
+        int clFrom = Integer.parseInt(baseCl) + 1;
+        String streamName = p4Connection.getClient().getStream();
+        String filePaths = streamName + "/...@" + clFrom + "," + headCl;
+        List<IFileSpec> changedFiles = p4Connection.getServer().getDepotFiles(
+                FileSpecBuilder.makeFileSpecList(filePaths), true);
+        return (changedFiles != null) ? changedFiles : Collections.emptyList();
+    }
+
+    /**
+     * Query Perforce for every file currently opened in the client's workspace. Mirrors the
+     * local-changes query in {@link #getSourceFilesImpactedFromLocalChanges} but applies no
+     * file-type or source-dir filter.
+     *
+     * @param p4Connection the Perforce connection.
+     * @return list of opened file specs (extended file specs; depot path read via
+     *         {@link IFileSpec#getDepotPathString()}).
+     * @throws P4JavaException if the underlying P4 call fails.
+     */
+    private List<IExtendedFileSpec> getLocalChangedFileSpecs(final P4Connection p4Connection)
+            throws P4JavaException {
+        GetExtendedFilesOptions options = new GetExtendedFilesOptions();
+        FileStatOutputOptions fstatOutputOptions = new FileStatOutputOptions();
+        fstatOutputOptions.setOpenedFiles(true);
+        options.setOutputOptions(fstatOutputOptions);
+        List<IExtendedFileSpec> opened = p4Connection.getServer().getExtendedFiles(
+                FileSpecBuilder.makeFileSpecList("//..."), options);
+        return (opened != null) ? opened : Collections.emptyList();
+    }
+
+    /**
      * Find the P4 file spec for each source and test file directory. This gives us both the depot path and local path.
      *
      * @param p4Connection the Perforce connection being used for the analysis.
