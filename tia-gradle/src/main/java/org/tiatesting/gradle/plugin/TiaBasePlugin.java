@@ -295,7 +295,23 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      *                                  mode, or contains an invalid regex.
      */
     protected StaticTestSelectionConfig buildStaticTestSelectionConfig() {
-        List<GradleStaticTestSelectionRule> rawRules = tiaTaskExtension.getStaticTestSelectionRules();
+        return buildStaticTestSelectionConfig(tiaTaskExtension.getStaticTestSelectionRules());
+    }
+
+    /**
+     * Build a {@link StaticTestSelectionConfig} from a list of Gradle-side rule POJOs.
+     * Shared by the in-plugin {@code tia-select-tests} task and by the Spock-Gradle bridge
+     * that forwards the config to the forked test JVM via system properties, so both paths
+     * apply identical validation and parsing.
+     *
+     * @param rawRules the rule POJOs collected from the {@code tia} extension; {@code null}
+     *                 or empty yields {@link StaticTestSelectionConfig#EMPTY}.
+     * @return the parsed static test selection config.
+     * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
+     *                                  mode, or contains an invalid regex.
+     */
+    public static StaticTestSelectionConfig buildStaticTestSelectionConfig(
+            final List<GradleStaticTestSelectionRule> rawRules) {
         if (rawRules == null || rawRules.isEmpty()) {
             return StaticTestSelectionConfig.EMPTY;
         }
@@ -319,8 +335,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * @return the parsed enum value.
      * @throws IllegalArgumentException if the value does not match a known mode.
      */
-    private StaticTestSelectionRuleMode parseStaticTestSelectionRuleMode(final String raw,
-                                                                         final String filePathPattern) {
+    private static StaticTestSelectionRuleMode parseStaticTestSelectionRuleMode(final String raw,
+                                                                                final String filePathPattern) {
         if (raw == null || raw.trim().isEmpty()) {
             throw new IllegalArgumentException("Static test selection rule '" + filePathPattern
                     + "': mode is required (one of RUN_ALL, SUITE_NAMES).");
