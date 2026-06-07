@@ -11,6 +11,7 @@ import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 
 import java.util.Arrays;
@@ -74,11 +75,12 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
 
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
-            // Static test selection config is plumbed from a later stage (forwarded via
-            // system properties from the Gradle/Maven plugin); for now the Spock-side selection
-            // sees no static rules.
+            // Static test selection rules are pre-resolved on the Gradle side and forwarded
+            // through the tiaStaticTestSelectionRules system property; absent property means
+            // no rules in effect.
+            StaticTestSelectionConfig staticMappingConfig = StaticTestSelectionSystemProperties.fromSystemProperties();
             TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
-                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, StaticTestSelectionConfig.EMPTY);
+                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, staticMappingConfig);
             ignoredTests = testSelectorResult.getTestsToIgnore();
 
             if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){

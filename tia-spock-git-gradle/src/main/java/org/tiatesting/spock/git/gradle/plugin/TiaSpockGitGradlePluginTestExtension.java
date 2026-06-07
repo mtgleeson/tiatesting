@@ -10,10 +10,13 @@ import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
+import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
+import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -62,6 +65,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     }
 
                     forwardLibraryMetadata(testTask, tiaTaskExtension, resolver);
+                    forwardStaticTestSelectionRules(testTask, tiaTaskExtension);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -249,6 +253,31 @@ public class TiaSpockGitGradlePluginTestExtension {
         String policy = tiaTaskExtension.getLibraryVersionPolicy();
         if (policy != null && !policy.isEmpty()) {
             testTask.systemProperty(LibraryMetadataSystemProperties.PROP_LIBRARY_VERSION_POLICY, policy);
+        }
+    }
+
+    /**
+     * Build the user's static test selection rules into a {@link StaticTestSelectionConfig} on
+     * the Gradle side and forward the encoded form to the forked test JVM as a single system
+     * property. The test JVM uses
+     * {@link StaticTestSelectionSystemProperties#fromSystemProperties()} to rebuild the config
+     * so {@code TestSelector} can apply the rules in-process.
+     *
+     * <p>Building the config on the Gradle side surfaces invalid regex / unknown mode errors
+     * at configuration time rather than deferring them to the forked test JVM.
+     *
+     * @param testTask the test task whose forked JVM receives the property.
+     * @param tiaTaskExtension the Tia extension carrying the user-declared rule list.
+     */
+    private void forwardStaticTestSelectionRules(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
+        StaticTestSelectionConfig config = TiaBasePlugin.buildStaticTestSelectionConfig(
+                tiaTaskExtension.getStaticTestSelectionRules());
+        if (!config.isEnabled()) {
+            return;
+        }
+        String encoded = StaticTestSelectionSystemProperties.format(config);
+        if (!encoded.isEmpty()) {
+            testTask.systemProperty(StaticTestSelectionSystemProperties.PROP_STATIC_TEST_SELECTION_RULES, encoded);
         }
     }
 
