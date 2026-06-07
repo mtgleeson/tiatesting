@@ -14,6 +14,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -60,9 +61,10 @@ public class TestSelector {
      * @param testFilesDirNames the dir names for the test files
      * @param checkLocalChanges should local changes be checked by Tia.
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured.
-     * @param staticMappingConfig the static test selection config; may be {@code null}. Static-rule
-     *                     resolution is wired in a later stage; here the parameter only flows
-     *                     through the public API surface.
+     * @param staticMappingConfig the static test selection config, or {@code null} if not configured.
+     *                            When enabled, each rule's file-path regex is matched against the
+     *                            changed file paths from the VCS reader, and any forced suites are
+     *                            unioned into the dynamic test selection.
      * @param updateDBMapping whether this run owns mapping-DB updates. When {@code false} (non-primary
      *                       build / local workspace), test selection still runs but no mapping/library
      *                       writes are performed: tracked-library reconcile is skipped and pending
@@ -97,6 +99,8 @@ public class TestSelector {
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
                 libraryConfig, checkLocalChanges, tiaData, testsToRun, methodToTestSuiteIndex);
+
+        applyStaticTestSelection(vcsReader, staticMappingConfig, tiaData, testsToRun, checkLocalChanges);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
@@ -460,6 +464,40 @@ public class TestSelector {
         });
 
         return testsToIgnore;
+    }
+
+    /**
+     * Apply static test selection rules. When {@code staticMappingConfig} is non-null and
+     * enabled, fetch the changed file paths from the VCS reader, run each rule's eager
+     * empty-resolution sanity check (logs a WARN per rule that resolves to zero suites in
+     * the current Tia data snapshot), and union the resolver's forced suites into
+     * {@code testsToRun}. Static rules are additive only: they can add suites to the run set
+     * but never remove them.
+     *
+     * @param vcsReader the VCS reader used to fetch changed file paths.
+     * @param staticMappingConfig the static test selection config; may be {@code null}.
+     * @param tiaData the loaded Tia data; the stored commit value is the baseline for the
+     *                changed-paths query.
+     * @param testsToRun the dynamic run set; forced suites are added in place.
+     * @param checkLocalChanges whether to query the local workspace instead of the commit range.
+     */
+    private void applyStaticTestSelection(final VCSReader vcsReader,
+                                          final StaticTestSelectionConfig staticMappingConfig,
+                                          final TiaData tiaData, final Set<String> testsToRun,
+                                          final boolean checkLocalChanges) {
+        if (staticMappingConfig == null || !staticMappingConfig.isEnabled()) {
+            return;
+        }
+
+        StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(staticMappingConfig);
+        resolver.warnOnEmptyRules(tiaData);
+
+        Set<String> changedPaths = vcsReader.getChangedFilePaths(tiaData.getCommitValue(), checkLocalChanges);
+        Set<String> forced = resolver.resolve(changedPaths, tiaData);
+        if (!forced.isEmpty()) {
+            log.info("Selected tests to run from static test selection rules: {}", forced);
+            testsToRun.addAll(forced);
+        }
     }
 
     /**
