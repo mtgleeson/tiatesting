@@ -11,6 +11,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
   	- [Gradle, Spock, Git](#gradle-spock-and-git)
 - [Usage](#usage)
 - [Configuration Options](#configuration-options)
+- [Static test selection rules](#static-test-selection-rules)
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
@@ -23,7 +24,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ### Requirements
 
-- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit4-git-maven-plugin`, `tia-junit4-perforce-maven-plugin`, `tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the security rationale (CVE-2021-26291) and the design decision behind picking 3.8.1 specifically.
+- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit4-git-maven-plugin`, `tia-junit4-perforce-maven-plugin`, `tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer.
 - **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
 
@@ -637,11 +638,70 @@ gradle tia-text-report
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the locally cached p4 ticket in the users home directory.|false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
+|tiaStaticTestSelectionRules|staticTestSelectionRules|nested list of rules|User-declared rules of the form "if a changed file matches this path regex, force-run these suites". Used for change drivers Tia's coverage-driven mapping can't see (SQL migrations, properties, schema files). Rules are additive: their selected suites are unioned into the suites already selected from the coverage mapping. See [Static test selection rules](#static-test-selection-rules) below for the configuration syntax.|empty (no rules)|false|
+
+## Static test selection rules
+
+The coverage-driven mapping that Tia learns from test runs is referred to as the **dynamic mapping** — it evolves automatically as runs land and the criteria for selecting tests change with it. Static test selection rules give you a second, **static mapping** that lives in your build config: it ties file-path patterns to test suites and only changes when you edit the config. Use it for change drivers Tia can't observe through bytecode coverage — SQL migrations, properties files, schema files, code generators, and so on.
+
+Each rule has:
+- `name` (optional): a human-readable label used in log output.
+- `filePathPattern` (required): a Java regex matched against the repo-relative path of each changed file.
+- `mode` (required): either `RUN_ALL` (run every tracked test suite when this rule fires) or `SUITE_NAMES` (run only the suites whose names match `suiteNamePatterns`).
+- `suiteNamePatterns` (required for `SUITE_NAMES`, must be empty for `RUN_ALL`): a list of regexes matched against both the simple class name and the fully-qualified name of each tracked suite.
+
+Rules fire on every Tia-enabled test run (Maven Surefire/Failsafe, Gradle `test`) as well as on the `tia-select-tests` preview task / mojo. Rules are additive: a suite selected by any rule is added to the suites already selected from the dynamic mapping.
+
+### Gradle example
+
+```
+tia {
+    enabled = true
+    updateDBMapping = true
+    // ...
+    staticTestSelectionRules = [
+        [name             : "db-migrations",
+         filePathPattern  : "src/main/resources/db/migrations/.*\\.sql\$",
+         mode             : "SUITE_NAMES",
+         suiteNamePatterns: [".*MigrationIT\$", "com\\.acme\\.db\\..*Spec"]],
+        [name           : "build-config",
+         filePathPattern: "(build\\.gradle|settings\\.gradle)\$",
+         mode           : "RUN_ALL"]
+    ]
+}
+```
+
+### Maven example
+
+```xml
+<configuration>
+    <tiaEnabled>true</tiaEnabled>
+    <!-- ... -->
+    <tiaStaticTestSelectionRules>
+        <tiaStaticTestSelectionRule>
+            <name>db-migrations</name>
+            <filePathPattern>src/main/resources/db/migrations/.*\.sql$</filePathPattern>
+            <mode>SUITE_NAMES</mode>
+            <suiteNamePatterns>
+                <suiteNamePattern>.*MigrationIT$</suiteNamePattern>
+                <suiteNamePattern>com\.acme\.db\..*IT</suiteNamePattern>
+            </suiteNamePatterns>
+        </tiaStaticTestSelectionRule>
+        <tiaStaticTestSelectionRule>
+            <name>build-config</name>
+            <filePathPattern>pom\.xml$</filePathPattern>
+            <mode>RUN_ALL</mode>
+        </tiaStaticTestSelectionRule>
+    </tiaStaticTestSelectionRules>
+</configuration>
+```
+
+Invalid rules (missing required fields, unknown mode, regex that fails to compile) fail at build configuration time, before any tests run, so configuration errors surface immediately rather than at test-run time.
 
 ## What is Tia
 Tia ia a free test impact analysis library. It analyses changes made to source code and automatically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the efficiency of developers by cutting down the time required to get feedback on changes. 
 
-Tia has been designed to be unintrusive in your day-to-day work flow. Once it's setup and configured, it will automatically hook into your build automation tool test system to select the tests, and then update the mapping and record the statsics at the completion of the test run.
+Tia has been designed to be unintrusive in your day-to-day work flow. Once it's setup and configured, it will automatically hook into your build automation tool test system to select the tests, and then update the mapping and record the statistics at the completion of the test run.
 
 Through the tracking of statistics, Tia can generate reports that show how successful each test suite is, and how long it takes to run. This information can be useful in tracking poorly written or problematic tests that need attention to improve the overall health of the test suites and your builds.
 
