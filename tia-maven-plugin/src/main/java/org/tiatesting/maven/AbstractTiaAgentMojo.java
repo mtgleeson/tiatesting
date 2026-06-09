@@ -92,7 +92,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         // JVM. With DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest
         // of the build, and the test JVM's H2DataStore would fail with "Database may be
         // already in use".
-        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName())) {
+        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(gitReader.getBranchName()))) {
             long startQueryTime = System.currentTimeMillis();
 
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
