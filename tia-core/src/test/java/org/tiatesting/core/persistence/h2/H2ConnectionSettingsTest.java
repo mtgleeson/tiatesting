@@ -104,4 +104,43 @@ class H2ConnectionSettingsTest {
         assertFalse(settings.isServerMode());
         assertEquals("/var/tia", settings.getDbFilePath());
     }
+
+    @Test
+    void fromSystemPropertiesPicksServerModeWhenUrlPropertySet() {
+        // given
+        System.setProperty(H2ConnectionSettings.PROP_DB_URL, "jdbc:h2:tcp://h2host:9092/tiadb");
+        System.setProperty(H2ConnectionSettings.PROP_DB_USER, "tia");
+        System.setProperty(H2ConnectionSettings.PROP_DB_PASSWORD, "secret");
+        try {
+            // when
+            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties("main");
+
+            // then
+            assertTrue(settings.isServerMode());
+            assertEquals("jdbc:h2:tcp://h2host:9092/tiadb", settings.getDbUrl());
+            assertEquals("tia", settings.getUsername());
+            assertEquals("secret", settings.getPassword());
+        } finally {
+            System.clearProperty(H2ConnectionSettings.PROP_DB_URL);
+            System.clearProperty(H2ConnectionSettings.PROP_DB_USER);
+            System.clearProperty(H2ConnectionSettings.PROP_DB_PASSWORD);
+        }
+    }
+
+    @Test
+    void fromSystemPropertiesPicksEmbeddedModeWhenOnlyFilePathSet() {
+        // given
+        System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, "/var/tia");
+        try {
+            // when
+            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties("main");
+
+            // then
+            assertFalse(settings.isServerMode());
+            assertEquals("/var/tia", settings.getDbFilePath());
+            assertEquals("main", settings.getBranchSuffix());
+        } finally {
+            System.clearProperty(H2ConnectionSettings.PROP_DB_FILE_PATH);
+        }
+    }
 }
