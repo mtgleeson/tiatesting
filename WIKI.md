@@ -4,6 +4,17 @@ This document is a deeper companion to `README.md`. The README tells users *how*
 
 Chapters will be added retrospectively as design choices come up. Each chapter is self-contained: it restates the problem, describes the model, and walks through concrete examples so a reader can pick up the topic without reading the rest of the wiki.
 
+## Table of contents
+
+- [Library versioning and the stamp/drain model](#chapter-library-versioning-and-the-stampdrain-model)
+- [How Tia exchanges data with the test runner (Gradle vs Maven)](#chapter-how-tia-exchanges-data-with-the-test-runner-gradle-vs-maven)
+- [Logging conventions (TRACE vs DEBUG)](#chapter-logging-conventions-trace-vs-debug)
+- [Why Tia requires Maven 3.8.1+](#chapter-why-tia-requires-maven-381)
+- [Profiling `select-tests` against a synthetic large DB](#chapter-profiling-select-tests-against-a-synthetic-large-db)
+- [Test-run history log (`tia_test_run_history`)](#chapter-test-run-history-log-tia_test_run_history)
+- [Persist flow and crash safety](#chapter-persist-flow-and-crash-safety)
+- [Embedded vs server-mode H2 connections](#chapter-embedded-vs-server-mode-h2-connections)
+
 ---
 
 ## Chapter: Library versioning and the stamp/drain model
@@ -572,3 +583,41 @@ Three triggers would justify wrapping all of `persistTestRunData` in a single H2
 Until one of those triggers fires, the seal-last ordering plus per-call H2 atomicity plus the orphan-skip fallback provides correct-by-construction behaviour for the case that actually matters: keeping the stored commit value and the mapping in agreement.
 
 The renderer is `TestRunHistoryConsoleFormatter` in `tia-core`; both the Maven `AbstractHistoryMojo` and the Gradle `TiaHistoryTask` are thin shells over `DataStore.readTestRunHistory()` and the formatter, so the output is identical from either build tool.
+
+---
+
+## Chapter: Embedded vs server-mode H2 connections
+
+### The problem
+
+Tia's data store is H2. Historically it was always an *embedded* database: each build opened a `tiadb-<branch>.mv.db` file on the local disk via a `jdbc:h2:<path>/...` URL. That's the right default - zero setup, no server to run - but it means every machine has its own copy of the mapping and statistics. Teams that want several builds to share one Tia database (a primary CI writer plus developer/local readers, say) need Tia to connect to an H2 running in [server (TCP) mode](https://www.h2database.com/html/tutorial.html#using_server) over `jdbc:h2:tcp://host:port/db`.
+
+The two modes look similar (both are H2, both go through `H2DataStore`) but differ in ways that matter for correctness, not just connection strings.
+
+### The one decision point: `H2ConnectionSettings`
+
+Rather than teach every caller (six Maven mojos, four daemon-side Gradle tasks, three test-runner listeners) how to choose a mode, the choice is resolved once in `H2ConnectionSettings`. It exposes `embedded(path, suffix)`, `server(url, user, password)`, `fromConfig(...)` (picks server iff a URL is supplied), and `fromSystemProperties(branch)` (the listener entry point, reading `tiaDBUrl` / `tiaDBUser` / `tiaDBPassword` / `tiaDBFilePath`). `H2DataStore` takes a settings object and stops caring how the mode was chosen.
+
+The build tools each build the settings from their own config surface and converge on the same object:
+- **Maven**: `AbstractTiaMojo.buildH2ConnectionSettings(branch)` from the `tiaDBUrl` / `tiaDBFilePath` parameters. The forked test JVM reads the same values from the user's Surefire `systemPropertyVariables`, exactly as it already did for `tiaDBFilePath`.
+- **Gradle**: `TiaBasePlugin.buildH2ConnectionSettings(branch)` for the daemon-side tasks; the forked test JVM gets the values forwarded as system properties by `TiaSpockGitGradlePluginTestExtension` (only when set, so the embedded case never sends the literal string `"null"`).
+
+### What actually differs between the modes
+
+Three behaviours in `H2DataStore` are embedded-only and would be wrong against a shared server, so they are gated on `settings.isServerMode()`:
+
+1. **Engine-option URL params.** Embedded mode appends `PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY=-1`, and `DB_CLOSE_ON_EXIT=FALSE`. These configure the *database engine instance*, which in server mode lives in the remote server process and is configured when that server starts - not by a connecting client. Server mode therefore uses the supplied URL verbatim with none of these appended.
+2. **The `tiadb-<branch>` suffix.** Embedded mode derives the file name from the branch so each branch gets its own file. In server mode the URL is opaque and used as-is; per-branch isolation, if wanted, is the user's responsibility (encode it in the URL / database name). This keeps the connection contract simple and avoids Tia trying to rewrite a URL it doesn't own.
+3. **`SHUTDOWN IMMEDIATELY` on `close()`.** In embedded mode `close()` issues `SHUTDOWN IMMEDIATELY` to release the `.mv.db` file lock before Surefire/Gradle forks the test JVM (with `DB_CLOSE_DELAY=-1` the lock would otherwise persist for the life of the daemon JVM). Against a server that command shuts down the whole database **for every connected client**, so server-mode `close()` is a no-op - the per-operation connections are already closed by their own `finally` blocks.
+
+### Server-mode prerequisite: `-ifNotExists`
+
+`H2DataStore` auto-creates the schema (and, in embedded mode, the database file) on first use via `createTiaDB()`. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag. So running a server-mode Tia against a server without that flag fails on the very first run. This is a deployment precondition Tia can't paper over from the client side, so it's documented rather than worked around.
+
+### Concurrency: one mapping writer, best-effort statistics
+
+The operational model is unchanged from embedded mode and is what makes shared server mode safe in practice: **exactly one build is the mapping writer** (`tiaUpdateDBMapping=true`); every other client runs in local mode (`tiaUpdateDBMapping=false`) and only updates statistics. The mapping - the load-bearing data for test selection - has a single owner, so the delete-then-reinsert and truncate-then-insert rewrites in the persist path never contend across clients for mapping rows.
+
+That leaves **statistics** as the only data multiple clients write concurrently. Statistics counters (`num_runs`, `avg_run_time`, success/fail counts on both `tia_core` and `tia_test_suite`) are read-modify-write: each client reads the current value, increments in memory (`TestRunnerService` / `incrementStats` / `mergeTestMappingStats`), and writes it back. With several clients doing this against one server database there is a classic lost-update race - two clients read `num_runs=10`, both write `11`, and one increment is lost.
+
+This is a deliberate non-goal. Statistics in Tia are advisory: they drive reports and run-time estimates, not test selection. Adding locking (atomic SQL `num_runs = num_runs + 1` increments, or `SELECT ... FOR UPDATE` row locks) would buy exactness on data that doesn't need it, at a cost on the write path. So Tia accepts statistic drift under concurrent writers; if exact shared statistics ever become a requirement, the atomic-increment rewrite is the place to start. This is the same class of concern as the multi-fork persist limitation in the "Persist flow and crash safety" chapter - and it's the storage-layer-change trigger (#3) that chapter anticipated for revisiting `persistTestRunData`'s transaction strategy.
