@@ -13,6 +13,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Configuration Options](#configuration-options)
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
+- [Using a shared H2 server](#using-a-shared-h2-server)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
 - [Credits](#credits)
 - [Additional resources and solutions](#additional-resources-and-solutions)
@@ -631,7 +632,10 @@ gradle tia-text-report
 |tiaSourceLibs|sourceLibs|<string>|Comma separated list of `groupId:artifactId:projectDir` entries for in-repo libraries to additionally track coverage for. The `projectDir` segment is the absolute path to the library's own project root (used for loading its build file and for matching VCS diffs against the library's source tree). The `groupId:artifactId` portion is used to resolve the library version from the source project's dependencies and to add the corresponding JAR to Jacoco analysis. When the test and source projects are separate, they must use the same build system.||false|
 |tiaSourceProjectDir|sourceProjectDir|<string>|The file path to the root of the source project whose resolved dependencies are used to resolve `sourceLibs` to JAR files. Only needed when the project running the tests is different from the source project being tracked. For Gradle this can be the current project, a sibling subproject, or an external Gradle build.|current project|false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
-|tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project.||true|
+|tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project. Used for the default embedded H2 mode. Ignored when `tiaDBUrl` / `dbUrl` is set.||true (embedded mode)|
+|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb`. When set, Tia connects to that server instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used verbatim, so per-branch isolation (if wanted) must be encoded in the URL.||false|
+|tiaDBUser|dbUser|<string>|Database username for server-mode H2 (`tiaDBUrl`).|sa|false|
+|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 (`tiaDBUrl`).|(empty)|false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.|${project.build.directory}/tia|true|
 |tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
@@ -648,7 +652,7 @@ Through the tracking of statistics, Tia can generate reports that show how succe
 ## How Does Tia Work
 Tia collects and stores a mapping of methods that are executed for each of your test suites. 
 
-Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping. Tia uses an embedded H2 DB for the data store.
+Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping. Tia uses an H2 DB for the data store. By default this is an embedded file-on-disk DB (`tiaDBFilePath` / `dbFilePath`). Tia can also connect to a shared H2 running in [server (TCP) mode](#using-a-shared-h2-server) by setting `tiaDBUrl` / `dbUrl` instead - see below.
 
 The first time Tia runs it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that version of the test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
 
@@ -656,6 +660,34 @@ Typically you will want a 'primary' automated build that is configured to run Ti
 Developers using Tia on their local workspace should configure Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true).
 
 **Note:** The build machine(s) that are designated to be the 'primary' (which update the test suite to source code mapping) need to run the tests suites **sequentially**. This is important to allow Tia to correctly associate the source code coverage with each test suite.  
+
+## Using a shared H2 server
+By default Tia stores its data in an embedded H2 file on the machine running the build. If you want several builds (for example a primary CI build plus developer/local builds) to share one Tia database, you can point Tia at an H2 instance running in [server (TCP) mode](https://www.h2database.com/html/tutorial.html#using_server) instead.
+
+Set `tiaDBUrl` / `dbUrl` (and optionally `tiaDBUser` / `tiaDBPassword`) to the server's JDBC URL. When set, the embedded `tiaDBFilePath` / `dbFilePath` is ignored.
+
+Maven:
+```xml
+<tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb</tiaDBUrl>
+<tiaDBUser>tia</tiaDBUser>
+<tiaDBPassword>secret</tiaDBPassword>
+```
+For the test run itself (Surefire), these are passed to the test JVM the same way as `tiaDBFilePath` - via the Surefire `systemPropertyVariables`.
+
+Gradle:
+```groovy
+tia {
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb'
+    dbUser = 'tia'
+    dbPassword = 'secret'
+}
+```
+
+Things to know when using server mode:
+- **Start the server with `-ifNotExists`.** Tia creates its schema (and the database, on first use) automatically. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag, so the first Tia run will fail without it.
+- **The URL is used verbatim.** Unlike embedded mode, Tia does not append a `tiadb-<branch>` suffix. If you want per-branch databases, encode the branch in the URL / database name yourself.
+- **Keep a single mapping writer.** As with embedded mode, only the primary build should set `tiaUpdateDBMapping=true`. All other clients should run with `tiaUpdateDBMapping=false` (mapping is owned by one writer). The other clients only update statistics.
+- **Statistics are best-effort under concurrency.** Statistics counters (run counts, averages) are read-modify-write and are not locked across clients, so when multiple clients update statistics against the same database at the same time, some statistic increments can be lost. Tia treats statistics as advisory; the mapping (owned by the single writer) is unaffected. (See also the multi-fork persistence note in the [Wiki](WIKI.md).)
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3.8.1+
