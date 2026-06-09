@@ -14,6 +14,9 @@ public class TiaBaseTaskExtension {
     private String libraryVersionPolicy;
     private String testFilesDirs;
     private String dbFilePath;
+    private String dbUrl;
+    private String dbUser;
+    private String dbPassword;
     private Boolean enabled;
     private Boolean updateDBMapping;
     private Boolean updateDBStats;
@@ -88,12 +91,62 @@ public class TiaBaseTaskExtension {
     }
 
     @Input
+    @org.gradle.api.tasks.Optional
     public String getDbFilePath() {
         return dbFilePath;
     }
 
     public void setDbFilePath(String dbFilePath) {
         this.dbFilePath = dbFilePath;
+    }
+
+    /**
+     * @return the server-mode H2 JDBC URL, e.g. {@code jdbc:h2:tcp://h2host:9092/tiadb}, or
+     *         {@code null} for embedded mode (in which case {@link #getDbFilePath()} is used)
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getDbUrl() {
+        return dbUrl;
+    }
+
+    /**
+     * @param dbUrl the server-mode H2 JDBC URL; when set, embedded {@code dbFilePath} is ignored
+     */
+    public void setDbUrl(String dbUrl) {
+        this.dbUrl = dbUrl;
+    }
+
+    /**
+     * @return the server-mode H2 username, or {@code null} to use the default
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getDbUser() {
+        return dbUser;
+    }
+
+    /**
+     * @param dbUser the server-mode H2 username
+     */
+    public void setDbUser(String dbUser) {
+        this.dbUser = dbUser;
+    }
+
+    /**
+     * @return the server-mode H2 password, or {@code null} to use the default
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getDbPassword() {
+        return dbPassword;
+    }
+
+    /**
+     * @param dbPassword the server-mode H2 password
+     */
+    public void setDbPassword(String dbPassword) {
+        this.dbPassword = dbPassword;
     }
 
     @Input

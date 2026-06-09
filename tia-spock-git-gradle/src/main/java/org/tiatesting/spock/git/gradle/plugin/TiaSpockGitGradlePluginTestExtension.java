@@ -51,6 +51,18 @@ public class TiaSpockGitGradlePluginTestExtension {
                     testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
                     testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
+                    // Server-mode H2 connection settings. Forwarded only when set so that in the
+                    // common embedded case the listener does not see the literal string "null"
+                    // and mistake it for a server URL.
+                    if (tiaTaskExtension.getDbUrl() != null){
+                        testTask.systemProperty("tiaDBUrl", tiaTaskExtension.getDbUrl());
+                    }
+                    if (tiaTaskExtension.getDbUser() != null){
+                        testTask.systemProperty("tiaDBUser", tiaTaskExtension.getDbUser());
+                    }
+                    if (tiaTaskExtension.getDbPassword() != null){
+                        testTask.systemProperty("tiaDBPassword", tiaTaskExtension.getDbPassword());
+                    }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
 
                     LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
@@ -127,6 +139,18 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getDbFilePath() == null){
             tiaTaskExt.setDbFilePath(tiaProjectExt.getDbFilePath());
+        }
+
+        if (tiaTaskExt.getDbUrl() == null){
+            tiaTaskExt.setDbUrl(tiaProjectExt.getDbUrl());
+        }
+
+        if (tiaTaskExt.getDbUser() == null){
+            tiaTaskExt.setDbUser(tiaProjectExt.getDbUser());
+        }
+
+        if (tiaTaskExt.getDbPassword() == null){
+            tiaTaskExt.setDbPassword(tiaProjectExt.getDbPassword());
         }
 
         if (tiaTaskExt.getCheckLocalChanges() == null){
