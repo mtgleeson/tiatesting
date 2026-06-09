@@ -7,11 +7,13 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -27,7 +29,7 @@ public class TiaHistoryTask extends DefaultTask {
 
     private String last = "20";
     private Supplier<VCSReader> vcsReaderSupplier;
-    private Supplier<String> dbFilePathSupplier;
+    private Function<String, H2ConnectionSettings> connectionSettingsFactory;
 
     /**
      * Setter used by Gradle when the user passes {@code --last=N} on the command line.
@@ -58,14 +60,15 @@ public class TiaHistoryTask extends DefaultTask {
     }
 
     /**
-     * Inject the DB-file-path supplier; called from {@code TiaBasePlugin.createHistoryTask} at
-     * task registration so the path (which depends on the consumer's {@code tia { dbFilePath }}
-     * extension) resolves at execution time rather than apply time.
+     * Inject the connection-settings factory; called from {@code TiaBasePlugin.createHistoryTask}
+     * at task registration so the settings (which depend on the consumer's {@code tia { ... }}
+     * extension and the run's branch) resolve at execution time rather than apply time. The
+     * factory takes the branch name and returns embedded- or server-mode connection settings.
      *
-     * @param dbFilePathSupplier supplier of the resolved absolute DB file path
+     * @param connectionSettingsFactory factory mapping a branch name to {@link H2ConnectionSettings}
      */
-    public void setDbFilePathSupplier(Supplier<String> dbFilePathSupplier) {
-        this.dbFilePathSupplier = dbFilePathSupplier;
+    public void setConnectionSettingsFactory(Function<String, H2ConnectionSettings> connectionSettingsFactory) {
+        this.connectionSettingsFactory = connectionSettingsFactory;
     }
 
     /**
@@ -84,7 +87,7 @@ public class TiaHistoryTask extends DefaultTask {
             throw new GradleException("--last must be a positive integer; received " + limit);
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = new H2DataStore(dbFilePathSupplier.get(), vcsReader.getBranchName())) {
+        try (DataStore dataStore = new H2DataStore(connectionSettingsFactory.apply(vcsReader.getBranchName()))) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, limit, System.lineSeparator()));
