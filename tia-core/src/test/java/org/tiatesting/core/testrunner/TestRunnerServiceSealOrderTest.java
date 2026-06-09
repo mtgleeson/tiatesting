@@ -12,6 +12,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 
 import java.io.File;
@@ -48,7 +49,7 @@ class TestRunnerServiceSealOrderTest {
         tempDir = File.createTempFile("tia-seal-order-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         dataStore.getTiaData(true);
 
         // Seed a known prior commit value so we can assert it survives mid-persist crashes.

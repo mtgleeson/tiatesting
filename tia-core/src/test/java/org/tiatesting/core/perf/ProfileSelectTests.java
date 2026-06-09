@@ -4,6 +4,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -62,7 +63,7 @@ public final class ProfileSelectTests {
 
     private static void runOnce(Args args) {
         long t0 = System.nanoTime();
-        H2DataStore dataStore = new H2DataStore(args.outDb, args.branch);
+        H2DataStore dataStore = new H2DataStore(H2ConnectionSettings.embedded(args.outDb, args.branch));
         long tConstruct = System.nanoTime();
         printPhase("Phase 1 - H2DataStore construction", t0, tConstruct);
 
