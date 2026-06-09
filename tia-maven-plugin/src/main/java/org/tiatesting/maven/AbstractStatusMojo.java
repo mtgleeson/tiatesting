@@ -9,7 +9,7 @@ public abstract class AbstractStatusMojo extends AbstractTiaMojo {
     @Override
     public void execute() {
         final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName())) {
+        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(vcsReader.getBranchName()))) {
             StatusReportGenerator reportGenerator = new StatusReportGenerator();
             getLog().info(reportGenerator.generateSummaryReport(dataStore));
         }
