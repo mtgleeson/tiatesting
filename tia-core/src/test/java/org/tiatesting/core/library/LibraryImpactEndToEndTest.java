@@ -2,6 +2,7 @@ package org.tiatesting.core.library;
 
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.*;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
@@ -29,7 +30,7 @@ class LibraryImpactEndToEndTest {
         tempDir = File.createTempFile("tia-e2e-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaData(true);
