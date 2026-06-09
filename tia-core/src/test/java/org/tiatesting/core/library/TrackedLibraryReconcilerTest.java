@@ -3,6 +3,7 @@ package org.tiatesting.core.library;
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.TrackedLibrary;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 
 import java.io.File;
@@ -22,7 +23,7 @@ class TrackedLibraryReconcilerTest {
         tempDir = File.createTempFile("tia-reconciler-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         dataStore.getTiaData(true);
         reconciler = new TrackedLibraryReconciler();
     }

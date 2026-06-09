@@ -1,5 +1,6 @@
 package org.tiatesting.core.perf;
 
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 
 import java.io.File;
@@ -58,7 +59,7 @@ public final class GenerateLargeTiaDb {
         // Schema creation is triggered the first time getTiaData() is invoked on a missing DB
         // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
-        H2DataStore bootstrap = new H2DataStore(parsed.outDb, parsed.branch);
+        H2DataStore bootstrap = new H2DataStore(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 

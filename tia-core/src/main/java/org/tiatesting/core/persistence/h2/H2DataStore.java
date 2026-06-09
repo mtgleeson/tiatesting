@@ -64,18 +64,37 @@ public class H2DataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
+    private final H2ConnectionSettings settings;
     private final String jdbcURL;
-    private final String username = "sa";
-    private final String password = "1234";
-    private final String dbNameSuffix;
-    private final String dataStorePath;
+    private final String username;
+    private final String password;
 
-    public H2DataStore(String dataStorePath, String dbNameSuffix){
-        this.dataStorePath = dataStorePath;
-        this.dbNameSuffix = dbNameSuffix;
+    /**
+     * Construct a datastore from resolved connection settings. The settings determine whether
+     * Tia connects to an embedded file-on-disk H2 or a remote server-mode H2; see
+     * {@link H2ConnectionSettings}.
+     *
+     * @param settings the resolved embedded- or server-mode connection settings
+     */
+    public H2DataStore(H2ConnectionSettings settings){
+        this.settings = settings;
+        this.username = settings.getUsername();
+        this.password = settings.getPassword();
         this.jdbcURL = buildJdbcUrl();
 
-        log.info("Using H2 as the Tia datastore with the connection: {}", this.jdbcURL);
+        log.info("Using H2 as the Tia datastore in {} mode with the connection: {}",
+                settings.isServerMode() ? "server" : "embedded", this.jdbcURL);
+    }
+
+    /**
+     * Expose the resolved JDBC URL this datastore connects with. Package-private: it lets tests
+     * assert that embedded mode composes the engine-option URL while server mode uses the
+     * user-supplied URL verbatim.
+     *
+     * @return the JDBC URL in use for this datastore
+     */
+    String getJdbcUrl() {
+        return jdbcURL;
     }
 
     @Override
@@ -1411,9 +1430,21 @@ public class H2DataStore implements DataStore {
      * <p>Issues {@code SHUTDOWN IMMEDIATELY} via a short-lived connection. Failures during
      * close are swallowed (logged at debug) so cleanup errors never mask the real exception
      * a calling {@code try}/{@code finally} block is unwinding.
+     *
+     * <p>This is an <b>embedded-mode-only</b> concern. In server mode the database engine lives
+     * in the remote server process and is shared by every connected client, so issuing
+     * {@code SHUTDOWN IMMEDIATELY} would tear down the whole server database for all of them.
+     * Server-mode {@code close()} is therefore a no-op - individual connections are already
+     * closed by each operation's {@code finally} block.
      */
     @Override
     public void close() {
+        if (settings.isServerMode()){
+            // Never SHUTDOWN a shared server DB - it would kill the database for every other
+            // connected client. Per-operation connections are already closed by their callers.
+            return;
+        }
+
         // try-with-resources on Connection + Statement: SHUTDOWN IMMEDIATELY tears down the
         // session, so the implicit close() calls typically throw "connection is closed" —
         // that's expected and the outer catch swallows it. Failures during close are logged
@@ -1468,12 +1499,24 @@ public class H2DataStore implements DataStore {
      * persist method commits its transaction explicitly via {@code connection.commit()}, which
      * forces the MVStore to flush the changed pages.
      *
-     * @return the H2 JDBC URL for this {@code (dataStorePath, dbNameSuffix)} pair
+     * <p>In <b>server mode</b> the user-supplied URL is returned verbatim. The embedded-only
+     * options above are deliberately omitted: {@code PAGE_SIZE} / {@code CACHE_SIZE} /
+     * {@code DB_CLOSE_DELAY} / {@code DB_CLOSE_ON_EXIT} configure the database engine instance,
+     * which in server mode lives in the remote server process and is configured when that server
+     * is started - not by the connecting client. Tia also does not append the {@code tiadb-<branch>}
+     * suffix in server mode; per-branch isolation, if wanted, is encoded by the user in the URL.
+     *
+     * @return the H2 JDBC URL: the verbatim server URL in server mode, or the composed
+     *         embedded-mode URL (with engine options) otherwise
      */
     private String buildJdbcUrl(){
+        if (settings.isServerMode()){
+            return settings.getDbUrl();
+        }
+
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
         long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
-        return "jdbc:h2:" + this.dataStorePath + "/tiadb-" + this.dbNameSuffix
+        return "jdbc:h2:" + settings.getDbFilePath() + "/tiadb-" + settings.getBranchSuffix()
                 + ";PAGE_SIZE=" + pageSizeByte
                 + ";CACHE_SIZE=" + cacheSizeKB
                 + ";DB_CLOSE_DELAY=-1"
