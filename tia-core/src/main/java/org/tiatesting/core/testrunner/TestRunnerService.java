@@ -84,7 +84,7 @@ public class TestRunnerService {
         // 2. Seal: writing the commit value last is what makes commit X "official". Until this
         //    line executes, the stored commit value is unchanged and the next run will treat
         //    everything since the prior commit as unmapped.
-        updateTiaCoreData(tiaData, commitValue, updateDBMapping, updateDBStats, testRunResult.getTestStats());
+        updateTiaCoreData(tiaData, commitValue, branch, updateDBMapping, updateDBStats, testRunResult.getTestStats());
 
         // 3. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
@@ -134,14 +134,16 @@ public class TestRunnerService {
      *
      * @param tiaData the Tia DB
      * @param commitValue the new commit value the test run was executed against
+     * @param branch the VCS branch the run targeted, stamped alongside the commit value
      * @param updateDBMapping should the test to source code mapping be updated in the DB for the test run
      * @param updateDBStats should the test stats be updated for the test run
      * @param testStats the stats for the test run
      */
-    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final boolean updateDBMapping,
-                                   final boolean updateDBStats, final TestStats testStats){
+    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final String branch,
+                                   final boolean updateDBMapping, final boolean updateDBStats, final TestStats testStats){
         if (updateDBMapping) {
             tiaData.setCommitValue(commitValue);
+            tiaData.setBranch(branch);
             tiaData.setLastUpdated(Instant.now());
         }
 
