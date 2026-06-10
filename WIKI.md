@@ -629,3 +629,45 @@ The operational model is unchanged from embedded mode and is what makes shared s
 That leaves **statistics** as the only data multiple clients write concurrently. Statistics counters (`num_runs`, `avg_run_time`, success/fail counts on both `tia_core` and `tia_test_suite`) are read-modify-write: each client reads the current value, increments in memory (`TestRunnerService` / `incrementStats` / `mergeTestMappingStats`), and writes it back. With several clients doing this against one server database there is a classic lost-update race - two clients read `num_runs=10`, both write `11`, and one increment is lost.
 
 This is a deliberate non-goal. Statistics in Tia are advisory: they drive reports and run-time estimates, not test selection. Adding locking (atomic SQL `num_runs = num_runs + 1` increments, or `SELECT ... FOR UPDATE` row locks) would buy exactness on data that doesn't need it, at a cost on the write path. So Tia accepts statistic drift under concurrent writers; if exact shared statistics ever become a requirement, the atomic-increment rewrite is the place to start. This is the same class of concern as the multi-fork persist limitation in the "Persist flow and crash safety" chapter - and it's the storage-layer-change trigger (#3) that chapter anticipated for revisiting `persistTestRunData`'s transaction strategy.
+
+### Running an H2 server locally to test server mode
+
+You don't need a separate H2 install to exercise server mode on a dev machine: Tia already depends on H2 (`com.h2database:h2:2.2.224` in `tia-core/build.gradle`), so the runnable jar is sitting in your Gradle cache. The same jar that backs embedded mode also ships H2's `org.h2.tools.Server` entry point.
+
+**1. Start the TCP server.** The one non-negotiable flag is `-ifNotExists`: `H2DataStore.createTiaDB()` creates the database on the first run, and an H2 TCP server refuses to create a database for a remote client unless it was started with that flag (see the prerequisite subsection above).
+
+```bash
+mkdir -p ~/h2-tia
+H2_JAR=$(find ~/.gradle/caches/modules-2 -name 'h2-2.2.224.jar' | head -1)
+
+java -cp "$H2_JAR" org.h2.tools.Server \
+  -tcp -ifNotExists -baseDir ~/h2-tia
+```
+
+The server listens on port `9092` by default and prints `TCP server running at tcp://...:9092`. Leave it running. `-baseDir` is where the `tiadb.mv.db` file is created; add `-tcpAllowOthers` only if a build on another machine needs to reach it. The Gradle-cache path changes when the cache is cleaned, so for a long-lived local server copy the jar somewhere stable (`cp "$H2_JAR" ~/h2-tia/h2.jar`) and run from there.
+
+**2. Point Tia at the server.** The URL is used verbatim - Tia does not append the `tiadb-<branch>` suffix in server mode - so name the database in the URL yourself:
+
+```groovy
+// Gradle
+tia {
+    dbUrl = 'jdbc:h2:tcp://localhost:9092/tiadb'
+}
+```
+
+```xml
+<!-- Maven -->
+<tiaDBUrl>jdbc:h2:tcp://localhost:9092/tiadb</tiaDBUrl>
+```
+
+With no credentials configured, Tia falls back through `TIA_DB_USER` / `TIA_DB_PASSWORD` to `sa` / empty (see the credential-resolution subsection above), which matches the `sa`/empty account H2 creates for a brand-new database. To rehearse the env-var fallback, `export TIA_DB_PASSWORD=...` before the build and leave `dbPassword` unset; note that H2 fixes the account on first creation, so whatever password first connects becomes the database's password.
+
+**3. Inspect the data while testing.** Run H2's web console against the same server to watch Tia's tables populate:
+
+```bash
+java -cp "$H2_JAR" org.h2.tools.Server -web -webPort 8082
+```
+
+Open `http://localhost:8082`, connect with JDBC URL `jdbc:h2:tcp://localhost:9092/tiadb` and user `sa`, and Tia's schema appears after the first run.
+
+**4. Run a build.** From the project under test, run the normal Tia-enabled test task (`./gradlew test` / `mvn test`). The first run creates the schema; subsequent runs do selective testing against the shared server database. Remember the single-writer model from the concurrency subsection: exactly one build should run with `tiaUpdateDBMapping=true`, the rest as statistics-only readers.
