@@ -59,7 +59,7 @@ class TestRunHistoryConsoleFormatterTest {
                 Collections.singletonList(entry), 20, LF);
 
         // then
-        assertTrue(output.startsWith("Displaying the latest 1 test runs from a total of 1" + LF),
+        assertTrue(output.startsWith("Displaying the latest 1 test runs from a total of 1." + LF),
                 "header should report rows-shown (not the configured cap) when total < limit. Output: " + output);
         String[] lines = output.split(LF, -1);
         // header, blank, column-header, separator, data row, trailing-empty-from-final-LF
