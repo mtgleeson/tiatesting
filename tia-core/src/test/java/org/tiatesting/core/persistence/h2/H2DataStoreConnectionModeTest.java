@@ -58,7 +58,7 @@ class H2DataStoreConnectionModeTest {
         H2DataStore dataStore = new H2DataStore(settings);
 
         // then
-        // no {dbname} token, so the URL is used exactly as supplied - the branch is ignored
+        // no {branch} token, so the URL is used exactly as supplied - the branch is ignored
         String url = dataStore.getJdbcUrl();
         assertEquals(serverUrl, url);
         assertFalse(url.contains("PAGE_SIZE"), url);
@@ -67,9 +67,9 @@ class H2DataStoreConnectionModeTest {
     }
 
     @Test
-    void serverModeExpandsDbNamePlaceholderToBranchDbName() {
+    void serverModeExpandsBranchPlaceholderToBranchDbName() {
         // given
-        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.DB_NAME_PLACEHOLDER;
+        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.BRANCH_PLACEHOLDER;
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
 
         // when
@@ -78,14 +78,28 @@ class H2DataStoreConnectionModeTest {
         // then
         String url = dataStore.getJdbcUrl();
         assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main", url);
-        assertFalse(url.contains(H2ConnectionSettings.DB_NAME_PLACEHOLDER), url);
+        assertFalse(url.contains(H2ConnectionSettings.BRANCH_PLACEHOLDER), url);
+    }
+
+    @Test
+    void serverModeReplacesOnlyTheTokenPreservingSurroundingText() {
+        // given
+        // only the {branch} token is replaced, so a user-supplied suffix (or prefix) is preserved
+        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.BRANCH_PLACEHOLDER + "-myproject";
+        H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
+
+        // when
+        H2DataStore dataStore = new H2DataStore(settings);
+
+        // then
+        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main-myproject", dataStore.getJdbcUrl());
     }
 
     @Test
     void serverModeSanitizesBranchSlashesInExpandedDbName() {
         // given
         // a branch like feature/foo would otherwise be read as a nested path in the H2 db name
-        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.DB_NAME_PLACEHOLDER;
+        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.BRANCH_PLACEHOLDER;
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "feature/foo");
 
         // when

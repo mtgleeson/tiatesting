@@ -15,7 +15,7 @@ import java.util.function.Function;
  *       {@code sa}/{@code 1234} credentials.</li>
  *   <li><b>Server</b> ({@code dbUrl} present): the supplied URL is used as given (Tia does not
  *       append any embedded-only engine options), except that an optional
- *       {@value #DB_NAME_PLACEHOLDER} token is expanded to {@code tiadb-<branch>} for per-branch
+ *       {@value #BRANCH_PLACEHOLDER} token is expanded to {@code tiadb-<branch>} for per-branch
  *       databases. Credentials come from the configured values, falling back to the
  *       {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} environment variables so the password
  *       need not live in checked-in build config.</li>
@@ -41,12 +41,13 @@ public class H2ConnectionSettings {
     public static final String ENV_DB_PASSWORD = "TIA_DB_PASSWORD";
 
     /**
-     * Placeholder token a user may embed in the server-mode {@code dbUrl} where the database name
-     * belongs. When present, {@link H2DataStore} substitutes it with {@code tiadb-<branch>} so the
-     * URL targets a per-branch database (mirroring embedded mode's {@code tiadb-<branch>} file
-     * suffix). A URL without the token is used verbatim.
+     * Placeholder token a user may embed anywhere in the server-mode {@code dbUrl}. When present,
+     * {@link H2DataStore} substitutes only the token with {@code tiadb-<branch>}, leaving the rest
+     * of the URL untouched. Because only the token is replaced, the user can wrap it with a prefix
+     * or suffix - e.g. {@code .../{branch}-myproject} becomes {@code .../tiadb-main-myproject}.
+     * A URL without the token is used verbatim.
      */
-    public static final String DB_NAME_PLACEHOLDER = "{dbname}";
+    public static final String BRANCH_PLACEHOLDER = "{branch}";
 
     private final String dbFilePath;
     private final String dbUrl;
@@ -88,16 +89,16 @@ public class H2ConnectionSettings {
      * secret in the environment and leaves {@code dbPassword} unset.
      *
      * <p>The {@code branchSuffix} is retained so {@link H2DataStore} can substitute a
-     * {@value #DB_NAME_PLACEHOLDER} token in the URL with {@code tiadb-<branch>}; a URL without
+     * {@value #BRANCH_PLACEHOLDER} token in the URL with {@code tiadb-<branch>}; a URL without
      * the token ignores the branch and is used verbatim.
      *
      * @param dbUrl        the {@code jdbc:h2:tcp://...} (or {@code ssl://}) URL, used verbatim
-     *                     unless it contains the {@value #DB_NAME_PLACEHOLDER} token
+     *                     unless it contains the {@value #BRANCH_PLACEHOLDER} token
      * @param username     the database user, or {@code null}/blank to fall back to the environment
      * @param password     the database password, or {@code null} to fall back to the environment;
      *                     an explicit empty string is honoured verbatim (see
      *                     {@link #resolvePassword(String, String)})
-     * @param branchSuffix the VCS branch name, used to expand the {@value #DB_NAME_PLACEHOLDER}
+     * @param branchSuffix the VCS branch name, used to expand the {@value #BRANCH_PLACEHOLDER}
      *                     token when present
      * @return server-mode connection settings
      */
@@ -112,11 +113,11 @@ public class H2ConnectionSettings {
      * exercised without mutating the real process environment.
      *
      * @param dbUrl        the JDBC URL, used verbatim unless it contains the
-     *                     {@value #DB_NAME_PLACEHOLDER} token
+     *                     {@value #BRANCH_PLACEHOLDER} token
      * @param username     the configured database user, or {@code null}/blank to fall back
      * @param password     the configured database password, or {@code null} to fall back; an
      *                     explicit empty string is honoured verbatim
-     * @param branchSuffix the VCS branch name, used to expand the {@value #DB_NAME_PLACEHOLDER}
+     * @param branchSuffix the VCS branch name, used to expand the {@value #BRANCH_PLACEHOLDER}
      *                     token when present
      * @param env          lookup from environment-variable name to value (e.g. {@code System::getenv})
      * @return server-mode connection settings with credentials resolved
@@ -182,7 +183,7 @@ public class H2ConnectionSettings {
      * @param dbUser       server-mode database user
      * @param dbPassword   server-mode database password
      * @param branchSuffix VCS branch name; the embedded-mode file suffix, or the value the
-     *                     server-mode {@value #DB_NAME_PLACEHOLDER} token expands to
+     *                     server-mode {@value #BRANCH_PLACEHOLDER} token expands to
      * @return the resolved connection settings for the requested mode
      */
     public static H2ConnectionSettings fromConfig(final String dbFilePath, final String dbUrl,
@@ -253,7 +254,7 @@ public class H2ConnectionSettings {
 
     /**
      * @return the VCS branch name: the embedded-mode file suffix, or the value the server-mode
-     *         {@value #DB_NAME_PLACEHOLDER} token expands to
+     *         {@value #BRANCH_PLACEHOLDER} token expands to
      */
     public String getBranchSuffix() {
         return branchSuffix;
