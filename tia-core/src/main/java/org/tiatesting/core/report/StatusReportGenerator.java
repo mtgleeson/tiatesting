@@ -31,6 +31,7 @@ public class StatusReportGenerator {
         StringBuilder sb = new StringBuilder(lineSep);
         sb.append("Tia Status:" + lineSep);
         sb.append("DB last updated: " + (tiaData.getLastUpdated()!= null ? dtf.format(tiaData.getLastUpdated()) : "N/A") + lineSep);
+        sb.append("Branch: " + (tiaData.getBranch() != null ? tiaData.getBranch() : "N/A") + lineSep);
         sb.append("Test mapping valid for commit: " + tiaData.getCommitValue() + lineSep + lineSep);
 
         int numTestSuites = dataStore.getNumTestSuites();

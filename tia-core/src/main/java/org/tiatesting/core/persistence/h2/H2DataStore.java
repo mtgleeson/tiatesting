@@ -108,6 +108,9 @@ public class H2DataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
+            // Migrate before reading: getCoreData selects the branch column, which is absent on
+            // DBs created before this feature.
+            ensureTiaCoreBranchColumnExists(connection);
             tiaData = getCoreData(connection);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -722,13 +725,17 @@ public class H2DataStore implements DataStore {
     }
 
     private void persistTiaCore(Connection connection, TiaData tiaData) throws SQLException {
+        // Migrate before reading/writing: the branch column is absent on DBs created before this
+        // feature, and both the SELECT in getCoreData and the INSERT/UPDATE below reference it.
+        ensureTiaCoreBranchColumnExists(connection);
         TiaData existingTiaCore = getCoreData(connection);
         String sql;
 
         if (existingTiaCore.getCommitValue() == null){
-            sql = "INSERT INTO " + TABLE_TIA_CORE + " (" + COL_COMMIT_VALUE + ", " + COL_LAST_UPDATED + ", " + COL_NUM_RUNS + ", " +
+            sql = "INSERT INTO " + TABLE_TIA_CORE + " (" + COL_COMMIT_VALUE + ", " + COL_BRANCH + ", " + COL_LAST_UPDATED + ", " + COL_NUM_RUNS + ", " +
                     COL_AVG_RUN_TIME + ", " + COL_NUM_SUCCESS_RUNS + ", " + COL_NUM_FAIL_RUNS + ") values ('" +
-                    tiaData.getCommitValue() + "', '" +
+                    tiaData.getCommitValue() + "', " +
+                    sqlStringOrNull(tiaData.getBranch()) + ", '" +
                     tiaData.getLastUpdated() + "', " +
                     tiaData.getTestStats().getNumRuns() + ", " +
                     tiaData.getTestStats().getAvgRunTime()  + ", " +
@@ -737,7 +744,8 @@ public class H2DataStore implements DataStore {
         }else{
             sql = "UPDATE " + TABLE_TIA_CORE + " SET " +
                     COL_COMMIT_VALUE + "='" + tiaData.getCommitValue() +
-                    "', " + COL_LAST_UPDATED + "='" + tiaData.getLastUpdated() +
+                    "', " + COL_BRANCH + "=" + sqlStringOrNull(tiaData.getBranch()) +
+                    ", " + COL_LAST_UPDATED + "='" + tiaData.getLastUpdated() +
                     "', " + COL_NUM_RUNS + "=" + tiaData.getTestStats().getNumRuns() +
                     ", " + COL_AVG_RUN_TIME + "=" + tiaData.getTestStats().getAvgRunTime() +
                     ", " + COL_NUM_SUCCESS_RUNS + "=" + tiaData.getTestStats().getNumSuccessRuns() +
@@ -747,6 +755,22 @@ public class H2DataStore implements DataStore {
         log.debug("Persisting Tia core data: {}", sql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(sql);
+    }
+
+    /**
+     * Render a string as a SQL literal for the inline-concatenation persist statements: a quoted,
+     * single-quote-escaped value, or the keyword {@code NULL} when the value is {@code null}. Used
+     * for the {@code branch} column, which is genuinely absent on stats-only runs and must be
+     * stored as SQL NULL rather than the literal text {@code 'null'}.
+     *
+     * @param value the value to render, or {@code null}
+     * @return {@code 'value'} (with embedded single quotes doubled) or {@code NULL}
+     */
+    private String sqlStringOrNull(final String value){
+        if (value == null){
+            return "NULL";
+        }
+        return "'" + value.replace("'", "''") + "'";
     }
 
     private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites,
@@ -1010,6 +1034,7 @@ public class H2DataStore implements DataStore {
                 // Idempotent: safe to call on every load.
                 ensureSourceClassTestSuiteIndexExists(connection);
                 ensureTestRunHistoryTableExists(connection);
+                ensureTiaCoreBranchColumnExists(connection);
 
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
@@ -1055,6 +1080,7 @@ public class H2DataStore implements DataStore {
 
         if (resultSet.next()){
             tiaData.setCommitValue(resultSet.getString(COL_COMMIT_VALUE));
+            tiaData.setBranch(resultSet.getString(COL_BRANCH));
             tiaData.setLastUpdated(resultSet.getTimestamp(COL_LAST_UPDATED).toInstant());
             tiaData.getTestStats().setNumRuns(resultSet.getLong(COL_NUM_RUNS));
             tiaData.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
@@ -1222,6 +1248,7 @@ public class H2DataStore implements DataStore {
         log.info("Creating the Tia DB");
         String createCoreTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_CORE + " (" +
                 COL_COMMIT_VALUE + " VARCHAR(255) PRIMARY KEY, " +
+                COL_BRANCH + " VARCHAR(255), " +
                 COL_LAST_UPDATED + " TIMESTAMP WITH TIME ZONE, " +
                 COL_NUM_RUNS + " BIGINT, " +
                 COL_AVG_RUN_TIME + " BIGINT, " +
@@ -1398,6 +1425,21 @@ public class H2DataStore implements DataStore {
         Statement statement = connection.createStatement();
         statement.executeUpdate(buildCreateTestRunHistoryTableSql());
         statement.executeUpdate(buildCreateTestRunHistoryIndexSql());
+    }
+
+    /**
+     * Migration: ensure the {@code tia_core.branch} column exists on an already-populated DB.
+     * Idempotent via {@code ADD COLUMN IF NOT EXISTS}, so it is safe to call on every core read
+     * and before every core write. DBs created before this feature gain the column (NULL-valued)
+     * on first contact; the next mapping-update run stamps the branch.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if the {@code ALTER TABLE} fails
+     */
+    private void ensureTiaCoreBranchColumnExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS "
+                + COL_BRANCH + " VARCHAR(255)");
     }
 
     /**
