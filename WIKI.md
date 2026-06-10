@@ -239,6 +239,8 @@ Two practical limits push Maven specifically toward files for its biggest payloa
 
 The Tia agent in the forked JVM reads file paths from `AgentOptions` (which *is* passed via JVM args, since that's a small fixed string) and loads the contents at startup.
 
+The same file mechanism also carries the **forked-JVM system properties** the test listener needs - the H2 connection (`tiaDBUrl` / `tiaDBUser` / `tiaDBPassword` / `tiaDBFilePath`), `tiaProjectDir`, `tiaClassFilesDirs`, `testClassesDir`, and the `tiaUpdateDB*` / `tiaEnabled` flags. The agent mojo writes them to a `fork.properties` file, passes its path as the `forkPropertiesFile` agent option, and the agent's `premain` replays them into `System` properties (only when not already set, so an explicit `-D` still wins) via `ForkSystemProperties`. This removes the old requirement that the user mirror every value into Surefire `<systemPropertyVariables>` - the source of a common server-mode footgun where a missing `tiaDBUrl` in the fork silently fell back to embedded mode. A file (rather than appending more `-D` args to `argLine`) is the right carrier for the same two reasons as above: `tiaClassFilesDirs` is a comma-separated list that would collide with the comma-delimited `AgentOptions` parser, and it plus `testClassesDir` are long enough to risk the command-line limit (Windows especially). Gradle forwards the equivalent values with `task.systemProperty(...)`; Maven now reaches parity via this file.
+
 ### Why Tia-Gradle/Spock uses system properties
 
 The size/structure limits don't bite on Gradle for two reasons:
@@ -599,7 +601,7 @@ The two modes look similar (both are H2, both go through `H2DataStore`) but diff
 Rather than teach every caller (six Maven mojos, four daemon-side Gradle tasks, three test-runner listeners) how to choose a mode, the choice is resolved once in `H2ConnectionSettings`. It exposes `embedded(path, suffix)`, `server(url, user, password)`, `fromConfig(...)` (picks server iff a URL is supplied), and `fromSystemProperties(branch)` (the listener entry point, reading `tiaDBUrl` / `tiaDBUser` / `tiaDBPassword` / `tiaDBFilePath`). `H2DataStore` takes a settings object and stops caring how the mode was chosen.
 
 The build tools each build the settings from their own config surface and converge on the same object:
-- **Maven**: `AbstractTiaMojo.buildH2ConnectionSettings(branch)` from the `tiaDBUrl` / `tiaDBFilePath` parameters. The forked test JVM reads the same values from the user's Surefire `systemPropertyVariables`, exactly as it already did for `tiaDBFilePath`.
+- **Maven**: `AbstractTiaMojo.buildH2ConnectionSettings(branch)` from the `tiaDBUrl` / `tiaDBFilePath` parameters. The forked test JVM gets the same values from a `fork.properties` file the agent mojo writes and the Tia javaagent replays into system properties at `premain` (see the "How Tia exchanges data with the test runner" chapter) - the user no longer has to mirror them into Surefire `systemPropertyVariables`.
 - **Gradle**: `TiaBasePlugin.buildH2ConnectionSettings(branch)` for the daemon-side tasks; the forked test JVM gets the values forwarded as system properties by `TiaSpockGitGradlePluginTestExtension` (only when set, so the embedded case never sends the literal string `"null"`).
 
 ### What actually differs between the modes

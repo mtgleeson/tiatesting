@@ -48,8 +48,18 @@ public class AgentOptions {
 
     private static final String DEFAULT_DRAIN_RESULT_FILE = "";
 
+    /**
+     * Specifies the path for the {@code java.util.Properties} file holding the system properties
+     * the forked test JVM needs (database connection, project dirs, update flags). The agent loads
+     * it at {@code premain} via {@link ForkSystemProperties#applyToSystemProperties(String)}.
+     * Optional - empty when the build tool forwards nothing this way.
+     */
+    public static final String FORK_PROPERTIES_FILE = "forkPropertiesFile";
+
+    private static final String DEFAULT_FORK_PROPERTIES_FILE = "";
+
     private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE,
-            LIBRARY_JARS_FILE, DRAIN_RESULT_FILE);
+            LIBRARY_JARS_FILE, DRAIN_RESULT_FILE, FORK_PROPERTIES_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -154,5 +164,13 @@ public class AgentOptions {
 
     public void setDrainResultFile(String drainResultFile) {
         setOption(DRAIN_RESULT_FILE, drainResultFile);
+    }
+
+    public String getForkPropertiesFile() {
+        return getOption(FORK_PROPERTIES_FILE, DEFAULT_FORK_PROPERTIES_FILE);
+    }
+
+    public void setForkPropertiesFile(String forkPropertiesFile) {
+        setOption(FORK_PROPERTIES_FILE, forkPropertiesFile);
     }
 }

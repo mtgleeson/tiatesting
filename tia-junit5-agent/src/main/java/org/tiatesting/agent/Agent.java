@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Disabled;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.agent.AgentOptions;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
 
 import java.io.IOException;
@@ -20,10 +21,27 @@ public class Agent {
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
+        applyForkSystemProperties(agentOptions.getForkPropertiesFile());
         instrumentIgnoredTests(instrumentation, agentOptions.getIgnoreTestsFile());
         setSelectedTestsSystemProperty(agentOptions.getSelectedTestsFile());
         setLibraryJarsSystemProperty(agentOptions.getLibraryJarsFile());
         setDrainResultFileSystemProperty(agentOptions.getDrainResultFile());
+    }
+
+    /**
+     * Publish the system properties the build tool forwarded for the forked test JVM (database
+     * connection, project dirs, update flags) from the fork properties file. Done first in
+     * {@code premain} so the values are live before any Tia test listener constructs. Skips
+     * silently when the option is unset.
+     *
+     * @param forkPropertiesFile path to the fork properties file written by the build plugin
+     */
+    private static void applyForkSystemProperties(String forkPropertiesFile) {
+        try {
+            ForkSystemProperties.applyToSystemProperties(forkPropertiesFile);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
