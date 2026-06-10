@@ -34,6 +34,21 @@ class H2DataStoreConnectionModeTest {
     }
 
     @Test
+    void embeddedModeSanitizesBranchSlashesInFileName() {
+        // given
+        // the branch name is now the short VCS name, so a nested branch keeps its slash; it must
+        // not leak into the on-disk file name as a path separator
+        H2ConnectionSettings settings = H2ConnectionSettings.embedded("/var/tia", "feature/foo");
+
+        // when
+        H2DataStore dataStore = new H2DataStore(settings);
+
+        // then
+        assertTrue(dataStore.getJdbcUrl().startsWith("jdbc:h2:/var/tia/tiadb-feature-foo"),
+                dataStore.getJdbcUrl());
+    }
+
+    @Test
     void serverModeUsesSuppliedUrlVerbatimWithNoEngineOptions() {
         // given
         String serverUrl = "jdbc:h2:tcp://h2host:9092/tiadb";
