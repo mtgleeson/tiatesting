@@ -6,9 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -99,26 +96,6 @@ class H2DataStoreCoreBranchTest {
 
         // then
         // the branch is genuinely unset (e.g. a stats-only run): it must come back as null, not "null"
-        assertNull(read.getBranch());
-    }
-
-    @Test
-    void branchColumnMigrationReAddsColumnOnPreExistingDb() throws Exception {
-        // given
-        // seed a row, then simulate a DB created before this feature by dropping the branch column
-        dataStore.persistCoreData(coreData("abc123", "main"));
-        try (Connection connection = DriverManager.getConnection(dataStore.getJdbcUrl(), "sa", "1234");
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN branch");
-        }
-
-        // when
-        // getTiaCore runs ensureTiaCoreBranchColumnExists before reading; it must re-add the
-        // column and read cleanly rather than failing on the missing column
-        TiaData read = dataStore.getTiaCore();
-
-        // then
-        assertEquals("abc123", read.getCommitValue());
         assertNull(read.getBranch());
     }
 }

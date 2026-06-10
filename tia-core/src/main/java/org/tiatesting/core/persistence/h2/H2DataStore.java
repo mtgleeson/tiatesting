@@ -108,9 +108,6 @@ public class H2DataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            // Migrate before reading: getCoreData selects the branch column, which is absent on
-            // DBs created before this feature.
-            ensureTiaCoreBranchColumnExists(connection);
             tiaData = getCoreData(connection);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -725,9 +722,6 @@ public class H2DataStore implements DataStore {
     }
 
     private void persistTiaCore(Connection connection, TiaData tiaData) throws SQLException {
-        // Migrate before reading/writing: the branch column is absent on DBs created before this
-        // feature, and both the SELECT in getCoreData and the INSERT/UPDATE below reference it.
-        ensureTiaCoreBranchColumnExists(connection);
         TiaData existingTiaCore = getCoreData(connection);
         String sql;
 
@@ -1034,7 +1028,6 @@ public class H2DataStore implements DataStore {
                 // Idempotent: safe to call on every load.
                 ensureSourceClassTestSuiteIndexExists(connection);
                 ensureTestRunHistoryTableExists(connection);
-                ensureTiaCoreBranchColumnExists(connection);
 
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
@@ -1425,21 +1418,6 @@ public class H2DataStore implements DataStore {
         Statement statement = connection.createStatement();
         statement.executeUpdate(buildCreateTestRunHistoryTableSql());
         statement.executeUpdate(buildCreateTestRunHistoryIndexSql());
-    }
-
-    /**
-     * Migration: ensure the {@code tia_core.branch} column exists on an already-populated DB.
-     * Idempotent via {@code ADD COLUMN IF NOT EXISTS}, so it is safe to call on every core read
-     * and before every core write. DBs created before this feature gain the column (NULL-valued)
-     * on first contact; the next mapping-update run stamps the branch.
-     *
-     * @param connection the H2 connection to issue the DDL on
-     * @throws SQLException if the {@code ALTER TABLE} fails
-     */
-    private void ensureTiaCoreBranchColumnExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS "
-                + COL_BRANCH + " VARCHAR(255)");
     }
 
     /**
