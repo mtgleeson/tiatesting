@@ -103,6 +103,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaTestFilesDirs;
 
     /**
+     * The compiled class file directories for the project being analyzed, forwarded to the forked
+     * test JVM for {@code JacocoClient}. Optional.
+     */
+    @Parameter(property = "tiaClassFilesDirs")
+    String tiaClassFilesDirs;
+
+    /**
      * Is TIA enabled?
      */
     @Parameter(property = "tiaEnabled")
@@ -246,6 +253,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaTestFilesDirs() {
         return tiaTestFilesDirs;
+    }
+
+    public String getTiaClassFilesDirs() {
+        return tiaClassFilesDirs;
     }
 
     public boolean isTiaEnabled() {

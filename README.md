@@ -95,16 +95,10 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
                 <includes>
                     <include>**/*Test.java</include>
                 </includes>
-                <systemPropertyVariables>
-                    <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
-                    <tiaClassFilesDirs>${tiaClassFilesDirs}</tiaClassFilesDirs>
-                    <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
-                    <tiaEnabled>${tiaEnabled}</tiaEnabled>
-                    <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
-                    <tiaUpdateDBStats>${tiaUpdateDBStats}</tiaUpdateDBStats>
-                    <tiaUpdateDBTestRunHistory>${tiaUpdateDBTestRunHistory}</tiaUpdateDBTestRunHistory>
-                    <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
-                </systemPropertyVariables>
+                <!-- No Tia systemPropertyVariables are needed here. The Tia plugin forwards
+                     everything the forked test JVM requires (DB connection, project dirs, update
+                     flags) to its javaagent automatically, from the Tia plugin <configuration> /
+                     properties above. -->
             </configuration>
         </plugin>
         <plugin>
@@ -666,20 +660,14 @@ By default Tia stores its data in an embedded H2 file on the machine running the
 
 Set `tiaDBUrl` / `dbUrl` (and optionally `tiaDBUser` / `tiaDBPassword`) to the server's JDBC URL. When set, the embedded `tiaDBFilePath` / `dbFilePath` is ignored.
 
-Maven - in the `tia-*-maven-plugin` `<configuration>`:
+Maven - in the `tia-*-maven-plugin` `<configuration>` (or as `${tiaDBUrl}` etc. properties):
 ```xml
 <tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb</tiaDBUrl>
 <tiaDBUser>tia</tiaDBUser>
 <tiaDBPassword>secret</tiaDBPassword>
 ```
 
-> **Important (Maven):** the plugin config above only covers the test-*selection* step. The test run itself happens in a forked Surefire JVM, and the Tia listener in that fork reads its database connection from system properties. You **must** also forward the same values via the Surefire `systemPropertyVariables` (the same mechanism used for `tiaProjectDir` / `tiaDBFilePath`), otherwise the fork has no `tiaDBUrl`, silently falls back to embedded mode, and fails trying to open a local file such as `/tiadb-<branch>.mv.db` (often `Read-only file system`). Add to the `maven-surefire-plugin` `<systemPropertyVariables>`:
-> ```xml
-> <tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb</tiaDBUrl>
-> <tiaDBUser>tia</tiaDBUser>
-> <tiaDBPassword>secret</tiaDBPassword>
-> ```
-> (You can omit `tiaDBFilePath` from `systemPropertyVariables` in server mode; leaving it set as an unresolved `${tiaDBFilePath}` is harmless because `tiaDBUrl` takes precedence.) The Gradle plugin forwards these automatically, so this extra step is Maven-only.
+Setting these on the Tia plugin is enough for both the test-selection step and the test run itself: the Tia plugin forwards the connection (and the other properties the forked test JVM needs) to its javaagent automatically, so you do **not** need to repeat them in the Surefire `systemPropertyVariables`. (The Gradle plugin already worked this way; earlier Maven releases required manual `systemPropertyVariables` forwarding and would otherwise fall back to embedded mode, failing to open a local file such as `/tiadb-<branch>.mv.db`.)
 
 Gradle:
 ```groovy
