@@ -77,9 +77,21 @@ public class GitReader implements VCSReader {
                 + " directory in " + projectPath + " or any of its parent directories");
     }
 
+    /**
+     * Read the current branch name as the short, human-readable name (e.g. {@code main} or
+     * {@code feature/foo}) rather than the full {@code refs/heads/...} ref. This is the value Tia
+     * stores in {@code tia_core.branch} and the test-run history, and the value the H2 database
+     * name is derived from. A detached HEAD yields the commit SHA, which is the same value the
+     * previous full-ref form produced in that state. Filesystem-/URL-unsafe characters (a
+     * {@code /} in a nested branch name) are sanitized where the branch is used to build the H2
+     * URL, not here, so the stored/displayed value stays readable.
+     *
+     * @param repository the open JGit repository
+     * @return the short branch name, or the commit SHA when HEAD is detached
+     */
     private String readBranchName(final Repository repository) {
         try {
-            return repository.getFullBranch().replaceAll("/", ".");
+            return repository.getBranch();
         } catch (IOException e) {
             throw new VCSAnalyzerException(e);
         }

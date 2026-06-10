@@ -1539,7 +1539,9 @@ public class H2DataStore implements DataStore {
 
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
         long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
-        return "jdbc:h2:" + settings.getDbFilePath() + "/tiadb-" + settings.getBranchSuffix()
+        // Sanitize the branch the same way server mode does: the branch name is now the short VCS
+        // name (e.g. feature/foo), so a path separator must not leak into the on-disk file name.
+        return "jdbc:h2:" + settings.getDbFilePath() + "/tiadb-" + sanitizeBranchForDbName(settings.getBranchSuffix())
                 + ";PAGE_SIZE=" + pageSizeByte
                 + ";CACHE_SIZE=" + cacheSizeKB
                 + ";DB_CLOSE_DELAY=-1"
