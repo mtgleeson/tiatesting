@@ -1524,11 +1524,11 @@ public class H2DataStore implements DataStore {
      * {@code DB_CLOSE_DELAY} / {@code DB_CLOSE_ON_EXIT} configure the database engine instance,
      * which in server mode lives in the remote server process and is configured when that server
      * is started - not by the connecting client. The one transformation applied is expanding an
-     * optional {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token to {@code tiadb-<branch>}
+     * optional {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token to {@code tiadb-<branch>}
      * (see {@link #applyServerDbNamePlaceholder(String)}); a URL without the token is used verbatim
      * and per-branch isolation is then the user's responsibility.
      *
-     * @return the H2 JDBC URL: the server URL (with any {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER}
+     * @return the H2 JDBC URL: the server URL (with any {@value H2ConnectionSettings#BRANCH_PLACEHOLDER}
      *         token expanded) in server mode, or the composed embedded-mode URL (with engine
      *         options) otherwise
      */
@@ -1549,22 +1549,24 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Expand the optional {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token in a server-mode
+     * Expand the optional {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token in a server-mode
      * URL to {@code tiadb-<branch>}, giving the user a per-branch database without hand-editing the
-     * URL on every branch switch (mirrors embedded mode's {@code tiadb-<branch>} file suffix). When
-     * the URL does not contain the token it is returned unchanged, so a fully-specified URL keeps
-     * taking precedence.
+     * URL on every branch switch (mirrors embedded mode's {@code tiadb-<branch>} file suffix). Only
+     * the token itself is replaced, so any prefix or suffix the user writes around it is preserved -
+     * e.g. {@code .../{branch}-myproject} becomes {@code .../tiadb-main-myproject}. When the URL does
+     * not contain the token it is returned unchanged, so a fully-specified URL keeps taking
+     * precedence.
      *
      * @param dbUrl the configured server-mode JDBC URL
-     * @return the URL with any {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token replaced by
+     * @return the URL with any {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token replaced by
      *         {@code tiadb-<sanitized-branch>}, or {@code dbUrl} unchanged when the token is absent
      */
     private String applyServerDbNamePlaceholder(final String dbUrl){
-        if (dbUrl == null || !dbUrl.contains(H2ConnectionSettings.DB_NAME_PLACEHOLDER)){
+        if (dbUrl == null || !dbUrl.contains(H2ConnectionSettings.BRANCH_PLACEHOLDER)){
             return dbUrl;
         }
         String dbName = "tiadb-" + sanitizeBranchForDbName(settings.getBranchSuffix());
-        return dbUrl.replace(H2ConnectionSettings.DB_NAME_PLACEHOLDER, dbName);
+        return dbUrl.replace(H2ConnectionSettings.BRANCH_PLACEHOLDER, dbName);
     }
 
     /**
