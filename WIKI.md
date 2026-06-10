@@ -607,7 +607,7 @@ The build tools each build the settings from their own config surface and conver
 Three behaviours in `H2DataStore` are embedded-only and would be wrong against a shared server, so they are gated on `settings.isServerMode()`:
 
 1. **Engine-option URL params.** Embedded mode appends `PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY=-1`, and `DB_CLOSE_ON_EXIT=FALSE`. These configure the *database engine instance*, which in server mode lives in the remote server process and is configured when that server starts - not by a connecting client. Server mode therefore uses the supplied URL verbatim with none of these appended.
-2. **The `tiadb-<branch>` suffix.** Embedded mode derives the file name from the branch so each branch gets its own file. Server mode does not rewrite the URL automatically, with one opt-in exception: if the configured `dbUrl` contains the `{dbname}` token, `H2DataStore.buildJdbcUrl` replaces it with `tiadb-<branch>` (path separators in the branch sanitized to `-`), giving the same per-branch isolation without Tia having to guess where the database name lives. A URL without the token is used verbatim, so a fully-specified URL still wins. This keeps the connection contract explicit - Tia only rewrites the part of the URL the user has explicitly delegated.
+2. **The `tiadb-<branch>` suffix.** Embedded mode derives the file name from the branch so each branch gets its own file. Server mode does not rewrite the URL automatically, with one opt-in exception: if the configured `dbUrl` contains the `{branch}` token, `H2DataStore.buildJdbcUrl` replaces *just that token* with `tiadb-<branch>` (path separators in the branch sanitized to `-`), giving the same per-branch isolation without Tia having to guess where the database name lives. Because only the token is swapped, any prefix or suffix the user writes around it survives (`.../{branch}-myproject` becomes `.../tiadb-main-myproject`). A URL without the token is used verbatim, so a fully-specified URL still wins. This keeps the connection contract explicit - Tia only rewrites the part of the URL the user has explicitly delegated.
 3. **`SHUTDOWN IMMEDIATELY` on `close()`.** In embedded mode `close()` issues `SHUTDOWN IMMEDIATELY` to release the `.mv.db` file lock before Surefire/Gradle forks the test JVM (with `DB_CLOSE_DELAY=-1` the lock would otherwise persist for the life of the daemon JVM). Against a server that command shuts down the whole database **for every connected client**, so server-mode `close()` is a no-op - the per-operation connections are already closed by their own `finally` blocks.
 
 ### Credential resolution and keeping secrets out of config
@@ -652,12 +652,12 @@ java -cp "$H2_JAR" org.h2.tools.Server \
 
 The server listens on port `9092` by default and prints `TCP server running at tcp://...:9092`. Leave it running. `-baseDir` is where the `tiadb.mv.db` file is created; add `-tcpAllowOthers` only if a build on another machine needs to reach it. The Gradle-cache path changes when the cache is cleaned, so for a long-lived local server copy the jar somewhere stable (`cp "$H2_JAR" ~/h2-tia/h2.jar`) and run from there.
 
-**2. Point Tia at the server.** Name the database in the URL yourself, or use the `{dbname}` token to get a per-branch database (`tiadb-<branch>`, mirroring embedded mode). A URL without the token is used verbatim:
+**2. Point Tia at the server.** Name the database in the URL yourself, or use the `{branch}` token to get a per-branch database (the token expands to `tiadb-<branch>`, mirroring embedded mode; a prefix/suffix around the token is preserved). A URL without the token is used verbatim:
 
 ```groovy
-// Gradle - one database per branch via the {dbname} token
+// Gradle - one database per branch via the {branch} token
 tia {
-    dbUrl = 'jdbc:h2:tcp://localhost:9092/{dbname}'
+    dbUrl = 'jdbc:h2:tcp://localhost:9092/{branch}'
 }
 ```
 

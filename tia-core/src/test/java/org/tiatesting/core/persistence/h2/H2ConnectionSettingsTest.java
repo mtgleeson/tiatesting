@@ -45,7 +45,7 @@ class H2ConnectionSettingsTest {
         assertEquals("tia", settings.getUsername());
         assertEquals("secret", settings.getPassword());
         assertNull(settings.getDbFilePath());
-        // the branch is now retained in server mode so the {dbname} token can be expanded
+        // the branch is now retained in server mode so the {branch} token can be expanded
         assertEquals("main", settings.getBranchSuffix());
     }
 
