@@ -683,6 +683,20 @@ tia {
 }
 ```
 
+### Keeping the password out of checked-in config
+Putting `tiaDBPassword` / `dbPassword` directly in your POM or `build.gradle` means committing a secret to source control. To avoid that, leave the password (and optionally the user) unset in the build config and let Tia fall back to environment variables: when the configured value is blank, Tia reads `TIA_DB_PASSWORD` and `TIA_DB_USER` from the environment. CI sets those as secrets and the repo carries no credential.
+
+```groovy
+tia {
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb'
+    // dbUser / dbPassword omitted - taken from TIA_DB_USER / TIA_DB_PASSWORD
+}
+```
+
+The build tools also support their own indirection if you prefer it: Maven resolves `<tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>` or a property from `~/.m2/settings.xml` (which supports [encrypted passwords](https://maven.apache.org/guides/mini/guide-encryption.html)); Gradle can read from `~/.gradle/gradle.properties` or a `-P` property. Tia never logs the password (only the JDBC URL), so avoid embedding credentials directly in `dbUrl`.
+
+The environment fallback only kicks in when the password is **not configured at all**. If your database genuinely uses an empty password, set it explicitly - `dbPassword = ''` (Gradle) or `<tiaDBPassword></tiaDBPassword>` (Maven) - and Tia uses the empty value verbatim rather than falling back to `TIA_DB_PASSWORD`.
+
 Things to know when using server mode:
 - **Start the server with `-ifNotExists`.** Tia creates its schema (and the database, on first use) automatically. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag, so the first Tia run will fail without it.
 - **The URL is used verbatim.** Unlike embedded mode, Tia does not append a `tiadb-<branch>` suffix. If you want per-branch databases, encode the branch in the URL / database name yourself.
