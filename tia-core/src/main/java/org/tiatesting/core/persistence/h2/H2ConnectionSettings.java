@@ -13,10 +13,12 @@ import java.util.function.Function;
  *   <li><b>Embedded</b> (no {@code dbUrl}): the {@code dbFilePath} directory plus the branch
  *       suffix produce a {@code jdbc:h2:<path>/tiadb-<suffix>} URL, with the historical
  *       {@code sa}/{@code 1234} credentials.</li>
- *   <li><b>Server</b> ({@code dbUrl} present): the supplied URL is used verbatim - Tia does not
- *       append the branch suffix or any embedded-only engine options. Credentials come from the
- *       configured values, falling back to the {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD}
- *       environment variables so the password need not live in checked-in build config.</li>
+ *   <li><b>Server</b> ({@code dbUrl} present): the supplied URL is used as given (Tia does not
+ *       append any embedded-only engine options), except that an optional
+ *       {@value #DB_NAME_PLACEHOLDER} token is expanded to {@code tiadb-<branch>} for per-branch
+ *       databases. Credentials come from the configured values, falling back to the
+ *       {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} environment variables so the password
+ *       need not live in checked-in build config.</li>
  * </ul>
  */
 public class H2ConnectionSettings {
@@ -37,6 +39,14 @@ public class H2ConnectionSettings {
     public static final String ENV_DB_USER = "TIA_DB_USER";
     /** Environment variable consulted for the server-mode password when none is configured. */
     public static final String ENV_DB_PASSWORD = "TIA_DB_PASSWORD";
+
+    /**
+     * Placeholder token a user may embed in the server-mode {@code dbUrl} where the database name
+     * belongs. When present, {@link H2DataStore} substitutes it with {@code tiadb-<branch>} so the
+     * URL targets a per-branch database (mirroring embedded mode's {@code tiadb-<branch>} file
+     * suffix). A URL without the token is used verbatim.
+     */
+    public static final String DB_NAME_PLACEHOLDER = "{dbname}";
 
     private final String dbFilePath;
     private final String dbUrl;
@@ -77,35 +87,46 @@ public class H2ConnectionSettings {
      * build keep the password out of its checked-in Gradle/Maven config entirely - CI sets the
      * secret in the environment and leaves {@code dbPassword} unset.
      *
-     * @param dbUrl    the full {@code jdbc:h2:tcp://...} (or {@code ssl://}) URL, used verbatim
-     * @param username the database user, or {@code null}/blank to fall back to the environment
-     * @param password the database password, or {@code null} to fall back to the environment;
-     *                 an explicit empty string is honoured verbatim (see
-     *                 {@link #resolvePassword(String, String)})
+     * <p>The {@code branchSuffix} is retained so {@link H2DataStore} can substitute a
+     * {@value #DB_NAME_PLACEHOLDER} token in the URL with {@code tiadb-<branch>}; a URL without
+     * the token ignores the branch and is used verbatim.
+     *
+     * @param dbUrl        the {@code jdbc:h2:tcp://...} (or {@code ssl://}) URL, used verbatim
+     *                     unless it contains the {@value #DB_NAME_PLACEHOLDER} token
+     * @param username     the database user, or {@code null}/blank to fall back to the environment
+     * @param password     the database password, or {@code null} to fall back to the environment;
+     *                     an explicit empty string is honoured verbatim (see
+     *                     {@link #resolvePassword(String, String)})
+     * @param branchSuffix the VCS branch name, used to expand the {@value #DB_NAME_PLACEHOLDER}
+     *                     token when present
      * @return server-mode connection settings
      */
-    public static H2ConnectionSettings server(final String dbUrl, final String username, final String password) {
-        return server(dbUrl, username, password, System::getenv);
+    public static H2ConnectionSettings server(final String dbUrl, final String username, final String password,
+                                              final String branchSuffix) {
+        return server(dbUrl, username, password, branchSuffix, System::getenv);
     }
 
     /**
-     * Test seam for {@link #server(String, String, String)}: takes the environment lookup as a
-     * parameter so the {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} fallback can be exercised
-     * without mutating the real process environment.
+     * Test seam for {@link #server(String, String, String, String)}: takes the environment lookup
+     * as a parameter so the {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} fallback can be
+     * exercised without mutating the real process environment.
      *
-     * @param dbUrl    the JDBC URL, used verbatim
-     * @param username the configured database user, or {@code null}/blank to fall back
-     * @param password the configured database password, or {@code null} to fall back; an explicit
-     *                 empty string is honoured verbatim
-     * @param env      lookup from environment-variable name to value (e.g. {@code System::getenv})
+     * @param dbUrl        the JDBC URL, used verbatim unless it contains the
+     *                     {@value #DB_NAME_PLACEHOLDER} token
+     * @param username     the configured database user, or {@code null}/blank to fall back
+     * @param password     the configured database password, or {@code null} to fall back; an
+     *                     explicit empty string is honoured verbatim
+     * @param branchSuffix the VCS branch name, used to expand the {@value #DB_NAME_PLACEHOLDER}
+     *                     token when present
+     * @param env          lookup from environment-variable name to value (e.g. {@code System::getenv})
      * @return server-mode connection settings with credentials resolved
      */
     static H2ConnectionSettings server(final String dbUrl, final String username, final String password,
-                                       final Function<String, String> env) {
+                                       final String branchSuffix, final Function<String, String> env) {
         return new H2ConnectionSettings(null, dbUrl,
                 resolve(username, env.apply(ENV_DB_USER), EMBEDDED_DEFAULT_USER),
                 resolvePassword(password, env.apply(ENV_DB_PASSWORD)),
-                null);
+                branchSuffix);
     }
 
     /**
@@ -153,21 +174,22 @@ public class H2ConnectionSettings {
 
     /**
      * Resolve connection settings from raw user configuration. When {@code dbUrl} is non-blank
-     * the result is {@link #server(String, String, String) server mode}; otherwise it is
+     * the result is {@link #server(String, String, String, String) server mode}; otherwise it is
      * {@link #embedded(String, String) embedded mode} and the URL credentials are ignored.
      *
      * @param dbFilePath   embedded-mode database directory (used only when {@code dbUrl} is blank)
      * @param dbUrl        server-mode JDBC URL, or {@code null}/blank for embedded mode
      * @param dbUser       server-mode database user
      * @param dbPassword   server-mode database password
-     * @param branchSuffix VCS branch name for the embedded-mode file suffix
+     * @param branchSuffix VCS branch name; the embedded-mode file suffix, or the value the
+     *                     server-mode {@value #DB_NAME_PLACEHOLDER} token expands to
      * @return the resolved connection settings for the requested mode
      */
     public static H2ConnectionSettings fromConfig(final String dbFilePath, final String dbUrl,
                                                   final String dbUser, final String dbPassword,
                                                   final String branchSuffix) {
         if (dbUrl != null && !dbUrl.trim().isEmpty()) {
-            return server(dbUrl, dbUser, dbPassword);
+            return server(dbUrl, dbUser, dbPassword, branchSuffix);
         }
         return embedded(dbFilePath, branchSuffix);
     }
@@ -230,7 +252,8 @@ public class H2ConnectionSettings {
     }
 
     /**
-     * @return the embedded-mode branch suffix, or {@code null} in server mode
+     * @return the VCS branch name: the embedded-mode file suffix, or the value the server-mode
+     *         {@value #DB_NAME_PLACEHOLDER} token expands to
      */
     public String getBranchSuffix() {
         return branchSuffix;
