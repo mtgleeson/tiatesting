@@ -37,12 +37,13 @@ class H2DataStoreConnectionModeTest {
     void serverModeUsesSuppliedUrlVerbatimWithNoEngineOptions() {
         // given
         String serverUrl = "jdbc:h2:tcp://h2host:9092/tiadb";
-        H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret");
+        H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
 
         // when
         H2DataStore dataStore = new H2DataStore(settings);
 
         // then
+        // no {dbname} token, so the URL is used exactly as supplied - the branch is ignored
         String url = dataStore.getJdbcUrl();
         assertEquals(serverUrl, url);
         assertFalse(url.contains("PAGE_SIZE"), url);
@@ -51,12 +52,41 @@ class H2DataStoreConnectionModeTest {
     }
 
     @Test
+    void serverModeExpandsDbNamePlaceholderToBranchDbName() {
+        // given
+        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.DB_NAME_PLACEHOLDER;
+        H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
+
+        // when
+        H2DataStore dataStore = new H2DataStore(settings);
+
+        // then
+        String url = dataStore.getJdbcUrl();
+        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main", url);
+        assertFalse(url.contains(H2ConnectionSettings.DB_NAME_PLACEHOLDER), url);
+    }
+
+    @Test
+    void serverModeSanitizesBranchSlashesInExpandedDbName() {
+        // given
+        // a branch like feature/foo would otherwise be read as a nested path in the H2 db name
+        String serverUrl = "jdbc:h2:tcp://h2host:9092/" + H2ConnectionSettings.DB_NAME_PLACEHOLDER;
+        H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "feature/foo");
+
+        // when
+        H2DataStore dataStore = new H2DataStore(settings);
+
+        // then
+        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-feature-foo", dataStore.getJdbcUrl());
+    }
+
+    @Test
     void serverModeCloseIsNoOpAndDoesNotConnect() {
         // given
         // an unreachable server URL: if close() tried to open a connection and SHUTDOWN, it
         // would attempt (and fail) a network connect. A no-op close returns without touching it.
         H2ConnectionSettings settings = H2ConnectionSettings.server(
-                "jdbc:h2:tcp://127.0.0.1:1/tiadb", "tia", "secret");
+                "jdbc:h2:tcp://127.0.0.1:1/tiadb", "tia", "secret", "main");
         H2DataStore dataStore = new H2DataStore(settings);
 
         // when / then

@@ -1499,19 +1499,22 @@ public class H2DataStore implements DataStore {
      * persist method commits its transaction explicitly via {@code connection.commit()}, which
      * forces the MVStore to flush the changed pages.
      *
-     * <p>In <b>server mode</b> the user-supplied URL is returned verbatim. The embedded-only
+     * <p>In <b>server mode</b> the user-supplied URL is used as given. The embedded-only
      * options above are deliberately omitted: {@code PAGE_SIZE} / {@code CACHE_SIZE} /
      * {@code DB_CLOSE_DELAY} / {@code DB_CLOSE_ON_EXIT} configure the database engine instance,
      * which in server mode lives in the remote server process and is configured when that server
-     * is started - not by the connecting client. Tia also does not append the {@code tiadb-<branch>}
-     * suffix in server mode; per-branch isolation, if wanted, is encoded by the user in the URL.
+     * is started - not by the connecting client. The one transformation applied is expanding an
+     * optional {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token to {@code tiadb-<branch>}
+     * (see {@link #applyServerDbNamePlaceholder(String)}); a URL without the token is used verbatim
+     * and per-branch isolation is then the user's responsibility.
      *
-     * @return the H2 JDBC URL: the verbatim server URL in server mode, or the composed
-     *         embedded-mode URL (with engine options) otherwise
+     * @return the H2 JDBC URL: the server URL (with any {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER}
+     *         token expanded) in server mode, or the composed embedded-mode URL (with engine
+     *         options) otherwise
      */
     private String buildJdbcUrl(){
         if (settings.isServerMode()){
-            return settings.getDbUrl();
+            return applyServerDbNamePlaceholder(settings.getDbUrl());
         }
 
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
@@ -1521,5 +1524,40 @@ public class H2DataStore implements DataStore {
                 + ";CACHE_SIZE=" + cacheSizeKB
                 + ";DB_CLOSE_DELAY=-1"
                 + ";DB_CLOSE_ON_EXIT=FALSE";
+    }
+
+    /**
+     * Expand the optional {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token in a server-mode
+     * URL to {@code tiadb-<branch>}, giving the user a per-branch database without hand-editing the
+     * URL on every branch switch (mirrors embedded mode's {@code tiadb-<branch>} file suffix). When
+     * the URL does not contain the token it is returned unchanged, so a fully-specified URL keeps
+     * taking precedence.
+     *
+     * @param dbUrl the configured server-mode JDBC URL
+     * @return the URL with any {@value H2ConnectionSettings#DB_NAME_PLACEHOLDER} token replaced by
+     *         {@code tiadb-<sanitized-branch>}, or {@code dbUrl} unchanged when the token is absent
+     */
+    private String applyServerDbNamePlaceholder(final String dbUrl){
+        if (dbUrl == null || !dbUrl.contains(H2ConnectionSettings.DB_NAME_PLACEHOLDER)){
+            return dbUrl;
+        }
+        String dbName = "tiadb-" + sanitizeBranchForDbName(settings.getBranchSuffix());
+        return dbUrl.replace(H2ConnectionSettings.DB_NAME_PLACEHOLDER, dbName);
+    }
+
+    /**
+     * Sanitize a branch name for use as the database-name portion of a JDBC URL. Path separators
+     * ({@code /} and {@code \}) are replaced with {@code -} because a branch like {@code feature/foo}
+     * would otherwise be interpreted as a nested path in the H2 database name. A {@code null} or
+     * blank branch yields an empty string, leaving the {@code tiadb-} prefix on its own.
+     *
+     * @param branch the raw VCS branch name
+     * @return the branch with path separators replaced by {@code -}, or an empty string when blank
+     */
+    private String sanitizeBranchForDbName(final String branch){
+        if (branch == null || branch.trim().isEmpty()){
+            return "";
+        }
+        return branch.replace('/', '-').replace('\\', '-');
     }
 }
