@@ -62,6 +62,95 @@ class H2ConnectionSettingsTest {
     }
 
     @Test
+    void serverModeFallsBackToEnvCredentialsWhenConfigAbsent() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        env.put(H2ConnectionSettings.ENV_DB_USER, "envuser");
+        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+
+        // when
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, env::get);
+
+        // then
+        assertEquals("envuser", settings.getUsername());
+        assertEquals("envsecret", settings.getPassword());
+    }
+
+    @Test
+    void serverModeHonoursExplicitEmptyPasswordOverEnv() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+
+        // when
+        // an explicitly-configured empty password must be used verbatim, not treated as "unset"
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "", env::get);
+
+        // then
+        assertEquals("", settings.getPassword());
+    }
+
+    @Test
+    void serverModeDoesNotTrimConfiguredPassword() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+
+        // when
+        // whitespace is non-null, so it is honoured verbatim and the env fallback is not consulted
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "  ", env::get);
+
+        // then
+        assertEquals("  ", settings.getPassword());
+    }
+
+    @Test
+    void serverModeFallsBackToEnvPasswordOnlyWhenPasswordIsNull() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+
+        // when
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", null, env::get);
+
+        // then
+        assertEquals("envsecret", settings.getPassword());
+    }
+
+    @Test
+    void serverModeConfiguredCredentialsTakePrecedenceOverEnv() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        env.put(H2ConnectionSettings.ENV_DB_USER, "envuser");
+        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+
+        // when
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret", env::get);
+
+        // then
+        assertEquals("tia", settings.getUsername());
+        assertEquals("secret", settings.getPassword());
+    }
+
+    @Test
+    void serverModeDefaultsWhenBothConfigAndEnvAbsent() {
+        // given
+        String url = "jdbc:h2:tcp://h2host:9092/tiadb";
+
+        // when
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, name -> null);
+
+        // then
+        assertEquals("sa", settings.getUsername());
+        assertEquals("", settings.getPassword());
+    }
+
+    @Test
     void fromConfigPicksServerModeWhenUrlSupplied() {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
