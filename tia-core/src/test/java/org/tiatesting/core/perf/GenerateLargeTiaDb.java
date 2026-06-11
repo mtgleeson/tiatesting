@@ -196,7 +196,7 @@ public final class GenerateLargeTiaDb {
      * 180 chars roughly matches what real enterprise codebases look like (deep packages,
      * long class names with prefixes/suffixes).
      */
-    private static String classFilename(int classIdx) {
+    static String classFilename(int classIdx) {
         int pkg = classIdx % 64;
         return DEEP_PKG_PREFIX + "subpkg" + pkg + "/handler/AbstractDefault"
                 + classNameFlavour(classIdx) + "ServiceConfigurationParserImpl"
@@ -274,15 +274,17 @@ public final class GenerateLargeTiaDb {
                     long classId = generatedKey(insertClass);
                     totalClassRows++;
 
-                    int methodsForClass = jitter(args.avgMethodsPerClass, rnd);
-                    Set<Integer> usedMethodIds = new HashSet<>(methodsForClass * 2);
+                    // Deterministic per-file method set: every class row for the same
+                    // classIdx (i.e. the same source file, across all covering suites)
+                    // references the same methods, mirroring real code where a file's
+                    // methods are fixed and suites covering the file share them. A
+                    // classIdx-seeded Random keeps the per-file method count jittered
+                    // while staying reproducible.
+                    Random fileRnd = new Random(args.seed * 31L + classIdx);
+                    int methodsForClass = jitter(args.avgMethodsPerClass, fileRnd);
+                    int methodBase = classIdx * args.avgMethodsPerClass;
                     for (int m = 0; m < methodsForClass; m++) {
-                        int methodId;
-                        int attempts = 0;
-                        do {
-                            methodId = sourceMethodIds[rnd.nextInt(sourceMethodIds.length)];
-                            attempts++;
-                        } while (!usedMethodIds.add(methodId) && attempts < 10);
+                        int methodId = sourceMethodIds[Math.floorMod(methodBase + m, sourceMethodIds.length)];
 
                         insertEdge.setLong(1, classId);
                         insertEdge.setInt(2, methodId);
