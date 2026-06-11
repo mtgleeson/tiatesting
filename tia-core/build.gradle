@@ -49,7 +49,7 @@ tasks.register('profileSelectTests', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'org.tiatesting.core.perf.ProfileSelectTests'
 
-    def passthrough = ['outDb', 'branch', 'iterations']
+    def passthrough = ['outDb', 'branch', 'iterations', 'url', 'user', 'password', 'diffFiles', 'fullLoad']
     args = passthrough.findAll { project.hasProperty(it) }
             .collect { (it == 'outDb' ? 'out' : it) + '=' + project.property(it) }
 
