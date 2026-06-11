@@ -82,16 +82,16 @@ public class TestSelector {
                     0L, Collections.emptySet(), 0L, Collections.emptyMap());
         }
 
-        // Shared lazy reverse index from method id → test suites. Built at most once per
-        // run and consumed by both the source-impact path (selectTestsToRun) and the library
-        // drain path (drainPendingLibraryMethodsIfConfigured); cheap if neither path needs it.
+        // Lazy reverse index from method id → test suites, consumed by the source-impact
+        // path (selectTestsToRun). The library drain path resolves suites via the targeted
+        // DataStore.getTestSuitesForMethods query instead and no longer needs it.
         MethodToTestSuiteIndex methodToTestSuiteIndex = new MethodToTestSuiteIndex(tiaData);
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
                 tiaData, libraryConfig, updateDBMapping, methodToTestSuiteIndex);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, checkLocalChanges, tiaData, testsToRun, methodToTestSuiteIndex);
+                libraryConfig, checkLocalChanges, testsToRun);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
@@ -625,11 +625,16 @@ public class TestSelector {
      * and we are not in local-changes mode. Resolved tests from drained batches are added
      * directly to {@code testsToRun}. The drain result is returned so the caller can carry
      * it to the post-test-run cleanup phase.
+     *
+     * @param libraryConfig the library impact analysis configuration, or null when not configured
+     * @param checkLocalChanges whether this run analyzes local (uncommitted) changes - draining
+     *                          is skipped in that mode
+     * @param testsToRun the run set to add drained tests to
+     * @return the drain result for post-run cleanup, or null when draining was skipped
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
             LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
-            TiaData tiaData, Set<String> testsToRun,
-            MethodToTestSuiteIndex methodToTestSuiteIndex) {
+            Set<String> testsToRun) {
 
         if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
@@ -637,7 +642,7 @@ public class TestSelector {
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, libraryConfig, tiaData, methodToTestSuiteIndex);
+                drainer.drainPendingMethods(dataStore, libraryConfig);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
             log.info("Selected tests to run from pending library changes: {}", outcome.getTestsToAdd());
