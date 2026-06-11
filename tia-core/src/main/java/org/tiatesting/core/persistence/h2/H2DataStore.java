@@ -63,11 +63,18 @@ public class H2DataStore implements DataStore {
     private static final String COL_DURATION_MS = "duration_ms";
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
+    // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
+    // statement well under H2's parameter limits and bounds per-statement parse cost;
+    // larger inputs are split into multiple queries and merged client-side.
+    private static final int IN_CLAUSE_CHUNK_SIZE = 1000;
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
     private final H2ConnectionSettings settings;
     private final String jdbcURL;
     private final String username;
     private final String password;
+    // Memoizes ensureSchema: once the DB is known to exist with migrations applied, later
+    // calls on this instance skip the existence-check and DDL round trips.
+    private boolean schemaEnsured;
 
     /**
      * Construct a datastore from resolved connection settings. The settings determine whether
@@ -186,6 +193,146 @@ public class H2DataStore implements DataStore {
         }
 
         return methodIdsTracked;
+    }
+
+    /**
+     * Targeted Phase A read: resolve a set of stored source-file keys to their tracked
+     * methods with one indexed query per {@value #IN_CLAUSE_CHUNK_SIZE}-key chunk, instead
+     * of loading the full suite-to-method mapping. {@code SELECT DISTINCT} collapses the
+     * per-covering-suite duplication of (file, method) pairs in {@code tia_source_class} so
+     * the result (and the bytes on the wire in server mode) stays proportional to the
+     * methods in the requested files, not to the suites covering them.
+     *
+     * @param sourceFilenames the mapping keys of the source files to look up
+     * @return map of source filename to (method id to method tracker); empty when the input
+     *         is null or empty
+     */
+    @Override
+    public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(final Set<String> sourceFilenames){
+        Map<String, Map<Integer, MethodImpactTracker>> methodsByFile = new HashMap<>();
+        if (sourceFilenames == null || sourceFilenames.isEmpty()){
+            return methodsByFile;
+        }
+
+        try (Connection connection = getConnection()){
+            ensureSchema(connection);
+            List<String> filenames = new ArrayList<>(sourceFilenames);
+            for (int from = 0; from < filenames.size(); from += IN_CLAUSE_CHUNK_SIZE){
+                List<String> chunk = filenames.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, filenames.size()));
+                queryMethodsTrackedForFiles(connection, chunk, methodsByFile);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+
+        return methodsByFile;
+    }
+
+    /**
+     * Run the Phase A query for one chunk of source-file keys and merge the rows into the
+     * caller's result map. Parameterized {@code IN} placeholders keep repo-derived filenames
+     * out of the SQL text.
+     *
+     * @param connection the open H2 connection to query on
+     * @param filenames the chunk of source-file mapping keys (sized within the IN-clause limit)
+     * @param methodsByFile the result map to merge rows into, keyed by file then method id
+     * @throws SQLException if the query fails
+     */
+    private void queryMethodsTrackedForFiles(Connection connection, List<String> filenames,
+                                             Map<String, Map<Integer, MethodImpactTracker>> methodsByFile) throws SQLException {
+        String placeholders = String.join(", ", Collections.nCopies(filenames.size(), "?"));
+        String sql = "SELECT DISTINCT sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
+                "sm." + COL_ID + " AS method_id, sm." + COL_METHOD_NAME + ", " +
+                "sm." + COL_LINE_NUMBER_START + ", sm." + COL_LINE_NUMBER_END + " " +
+                "FROM " + TABLE_TIA_SOURCE_CLASS + " sc " +
+                "JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID + " " +
+                "JOIN " + TABLE_TIA_SOURCE_METHOD + " sm ON sm." + COL_ID + " = scm." + COL_TIA_SOURCE_METHOD_ID + " " +
+                "WHERE sc." + COL_SOURCE_FILENAME + " IN (" + placeholders + ")";
+
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            int paramIndex = 1;
+            for (String filename : filenames){
+                statement.setString(paramIndex++, filename);
+            }
+
+            try (ResultSet resultSet = statement.executeQuery()){
+                while (resultSet.next()){
+                    String sourceFilename = resultSet.getString("class_source_filename");
+                    int methodId = resultSet.getInt("method_id");
+                    MethodImpactTracker methodTracker = new MethodImpactTracker(
+                            resultSet.getString(COL_METHOD_NAME),
+                            resultSet.getInt(COL_LINE_NUMBER_START),
+                            resultSet.getInt(COL_LINE_NUMBER_END));
+                    methodsByFile.computeIfAbsent(sourceFilename, key -> new HashMap<>()).put(methodId, methodTracker);
+                }
+            }
+        }
+    }
+
+    /**
+     * Targeted Phase B read: resolve a set of impacted method ids to the names of the test
+     * suites covering them with one indexed query per {@value #IN_CLAUSE_CHUNK_SIZE}-id
+     * chunk, instead of building the full in-memory method-to-suites reverse index.
+     *
+     * @param methodIds the tracked method ids to find covering test suites for
+     * @return map of method id to covering test-suite names; empty when the input is null
+     *         or empty
+     */
+    @Override
+    public Map<Integer, Set<String>> getTestSuitesForMethods(final Set<Integer> methodIds){
+        Map<Integer, Set<String>> suitesByMethodId = new HashMap<>();
+        if (methodIds == null || methodIds.isEmpty()){
+            return suitesByMethodId;
+        }
+
+        try (Connection connection = getConnection()){
+            ensureSchema(connection);
+            List<Integer> ids = new ArrayList<>(methodIds);
+            for (int from = 0; from < ids.size(); from += IN_CLAUSE_CHUNK_SIZE){
+                List<Integer> chunk = ids.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, ids.size()));
+                queryTestSuitesForMethods(connection, chunk, suitesByMethodId);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+
+        return suitesByMethodId;
+    }
+
+    /**
+     * Run the Phase B query for one chunk of method ids and merge the rows into the caller's
+     * result map. {@code SELECT DISTINCT} collapses duplicate (method, suite) pairs that occur
+     * when a suite covers the same method through multiple source classes.
+     *
+     * @param connection the open H2 connection to query on
+     * @param methodIds the chunk of method ids (sized within the IN-clause limit)
+     * @param suitesByMethodId the result map to merge rows into, keyed by method id
+     * @throws SQLException if the query fails
+     */
+    private void queryTestSuitesForMethods(Connection connection, List<Integer> methodIds,
+                                           Map<Integer, Set<String>> suitesByMethodId) throws SQLException {
+        String placeholders = String.join(", ", Collections.nCopies(methodIds.size(), "?"));
+        String sql = "SELECT DISTINCT scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id, " +
+                "ts." + COL_NAME + " AS suite_name " +
+                "FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm " +
+                "JOIN " + TABLE_TIA_SOURCE_CLASS + " sc ON sc." + COL_ID + " = scm." + COL_TIA_SOURCE_CLASS_ID + " " +
+                "JOIN " + TABLE_TIA_TEST_SUITE + " ts ON ts." + COL_ID + " = sc." + COL_TIA_TEST_SUITE_ID + " " +
+                "WHERE scm." + COL_TIA_SOURCE_METHOD_ID + " IN (" + placeholders + ")";
+
+        try (PreparedStatement statement = connection.prepareStatement(sql)){
+            int paramIndex = 1;
+            for (Integer methodId : methodIds){
+                statement.setInt(paramIndex++, methodId);
+            }
+
+            try (ResultSet resultSet = statement.executeQuery()){
+                while (resultSet.next()){
+                    int methodId = resultSet.getInt("method_id");
+                    String suiteName = resultSet.getString("suite_name");
+                    suitesByMethodId.computeIfAbsent(methodId, key -> new HashSet<>()).add(suiteName);
+                }
+            }
+        }
     }
 
     @Override
@@ -1019,16 +1166,11 @@ public class H2DataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTiaDBExists(connection)){
-                log.debug("The Tia DB doesn't currently exist at {}", jdbcURL);
-                createTiaDB();
+            // Bootstrap the schema (create on first contact, idempotent migrations on
+            // existing DBs). A freshly created DB has no mapping - return the empty TiaData.
+            if (!ensureSchema(connection)){
                 return tiaData;
             } else {
-                // Ensure schema migrations have run on this existing DB before any reads.
-                // Idempotent: safe to call on every load.
-                ensureSourceClassTestSuiteIndexExists(connection);
-                ensureTestRunHistoryTableExists(connection);
-
                 long startQueryTime = System.currentTimeMillis();
                 tiaData = getCoreData(connection);
                 log.debug("SQL query time for core: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
@@ -1284,6 +1426,12 @@ public class H2DataStore implements DataStore {
                 COL_TIA_SOURCE_METHOD_ID + " INT, " +
                 "PRIMARY KEY (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + "))";
 
+        // Indexes backing the targeted select-tests queries (Phase A filename lookup and
+        // Phase B method-id lookup). Created here for new DBs; existing DBs gain them via
+        // ensureTargetedQueryIndexesExist on first contact.
+        String createSourceClassFilenameIndexSql = buildCreateSourceClassFilenameIndexSql();
+        String createSourceClassMethodMethodIdIndexSql = buildCreateSourceClassMethodMethodIdIndexSql();
+
         String createLibraryTableSql = buildCreateLibraryTableSql();
         String createPendingLibraryMethodTableSql = buildCreatePendingLibraryImpactedMethodTableSql();
         String createTestRunHistoryTableSql = buildCreateTestRunHistoryTableSql();
@@ -1300,6 +1448,8 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(createSourceClassTableSql);
             statement.executeUpdate(createSourceClassTestSuiteIndexSql);
             statement.executeUpdate(createSourceClassMethodTableSql);
+            statement.executeUpdate(createSourceClassFilenameIndexSql);
+            statement.executeUpdate(createSourceClassMethodMethodIdIndexSql);
             statement.executeUpdate(createLibraryTableSql);
             statement.executeUpdate(createPendingLibraryMethodTableSql);
             statement.executeUpdate(createTestRunHistoryTableSql);
@@ -1438,6 +1588,81 @@ public class H2DataStore implements DataStore {
     private void ensureSourceClassTestSuiteIndexExists(Connection connection) throws SQLException {
         Statement statement = connection.createStatement();
         statement.executeUpdate(buildCreateSourceClassTestSuiteIndexSql());
+    }
+
+    /**
+     * DDL for the index on {@code tia_source_class.source_filename}. Backs the targeted
+     * select-tests query that resolves changed source files to their tracked methods
+     * (Phase A) - without it the filename {@code IN} predicate scans every source-class row.
+     * Named with the {@code idx_} prefix because {@code source_filename_idx} is already taken
+     * by the unique index on {@code tia_test_suite.source_filename} and H2 index names are
+     * schema-global.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the filename index
+     */
+    private static String buildCreateSourceClassFilenameIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS idx_source_class_filename ON "
+                + TABLE_TIA_SOURCE_CLASS + " (" + COL_SOURCE_FILENAME + ")";
+    }
+
+    /**
+     * DDL for the index on {@code tia_source_class_method.tia_source_method_id}. Backs the
+     * targeted select-tests query that resolves impacted method ids to their covering test
+     * suites (Phase B). The table's composite primary key leads with
+     * {@code tia_source_class_id}, so a method-id-leading lookup cannot use it.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the method-id index
+     */
+    private static String buildCreateSourceClassMethodMethodIdIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS idx_source_class_method_method_id ON "
+                + TABLE_TIA_SOURCE_CLASS_METHOD + " (" + COL_TIA_SOURCE_METHOD_ID + ")";
+    }
+
+    /**
+     * Migration: ensure the two indexes backing the targeted select-tests queries exist on an
+     * already-populated DB. Idempotent via {@code CREATE INDEX IF NOT EXISTS}. Note for large
+     * existing DBs: the first contact after an upgrade builds these indexes over the full
+     * edge table (millions of rows on large projects), which blocks that first caller for the
+     * build duration.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if either DDL statement fails
+     */
+    private void ensureTargetedQueryIndexesExist(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(buildCreateSourceClassFilenameIndexSql());
+        statement.executeUpdate(buildCreateSourceClassMethodMethodIdIndexSql());
+    }
+
+    /**
+     * Ensure the Tia schema is ready for use on this connection: create the DB on first
+     * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
+     * This is the single schema-bootstrap entry point - both the full-load path
+     * ({@code readTiaDataFromDB}) and the targeted query methods call it, so neither depends
+     * on the other having run first. Memoized per datastore instance: the schema can't
+     * un-migrate within a JVM, so repeat calls skip the DDL round trips.
+     *
+     * @param connection the H2 connection to check and migrate on
+     * @return {@code true} if the Tia DB already existed before this call (or an earlier call
+     *         on this instance bootstrapped it), {@code false} if it was just created empty
+     * @throws SQLException if the existence check or any migration DDL fails
+     */
+    private boolean ensureSchema(Connection connection) throws SQLException {
+        if (schemaEnsured) {
+            return true;
+        }
+
+        boolean dbExisted = checkTiaDBExists(connection);
+        if (!dbExisted) {
+            log.debug("The Tia DB doesn't currently exist at {}", jdbcURL);
+            createTiaDB();
+        }
+        ensureSourceClassTestSuiteIndexExists(connection);
+        ensureTestRunHistoryTableExists(connection);
+        ensureTargetedQueryIndexesExist(connection);
+
+        schemaEnsured = true;
+        return dbExisted;
     }
 
     /**
