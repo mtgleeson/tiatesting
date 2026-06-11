@@ -7,6 +7,7 @@ import com.github.difflib.patch.Patch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 
 import java.util.Arrays;
 import java.util.List;
@@ -80,17 +81,21 @@ public class MethodImpactAnalyzer {
         }
     }
 
+    /**
+     * Look up the tracked method ids for a source file from a VCS diff. The diff's file path
+     * is normalized to the stored mapping key via
+     * {@link SourceFilenameUtil#normalizeToMappingKey(String, List)} so the lookup matches
+     * the relative, forward-slash keys produced by the coverage agent.
+     *
+     * @param sourceFilesTracked the tracked source files mapped to their method ids
+     * @param originalFilePath the original (pre-change) file path from the diff
+     * @param sourceFilesDirs the configured source root directories to strip from the path
+     * @return the tracked method ids for the file, or {@code null} when the file isn't tracked
+     */
     private Set<Integer> getMethodsTrackedForSourceFile(final Map<String, Set<Integer>> sourceFilesTracked,
                                                         final String originalFilePath,
                                                         final List<String> sourceFilesDirs){
-        String fileName = originalFilePath;
-
-        for (String sourceFilesDir : sourceFilesDirs){
-            fileName = fileName.replace(sourceFilesDir, "");
-        }
-
-        fileName = fileName.replaceAll("\\\\", "/"); // if Windows, switch to forward slash used in the test mapping
-        fileName = fileName.substring(1); // remove beginning /
+        String fileName = SourceFilenameUtil.normalizeToMappingKey(originalFilePath, sourceFilesDirs);
         log.debug("File name to lookup tracked classes for methods - {}", fileName);
         return sourceFilesTracked.get(fileName);
     }
