@@ -40,16 +40,16 @@ public class PendingLibraryImpactedMethodsDrainer {
      * 'Drain' means select the pending libs changes from the DB and check if they have been applied to
      * the source project through the lib dependency version change.
      *
-     * @param dataStore the persistence layer to read pending batches and tracked libraries.
+     * <p>Test resolution for drained batches uses the targeted
+     * {@link DataStore#getTestSuitesForMethods} query per batch, so the drain path never needs
+     * the full test-to-source mapping loaded in memory.
+     *
+     * @param dataStore the persistence layer to read pending batches, tracked libraries and
+     *                  the per-batch test-suite resolution.
      * @param libraryConfig the library impact analysis configuration (provides the metadata reader).
-     * @param tiaData the current TIA data with test-to-source mappings for resolving tests.
-     * @param methodToTestSuiteIndex shared lazy reverse-index from source method id → test suites
-     *                               (built once per run and shared with {@code TestSelector}).
      * @return a {@link DrainOutcome} containing the tests to add and the drain result.
      */
-    public DrainOutcome drainPendingMethods(DataStore dataStore, LibraryImpactAnalysisConfig libraryConfig,
-                                            TiaData tiaData,
-                                            MethodToTestSuiteIndex methodToTestSuiteIndex) {
+    public DrainOutcome drainPendingMethods(DataStore dataStore, LibraryImpactAnalysisConfig libraryConfig) {
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         Set<String> testsFromDrain = new LinkedHashSet<>();
 
@@ -61,11 +61,9 @@ public class PendingLibraryImpactedMethodsDrainer {
         Map<String, ResolvedSourceProjectLibrary> resolvedLibraries =
                 resolveAllLibrariesOnSourceProject(libraryConfig, trackedLibraries);
 
-        Map<Integer, Set<String>> methodToTestSuiteMap = methodToTestSuiteIndex.getMap();
-
         for (TrackedLibrary library : trackedLibraries.values()) {
             drainPendingMethodsForLibrary(dataStore, library, resolvedLibraries,
-                    methodToTestSuiteMap, testsFromDrain, drainResult);
+                    testsFromDrain, drainResult);
         }
 
         return new DrainOutcome(testsFromDrain, drainResult);
@@ -75,10 +73,15 @@ public class PendingLibraryImpactedMethodsDrainer {
      * Drain pending batches for a single tracked library using the pre-resolved library versions.
      * Evaluates each pending batch against the drain rules and collects impacted tests for
      * batches that qualify.
+     *
+     * @param dataStore the persistence layer for pending batches and test-suite resolution
+     * @param library the tracked library whose pending batches are evaluated
+     * @param resolvedLibraries the libraries resolved on the source project classpath, by coordinate
+     * @param testsFromDrain accumulator for the test suites selected by drained batches
+     * @param drainResult accumulator for the drained batch keys and observed library state
      */
     private void drainPendingMethodsForLibrary(DataStore dataStore, TrackedLibrary library,
                                                 Map<String, ResolvedSourceProjectLibrary> resolvedLibraries,
-                                                Map<Integer, Set<String>> methodToTestSuiteMap,
                                                 Set<String> testsFromDrain,
                                                 LibraryImpactDrainResult drainResult) {
         List<PendingLibraryImpactedMethod> pendingBatches =
@@ -106,7 +109,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         for (PendingLibraryImpactedMethod batch : pendingBatches) {
             if (shouldDrainBatch(batch, library, resolvedVersion, resolvedJarHash)) {
                 Set<String> testsForBatch = resolveTestSuitesFromMethodIds(batch.getSourceMethodIds(),
-                        methodToTestSuiteMap);
+                        dataStore);
                 testsFromDrain.addAll(testsForBatch);
                 drainResult.addDrainedBatch(library.getGroupArtifact(), batch.getStampVersion());
                 anyDrained = true;
@@ -282,17 +285,19 @@ public class PendingLibraryImpactedMethodsDrainer {
 
     /**
      * Given a set of impacted source method IDs, find all test suites that exercise any of
-     * those methods using the current test-to-source mapping. This resolves tests at drain time
-     * (not stamp time) so the mapping reflects the consumer's current state.
+     * those methods using the targeted {@link DataStore#getTestSuitesForMethods} query against
+     * the current test-to-source mapping. This resolves tests at drain time (not stamp time)
+     * so the mapping reflects the consumer's current state, and only reads the mapping rows
+     * for the batch's method ids rather than the full mapping.
+     *
+     * @param methodIds the batch's impacted source method ids
+     * @param dataStore the persistence layer to resolve covering test suites from
+     * @return the names of the test suites covering any of the batch's methods
      */
-    private Set<String> resolveTestSuitesFromMethodIds(Set<Integer> methodIds,
-                                                        Map<Integer, Set<String>> methodToTestSuiteMap) {
+    private Set<String> resolveTestSuitesFromMethodIds(Set<Integer> methodIds, DataStore dataStore) {
         Set<String> tests = new LinkedHashSet<>();
-        for (Integer methodId : methodIds) {
-            Set<String> testSuites = methodToTestSuiteMap.get(methodId);
-            if (testSuites != null) {
-                tests.addAll(testSuites);
-            }
+        for (Set<String> testSuites : dataStore.getTestSuitesForMethods(methodIds).values()) {
+            tests.addAll(testSuites);
         }
         return tests;
     }
