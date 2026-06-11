@@ -650,7 +650,12 @@ Each rule has:
 
 Rules fire on every Tia-enabled test run (Maven Surefire/Failsafe, Gradle `test`) as well as on the `tia-select-tests` preview task / mojo. Rules are additive: a suite selected by any rule is added to the suites already selected from the dynamic mapping.
 
-### Gradle example
+### How `filePathPattern` matching works
+
+The pattern is evaluated with Java's `Matcher.find()` - a **substring** match, not a whole-path match - against the repo-relative, forward-slash path of each changed file. Two practical consequences:
+
+- **In a multi-module project the path starts with the module directory**, e.g. `payments-service/src/main/resources/default.properties`. A pattern anchored as `^src/main/resources/...` therefore never matches in a module - the path starts with the module name, not `src/`. The failure is silent at default log levels (a DEBUG-only "did not match any changes, skipping" line), so it's an easy trap. Either leave the start unanchored - `src/main/resources/(default|local)\.properties$` works because substring matching finds it anywhere in the path - or use `(^|/)src/...` if you want `src` to be a complete path segment (the unanchored form would also match inside a directory named e.g. `legacy-src`). To pin a rule to one module, anchor the full path: `^payments-service/src/...`.
+- **Anchor the end with `$`** when targeting specific files, so `default\.properties$` doesn't also match `default.properties.bak`.
 
 ```
 tia {
