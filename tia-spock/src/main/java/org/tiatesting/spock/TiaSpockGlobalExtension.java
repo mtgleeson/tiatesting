@@ -7,6 +7,7 @@ import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
@@ -49,8 +50,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
             // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
             tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
-            String dbFilePath = System.getProperty("tiaDBFilePath");
-            dataStore = new H2DataStore(dbFilePath, vcsReader.getBranchName());
+            dataStore = new H2DataStore(H2ConnectionSettings.fromSystemProperties(vcsReader.getBranchName()));
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;

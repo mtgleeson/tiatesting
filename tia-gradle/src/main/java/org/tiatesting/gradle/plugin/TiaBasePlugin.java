@@ -17,6 +17,7 @@ import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
@@ -54,7 +55,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public void createStatusTask() {
         project.task("tia-status").doLast(task -> {
-            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
+            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
                 StatusReportGenerator reportGenerator = new StatusReportGenerator();
                 System.out.println(reportGenerator.generateSummaryReport(dataStore));
             }
@@ -64,7 +65,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
+            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -77,7 +78,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
+            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -96,7 +97,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
-            try (DataStore dataStore = new H2DataStore(resolveDbFilePath(), getVCSReader().getBranchName())) {
+            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
                 List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
                 StringUtil.sanitizeInputArray(sourceFilesDirs);
                 List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -129,7 +130,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHistoryTask() {
         project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
             task.setVcsReaderSupplier(this::getVCSReader);
-            task.setDbFilePathSupplier(this::resolveDbFilePath);
+            task.setConnectionSettingsFactory(this::buildH2ConnectionSettings);
         });
     }
 
@@ -168,6 +169,31 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public String getDbFilePath() {
         return tiaTaskExtension.getDbFilePath();
+    }
+
+    public String getDbUrl() {
+        return tiaTaskExtension.getDbUrl();
+    }
+
+    public String getDbUser() {
+        return tiaTaskExtension.getDbUser();
+    }
+
+    public String getDbPassword() {
+        return tiaTaskExtension.getDbPassword();
+    }
+
+    /**
+     * Resolve the H2 connection settings for the daemon-side Tia tasks. Picks server mode when
+     * {@code dbUrl} is configured, otherwise embedded mode using {@link #resolveDbFilePath()}
+     * (which resolves a relative {@code dbFilePath} against the project dir, not the daemon cwd).
+     *
+     * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
+     * @return the resolved embedded- or server-mode connection settings
+     */
+    public H2ConnectionSettings buildH2ConnectionSettings(String branchSuffix) {
+        return H2ConnectionSettings.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
+                getDbPassword(), branchSuffix);
     }
 
     /**

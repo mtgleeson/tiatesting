@@ -23,7 +23,7 @@ class H2DataStorePendingLibraryMethodsTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         dataStore.getTiaData(true);
 
         TrackedLibrary lib = new TrackedLibrary("com.example:mylib", "/projects/mylib", null, null, null);
@@ -148,7 +148,7 @@ class H2DataStorePendingLibraryMethodsTest {
 
     @Test
     void readReturnsEmptyListWhenTableDoesNotExist() {
-        H2DataStore freshStore = new H2DataStore(tempDir.getAbsolutePath(), "fresh");
+        H2DataStore freshStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "fresh"));
         List<PendingLibraryImpactedMethod> result = freshStore.readPendingLibraryImpactedMethods("com.example:mylib");
         assertTrue(result.isEmpty());
     }

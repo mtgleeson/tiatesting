@@ -73,6 +73,72 @@ public class SerializedDataStore implements DataStore {
         return methodsImpactedAfterTestRun;
     }
 
+    /**
+     * Targeted Phase A read over the in-memory data: filter the tracked suite-class-method
+     * graph down to the requested source files. The serialized store holds the whole DB in
+     * memory after one read ({@code getTiaData(false)} uses the cached copy), so a filtered
+     * walk is the natural equivalent of the H2 store's indexed query.
+     *
+     * @param sourceFilenames the mapping keys of the source files to look up
+     * @return map of source filename to (method id to method tracker); empty when the input
+     *         is null or empty
+     */
+    @Override
+    public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(final Set<String> sourceFilenames) {
+        Map<String, Map<Integer, MethodImpactTracker>> methodsByFile = new HashMap<>();
+        if (sourceFilenames == null || sourceFilenames.isEmpty()) {
+            return methodsByFile;
+        }
+
+        TiaData tiaData = getTiaData(false);
+        Map<Integer, MethodImpactTracker> methodsTracked = tiaData.getMethodsTracked();
+
+        for (TestSuiteTracker testSuiteTracker : tiaData.getTestSuitesTracked().values()) {
+            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
+                String sourceFilename = classImpacted.getSourceFilename();
+                if (!sourceFilenames.contains(sourceFilename)) {
+                    continue;
+                }
+                for (Integer methodId : classImpacted.getMethodsImpacted()) {
+                    MethodImpactTracker methodTracker = methodsTracked.get(methodId);
+                    if (methodTracker != null) {
+                        methodsByFile.computeIfAbsent(sourceFilename, key -> new HashMap<>()).put(methodId, methodTracker);
+                    }
+                }
+            }
+        }
+
+        return methodsByFile;
+    }
+
+    /**
+     * Targeted Phase B read over the in-memory data: collect the names of the test suites
+     * whose coverage includes any of the given method ids, keyed per method id.
+     *
+     * @param methodIds the tracked method ids to find covering test suites for
+     * @return map of method id to covering test-suite names; empty when the input is null
+     *         or empty
+     */
+    @Override
+    public Map<Integer, Set<String>> getTestSuitesForMethods(final Set<Integer> methodIds) {
+        Map<Integer, Set<String>> suitesByMethodId = new HashMap<>();
+        if (methodIds == null || methodIds.isEmpty()) {
+            return suitesByMethodId;
+        }
+
+        for (TestSuiteTracker testSuiteTracker : getTiaData(false).getTestSuitesTracked().values()) {
+            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
+                for (Integer methodId : classImpacted.getMethodsImpacted()) {
+                    if (methodIds.contains(methodId)) {
+                        suitesByMethodId.computeIfAbsent(methodId, key -> new HashSet<>()).add(testSuiteTracker.getName());
+                    }
+                }
+            }
+        }
+
+        return suitesByMethodId;
+    }
+
     @Override
     public int getNumTestSuites() {
         return getTiaData(false).getTestSuitesTracked().size();

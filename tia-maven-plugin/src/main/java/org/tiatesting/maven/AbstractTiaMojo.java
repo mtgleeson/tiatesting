@@ -8,6 +8,7 @@ import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryVersionPolicy;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
@@ -39,9 +40,32 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     /**
      * The file path for the saved DB containing the previous analysis of the project.
+     * Used for embedded H2 mode. Ignored when {@link #tiaDBUrl} is set.
      */
     @Parameter(property = "tiaDBFilePath")
     String tiaDBFilePath;
+
+    /**
+     * JDBC URL of an H2 database running in server (TCP) mode, e.g.
+     * {@code jdbc:h2:tcp://h2host:9092/tiadb}. When set, Tia connects to that server instead of
+     * an embedded file-on-disk database and {@link #tiaDBFilePath} is ignored. The URL is used
+     * verbatim, so per-branch isolation (if wanted) must be encoded in the URL.
+     */
+    @Parameter(property = "tiaDBUrl")
+    String tiaDBUrl;
+
+    /**
+     * Database username for server-mode H2 ({@link #tiaDBUrl}). Defaults to {@code sa} when unset.
+     */
+    @Parameter(property = "tiaDBUser")
+    String tiaDBUser;
+
+    /**
+     * Database password for server-mode H2 ({@link #tiaDBUrl}). Defaults to an empty password
+     * when unset.
+     */
+    @Parameter(property = "tiaDBPassword")
+    String tiaDBPassword;
 
     /**
      * The source files directories for the project being analyzed.
@@ -81,6 +105,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(property = "tiaTestFilesDirs")
     String tiaTestFilesDirs;
+
+    /**
+     * The compiled class file directories for the project being analyzed, forwarded to the forked
+     * test JVM for {@code JacocoClient}. Optional.
+     */
+    @Parameter(property = "tiaClassFilesDirs")
+    String tiaClassFilesDirs;
 
     /**
      * Is TIA enabled?
@@ -190,6 +221,41 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaDBFilePath;
     }
 
+    /**
+     * @return the configured server-mode H2 JDBC URL, or {@code null} for embedded mode
+     */
+    public String getTiaDBUrl(){
+        return tiaDBUrl;
+    }
+
+    /**
+     * @return the configured server-mode H2 username, or {@code null} to use the default
+     */
+    public String getTiaDBUser(){
+        return tiaDBUser;
+    }
+
+    /**
+     * @return the configured server-mode H2 password, or {@code null} to use the default
+     */
+    public String getTiaDBPassword(){
+        return tiaDBPassword;
+    }
+
+    /**
+     * Resolve the H2 connection settings for this mojo. Picks server mode when {@link #tiaDBUrl}
+     * is set, otherwise embedded mode keyed on the supplied branch name. Centralising this here
+     * keeps every mojo's {@link org.tiatesting.core.persistence.h2.H2DataStore} construction
+     * consistent.
+     *
+     * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
+     * @return the resolved embedded- or server-mode connection settings
+     */
+    protected H2ConnectionSettings buildH2ConnectionSettings(final String branchSuffix){
+        return H2ConnectionSettings.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
+                getTiaDBUser(), getTiaDBPassword(), branchSuffix);
+    }
+
     public String getTiaSourceFilesDirs() {
         return tiaSourceFilesDirs;
     }
@@ -214,6 +280,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaTestFilesDirs() {
         return tiaTestFilesDirs;
+    }
+
+    public String getTiaClassFilesDirs() {
+        return tiaClassFilesDirs;
     }
 
     public boolean isTiaEnabled() {

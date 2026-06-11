@@ -41,7 +41,7 @@ public abstract class AbstractHistoryMojo extends AbstractTiaMojo {
                     "tiaHistoryLast must be a positive integer; received " + tiaHistoryLast);
         }
         final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), vcsReader.getBranchName())) {
+        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(vcsReader.getBranchName()))) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, tiaHistoryLast, System.lineSeparator()));

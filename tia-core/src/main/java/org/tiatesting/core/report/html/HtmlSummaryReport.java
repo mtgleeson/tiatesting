@@ -72,6 +72,8 @@ public class HtmlSummaryReport {
                                     p(
                                             span("DB last updated: " + (tiaData.getLastUpdated() != null
                                                     ? dtf.format(tiaData.getLastUpdated()) : "N/A")), br(),
+                                            span("Branch: " + (tiaData.getBranch() != null
+                                                    ? tiaData.getBranch() : "N/A")), br(),
                                             span("Test mapping valid for commit: "
                                                     + (tiaData.getCommitValue() != null ? tiaData.getCommitValue() : "N/A"))
                                     ),

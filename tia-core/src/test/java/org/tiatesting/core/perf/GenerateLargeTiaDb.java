@@ -1,5 +1,6 @@
 package org.tiatesting.core.perf;
 
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 
 import java.io.File;
@@ -58,7 +59,7 @@ public final class GenerateLargeTiaDb {
         // Schema creation is triggered the first time getTiaData() is invoked on a missing DB
         // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
-        H2DataStore bootstrap = new H2DataStore(parsed.outDb, parsed.branch);
+        H2DataStore bootstrap = new H2DataStore(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 
@@ -195,7 +196,7 @@ public final class GenerateLargeTiaDb {
      * 180 chars roughly matches what real enterprise codebases look like (deep packages,
      * long class names with prefixes/suffixes).
      */
-    private static String classFilename(int classIdx) {
+    static String classFilename(int classIdx) {
         int pkg = classIdx % 64;
         return DEEP_PKG_PREFIX + "subpkg" + pkg + "/handler/AbstractDefault"
                 + classNameFlavour(classIdx) + "ServiceConfigurationParserImpl"
@@ -273,15 +274,17 @@ public final class GenerateLargeTiaDb {
                     long classId = generatedKey(insertClass);
                     totalClassRows++;
 
-                    int methodsForClass = jitter(args.avgMethodsPerClass, rnd);
-                    Set<Integer> usedMethodIds = new HashSet<>(methodsForClass * 2);
+                    // Deterministic per-file method set: every class row for the same
+                    // classIdx (i.e. the same source file, across all covering suites)
+                    // references the same methods, mirroring real code where a file's
+                    // methods are fixed and suites covering the file share them. A
+                    // classIdx-seeded Random keeps the per-file method count jittered
+                    // while staying reproducible.
+                    Random fileRnd = new Random(args.seed * 31L + classIdx);
+                    int methodsForClass = jitter(args.avgMethodsPerClass, fileRnd);
+                    int methodBase = classIdx * args.avgMethodsPerClass;
                     for (int m = 0; m < methodsForClass; m++) {
-                        int methodId;
-                        int attempts = 0;
-                        do {
-                            methodId = sourceMethodIds[rnd.nextInt(sourceMethodIds.length)];
-                            attempts++;
-                        } while (!usedMethodIds.add(methodId) && attempts < 10);
+                        int methodId = sourceMethodIds[Math.floorMod(methodBase + m, sourceMethodIds.length)];
 
                         insertEdge.setLong(1, classId);
                         insertEdge.setInt(2, methodId);
