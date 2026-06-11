@@ -2,7 +2,7 @@ package org.tiatesting.core.staticselection;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TestSuiteTracker;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -13,9 +13,9 @@ import java.util.regex.Pattern;
 
 /**
  * Evaluates {@link StaticTestSelectionRule}s against the set of changed file paths and the
- * loaded {@link TiaData}, returning the set of tracked test suites that should be force-run.
+ * tracked test suites, returning the set of tracked suites that should be force-run.
  *
- * <p>Static rules are additive only: the {@link #resolve(Set, TiaData)} output is intended to
+ * <p>Static rules are additive only: the {@link #resolve(Set, Map)} output is intended to
  * be unioned into the existing dynamic test selection by the caller. A rule can cause
  * additional tests to run; it can never cause a test to be skipped.
  *
@@ -23,6 +23,10 @@ import java.util.regex.Pattern;
  * {@link StaticTestSelectionRuleMode#SUITE_NAMES} are implemented. The constructor of
  * {@link StaticTestSelectionRule} rejects {@link StaticTestSelectionRuleMode#ANNOTATIONS_TAGS}
  * outright so it never reaches this resolver.
+ *
+ * <p>The resolver consumes only the tracked-suites map (names + stats, no coverage edges) -
+ * the cheap metadata read the targeted select-tests path already performs - so static rule
+ * evaluation never requires the full mapping to be loaded.
  *
  * <p>For SUITE_NAMES resolution a {@link SuiteNameIndex} is built lazily on first use and
  * cached for the life of the resolver instance — typically one per test selection run.
@@ -35,9 +39,9 @@ public class StaticTestSelectionResolver {
 
     /**
      * Lazy {@link SuiteNameIndex}, built on first SUITE_NAMES rule hit and cached. Bound to
-     * the first {@link TiaData} passed to {@link #resolve(Set, TiaData)} or
-     * {@link #warnOnEmptyRules(TiaData)}; callers must pass the same {@code tiaData} to both
-     * methods within a run.
+     * the first tracked-suites map passed to {@link #resolve(Set, Map)} or
+     * {@link #warnOnEmptyRules(Map)}; callers must pass the same map to both methods within
+     * a run.
      */
     private SuiteNameIndex suiteNameIndex;
 
@@ -55,7 +59,7 @@ public class StaticTestSelectionResolver {
     /**
      * Resolve every rule against the changed file paths and return the union of forced
      * suite names. For each rule whose file-path regex matches at least one changed path,
-     * the rule's mode-specific resolution is applied to {@code tiaData} and the result is
+     * the rule's mode-specific resolution is applied to the tracked suites and the result is
      * unioned in. Rules whose file-path regex matches no changed paths contribute nothing.
      *
      * <p>Per fired rule, an INFO log line records the rule name, matched-file count, and
@@ -64,10 +68,12 @@ public class StaticTestSelectionResolver {
      *
      * @param changedPaths the repo-relative, forward-slash-normalised paths of every file
      *                     changed in the current commit range / local workspace.
-     * @param tiaData the loaded Tia data; used to resolve forced suite sets.
+     * @param testSuitesTracked the tracked test suites keyed by suite name; used to resolve
+     *                          forced suite sets.
      * @return the union of forced suite names; never {@code null}, may be empty.
      */
-    public Set<String> resolve(final Set<String> changedPaths, final TiaData tiaData) {
+    public Set<String> resolve(final Set<String> changedPaths,
+                               final Map<String, TestSuiteTracker> testSuitesTracked) {
         Set<String> forced = new HashSet<>();
         if (changedPaths == null || changedPaths.isEmpty()) {
             return forced;
@@ -79,7 +85,7 @@ public class StaticTestSelectionResolver {
                 log.debug("Static test selection rule '{}' did not match any changes, skipping.", rule.getName());
                 continue;
             }
-            Set<String> ruleForced = resolveRule(rule, tiaData);
+            Set<String> ruleForced = resolveRule(rule, testSuitesTracked);
             log.info("Static test selection rule '{}' matched {} changed file(s), forcing {} test suite(s).",
                     rule.getName(), matchedFileCount, ruleForced.size());
             forced.addAll(ruleForced);
@@ -89,29 +95,30 @@ public class StaticTestSelectionResolver {
 
     /**
      * Emit a WARN log line for every rule (or every pattern, in the case of SUITE_NAMES) that
-     * resolves to zero test suites in the current {@link TiaData} snapshot, regardless of
+     * resolves to zero test suites in the current tracked-suites snapshot, regardless of
      * whether the rule's file-path regex would match. Helps users spot misconfigured rules
      * early - typoed regexes, patterns that no longer match any tracked suite, etc.
      *
      * <p>For mode {@link StaticTestSelectionRuleMode#RUN_ALL} a single WARN per rule is emitted
-     * when the Tia data has no tracked suites. For mode
+     * when there are no tracked suites. For mode
      * {@link StaticTestSelectionRuleMode#SUITE_NAMES} one WARN per pattern is emitted when
      * that specific pattern matches no tracked suite; this lets a rule with a mix of working
      * and broken patterns still surface the broken ones individually.
      *
-     * <p>Only invoked once per test-selection run; not called from {@link #resolve(Set, TiaData)}
+     * <p>Only invoked once per test-selection run; not called from {@link #resolve(Set, Map)}
      * so the warnings are not duplicated when the rule actually fires.
      *
-     * @param tiaData the loaded Tia data used to resolve each rule's potential suite set.
+     * @param testSuitesTracked the tracked test suites keyed by suite name, used to resolve
+     *                          each rule's potential suite set.
      */
-    public void warnOnEmptyRules(final TiaData tiaData) {
+    public void warnOnEmptyRules(final Map<String, TestSuiteTracker> testSuitesTracked) {
         for (StaticTestSelectionRule rule : config.getRules()) {
             switch (rule.getMode()) {
                 case RUN_ALL:
-                    warnIfRunAllRuleResolvesEmpty(rule, tiaData);
+                    warnIfRunAllRuleResolvesEmpty(rule, testSuitesTracked);
                     break;
                 case SUITE_NAMES:
-                    warnPerPatternThatMatchesNothing(rule, tiaData);
+                    warnPerPatternThatMatchesNothing(rule, testSuitesTracked);
                     break;
                 default:
                     break;
@@ -120,15 +127,15 @@ public class StaticTestSelectionResolver {
     }
 
     /**
-     * Emit a WARN for a {@link StaticTestSelectionRuleMode#RUN_ALL} rule when the Tia data has
-     * no tracked test suites - the rule could fire but would force-run nothing.
+     * Emit a WARN for a {@link StaticTestSelectionRuleMode#RUN_ALL} rule when there are no
+     * tracked test suites - the rule could fire but would force-run nothing.
      *
      * @param rule the RUN_ALL rule.
-     * @param tiaData the loaded Tia data.
+     * @param testSuitesTracked the tracked test suites keyed by suite name.
      */
-    private void warnIfRunAllRuleResolvesEmpty(final StaticTestSelectionRule rule, final TiaData tiaData) {
-        Map<String, ?> tracked = tiaData.getTestSuitesTracked();
-        if (tracked == null || tracked.isEmpty()) {
+    private void warnIfRunAllRuleResolvesEmpty(final StaticTestSelectionRule rule,
+                                               final Map<String, TestSuiteTracker> testSuitesTracked) {
+        if (testSuitesTracked == null || testSuitesTracked.isEmpty()) {
             log.warn("Static test selection rule '{}' resolves to 0 test suites in the current Tia data snapshot. "
                     + "Check the rule configuration if this is unexpected.", rule.getName());
         }
@@ -140,10 +147,11 @@ public class StaticTestSelectionResolver {
      * a rule with a mix of working and broken patterns still surfaces the broken ones.
      *
      * @param rule the SUITE_NAMES rule.
-     * @param tiaData the loaded Tia data.
+     * @param testSuitesTracked the tracked test suites keyed by suite name.
      */
-    private void warnPerPatternThatMatchesNothing(final StaticTestSelectionRule rule, final TiaData tiaData) {
-        SuiteNameIndex index = getSuiteNameIndex(tiaData);
+    private void warnPerPatternThatMatchesNothing(final StaticTestSelectionRule rule,
+                                                  final Map<String, TestSuiteTracker> testSuitesTracked) {
+        SuiteNameIndex index = getSuiteNameIndex(testSuitesTracked);
         Set<String> fqns = index.getFqns();
         Map<String, List<String>> simpleNameToFqns = index.getSimpleNameToFqns();
         for (Pattern pattern : rule.getSuiteNamePatterns()) {
@@ -202,18 +210,18 @@ public class StaticTestSelectionResolver {
      * regex matched at least one changed path.
      *
      * @param rule the rule to resolve.
-     * @param tiaData the loaded Tia data.
+     * @param testSuitesTracked the tracked test suites keyed by suite name.
      * @return the rule's potential forced suite set.
      */
-    private Set<String> resolveRule(final StaticTestSelectionRule rule, final TiaData tiaData) {
+    private Set<String> resolveRule(final StaticTestSelectionRule rule,
+                                    final Map<String, TestSuiteTracker> testSuitesTracked) {
         switch (rule.getMode()) {
             case RUN_ALL:
-                Map<String, ?> tracked = tiaData.getTestSuitesTracked();
-                return (tracked == null || tracked.isEmpty())
+                return (testSuitesTracked == null || testSuitesTracked.isEmpty())
                         ? Collections.emptySet()
-                        : new HashSet<>(tracked.keySet());
+                        : new HashSet<>(testSuitesTracked.keySet());
             case SUITE_NAMES:
-                return resolveSuiteNamesRule(rule, tiaData);
+                return resolveSuiteNamesRule(rule, testSuitesTracked);
             default:
                 return Collections.emptySet();
         }
@@ -226,14 +234,15 @@ public class StaticTestSelectionResolver {
      * counts as a hit and contributes the FQN(s) to the resolved set.
      *
      * <p>Per-pattern empty-resolution warnings are emitted by
-     * {@link #warnOnEmptyRules(TiaData)} and not duplicated here.
+     * {@link #warnOnEmptyRules(Map)} and not duplicated here.
      *
      * @param rule the SUITE_NAMES rule being resolved.
-     * @param tiaData the loaded Tia data used to lazily build the suite name index.
+     * @param testSuitesTracked the tracked test suites used to lazily build the suite name index.
      * @return the union of FQNs matched by any of the rule's patterns.
      */
-    private Set<String> resolveSuiteNamesRule(final StaticTestSelectionRule rule, final TiaData tiaData) {
-        SuiteNameIndex index = getSuiteNameIndex(tiaData);
+    private Set<String> resolveSuiteNamesRule(final StaticTestSelectionRule rule,
+                                              final Map<String, TestSuiteTracker> testSuitesTracked) {
+        SuiteNameIndex index = getSuiteNameIndex(testSuitesTracked);
         Map<String, List<String>> simpleNameToFqns = index.getSimpleNameToFqns();
         Set<String> fqns = index.getFqns();
         if (fqns.isEmpty()) {
@@ -257,14 +266,14 @@ public class StaticTestSelectionResolver {
     }
 
     /**
-     * Build (or return the cached) {@link SuiteNameIndex} for {@code tiaData}.
+     * Build (or return the cached) {@link SuiteNameIndex} for the tracked suites.
      *
-     * @param tiaData the loaded Tia data.
+     * @param testSuitesTracked the tracked test suites keyed by suite name.
      * @return the lazily-built index.
      */
-    private SuiteNameIndex getSuiteNameIndex(final TiaData tiaData) {
+    private SuiteNameIndex getSuiteNameIndex(final Map<String, TestSuiteTracker> testSuitesTracked) {
         if (suiteNameIndex == null) {
-            suiteNameIndex = new SuiteNameIndex(tiaData);
+            suiteNameIndex = new SuiteNameIndex(testSuitesTracked);
         }
         return suiteNameIndex;
     }

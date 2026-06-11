@@ -2,7 +2,6 @@ package org.tiatesting.core.staticselection;
 
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.model.TiaData;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -33,9 +32,9 @@ class SuiteNameIndexTest {
     }
 
     @Test
-    void emptyTiaDataProducesEmptyIndex() {
+    void emptyTrackedSuitesProducesEmptyIndex() {
         // given
-        SuiteNameIndex index = new SuiteNameIndex(tiaDataWith());
+        SuiteNameIndex index = new SuiteNameIndex(trackedWith());
 
         // when
         Map<String, List<String>> simpleMap = index.getSimpleNameToFqns();
@@ -47,7 +46,7 @@ class SuiteNameIndexTest {
     }
 
     @Test
-    void nullTiaDataProducesEmptyIndex() {
+    void nullTrackedSuitesProducesEmptyIndex() {
         // given
         SuiteNameIndex index = new SuiteNameIndex(null);
 
@@ -60,7 +59,7 @@ class SuiteNameIndexTest {
     void indexCapturesFqnsForEveryTrackedSuite() {
         // given
         SuiteNameIndex index = new SuiteNameIndex(
-                tiaDataWith("com.acme.OrderServiceIT", "com.acme.PaymentServiceSpec"));
+                trackedWith("com.acme.OrderServiceIT", "com.acme.PaymentServiceSpec"));
 
         // when
         Set<String> fqns = index.getFqns();
@@ -73,7 +72,7 @@ class SuiteNameIndexTest {
     void simpleNameMapGroupsSuitesSharingASimpleClassName() {
         // given - two suites in different packages with the same simple name
         SuiteNameIndex index = new SuiteNameIndex(
-                tiaDataWith("com.acme.OrderServiceIT", "com.other.OrderServiceIT", "com.acme.PaymentServiceSpec"));
+                trackedWith("com.acme.OrderServiceIT", "com.other.OrderServiceIT", "com.acme.PaymentServiceSpec"));
 
         // when
         Map<String, List<String>> simpleMap = index.getSimpleNameToFqns();
@@ -87,7 +86,7 @@ class SuiteNameIndexTest {
     @Test
     void getSimpleNameToFqnsCachesAcrossCalls() {
         // given
-        SuiteNameIndex index = new SuiteNameIndex(tiaDataWith("com.acme.OrderServiceIT"));
+        SuiteNameIndex index = new SuiteNameIndex(trackedWith("com.acme.OrderServiceIT"));
 
         // when
         Map<String, List<String>> firstCall = index.getSimpleNameToFqns();
@@ -97,14 +96,12 @@ class SuiteNameIndexTest {
         assertSame(firstCall, secondCall);
     }
 
-    private static TiaData tiaDataWith(String... suiteNames) {
-        TiaData tiaData = new TiaData();
+    private static Map<String, TestSuiteTracker> trackedWith(String... suiteNames) {
         Map<String, TestSuiteTracker> tracked = new LinkedHashMap<>();
         for (String name : suiteNames) {
             tracked.put(name, new TestSuiteTracker(name));
         }
-        tiaData.setTestSuitesTracked(tracked);
-        return tiaData;
+        return tracked;
     }
 
     private static Set<String> setOf(String... values) {
