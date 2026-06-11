@@ -17,6 +17,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
@@ -101,7 +102,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
         this.branch = vcsReader.getBranchName();
-        DataStore dataStore = enabled ? new H2DataStore(System.getProperty("tiaDBFilePath"), this.branch) : null;
+        DataStore dataStore = enabled ? new H2DataStore(H2ConnectionSettings.fromSystemProperties(this.branch)) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
         vcsReader.close();

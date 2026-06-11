@@ -66,6 +66,36 @@ public interface DataStore extends AutoCloseable {
     Set<Integer> getUniqueMethodIdsTracked();
 
     /**
+     * Targeted read (Phase A of the select-tests flow): retrieve the tracked methods for a
+     * specific set of source files, keyed by file then by method id. Used to resolve the
+     * files changed in a VCS diff to their candidate methods without loading the full
+     * suite-to-method mapping. The filenames must be in the stored mapping-key format
+     * (relative, forward-slash, e.g. {@code com/example/Foo.java} - see
+     * {@code SourceFilenameUtil.normalizeToMappingKey}).
+     *
+     * <p>Files in the input that are not tracked simply have no entry in the result.
+     *
+     * @param sourceFilenames the mapping keys of the source files to look up
+     * @return map of source filename to (method id to method tracker) for the tracked
+     *         methods in those files; empty when the input is null or empty
+     */
+    Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(final Set<String> sourceFilenames);
+
+    /**
+     * Targeted read (Phase B of the select-tests flow): retrieve the names of the test suites
+     * whose coverage includes any of the given method ids, keyed per method id. Used to
+     * resolve the diff-impacted methods to the suites that must run, without building the
+     * full in-memory method-to-suites reverse index.
+     *
+     * <p>Method ids in the input with no covering suite simply have no entry in the result.
+     *
+     * @param methodIds the tracked method ids to find covering test suites for
+     * @return map of method id to the names of the test suites covering it; empty when the
+     *         input is null or empty
+     */
+    Map<Integer, Set<String>> getTestSuitesForMethods(final Set<Integer> methodIds);
+
+    /**
      * Get the number of test suites tracked by Tia in the DB.
      *
      * @return the number of test suites tracked by Tia
