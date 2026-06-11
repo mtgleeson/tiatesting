@@ -3,7 +3,6 @@ package org.tiatesting.core.diff.diffanalyze.selector;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
-import org.tiatesting.core.model.TiaData;
 
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -17,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies {@link TestSelector#estimateRunTime(Set, TiaData)} computes the correct total
+ * Verifies {@link TestSelector#estimateRunTime(Set, Map)} computes the correct total
  * runtime for a selected test set, applies the median {@code avgRunTime} as a fallback for
  * tests without recorded stats, and excludes zero-valued {@code avgRunTime}s from the
  * median calculation.
@@ -31,11 +30,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_allSelectedHaveStats_sumsAvgRunTime(){
         // given
-        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("test1", "test2", "test3");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(600L, estimate.getEstimatedRunTimeMs());
@@ -52,11 +51,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_someSelectedMissingStats_appliesMedianFallback(){
         // given
-        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("test1", "test2", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(100L + 200L + 200L, estimate.getEstimatedRunTimeMs());
@@ -74,11 +73,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_allSelectedMissingStats_appliesMedianForAll(){
         // given
-        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("newTest1", "newTest2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(400L, estimate.getEstimatedRunTimeMs());
@@ -95,11 +94,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_noTrackedStatsAtAll_medianIsZero(){
         // given
-        TiaData tiaData = buildTiaData();
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites();
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -116,12 +115,12 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_zeroAvgRunTimesExcludedFromMedian(){
         // given
-        TiaData tiaData = buildTiaData(entry("zero1", 0L), entry("test1", 100L),
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("zero1", 0L), entry("test1", 100L),
                 entry("test2", 200L), entry("zero2", 0L));
         Set<String> testsToRun = setOf("test1", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         // median of [100, 200] (lower of two middles) = 100; total = 100 + 100
@@ -139,12 +138,12 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_evenSizedMedianTakesLowerMiddle(){
         // given
-        TiaData tiaData = buildTiaData(entry("t1", 10L), entry("t2", 20L),
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("t1", 10L), entry("t2", 20L),
                 entry("t3", 30L), entry("t4", 40L));
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(20L, estimate.getMedianRunTimeMsAppliedToMissing());
@@ -160,11 +159,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_emptyTestsToRun_returnsZero(){
         // given
-        TiaData tiaData = buildTiaData(entry("test1", 100L), entry("test2", 200L));
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L));
         Set<String> testsToRun = Collections.emptySet();
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -182,11 +181,11 @@ class TestSelectorRunTimeEstimateTest {
     @Test
     void estimateRunTime_trackedTestWithZeroAvgRunTime_recordedAsZeroNotMissing(){
         // given
-        TiaData tiaData = buildTiaData(entry("zeroTest", 0L), entry("test1", 100L), entry("test2", 200L));
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("zeroTest", 0L), entry("test1", 100L), entry("test2", 200L));
         Set<String> testsToRun = setOf("zeroTest", "test1");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tiaData);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked);
 
         // then
         assertEquals(100L, estimate.getEstimatedRunTimeMs());
@@ -197,15 +196,15 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * Build a {@link TiaData} pre-populated with the given test-name → {@code avgRunTime}
+     * Build a tracked-suites map pre-populated with the given test-name → {@code avgRunTime}
      * entries. Each entry produces a {@link TestSuiteTracker} carrying a {@link TestStats}
      * with the supplied {@code avgRunTime}.
      *
      * @param entries the entries to seed; may be empty
-     * @return a {@link TiaData} whose {@code testSuitesTracked} map contains the entries
+     * @return the tracked suites keyed by name, containing the entries
      */
     @SafeVarargs
-    private static TiaData buildTiaData(Map.Entry<String, Long>... entries){
+    private static Map<String, TestSuiteTracker> buildTrackedSuites(Map.Entry<String, Long>... entries){
         Map<String, TestSuiteTracker> tracked = new HashMap<>();
         for (Map.Entry<String, Long> e : entries){
             TestSuiteTracker tracker = new TestSuiteTracker(e.getKey());
@@ -214,13 +213,11 @@ class TestSelectorRunTimeEstimateTest {
             tracker.setTestStats(stats);
             tracked.put(e.getKey(), tracker);
         }
-        TiaData tiaData = new TiaData();
-        tiaData.setTestSuitesTracked(tracked);
-        return tiaData;
+        return tracked;
     }
 
     /**
-     * Build a {@link Map.Entry} pair for use with {@link #buildTiaData}.
+     * Build a {@link Map.Entry} pair for use with {@link #buildTrackedSuites}.
      *
      * @param name the test suite name
      * @param avgRunTime the {@code avgRunTime} (ms) to assign

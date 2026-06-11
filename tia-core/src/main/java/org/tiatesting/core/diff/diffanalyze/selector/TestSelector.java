@@ -9,10 +9,11 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
-import org.tiatesting.core.model.MethodToTestSuiteIndex;
+import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -70,35 +71,38 @@ public class TestSelector {
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                            final LibraryImpactAnalysisConfig libraryConfig,
                                            final boolean updateDBMapping){
-        TiaData tiaData = dataStore.getTiaData(true);
+        // Targeted read path: only the single-row core data is loaded up front. The mapping
+        // is queried per diff-slice (Phase A/B) inside selectTestsToRun, and the suite-level
+        // metadata (names + stats, no coverage edges) is loaded once below. The full
+        // suite-class-method mapping is never bulk-loaded on this path.
+        TiaData tiaCore = dataStore.getTiaCore();
 
         if (updateDBMapping) {
             reconcileTrackedLibrariesIfConfigured(libraryConfig);
         }
 
-        if (!hasStoredMapping(tiaData)){
+        if (!hasStoredMapping(tiaCore)){
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap());
         }
 
-        // Lazy reverse index from method id → test suites, consumed by the source-impact
-        // path (selectTestsToRun). The library drain path resolves suites via the targeted
-        // DataStore.getTestSuitesForMethods query instead and no longer needs it.
-        MethodToTestSuiteIndex methodToTestSuiteIndex = new MethodToTestSuiteIndex(tiaData);
+        // Suite names + stats only (no coverage edges): serves the modified-test-file check,
+        // the ignore list and the run-time estimate.
+        Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
 
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaData, libraryConfig, updateDBMapping, methodToTestSuiteIndex);
+                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig, updateDBMapping);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
                 libraryConfig, checkLocalChanges, testsToRun);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
-        Set<String> testsToIgnore = getTestsToIgnore(tiaData, testsToRun);
+        Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);
 
         log.debug("Ignoring tests: {}", testsToIgnore);
 
-        RunTimeEstimate estimate = estimateRunTime(testsToRun, tiaData);
+        RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked);
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
@@ -109,7 +113,7 @@ public class TestSelector {
      * Estimate the total runtime for the given set of selected tests.
      *
      * <p>For each test in {@code testsToRun} that has a tracked {@link TestSuiteTracker} in
-     * {@code tiaData}, the test's persisted {@code avgRunTime} (ms) contributes to the total.
+     * {@code tracked}, the test's persisted {@code avgRunTime} (ms) contributes to the total.
      * Tests not present in {@code testSuitesTracked} (typically newly-added test files) are
      * collected into the {@code selectedTestsWithoutStats} set. When at least one such test
      * exists, the median {@code avgRunTime} across all tracked suites with a positive
@@ -118,15 +122,14 @@ public class TestSelector {
      * nothing to the total.
      *
      * @param testsToRun the names of the selected test suites
-     * @param tiaData the loaded Tia data containing per-suite stats
+     * @param tracked the tracked test suites (names + stats) keyed by suite name
      * @return a {@link RunTimeEstimate} carrying the total estimated runtime (ms), the names
      *         of selected tests with no stats, and the median value applied to those tests
      */
-    static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final TiaData tiaData){
+    static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked){
         long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
-        Map<String, TestSuiteTracker> tracked = tiaData.getTestSuitesTracked();
 
         for (String testName : testsToRun){
             TestSuiteTracker tracker = tracked.get(testName);
@@ -247,12 +250,28 @@ public class TestSelector {
      * <p>When {@code updateDBMapping} is {@code false}, library-diff partitioning still runs (so that
      * library-owned diffs are not misclassified as source-project diffs) but the pending-stamp persist
      * is skipped — non-primary builds read the existing tracked-library snapshot without mutating it.
+     *
+     * <p>Mapping reads are targeted to the diff: one Phase A query
+     * ({@link DataStore#getMethodsTrackedForFiles}) resolves the changed files to their tracked
+     * methods (shared by the source-impact and library-stamp paths), and one Phase B query
+     * ({@link DataStore#getTestSuitesForMethods}) resolves the impacted methods to suites.
+     *
+     * @param vcsReader the VCS reader used to build the diff contexts
+     * @param sourceFilesDirNames the dir names for the source files
+     * @param testFilesDirNames the dir names for the test files
+     * @param checkLocalChanges should local changes be checked by Tia
+     * @param storedCommitValue the commit the stored mapping was built at (diff baseline)
+     * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name
+     * @param libraryConfig the library impact analysis config, or {@code null} if not configured
+     * @param updateDBMapping whether this run owns mapping-DB updates
+     * @return the test suites that should be executed for the current changes
      */
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
-                                         final TiaData tiaData, final LibraryImpactAnalysisConfig libraryConfig,
-                                         final boolean updateDBMapping,
-                                         final MethodToTestSuiteIndex methodToTestSuiteIndex){
+                                         final String storedCommitValue,
+                                         final Map<String, TestSuiteTracker> testSuitesTracked,
+                                         final LibraryImpactAnalysisConfig libraryConfig,
+                                         final boolean updateDBMapping){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -263,33 +282,58 @@ public class TestSelector {
             sourceFilesDirs.addAll(collectTrackedLibraryDirs());
         }
 
-        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(tiaData.getCommitValue(),
+        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedCommitValue,
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);
 
+        // Phase A: one targeted query for the tracked methods of ALL modified source files
+        // (source-project and library buckets alike) - both consumers below share the result.
+        Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile =
+                loadMethodsTrackedForDiffs(modifiedSourceDiffs, sourceFilesDirs);
+
         // Partition source diffs: library diffs go to pending stamp, source-project diffs to immediate selection.
         List<SourceFileDiffContext> sourceProjectDiffs = modifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, tiaData, sourceFilesDirs,
-                    libraryConfig, updateDBMapping);
+            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, methodsTrackedByFile,
+                    sourceFilesDirs, libraryConfig, updateDBMapping);
         }
 
         // Find all test suites that execute the source code methods that have changed
-        Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, tiaData, sourceFilesDirs);
-        Set<String> testsToRun = findTestSuitesForImpactedMethods(tiaData, impactedMethods, methodToTestSuiteIndex);
+        Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, methodsTrackedByFile, sourceFilesDirs);
+        Set<String> testsToRun = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), tiaData, testsToRun, testFilesDirs);
+        addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), testSuitesTracked, testsToRun, testFilesDirs);
 
         // Add newly added test files to the run list.
-        addNewTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), tiaData, testsToRun, testFilesDirs);
+        addNewTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs);
 
         // Re-run tests that failed since the last successful full test run.
-        addPreviouslyFailedTests(tiaData, testsToRun);
+        addPreviouslyFailedTests(testsToRun);
 
         return testsToRun;
+    }
+
+    /**
+     * Run the targeted Phase A read for a set of modified-source diffs: normalize each diff's
+     * original (pre-change) file path to its stored mapping key, then query the tracked methods
+     * (with line ranges) for those files in one {@link DataStore#getMethodsTrackedForFiles} call.
+     * The original path is used because the stored mapping was built before the change.
+     *
+     * @param modifiedSourceDiffs the modified source-file diff contexts
+     * @param sourceFilesDirs the configured source root directories (used for key normalization)
+     * @return the tracked methods for the changed files, keyed by mapping key then method id
+     */
+    private Map<String, Map<Integer, MethodImpactTracker>> loadMethodsTrackedForDiffs(
+            final List<SourceFileDiffContext> modifiedSourceDiffs, final List<String> sourceFilesDirs){
+        Set<String> changedFileKeys = new HashSet<>();
+        for (SourceFileDiffContext diff : modifiedSourceDiffs){
+            changedFileKeys.add(SourceFilenameUtil.normalizeToMappingKey(diff.getOldFilePath(), sourceFilesDirs));
+        }
+
+        return dataStore.getMethodsTrackedForFiles(changedFileKeys);
     }
 
     /**
@@ -335,13 +379,24 @@ public class TestSelector {
         return file;
     }
 
-    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, TiaData tiaData,
+    /**
+     * Add modified test suites to the run list. Only suites present in the tracked set are
+     * added - an untracked modified test file is new to Tia and is picked up by the
+     * new-test-file path instead.
+     *
+     * @param sourceFileDiffContexts the modified test-file diff contexts
+     * @param testSuitesTracked the tracked test suites keyed by suite name
+     * @param testsToRun the run set to add the modified suites to
+     * @param testFilesDirs the configured test file directories
+     */
+    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
+                                               Map<String, TestSuiteTracker> testSuitesTracked,
                                                Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesModified = new HashSet<>();
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             String testName = getTestNameFromFilePath(sourceFileDiffContext.getOldFilePath(), testFilesDirs);
-            if (tiaData.getTestSuitesTracked().containsKey(testName)){
+            if (testSuitesTracked.containsKey(testName)){
                 testSuitesModified.add(testName);
             }
         }
@@ -350,7 +405,15 @@ public class TestSelector {
         testsToRun.addAll(testSuitesModified);
     }
 
-    private void addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts, TiaData tiaData,
+    /**
+     * Add newly added test suites to the run list. New test files are always run - they have
+     * no stored mapping yet.
+     *
+     * @param sourceFileDiffContexts the added test-file diff contexts
+     * @param testsToRun the run set to add the new suites to
+     * @param testFilesDirs the configured test file directories
+     */
+    private void addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
                                           Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesAdded = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
@@ -392,48 +455,75 @@ public class TestSelector {
     /**
      * For the source files that have changed, do a diff to find the methods that have changed.
      *
-     * @param sourceFileDiffContexts
-     * @param tiaData
-     * @param sourceFilesDirs
+     * @param sourceFileDiffContexts the changed-file diff contexts to analyze
+     * @param methodsTrackedByFile the Phase A result: tracked methods for the changed files,
+     *                             keyed by mapping key then method id
+     * @param sourceFilesDirs the configured source root directories
      * @return set of method (hashcodes) that are impacted by the diff changes
      */
     private Set<Integer> findMethodsImpacted(List<SourceFileDiffContext> sourceFileDiffContexts,
-                                             TiaData tiaData, List<String> sourceFilesDirs){
-        return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, tiaData, sourceFilesDirs);
+                                             Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+                                             List<String> sourceFilesDirs){
+        return fileImpactAnalyzer.getMethodsForFilesChanged(sourceFileDiffContexts, methodsTrackedByFile, sourceFilesDirs);
     }
 
     /**
-     * Build the list of test suites that need to be run based on the tracked methods that have been changed.
+     * Build the list of test suites that need to be run based on the tracked methods that have
+     * been changed, using the targeted Phase B query
+     * ({@link DataStore#getTestSuitesForMethods}) instead of an in-memory reverse index over
+     * the full mapping.
      *
-     * @param tiaData                 the loaded Tia data (used to log impacted-method names)
-     * @param methodsImpacted         the set of method ids that the diff implicates
-     * @param methodToTestSuiteIndex  shared reverse-index from method id → test suites
+     * @param methodsImpacted the set of method ids that the diff implicates
+     * @param methodsTrackedByFile the Phase A result, used to resolve method names for debug logging
      * @return the tests that should be executed based on the methods changed in the source code.
      */
-    private Set<String> findTestSuitesForImpactedMethods(TiaData tiaData, Set<Integer> methodsImpacted,
-                                                         MethodToTestSuiteIndex methodToTestSuiteIndex){
-        Map<Integer, Set<String>> methodTestSuites = methodToTestSuiteIndex.getMap();
+    private Set<String> findTestSuitesForImpactedMethods(Set<Integer> methodsImpacted,
+                                                         Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile){
+        Map<Integer, Set<String>> methodTestSuites = dataStore.getTestSuitesForMethods(methodsImpacted);
 
         Set<String> testsToRun = new HashSet<>();
-        methodsImpacted.forEach( ( methodImpacted ) -> {
-            Set<String> methodTestsToRun = methodTestSuites.get(methodImpacted);
-            log.debug("Tests to run ({}) for method {}: {}", methodTestsToRun.size(), tiaData.getMethodsTracked().get(methodImpacted).getMethodName(), methodTestsToRun);
-            testsToRun.addAll(methodTestsToRun);
-        });
+        for (Map.Entry<Integer, Set<String>> entry : methodTestSuites.entrySet()){
+            if (log.isDebugEnabled()){
+                log.debug("Tests to run ({}) for method {}: {}", entry.getValue().size(),
+                        methodNameForId(entry.getKey(), methodsTrackedByFile), entry.getValue());
+            }
+            testsToRun.addAll(entry.getValue());
+        }
 
         log.info("Selected tests to run from VCS source changes: {}", testsToRun);
         return testsToRun;
     }
 
     /**
-     * Add the tests that failed on the previous run - force them to be re-run.
+     * Resolve a method id to its display name from the Phase A per-file result map. Debug
+     * logging only - the linear scan across the diff's files is acceptable there.
      *
-     * @param tiaData
-     * @param testsToRun
+     * @param methodId the tracked method id to resolve
+     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by filename
+     * @return the method name, or the id itself when not found
      */
-    private void addPreviouslyFailedTests(TiaData tiaData, Set<String> testsToRun){
-        testsToRun.addAll(tiaData.getTestSuitesFailed());
-        log.info("Running previously failed tests: {}", tiaData.getTestSuitesFailed());
+    private static String methodNameForId(Integer methodId,
+                                          Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile){
+        for (Map<Integer, MethodImpactTracker> fileMethods : methodsTrackedByFile.values()){
+            MethodImpactTracker tracker = fileMethods.get(methodId);
+            if (tracker != null){
+                return tracker.getMethodName();
+            }
+        }
+        return String.valueOf(methodId);
+    }
+
+    /**
+     * Add the tests that failed on the previous run - force them to be re-run. The failed
+     * set is read directly from the data store (it is small and changes every run, so it is
+     * not part of the up-front metadata load).
+     *
+     * @param testsToRun the run set to add the previously failed tests to
+     */
+    private void addPreviouslyFailedTests(Set<String> testsToRun){
+        Set<String> testSuitesFailed = dataStore.getTestSuitesFailed();
+        testsToRun.addAll(testSuitesFailed);
+        log.info("Running previously failed tests: {}", testSuitesFailed);
     }
 
     /**
@@ -441,14 +531,14 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
-     * @param tiaData
-     * @param testsToRun
-     * @return
+     * @param testSuitesTracked the tracked test suites keyed by suite name
+     * @param testsToRun the test suites selected to run
+     * @return the tracked suites not selected to run - the ignore list
      */
-    private Set<String> getTestsToIgnore(TiaData tiaData, Set<String> testsToRun){
+    private Set<String> getTestsToIgnore(Map<String, TestSuiteTracker> testSuitesTracked, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
 
-        tiaData.getTestSuitesTracked().keySet().forEach( (testSuite) -> {
+        testSuitesTracked.keySet().forEach( (testSuite) -> {
             if (!testsToRun.contains(testSuite)){
                 testsToIgnore.add(testSuite);
             }
@@ -513,10 +603,18 @@ public class TestSelector {
      * {@code true}) record the impacted method IDs as pending via
      * {@link PendingLibraryImpactedMethodsRecorder}.
      *
+     * @param allModifiedSourceDiffs all modified source-file diff contexts for this run
+     * @param methodsTrackedByFile the Phase A result covering all modified source files
+     *                             (library files included - their dirs are part of the
+     *                             normalization roots)
+     * @param sourceFilesDirs the configured source root directories
+     * @param libraryConfig the library impact analysis config
+     * @param updateDBMapping whether this run owns mapping-DB updates
      * @return the source-project diffs (those not belonging to any tracked library).
      */
     private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
-            List<SourceFileDiffContext> allModifiedSourceDiffs, TiaData tiaData,
+            List<SourceFileDiffContext> allModifiedSourceDiffs,
+            Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
             List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig,
             boolean updateDBMapping) {
 
@@ -532,7 +630,7 @@ public class TestSelector {
                 sourceProjectDiffs, libraryDiffBuckets);
 
         recordImpactedMethodsForLibraryBuckets(libraryDiffBuckets, trackedLibraries,
-                tiaData, sourceFilesDirs, libraryConfig, updateDBMapping);
+                methodsTrackedByFile, sourceFilesDirs, libraryConfig, updateDBMapping);
 
         return sourceProjectDiffs;
     }
@@ -591,11 +689,19 @@ public class TestSelector {
      * diffs are kept out of the source-project bucket and don't trigger immediate test selection),
      * but the recorder is not invoked — non-primary builds must not write pending rows or advance
      * the high water mark on a shared mapping DB.
+     *
+     * @param libraryDiffBuckets the modified diffs grouped per owning library
+     * @param trackedLibraries the tracked libraries keyed by coordinate
+     * @param methodsTrackedByFile the Phase A result covering all modified source files
+     * @param sourceFilesDirs the configured source root directories
+     * @param libraryConfig the library impact analysis config
+     * @param updateDBMapping whether this run owns mapping-DB updates
      */
     private void recordImpactedMethodsForLibraryBuckets(
             Map<String, List<SourceFileDiffContext>> libraryDiffBuckets,
             Map<String, TrackedLibrary> trackedLibraries,
-            TiaData tiaData, List<String> sourceFilesDirs,
+            Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+            List<String> sourceFilesDirs,
             LibraryImpactAnalysisConfig libraryConfig,
             boolean updateDBMapping) {
 
@@ -615,7 +721,7 @@ public class TestSelector {
             log.info("Library '{}' has {} modified source files - analyzing impacted methods.",
                     groupArtifact, libraryDiffs.size());
 
-            Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, tiaData, sourceFilesDirs);
+            Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, methodsTrackedByFile, sourceFilesDirs);
             recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
         }
     }

@@ -115,6 +115,9 @@ public class H2DataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
+            // The targeted select-tests path reads the core row before any full load has run,
+            // so this may be the first ever contact with the DB - bootstrap the schema first.
+            ensureSchema(connection);
             tiaData = getCoreData(connection);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
