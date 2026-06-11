@@ -627,7 +627,7 @@ gradle tia-text-report
 |tiaSourceProjectDir|sourceProjectDir|<string>|The file path to the root of the source project whose resolved dependencies are used to resolve `sourceLibs` to JAR files. Only needed when the project running the tests is different from the source project being tracked. For Gradle this can be the current project, a sibling subproject, or an external Gradle build.|current project|false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
 |tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project. Used for the default embedded H2 mode. Ignored when `tiaDBUrl` / `dbUrl` is set.||true (embedded mode)|
-|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb`. When set, Tia connects to that server instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used as given, except that an optional `{branch}` token is replaced with `tiadb-<branch>` for per-branch databases (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`); only the token is replaced, so a prefix/suffix is preserved (`.../{branch}-myproject` → `.../tiadb-main-myproject`). A URL without the token is used verbatim.||false|
+|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1`. When set, Tia connects to that server instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used as given, except that an optional `{branch}` token is replaced with `tiadb-<branch>` for per-branch databases (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`); only the token is replaced, so a prefix/suffix is preserved (`.../{branch}-myproject` → `.../tiadb-main-myproject`). A URL without the token is used verbatim. Include `;DB_CLOSE_DELAY=-1` - see [Using a shared H2 server](#using-a-shared-h2-server).||false|
 |tiaDBUser|dbUser|<string>|Database username for server-mode H2 (`tiaDBUrl`).|sa|false|
 |tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 (`tiaDBUrl`).|(empty)|false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.|${project.build.directory}/tia|true|
@@ -662,7 +662,7 @@ Set `tiaDBUrl` / `dbUrl` (and optionally `tiaDBUser` / `tiaDBPassword`) to the s
 
 Maven - in the `tia-*-maven-plugin` `<configuration>` (or as `${tiaDBUrl}` etc. properties):
 ```xml
-<tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb</tiaDBUrl>
+<tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1</tiaDBUrl>
 <tiaDBUser>tia</tiaDBUser>
 <tiaDBPassword>secret</tiaDBPassword>
 ```
@@ -672,7 +672,7 @@ Setting these on the Tia plugin is enough for both the test-selection step and t
 Gradle:
 ```groovy
 tia {
-    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb'
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1'
     dbUser = 'tia'
     dbPassword = 'secret'
 }
@@ -683,7 +683,7 @@ Putting `tiaDBPassword` / `dbPassword` directly in your POM or `build.gradle` me
 
 ```groovy
 tia {
-    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb'
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1'
     // dbUser / dbPassword omitted - taken from TIA_DB_USER / TIA_DB_PASSWORD
 }
 ```
@@ -694,6 +694,7 @@ The environment fallback only kicks in when the password is **not configured at 
 
 Things to know when using server mode:
 - **Start the server with `-ifNotExists`.** Tia creates its schema (and the database, on first use) automatically. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag, so the first Tia run will fail without it.
+- **Append `;DB_CLOSE_DELAY=-1` to the URL.** Tia opens a short-lived connection per database operation, and by default an H2 server closes a database when its last connection closes - so without this setting every Tia operation pays a full database close and reopen on the server. The symptom is a slow `select-tests` step whose time is spent blocked opening/closing JDBC connections rather than running queries (on one large reference project this was the difference between 28s and 3.5s). `DB_CLOSE_DELAY=-1` keeps the database open between connections. See the [Wiki](WIKI.md) for why this works and what it trades off.
 - **The URL is used as given, with one optional substitution.** Unlike embedded mode, Tia does not automatically append a `tiadb-<branch>` suffix. If you want per-branch databases, put a `{branch}` token where the database name belongs (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`) and Tia replaces that token with `tiadb-<branch>` (path separators in the branch name are replaced with `-`). Only the token is replaced, so you can add a prefix or suffix around it - `jdbc:h2:tcp://h2host:9092/{branch}-myproject` becomes `.../tiadb-main-myproject`. A URL without the token is used verbatim, so a fully-specified URL still takes precedence.
 - **Keep a single mapping writer.** As with embedded mode, only the primary build should set `tiaUpdateDBMapping=true`. All other clients should run with `tiaUpdateDBMapping=false` (mapping is owned by one writer). The other clients only update statistics.
 - **Statistics are best-effort under concurrency.** Statistics counters (run counts, averages) are read-modify-write and are not locked across clients, so when multiple clients update statistics against the same database at the same time, some statistic increments can be lost. Tia treats statistics as advisory; the mapping (owned by the single writer) is unaffected. (See also the multi-fork persistence note in the [Wiki](WIKI.md).)
