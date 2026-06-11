@@ -7,6 +7,7 @@ import com.github.difflib.patch.Patch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 
 import java.util.Arrays;
 import java.util.List;
@@ -35,16 +36,16 @@ public class MethodImpactAnalyzer {
      * @param originalFileName the original filename
      * @param revisedFileName the revised filename
      * @param methodsInvokedByChanges A set of methods that will be invoked by the changes in source code
-     * @param sourceFilesTracked The tracked list of source files and their associated list of methods with previous execution coverage
+     * @param methodsTrackedByFile the tracked methods (with line ranges) for the changed source
+     *                             files, keyed by mapping-key filename then method id - the
+     *                             targeted Phase A read for this run's diff
      * @param sourceFilesDirs Locations of the source files for the project being tested
-     * @param methodImpactTrackers the list of methods that have been impacted by the changes
      */
     public void getMethodsForImpactedFile(final String originalFileContent, final String newFilContent,
                                           final String originalFileName, final String revisedFileName,
                                           final Set<Integer> methodsInvokedByChanges,
-                                          final Map<String, Set<Integer>> sourceFilesTracked,
-                                          final List<String> sourceFilesDirs,
-                                          final Map<Integer, MethodImpactTracker> methodImpactTrackers){
+                                          final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+                                          final List<String> sourceFilesDirs){
 
         List<String> originalFileLines = Arrays.asList(originalFileContent.split(LINEBREAK_PATTERN));
         List<String> newFileLines = Arrays.asList(newFilContent.split(LINEBREAK_PATTERN));
@@ -61,7 +62,8 @@ public class MethodImpactAnalyzer {
                 For each diff, get the line number from the original file, then find the method from the tracked list within
                 the line number range (using start and end line numbers).
              */
-            Set<Integer> methodsTrackedForSourceFile = getMethodsTrackedForSourceFile(sourceFilesTracked, originalFileName, sourceFilesDirs);
+            Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile =
+                    getMethodsTrackedForSourceFile(methodsTrackedByFile, originalFileName, sourceFilesDirs);
 
             if (methodsTrackedForSourceFile != null && !methodsTrackedForSourceFile.isEmpty()){
                 unifiedDiff.forEach( patchDiff -> {
@@ -70,7 +72,7 @@ public class MethodImpactAnalyzer {
                     setImpactedLineBeginEnd(patchDiff, diffContext);
 
                     if (diffContext.isUnifiedDiff()){
-                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, methodsInvokedByChanges, methodImpactTrackers);
+                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, methodsInvokedByChanges);
                     }
                 });
             }
@@ -80,19 +82,24 @@ public class MethodImpactAnalyzer {
         }
     }
 
-    private Set<Integer> getMethodsTrackedForSourceFile(final Map<String, Set<Integer>> sourceFilesTracked,
-                                                        final String originalFilePath,
-                                                        final List<String> sourceFilesDirs){
-        String fileName = originalFilePath;
-
-        for (String sourceFilesDir : sourceFilesDirs){
-            fileName = fileName.replace(sourceFilesDir, "");
-        }
-
-        fileName = fileName.replaceAll("\\\\", "/"); // if Windows, switch to forward slash used in the test mapping
-        fileName = fileName.substring(1); // remove beginning /
+    /**
+     * Look up the tracked methods for a source file from a VCS diff. The diff's file path
+     * is normalized to the stored mapping key via
+     * {@link SourceFilenameUtil#normalizeToMappingKey(String, List)} so the lookup matches
+     * the relative, forward-slash keys produced by the coverage agent.
+     *
+     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by mapping key
+     * @param originalFilePath the original (pre-change) file path from the diff
+     * @param sourceFilesDirs the configured source root directories to strip from the path
+     * @return the tracked methods (by id) for the file, or {@code null} when the file isn't tracked
+     */
+    private Map<Integer, MethodImpactTracker> getMethodsTrackedForSourceFile(
+            final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+            final String originalFilePath,
+            final List<String> sourceFilesDirs){
+        String fileName = SourceFilenameUtil.normalizeToMappingKey(originalFilePath, sourceFilesDirs);
         log.debug("File name to lookup tracked classes for methods - {}", fileName);
-        return sourceFilesTracked.get(fileName);
+        return methodsTrackedByFile.get(fileName);
     }
 
     /**
@@ -105,17 +112,16 @@ public class MethodImpactAnalyzer {
      * Check end point is within method:			    IM end  >= method start && IM end <= method end
      * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
      *
-     * @param diffContext
-     * @param methodsTrackedForSourceFile
-     * @param methodsInvokedByChanges
-     * @param methodImpactTrackers
+     * @param diffContext the parsed diff hunk carrying the impacted line range
+     * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
+     * @param methodsInvokedByChanges accumulator for the ids of methods the diff impacts
      */
     private void findTrackedMethodsForSourceDiff(final DiffContext diffContext,
-                                                 final Set<Integer> methodsTrackedForSourceFile,
-                                                 final Set<Integer> methodsInvokedByChanges,
-                                                 final Map<Integer, MethodImpactTracker> methodImpactTrackers){
-        for (Integer methodHashcode : methodsTrackedForSourceFile) {
-            MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodHashcode);
+                                                 final Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile,
+                                                 final Set<Integer> methodsInvokedByChanges){
+        for (Map.Entry<Integer, MethodImpactTracker> trackedMethod : methodsTrackedForSourceFile.entrySet()) {
+            Integer methodHashcode = trackedMethod.getKey();
+            MethodImpactTracker methodImpactTracker = trackedMethod.getValue();
             int diffLineBegin = diffContext.getImpactedLineNumBegin();
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
             int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line

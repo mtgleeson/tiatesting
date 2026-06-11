@@ -2,12 +2,9 @@ package org.tiatesting.core.diff.diffanalyze;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.core.model.TiaData;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -81,52 +78,50 @@ public class FileImpactAnalyzer {
      * For the source files that have changed, do a diff to find the methods that have changed.
      *
      * @param sourceFileDiffContexts the set of diff file contexts
-     * @param tiaData the Tia DB as an object
+     * @param methodsTrackedByFile the tracked methods (with line ranges) for the changed source
+     *                             files, keyed by mapping-key filename then method id - the
+     *                             targeted Phase A read for this run's diff
      * @param sourceFilesDirs Locations of the source files for the project being tested
      * @return the set of ids for the methods that have changed
      */
     public Set<Integer> getMethodsForFilesChanged(final List<SourceFileDiffContext> sourceFileDiffContexts,
-                                                  final TiaData tiaData, final List<String> sourceFilesDirs){
+                                                  final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+                                                  final List<String> sourceFilesDirs){
         Set<Integer> methodsInvokedByChanges = new HashSet<>();
-        Map<String, Set<Integer>> sourceFilesTracked = buildTrackedSourceFileMethods(tiaData);
-        Map<Integer, MethodImpactTracker> methodImpactTrackers = tiaData.getMethodsTracked();
 
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
             methodImpactAnalyzer.getMethodsForImpactedFile(sourceFileDiffContext.getSourceContentOriginal(),
                     sourceFileDiffContext.getSourceContentNew(), sourceFileDiffContext.getOldFilePath(),
-                    sourceFileDiffContext.getNewFilePath(), methodsInvokedByChanges, sourceFilesTracked,
-                    sourceFilesDirs, methodImpactTrackers);
+                    sourceFileDiffContext.getNewFilePath(), methodsInvokedByChanges, methodsTrackedByFile,
+                    sourceFilesDirs);
         }
 
-        log.debug("Methods impacted: " +
-                methodsInvokedByChanges.stream().map( hc -> methodImpactTrackers.get(hc).getMethodName() ).collect(Collectors.joining(",")));
+        if (log.isDebugEnabled()) {
+            log.debug("Methods impacted: " + methodsInvokedByChanges.stream()
+                    .map(methodId -> methodNameForId(methodId, methodsTrackedByFile))
+                    .collect(Collectors.joining(",")));
+        }
 
         return methodsInvokedByChanges;
     }
 
     /**
-     * Build a convenience map showing a list of impacted methods for each impacted source file (ignore test suite information).
-     * Used for convenience in analyzing the diff files: Tracked Source File: List<MethodImpactTracker>
+     * Resolve a method id to its display name by scanning the per-file tracked-method maps.
+     * Only used for debug logging, so the linear scan across the diff's files is acceptable.
      *
-     * @param tiaData the Tia DB as an object
-     * @return the tracked source file methods
+     * @param methodId the tracked method id to resolve
+     * @param methodsTrackedByFile the tracked methods for the changed files, keyed by filename
+     * @return the method name, or the id itself when not found
      */
-    private static Map<String, Set<Integer>> buildTrackedSourceFileMethods(final TiaData tiaData){
-        Map<String, Set<Integer>> sourceFilesTracked = new HashMap<>();
-
-        for (TestSuiteTracker testSuiteTracker : tiaData.getTestSuitesTracked().values()){
-            for (ClassImpactTracker classImpacted : testSuiteTracker.getClassesImpacted()) {
-                String sourceFilename = classImpacted.getSourceFilename();
-
-                if (sourceFilesTracked.get(sourceFilename) == null){
-                    sourceFilesTracked.put(sourceFilename, new HashSet<>());
-                }
-
-                sourceFilesTracked.get(sourceFilename).addAll(classImpacted.getMethodsImpacted());
+    private static String methodNameForId(final Integer methodId,
+                                          final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile){
+        for (Map<Integer, MethodImpactTracker> fileMethods : methodsTrackedByFile.values()){
+            MethodImpactTracker tracker = fileMethods.get(methodId);
+            if (tracker != null){
+                return tracker.getMethodName();
             }
         }
-
-        return sourceFilesTracked;
+        return String.valueOf(methodId);
     }
 
     private String getDiffFilePath(SourceFileDiffContext sourceFileDiffContext){

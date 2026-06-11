@@ -14,6 +14,12 @@ public class TiaData implements Serializable {
     private String commitValue;
 
     /**
+     * The VCS branch the stored mapping was generated against. Recorded alongside the commit so a
+     * shared (server-mode) database can be attributed to a branch when queried or reported on.
+     */
+    private String branch;
+
+    /**
      * The date and time the stored mapping was last updated.
      */
     private Instant lastUpdated;
@@ -94,6 +100,22 @@ public class TiaData implements Serializable {
 
     public void setCommitValue(String commitValue) {
         this.commitValue = commitValue;
+    }
+
+    /**
+     * @return the VCS branch the stored mapping was generated against, or {@code null} if unknown
+     */
+    public String getBranch() {
+        return branch;
+    }
+
+    /**
+     * Record the VCS branch the stored mapping was generated against.
+     *
+     * @param branch the VCS branch name
+     */
+    public void setBranch(String branch) {
+        this.branch = branch;
     }
 
     public Map<String, TestSuiteTracker> getTestSuitesTracked() {

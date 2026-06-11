@@ -14,6 +14,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Static test selection rules](#static-test-selection-rules)
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
+- [Using a shared H2 server](#using-a-shared-h2-server)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
 - [Credits](#credits)
 - [Additional resources and solutions](#additional-resources-and-solutions)
@@ -95,16 +96,10 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
                 <includes>
                     <include>**/*Test.java</include>
                 </includes>
-                <systemPropertyVariables>
-                    <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
-                    <tiaClassFilesDirs>${tiaClassFilesDirs}</tiaClassFilesDirs>
-                    <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
-                    <tiaEnabled>${tiaEnabled}</tiaEnabled>
-                    <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
-                    <tiaUpdateDBStats>${tiaUpdateDBStats}</tiaUpdateDBStats>
-                    <tiaUpdateDBTestRunHistory>${tiaUpdateDBTestRunHistory}</tiaUpdateDBTestRunHistory>
-                    <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
-                </systemPropertyVariables>
+                <!-- No Tia systemPropertyVariables are needed here. The Tia plugin forwards
+                     everything the forked test JVM requires (DB connection, project dirs, update
+                     flags) to its javaagent automatically, from the Tia plugin <configuration> /
+                     properties above. -->
             </configuration>
         </plugin>
         <plugin>
@@ -632,7 +627,10 @@ gradle tia-text-report
 |tiaSourceLibs|sourceLibs|<string>|Comma separated list of `groupId:artifactId:projectDir` entries for in-repo libraries to additionally track coverage for. The `projectDir` segment is the absolute path to the library's own project root (used for loading its build file and for matching VCS diffs against the library's source tree). The `groupId:artifactId` portion is used to resolve the library version from the source project's dependencies and to add the corresponding JAR to Jacoco analysis. When the test and source projects are separate, they must use the same build system.||false|
 |tiaSourceProjectDir|sourceProjectDir|<string>|The file path to the root of the source project whose resolved dependencies are used to resolve `sourceLibs` to JAR files. Only needed when the project running the tests is different from the source project being tracked. For Gradle this can be the current project, a sibling subproject, or an external Gradle build.|current project|false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.||true|
-|tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project.||true|
+|tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project. Used for the default embedded H2 mode. Ignored when `tiaDBUrl` / `dbUrl` is set.||true (embedded mode)|
+|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1`. When set, Tia connects to that server instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used as given, except that an optional `{branch}` token is replaced with `tiadb-<branch>` for per-branch databases (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`); only the token is replaced, so a prefix/suffix is preserved (`.../{branch}-myproject` → `.../tiadb-main-myproject`). A URL without the token is used verbatim. Include `;DB_CLOSE_DELAY=-1` - see [Using a shared H2 server](#using-a-shared-h2-server).||false|
+|tiaDBUser|dbUser|<string>|Database username for server-mode H2 (`tiaDBUrl`).|sa|false|
+|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 (`tiaDBUrl`).|(empty)|false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.|${project.build.directory}/tia|true|
 |tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.|For Perforce it will default to use the value in the 'p4 set' command.|false|
@@ -708,7 +706,7 @@ Through the tracking of statistics, Tia can generate reports that show how succe
 ## How Does Tia Work
 Tia collects and stores a mapping of methods that are executed for each of your test suites. 
 
-Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping. Tia uses an embedded H2 DB for the data store.
+Tia uses Jacoco to collect the source code coverage for each test suite and store it in the DB for mapping. Tia uses an H2 DB for the data store. By default this is an embedded file-on-disk DB (`tiaDBFilePath` / `dbFilePath`). Tia can also connect to a shared H2 running in [server (TCP) mode](#using-a-shared-h2-server) by setting `tiaDBUrl` / `dbUrl` instead - see below.
 
 The first time Tia runs it needs to 'seed' the mapping DB by running all test suites and collecting the source code mapping for each test suite. It will also store the VCS commit value for that version of the test suite and source code mapping. Each subsequent test run then analyses the changes made and selects only the tests to run that are impacted by the source code changes. All other tests are ignored.
 
@@ -716,6 +714,50 @@ Typically you will want a 'primary' automated build that is configured to run Ti
 Developers using Tia on their local workspace should configure Tia to analyse local changes only (tiaUpdateDBMapping=false and tiaCheckLocalChanges=true).
 
 **Note:** The build machine(s) that are designated to be the 'primary' (which update the test suite to source code mapping) need to run the tests suites **sequentially**. This is important to allow Tia to correctly associate the source code coverage with each test suite.  
+
+## Using a shared H2 server
+By default Tia stores its data in an embedded H2 file on the machine running the build. If you want several builds (for example a primary CI build plus developer/local builds) to share one Tia database, you can point Tia at an H2 instance running in [server (TCP) mode](https://www.h2database.com/html/tutorial.html#using_server) instead.
+
+Set `tiaDBUrl` / `dbUrl` (and optionally `tiaDBUser` / `tiaDBPassword`) to the server's JDBC URL. When set, the embedded `tiaDBFilePath` / `dbFilePath` is ignored.
+
+Maven - in the `tia-*-maven-plugin` `<configuration>` (or as `${tiaDBUrl}` etc. properties):
+```xml
+<tiaDBUrl>jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1</tiaDBUrl>
+<tiaDBUser>tia</tiaDBUser>
+<tiaDBPassword>secret</tiaDBPassword>
+```
+
+Setting these on the Tia plugin is enough for both the test-selection step and the test run itself: the Tia plugin forwards the connection (and the other properties the forked test JVM needs) to its javaagent automatically, so you do **not** need to repeat them in the Surefire `systemPropertyVariables`. (The Gradle plugin already worked this way; earlier Maven releases required manual `systemPropertyVariables` forwarding and would otherwise fall back to embedded mode, failing to open a local file such as `/tiadb-<branch>.mv.db`.)
+
+Gradle:
+```groovy
+tia {
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1'
+    dbUser = 'tia'
+    dbPassword = 'secret'
+}
+```
+
+### Keeping the password out of checked-in config
+Putting `tiaDBPassword` / `dbPassword` directly in your POM or `build.gradle` means committing a secret to source control. To avoid that, leave the password (and optionally the user) unset in the build config and let Tia fall back to environment variables: when the configured value is blank, Tia reads `TIA_DB_PASSWORD` and `TIA_DB_USER` from the environment. CI sets those as secrets and the repo carries no credential.
+
+```groovy
+tia {
+    dbUrl = 'jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1'
+    // dbUser / dbPassword omitted - taken from TIA_DB_USER / TIA_DB_PASSWORD
+}
+```
+
+The build tools also support their own indirection if you prefer it: Maven resolves `<tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>` or a property from `~/.m2/settings.xml` (which supports [encrypted passwords](https://maven.apache.org/guides/mini/guide-encryption.html)); Gradle can read from `~/.gradle/gradle.properties` or a `-P` property. Tia never logs the password (only the JDBC URL), so avoid embedding credentials directly in `dbUrl`.
+
+The environment fallback only kicks in when the password is **not configured at all**. If your database genuinely uses an empty password, set it explicitly - `dbPassword = ''` (Gradle) or `<tiaDBPassword></tiaDBPassword>` (Maven) - and Tia uses the empty value verbatim rather than falling back to `TIA_DB_PASSWORD`.
+
+Things to know when using server mode:
+- **Start the server with `-ifNotExists`.** Tia creates its schema (and the database, on first use) automatically. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag, so the first Tia run will fail without it.
+- **Append `;DB_CLOSE_DELAY=-1` to the URL.** Tia opens a short-lived connection per database operation, and by default an H2 server closes a database when its last connection closes - so without this setting every Tia operation pays a full database close and reopen on the server. The symptom is a slow `select-tests` step whose time is spent blocked opening/closing JDBC connections rather than running queries (on one large reference project this was the difference between 28s and 3.5s). `DB_CLOSE_DELAY=-1` keeps the database open between connections. See the [Wiki](WIKI.md) for why this works and what it trades off.
+- **The URL is used as given, with one optional substitution.** Unlike embedded mode, Tia does not automatically append a `tiadb-<branch>` suffix. If you want per-branch databases, put a `{branch}` token where the database name belongs (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`) and Tia replaces that token with `tiadb-<branch>` (path separators in the branch name are replaced with `-`). Only the token is replaced, so you can add a prefix or suffix around it - `jdbc:h2:tcp://h2host:9092/{branch}-myproject` becomes `.../tiadb-main-myproject`. A URL without the token is used verbatim, so a fully-specified URL still takes precedence.
+- **Keep a single mapping writer.** As with embedded mode, only the primary build should set `tiaUpdateDBMapping=true`. All other clients should run with `tiaUpdateDBMapping=false` (mapping is owned by one writer). The other clients only update statistics.
+- **Statistics are best-effort under concurrency.** Statistics counters (run counts, averages) are read-modify-write and are not locked across clients, so when multiple clients update statistics against the same database at the same time, some statistic increments can be lost. Tia treats statistics as advisory; the mapping (owned by the single writer) is unaffected. (See also the multi-fork persistence note in the [Wiki](WIKI.md).)
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3.8.1+

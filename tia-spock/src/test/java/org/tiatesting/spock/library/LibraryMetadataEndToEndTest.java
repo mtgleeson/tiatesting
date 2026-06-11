@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -40,7 +41,7 @@ class LibraryMetadataEndToEndTest {
         tempDir = File.createTempFile("tia-spock-e2e-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         dataStore.getTiaData(true);
     }
 

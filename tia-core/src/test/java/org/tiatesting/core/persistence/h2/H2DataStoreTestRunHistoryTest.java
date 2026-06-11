@@ -27,7 +27,7 @@ class H2DataStoreTestRunHistoryTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(tempDir.getAbsolutePath(), "test");
+        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
         // force schema creation
         dataStore.getTiaData(true);
     }

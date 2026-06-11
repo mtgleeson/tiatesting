@@ -6,6 +6,7 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
@@ -34,6 +35,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
     private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
     private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
+    private static final String FORK_PROPERTIES_FILENAME = "fork.properties";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -54,13 +56,14 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         final String oldValue = projectProperties.getProperty(name);
 
         String libraryJarsFile = writeLibraryJarsFile();
+        String forkPropertiesFile = writeForkPropertiesFile();
 
         TestSelectorResult testSelectorResult = getTestSelectorResult();
         writeIgnoredTestsToFile(testSelectorResult.getTestsToIgnore());
         writeSelectedTestsToFile(testSelectorResult.getTestsToRun());
         String drainResultFile = writeDrainResultFile(testSelectorResult.getLibraryImpactDrainResult());
 
-        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile);
+        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile, forkPropertiesFile);
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
@@ -93,7 +96,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         // JVM. With DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest
         // of the build, and the test JVM's H2DataStore would fail with "Database may be
         // already in use".
-        try (DataStore dataStore = new H2DataStore(getTiaDBFilePath(), gitReader.getBranchName())) {
+        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(gitReader.getBranchName()))) {
             long startQueryTime = System.currentTimeMillis();
 
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
@@ -189,7 +192,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         return filename;
     }
 
-    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile){
+    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile, String forkPropertiesFile){
         AgentOptions agentOptions = new AgentOptions();
         agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
         agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
@@ -199,7 +202,45 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         if (drainResultFile != null){
             agentOptions.setDrainResultFile(drainResultFile);
         }
+        if (forkPropertiesFile != null){
+            agentOptions.setForkPropertiesFile(forkPropertiesFile);
+        }
         return agentOptions;
+    }
+
+    /**
+     * Write the system properties the forked test JVM needs (database connection, project dirs,
+     * update flags) to a {@code java.util.Properties} file, so the Tia agent can republish them via
+     * {@code premain}. This removes the need for the user to mirror these into the Surefire
+     * {@code systemPropertyVariables} (Gradle forwards them automatically); using a file rather than
+     * inline command-line properties keeps long values - {@code tiaClassFilesDirs} (a CSV) and
+     * {@code testClassesDir} - off the command line and clear of the comma-delimited agent option
+     * parser. Entries with a {@code null} value are skipped, so an unset {@code tiaDBUrl} simply
+     * leaves the fork in embedded mode.
+     *
+     * @return absolute path of the file written
+     */
+    private String writeForkPropertiesFile(){
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("tiaEnabled", String.valueOf(isTiaEnabled()));
+        props.put("tiaUpdateDBMapping", String.valueOf(isTiaUpdateDBMapping()));
+        props.put("tiaUpdateDBStats", String.valueOf(isTiaUpdateDBStats()));
+        props.put("tiaUpdateDBTestRunHistory", String.valueOf(isTiaUpdateDBTestRunHistory()));
+        props.put("tiaProjectDir", getTiaProjectDir());
+        props.put("tiaClassFilesDirs", getTiaClassFilesDirs());
+        props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());
+        props.put("tiaDBFilePath", getTiaDBFilePath());
+        props.put("tiaDBUrl", getTiaDBUrl());
+        props.put("tiaDBUser", getTiaDBUser());
+        props.put("tiaDBPassword", getTiaDBPassword());
+
+        String filename = getTiaBuildDir() + "/" + FORK_PROPERTIES_FILENAME;
+        try {
+            ForkSystemProperties.write(props, new File(filename));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return filename;
     }
 
     /**

@@ -120,6 +120,8 @@ public class TextSummaryReport {
 
         String lineSep = System.lineSeparator();
         reportBuilder.append("Test Mapping Report generated at " + dtf.format(localDate) + lineSep);
+        String branch = tiaData.getBranch() != null ? tiaData.getBranch() : "N/A";
+        reportBuilder.append("Branch: " + branch + lineSep);
         String lastCommit = tiaData.getCommitValue() != null ? tiaData.getCommitValue() : "N/A";
         reportBuilder.append("Test mapping valid for commit number: " + lastCommit + lineSep);
         reportBuilder.append("Number of tests classes with mappings: " + tiaData.getTestSuitesTracked().keySet().size() + lineSep);
