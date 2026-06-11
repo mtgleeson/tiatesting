@@ -330,6 +330,8 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public Map<String, TestSuiteTracker> getTestSuitesTracked() { return delegate.getTestSuitesTracked(); }
         @Override public Map<Integer, MethodImpactTracker> getMethodsTracked() { return delegate.getMethodsTracked(); }
         @Override public Set<Integer> getUniqueMethodIdsTracked() { return delegate.getUniqueMethodIdsTracked(); }
+        @Override public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(Set<String> sourceFilenames) { return delegate.getMethodsTrackedForFiles(sourceFilenames); }
+        @Override public Map<Integer, Set<String>> getTestSuitesForMethods(Set<Integer> methodIds) { return delegate.getTestSuitesForMethods(methodIds); }
         @Override public int getNumTestSuites() { return delegate.getNumTestSuites(); }
         @Override public int getNumSourceMethods() { return delegate.getNumSourceMethods(); }
         @Override public Set<String> getTestSuitesFailed() { return delegate.getTestSuitesFailed(); }
