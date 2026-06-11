@@ -584,19 +584,11 @@ public class TestSelector {
             return;
         }
 
-        // The resolver consumes TiaData but only reads the tracked-suite map from it. The
-        // targeted select path no longer materializes a full TiaData, so build the carrier
-        // from the metadata already loaded; one instance serves both calls (the resolver
-        // caches its suite-name index per TiaData instance).
-        TiaData resolverData = new TiaData();
-        resolverData.setCommitValue(storedCommitValue);
-        resolverData.setTestSuitesTracked(testSuitesTracked);
-
         StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(staticMappingConfig);
-        resolver.warnOnEmptyRules(resolverData);
+        resolver.warnOnEmptyRules(testSuitesTracked);
 
         Set<String> changedPaths = vcsReader.getChangedFilePaths(storedCommitValue, checkLocalChanges);
-        Set<String> forced = resolver.resolve(changedPaths, resolverData);
+        Set<String> forced = resolver.resolve(changedPaths, testSuitesTracked);
         if (!forced.isEmpty()) {
             log.info("Selected tests to run from static test selection rules: {}", forced);
             testsToRun.addAll(forced);
