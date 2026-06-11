@@ -608,9 +608,26 @@ The build tools each build the settings from their own config surface and conver
 
 Three behaviours in `H2DataStore` are embedded-only and would be wrong against a shared server, so they are gated on `settings.isServerMode()`:
 
-1. **Engine-option URL params.** Embedded mode appends `PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY=-1`, and `DB_CLOSE_ON_EXIT=FALSE`. These configure the *database engine instance*, which in server mode lives in the remote server process and is configured when that server starts - not by a connecting client. Server mode therefore uses the supplied URL verbatim with none of these appended.
+1. **Engine-option URL params.** Embedded mode appends `PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY=-1`, and `DB_CLOSE_ON_EXIT=FALSE`. These configure the *database engine instance*, which in server mode lives in the remote server process, so server mode uses the supplied URL verbatim with none of these appended. One of them matters enough in server mode that the **user** should put it in the URL themselves: `DB_CLOSE_DELAY=-1` is a *database-level* setting that a remote client's URL can apply when its connection opens the database, and without it the server closes and reopens the database around every Tia operation - see "Why server-mode URLs should include `DB_CLOSE_DELAY=-1`" below.
 2. **The `tiadb-<branch>` suffix.** Embedded mode derives the file name from the branch so each branch gets its own file. Server mode does not rewrite the URL automatically, with one opt-in exception: if the configured `dbUrl` contains the `{branch}` token, `H2DataStore.buildJdbcUrl` replaces *just that token* with `tiadb-<branch>` (path separators in the branch sanitized to `-`), giving the same per-branch isolation without Tia having to guess where the database name lives. Because only the token is swapped, any prefix or suffix the user writes around it survives (`.../{branch}-myproject` becomes `.../tiadb-main-myproject`). A URL without the token is used verbatim, so a fully-specified URL still wins. This keeps the connection contract explicit - Tia only rewrites the part of the URL the user has explicitly delegated.
 3. **`SHUTDOWN IMMEDIATELY` on `close()`.** In embedded mode `close()` issues `SHUTDOWN IMMEDIATELY` to release the `.mv.db` file lock before Surefire/Gradle forks the test JVM (with `DB_CLOSE_DELAY=-1` the lock would otherwise persist for the life of the daemon JVM). Against a server that command shuts down the whole database **for every connected client**, so server-mode `close()` is a no-op - the per-operation connections are already closed by their own `finally` blocks.
+
+### Why server-mode URLs should include `DB_CLOSE_DELAY=-1`
+
+`H2DataStore` opens a fresh JDBC connection for every operation and closes it in a `finally` block. That per-operation pattern is deliberate - it keeps the store stateless, makes every method safe to call in isolation, and in embedded mode it costs almost nothing because the engine option `DB_CLOSE_DELAY=-1` (hardcoded into the embedded URL) keeps the database instance open between connections.
+
+Server mode inherits the same per-operation connections but **not** the same setting: the server-mode URL is used verbatim (see item 1 above), so unless the user's URL says otherwise, the database on the server runs with H2's default `DB_CLOSE_DELAY=0` - *close the database when its last connection closes*. Tia's connections never overlap, so every connection is "the last connection". Each datastore call then makes the server flush and close the whole database on `Connection.close()`, and re-open it from disk on the next `getConnection()`.
+
+On a large mapping DB each close/reopen cycle costs roughly half a second to a second, and a single `select-tests` run performs a dozen or more datastore operations - more when library impact analysis is enabled, because the drain path reads pending batches per tracked library. On the reference project this was measured at ~23.6s of a 28s run spent blocked on the server's close/reopen churn; appending `DB_CLOSE_DELAY=-1` to the URL dropped the run to 3.5s.
+
+The JFR signature of a missing `DB_CLOSE_DELAY` is distinctive, and worth recognizing because it looks superficially like "slow queries":
+- the main thread is blocked in `SocketInputStream.socketRead` under `org.h2.value.Transfer.readInt` (waiting for the server, not transferring data);
+- the dominant H2 client frame is `JdbcConnection.close()` - the time is in *closing connections*, not executing statements;
+- CPU is idle (few `ExecutionSample` events) and per-read payloads are tiny.
+
+Why `-1` (keep open until the server shuts down) rather than a timeout like `DB_CLOSE_DELAY=60`: the server in this topology exists solely to serve Tia clients, and the mapping DB is its working set - there is nothing to reclaim by letting it close between builds, and a timeout just reintroduces the reopen cost for whichever build arrives after a quiet period. The trade-off of `-1` is that the database stays open (holding its cache) until the server process stops; that is the desired steady state for a shared Tia server.
+
+Why Tia doesn't append it automatically: the server-mode contract is that the URL is the user's, verbatim - Tia only ever substitutes the explicitly-delegated `{branch}` token (item 2 above). Silently injecting engine options would blur that contract and surprise a user who has deliberately configured a different close-delay policy on their server. Auto-appending it only-when-absent would be safe in practice and may become the default later; until then it is a documented one-liner in the README's server-mode checklist.
 
 ### Credential resolution and keeping secrets out of config
 
@@ -659,14 +676,16 @@ The server listens on port `9092` by default and prints `TCP server running at t
 ```groovy
 // Gradle - one database per branch via the {branch} token
 tia {
-    dbUrl = 'jdbc:h2:tcp://localhost:9092/{branch}'
+    dbUrl = 'jdbc:h2:tcp://localhost:9092/{branch};DB_CLOSE_DELAY=-1'
 }
 ```
 
 ```xml
 <!-- Maven - or a fixed database name, used verbatim -->
-<tiaDBUrl>jdbc:h2:tcp://localhost:9092/tiadb</tiaDBUrl>
+<tiaDBUrl>jdbc:h2:tcp://localhost:9092/tiadb;DB_CLOSE_DELAY=-1</tiaDBUrl>
 ```
+
+(`DB_CLOSE_DELAY=-1` keeps the database open between Tia's per-operation connections - see the dedicated subsection above.)
 
 With no credentials configured, Tia falls back through `TIA_DB_USER` / `TIA_DB_PASSWORD` to `sa` / empty (see the credential-resolution subsection above), which matches the `sa`/empty account H2 creates for a brand-new database. To rehearse the env-var fallback, `export TIA_DB_PASSWORD=...` before the build and leave `dbPassword` unset; note that H2 fixes the account on first creation, so whatever password first connects becomes the database's password.
 
