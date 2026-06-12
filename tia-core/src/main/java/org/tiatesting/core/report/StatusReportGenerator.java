@@ -8,8 +8,6 @@ import java.text.DecimalFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Generate core information about the stored DB and output it to the user.
@@ -20,9 +18,11 @@ public class StatusReportGenerator {
 
     /**
      * Build the status snapshot from the data store: mapping identity (last updated, branch,
-     * sealed commit), mapping size counts, aggregate run statistics and the pending failed
-     * tests. Library information is intentionally not included - that's the libraries
-     * task's job ({@link LibrariesReportGenerator}).
+     * sealed commit), mapping size counts and aggregate run statistics. Library information
+     * is intentionally not included - that's the libraries task's job
+     * ({@link LibrariesReportGenerator}). Pending failed tests are also not included - they
+     * surface in the select-tests output ("Running previously failed tests"), where they are
+     * acted on.
      *
      * @param dataStore the Tia data store to read the snapshot from
      * @return the formatted status report text
@@ -52,13 +52,7 @@ public class StatusReportGenerator {
         sb.append("Number of runs: " + stats.getNumRuns() + lineSep);
         sb.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
         sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
-        sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
-
-        Set<String> getTestSuitesFailed = dataStore.getTestSuitesFailed();
-        String failedTests = getTestSuitesFailed.stream().map(test ->
-                "\t" + test).collect(Collectors.joining(lineSep));
-        failedTests = (failedTests != null && !failedTests.isEmpty()) ? failedTests : "\tnone";
-        sb.append("Pending failed tests:" + lineSep + failedTests);
+        sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)");
 
         return sb.toString();
     }
