@@ -279,8 +279,14 @@ public class P4DiffAnalyzer {
         Map<String, SourceFileDiffContext> sourceFileDiffContexts = new HashMap<>();
         log.info("Finding the impacted sources code files in P4 for the changelist range from {} to {}", clFrom, clTo);
 
-        String streamName = p4Connection.getClient().getStream();
-        String filePaths = streamName + "/...@" + clFrom + "," + clTo;
+        // Query in client syntax (not stream syntax) so the server expands the whole client
+        // view - including stream import/overlay paths whose depot location lives outside the
+        // stream. A stream-scoped query silently omits submitted changes to imported source
+        // files, so no tests would be selected for them. The downstream source-dir filter
+        // (isFileInSourceOrTestDir) already supports imported files: it compares against the
+        // configured source dirs resolved through the client view via p4 where.
+        String clientName = p4Connection.getClient().getName();
+        String filePaths = "//" + clientName + "/...@" + clFrom + "," + clTo;
 
         try {
             // allRevs=true so files changed in multiple CLs in the range come back one entry
