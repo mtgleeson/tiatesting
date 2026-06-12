@@ -408,19 +408,11 @@ Average run time: 459ms
 Number of successful runs: 1 (100%)
 Number of failed runs: 0 (0%)
 
-Tracked libraries:
-	com.example:libA
-		Project dir: /abs/path/to/libA
-		Last source-project version: 1.0.0
-		Last released version (HWM): 1.0.0
-
 Pending failed tests:
 	none
-
-Pending library changes:
-	com.example:libA
-		@ 1.1.0 — 3 methods pending
 ```
+
+Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below.
 
 **Maven, Junit5 and Git**
 ```
@@ -445,6 +437,45 @@ mvn tia-junit4-perforce:status
 **Gradle, Spock and Git**
 ```
 gradle tia-status
+```
+
+### Libraries — tracked libraries and their pending changes
+Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last source-project version, last released version (HWM, when tracked), and the library's pending impacted-method batches.
+Example output:
+```
+Tracked libraries:
+	com.example:libA
+		Project dir: /abs/path/to/libA
+		Source dirs: /abs/path/to/libA/src/main/java
+		Last source-project version: 1.0.0
+		Last released version (HWM): 1.0.0
+		Pending batches: 1
+			@ 1.1.0 - 3 methods pending
+```
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:libraries
+```
+
+**Maven, Junit5 and Perforce**
+```
+mvn tia-junit5-perforce:libraries
+```
+
+**Maven, Junit4 and Git**
+```
+mvn tia-junit4-git:libraries
+```
+
+**Maven, Junit4 and Perforce**
+```
+mvn tia-junit4-perforce:libraries
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-libraries
 ```
 
 
