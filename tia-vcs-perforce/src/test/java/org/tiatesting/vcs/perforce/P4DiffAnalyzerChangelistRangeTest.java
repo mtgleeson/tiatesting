@@ -9,6 +9,7 @@ import com.perforce.p4java.server.IOptionsServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -63,6 +64,7 @@ class P4DiffAnalyzerChangelistRangeTest {
         when(p4Connection.getServer()).thenReturn(server);
         when(p4Connection.getClient()).thenReturn(client);
         when(client.getStream()).thenReturn(STREAM);
+        when(client.getName()).thenReturn("testclient");
 
         analyzer = new P4DiffAnalyzer();
 
@@ -102,6 +104,32 @@ class P4DiffAnalyzerChangelistRangeTest {
         assertEquals(2, contexts.size(), "expected Foo and Bar in the diff contexts");
         assertTrue(contexts.containsKey(FOO_DEPOT));
         assertTrue(contexts.containsKey(BAR_DEPOT));
+    }
+
+    /**
+     * The range query must be scoped to the client view ({@code //<client>/...}) rather than
+     * the stream path. A stream-scoped query silently omits submitted changes to files mapped
+     * into the workspace via stream import/overlay paths (their depot location is outside the
+     * stream), so no tests would be selected for those changes.
+     */
+    @Test
+    void rangeQuery_usesClientViewSyntaxSoImportPathsAreIncluded() throws P4JavaException {
+        // given
+        IFileSpec fooEditedAt101 = spec(FOO_DEPOT, "/ws/Foo.java", FileAction.EDIT, 101);
+        when(server.getDepotFiles(any(), eq(true))).thenReturn(Collections.singletonList(fooEditedAt101));
+        IFileSpec fooWhere = spec(FOO_DEPOT, "/ws/Foo.java", null, 0);
+        when(client.where(any())).thenReturn(Collections.singletonList(fooWhere));
+
+        // when
+        analyzer.getSourceFilesImpactedFromPreviousSubmit(p4Connection, "101", "103", sourceAndTestFilesSpecs);
+
+        // then - the query path uses client syntax over the full view, not the stream path
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<IFileSpec>> depotFilesArg = ArgumentCaptor.forClass((Class) List.class);
+        verify(server).getDepotFiles(depotFilesArg.capture(), eq(true));
+        String queriedPath = depotFilesArg.getValue().get(0).getAnnotatedPreferredPathString();
+        assertTrue(queriedPath.startsWith("//testclient/..."),
+                "expected a client-syntax view query, got: " + queriedPath);
     }
 
     /**
