@@ -19,6 +19,7 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
@@ -47,6 +48,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         this.project = project;
         this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
         createStatusTask();
+        createLibrariesTask();
         createTextReportTask();
         createHtmlReportTask();
         createSelectTestsTask();
@@ -58,6 +60,20 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
                 StatusReportGenerator reportGenerator = new StatusReportGenerator();
                 System.out.println(reportGenerator.generateSummaryReport(dataStore));
+            }
+        });
+    }
+
+    /**
+     * Task to print the tracked libraries and their state (project dir, source dirs, versions,
+     * pending impacted-method batches) to stdout. Mirrors {@link #createStatusTask()} in shape;
+     * the status task intentionally no longer includes library information.
+     */
+    public void createLibrariesTask() {
+        project.task("tia-libraries").doLast(task -> {
+            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+                LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
+                System.out.println(reportGenerator.generateLibrariesReport(dataStore));
             }
         });
     }
