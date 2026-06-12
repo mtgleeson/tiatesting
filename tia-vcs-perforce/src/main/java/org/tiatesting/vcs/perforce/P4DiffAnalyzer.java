@@ -65,13 +65,19 @@ public class P4DiffAnalyzer {
     }
 
     /**
-     * Return the repo-relative, forward-slash-normalised paths of every file changed either in the
-     * CL range from {@code baseCl} to head or in the local workspace. No file content is loaded
-     * and no file-type filter is applied (paths for all file types are returned). Depot paths are
-     * normalised by stripping the client's stream prefix (e.g.
-     * {@code //apps/example/tia-test-project/src/main/resources/db/V001.sql} becomes
-     * {@code src/main/resources/db/V001.sql}). Paths that do not start with the stream prefix
-     * are skipped so the contract stays repo-relative.
+     * Return the workspace-root-relative, forward-slash-normalised paths of every file changed
+     * either in the CL range from {@code baseCl} to head or in the local workspace. No file
+     * content is loaded and no file-type filter is applied (paths for all file types are
+     * returned).
+     *
+     * <p>Paths are normalised through the client view: each depot path is resolved to its local
+     * workspace path with {@code p4 where} and then relativized against the client's root
+     * directory. Resolving through the view (rather than stripping a stream-path prefix) makes
+     * files that reach the workspace via stream {@code import}/overlay paths visible - their
+     * depot path lives outside the stream, but their local path is inside the workspace like
+     * any other file. It also works for classic (non-stream) clients, which have no stream
+     * path at all. For a stream client whose root maps the stream directly, the resulting
+     * relative paths are identical to the previous stream-prefix behaviour.
      *
      * @param p4Context object used to hold data about a Perforce server being analysed by Tia.
      * @param baseCl the current changelist stored in the mapping; ignored when {@code checkLocalChanges} is {@code true}.
@@ -81,7 +87,6 @@ public class P4DiffAnalyzer {
      */
     protected Set<String> getChangedFilePaths(final P4Context p4Context, final String baseCl,
                                               final boolean checkLocalChanges) {
-        String streamPrefix = p4Context.getP4Connection().getClient().getStream() + "/";
         Set<String> changedPaths = new HashSet<>();
 
         try {
@@ -89,15 +94,35 @@ public class P4DiffAnalyzer {
                     ? getLocalChangedFileSpecs(p4Context.getP4Connection())
                     : getRangeChangedFileSpecs(p4Context.getP4Connection(), baseCl, p4Context.getHeadCL());
 
-            for (IFileSpec fileSpec : rawChangedFiles) {
-                String depotPath = fileSpec.getDepotPathString();
-                if (depotPath == null) {
+            List<String> depotPaths = rawChangedFiles.stream()
+                    .map(IFileSpec::getDepotPathString)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (depotPaths.isEmpty()) {
+                return changedPaths;
+            }
+
+            // Resolve depot paths to local workspace paths through the client view, then
+            // relativize against the workspace root.
+            List<IFileSpec> whereFileSpecs = p4Context.getP4Connection().getClient()
+                    .where(FileSpecBuilder.makeFileSpecList(depotPaths));
+            String workspaceRootPrefix = buildWorkspaceRootPrefix(p4Context.getP4Connection());
+
+            for (IFileSpec whereFileSpec : whereFileSpecs) {
+                String localPath = whereFileSpec.getLocalPathString();
+                if (localPath == null) {
+                    // not mapped in the client view (or a where info/error entry) - can't be
+                    // expressed as a workspace-relative path.
+                    log.trace("Skipping changed file with no local mapping in the client view: {}",
+                            whereFileSpec.getDepotPathString());
                     continue;
                 }
-                if (depotPath.startsWith(streamPrefix)) {
-                    changedPaths.add(depotPath.substring(streamPrefix.length()));
+                String normalizedLocalPath = localPath.replace('\\', '/');
+                if (normalizedLocalPath.startsWith(workspaceRootPrefix)) {
+                    changedPaths.add(normalizedLocalPath.substring(workspaceRootPrefix.length()));
                 } else {
-                    log.trace("Skipping changed file outside the client's stream: {}", depotPath);
+                    log.trace("Skipping changed file outside the client workspace root: {}", normalizedLocalPath);
                 }
             }
         } catch (P4JavaException e) {
@@ -108,10 +133,27 @@ public class P4DiffAnalyzer {
     }
 
     /**
+     * Build the forward-slash, trailing-slash-terminated workspace root prefix used to
+     * relativize local file paths, from the client's configured root directory.
+     *
+     * @param p4Connection the Perforce connection whose client root to use.
+     * @return the normalised root prefix, e.g. {@code /Users/me/ws/} or {@code C:/ws/}.
+     */
+    private String buildWorkspaceRootPrefix(final P4Connection p4Connection) {
+        String root = p4Connection.getClient().getRoot().replace('\\', '/');
+        return root.endsWith("/") ? root : root + "/";
+    }
+
+    /**
      * Query Perforce for every file changed in the changelist range {@code baseCl+1..headCl}.
      * Mirrors the submit-range query in {@link #getSourceFilesImpactedFromPreviousSubmit} but
      * applies no file-type or source-dir filter. Returns an empty list when the workspace head
      * is already at {@code baseCl}.
+     *
+     * <p>The range is queried in client syntax ({@code //<client>/...}) rather than stream
+     * syntax, so the server expands the whole client view - including stream
+     * {@code import}/overlay paths whose depot location lives outside the stream. A
+     * stream-scoped query would silently omit submitted changes to those files.
      *
      * @param p4Connection the Perforce connection.
      * @param baseCl the previously stored changelist value.
@@ -127,8 +169,8 @@ public class P4DiffAnalyzer {
             return Collections.emptyList();
         }
         int clFrom = Integer.parseInt(baseCl) + 1;
-        String streamName = p4Connection.getClient().getStream();
-        String filePaths = streamName + "/...@" + clFrom + "," + headCl;
+        String clientName = p4Connection.getClient().getName();
+        String filePaths = "//" + clientName + "/...@" + clFrom + "," + headCl;
         List<IFileSpec> changedFiles = p4Connection.getServer().getDepotFiles(
                 FileSpecBuilder.makeFileSpecList(filePaths), true);
         return (changedFiles != null) ? changedFiles : Collections.emptyList();
