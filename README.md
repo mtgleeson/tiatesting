@@ -407,12 +407,9 @@ Number of runs: 1
 Average run time: 459ms
 Number of successful runs: 1 (100%)
 Number of failed runs: 0 (0%)
-
-Pending failed tests:
-	none
 ```
 
-Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below.
+Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below. Pending failed tests (forced to re-run) are shown by the select-tests task.
 
 **Maven, Junit5 and Git**
 ```
