@@ -176,9 +176,15 @@ class TestSelectorStaticTestSelectionTest {
         }
 
         @Override
-        public Set<SourceFileDiffContext> buildDiffFilesContext(String baseChangeNum, List<String> sourceFilesDirs,
-                                                                List<String> testFilesDirs, boolean checkLocalChanges) {
+        public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
+                                                       List<String> testFilesDirs, boolean checkLocalChanges) {
             return Collections.emptySet();
+        }
+
+        @Override
+        public void loadContentForDiffs(java.util.Collection<SourceFileDiffContext> diffs, String baseChangeNum,
+                                        boolean checkLocalChanges) {
+            // no-op: this stub returns no diffs
         }
 
         @Override

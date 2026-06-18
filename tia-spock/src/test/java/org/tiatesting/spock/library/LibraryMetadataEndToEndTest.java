@@ -121,11 +121,15 @@ class LibraryMetadataEndToEndTest {
     private static class StubVCSReader implements VCSReader {
         @Override public String getBranchName() { return "test"; }
         @Override public String getHeadCommit() { return "head"; }
-        @Override public Set<SourceFileDiffContext> buildDiffFilesContext(String baseChangeNum,
-                                                                           List<String> sourceFilesDirs,
-                                                                           List<String> testFilesDirs,
-                                                                           boolean checkLocalChanges) {
+        @Override public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum,
+                                                                 List<String> sourceFilesDirs,
+                                                                 List<String> testFilesDirs,
+                                                                 boolean checkLocalChanges) {
             return new HashSet<>();
+        }
+        @Override public void loadContentForDiffs(java.util.Collection<SourceFileDiffContext> diffs,
+                                                  String baseChangeNum, boolean checkLocalChanges) {
+            // no-op: this stub returns no diffs
         }
         @Override public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return new HashSet<>();

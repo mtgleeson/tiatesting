@@ -292,8 +292,11 @@ public class TestSelector {
             sourceFilesDirs.addAll(collectTrackedLibraryDirs());
         }
 
-        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.buildDiffFilesContext(storedCommitValue,
+        // Get the changed files (paths + change type, no content yet). Content is loaded below -
+        // for now for every diff, preserving the original behaviour.
+        Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.getDiffFiles(storedCommitValue,
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
+        vcsReader.loadContentForDiffs(impactedSourceFiles, storedCommitValue, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);

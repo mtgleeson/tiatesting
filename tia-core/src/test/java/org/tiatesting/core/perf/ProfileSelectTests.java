@@ -181,8 +181,8 @@ public final class ProfileSelectTests {
          * @return the synthetic diff contexts
          */
         @Override
-        public Set<SourceFileDiffContext> buildDiffFilesContext(String baseChangeNum, List<String> sourceFilesDirs,
-                                                                 List<String> testFilesDirs, boolean checkLocalChanges) {
+        public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
+                                                       List<String> testFilesDirs, boolean checkLocalChanges) {
             Set<SourceFileDiffContext> diffs = new HashSet<>();
             StringBuilder original = new StringBuilder();
             StringBuilder changed = new StringBuilder();
@@ -201,6 +201,12 @@ public final class ProfileSelectTests {
                 diffs.add(diff);
             }
             return diffs;
+        }
+
+        @Override
+        public void loadContentForDiffs(java.util.Collection<SourceFileDiffContext> diffs, String baseChangeNum,
+                                        boolean checkLocalChanges) {
+            // no-op: synthetic content is baked into the contexts by getDiffFiles
         }
 
         @Override

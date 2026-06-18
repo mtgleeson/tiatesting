@@ -12,6 +12,7 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,11 +46,17 @@ public class P4Reader implements VCSReader {
     }
 
     @Override
-    public Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
-                                                            final List<String> testFilesDirs, final boolean checkLocalChanges) {
+    public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum, final List<String> sourceFilesDirs,
+                                                   final List<String> testFilesDirs, final boolean checkLocalChanges) {
         List<String> sourceAndTestFilesDir = new ArrayList<>(sourceFilesDirs);
         sourceAndTestFilesDir.addAll(testFilesDirs);
-        return p4DiffAnalyzer.buildDiffFilesContext(p4Context, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
+        return p4DiffAnalyzer.getDiffFiles(p4Context, baseChangeNum, sourceAndTestFilesDir, checkLocalChanges);
+    }
+
+    @Override
+    public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs, final String baseChangeNum,
+                                    final boolean checkLocalChanges) {
+        p4DiffAnalyzer.loadContentForDiffContexts(p4Context, diffs, baseChangeNum, checkLocalChanges);
     }
 
     /**
