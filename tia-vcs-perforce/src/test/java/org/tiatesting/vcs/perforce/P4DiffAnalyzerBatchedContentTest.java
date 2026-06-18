@@ -82,6 +82,24 @@ class P4DiffAnalyzerBatchedContentTest {
     }
 
     /**
+     * Compose the two-step diff API the analyzer now exposes (list build then content load) into
+     * the single end-to-end call these content tests assert on - equivalent to the old
+     * {@code buildDiffFilesContext}.
+     *
+     * @param ctx the P4 context
+     * @param baseCl the stored changelist
+     * @param dirs the source/test directory specs
+     * @param checkLocalChanges whether to analyse local changes
+     * @return the diff contexts with content populated
+     */
+    private Set<SourceFileDiffContext> buildDiffFilesContext(P4Context ctx, String baseCl, List<String> dirs,
+                                                             boolean checkLocalChanges) {
+        Set<SourceFileDiffContext> diffs = analyzer.getDiffFiles(ctx, baseCl, dirs, checkLocalChanges);
+        analyzer.loadContentForDiffContexts(ctx, diffs, baseCl, checkLocalChanges);
+        return diffs;
+    }
+
+    /**
      * For N modified files, the content fetch should fire exactly one
      * {@code execStreamCmd("print", argv)} call per version - so 2 total for the typical
      * "old + new" analysis - regardless of N. Verifies that the per-file
@@ -120,7 +138,7 @@ class P4DiffAnalyzerBatchedContentTest {
         P4Context ctx = new P4Context(p4Connection, "main", "103");
 
         // when
-        analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+        buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then - exactly two batched calls (one per version), never the per-file getContents
         verify(server, times(2)).execStreamCmd(eq("print"), any(String[].class));
@@ -164,7 +182,7 @@ class P4DiffAnalyzerBatchedContentTest {
         P4Context ctx = new P4Context(p4Connection, "main", "103");
 
         // when
-        analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+        buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then - both passes' argvs use the @CL annotation, first against baseCl=100, second against clTo=103
         ArgumentCaptor<String[]> argvCaptor = ArgumentCaptor.forClass(String[].class);
@@ -225,7 +243,7 @@ class P4DiffAnalyzerBatchedContentTest {
         P4Context ctx = new P4Context(p4Connection, "main", "103");
 
         // when
-        analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+        buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then - the forOriginal=false argv carries @103 for BOTH files (not #-1 for the ADD)
         ArgumentCaptor<String[]> argvCaptor = ArgumentCaptor.forClass(String[].class);
@@ -281,7 +299,7 @@ class P4DiffAnalyzerBatchedContentTest {
 
         // when
         Set<SourceFileDiffContext> contexts =
-                analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+                buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then
         Map<String, SourceFileDiffContext> byPath = new HashMap<>();
@@ -338,7 +356,7 @@ class P4DiffAnalyzerBatchedContentTest {
 
         // when
         Set<SourceFileDiffContext> contexts =
-                analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+                buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then - one context, the missing spec didn't propagate
         assertEquals(1, contexts.size());
@@ -382,7 +400,7 @@ class P4DiffAnalyzerBatchedContentTest {
 
         // when / then
         VCSAnalyzerException thrown = assertThrows(VCSAnalyzerException.class,
-                () -> analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false));
+                () -> buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false));
         assertTrue(thrown.getMessage().contains(BAR_DEPOT),
                 "exception should name the missing depot path. Got: " + thrown.getMessage());
     }
@@ -448,7 +466,7 @@ class P4DiffAnalyzerBatchedContentTest {
 
         // when
         Set<SourceFileDiffContext> contexts =
-                analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
+                buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false);
 
         // then - both files have content attributed correctly despite Foo's missing trailing \n
         Map<String, SourceFileDiffContext> byPath = new HashMap<>();
@@ -491,7 +509,7 @@ class P4DiffAnalyzerBatchedContentTest {
 
         // when / then
         VCSAnalyzerException thrown = assertThrows(VCSAnalyzerException.class,
-                () -> analyzer.buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false));
+                () -> buildDiffFilesContext(ctx, "100", Collections.singletonList(SOURCE_DIR_DEPOT), false));
         assertTrue(thrown.getMessage().contains("null stream"),
                 "exception should mention the null-stream cause. Got: " + thrown.getMessage());
     }

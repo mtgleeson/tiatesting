@@ -269,9 +269,15 @@ class TestSelectorUpdateDBMappingGateTest {
         }
 
         @Override
-        public Set<SourceFileDiffContext> buildDiffFilesContext(String baseChangeNum, List<String> sourceFilesDirs,
-                                                                List<String> testFilesDirs, boolean checkLocalChanges) {
+        public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
+                                                       List<String> testFilesDirs, boolean checkLocalChanges) {
             return diffs;
+        }
+
+        @Override
+        public void loadContentForDiffs(java.util.Collection<SourceFileDiffContext> diffsToLoad, String baseChangeNum,
+                                        boolean checkLocalChanges) {
+            // no-op: this stub's diffs carry whatever content the test needs already
         }
 
         @Override
