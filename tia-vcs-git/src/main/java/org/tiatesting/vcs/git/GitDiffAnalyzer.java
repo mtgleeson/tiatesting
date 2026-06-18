@@ -43,13 +43,15 @@ public class GitDiffAnalyzer {
      * @param checkLocalChanges should local changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(final GitContext gitContext, final String commitFrom,
-                                                               final List<String> sourceAndTestDirs,
-                                                               final boolean checkLocalChanges) {
+    protected Set<SourceFileDiffContext> getDiffFiles(final GitContext gitContext, final String commitFrom,
+                                                      final List<String> sourceAndTestDirs,
+                                                      final boolean checkLocalChanges) {
         ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
         ObjectId commitToObjectId = gitContext.getHeadObjectId();
 
-        // get changes from the previously stored commit to HEAD - the diff list only, no content yet
+        // get changes from the previously stored commit to HEAD - the diff list only, no content.
+        // Content is loaded separately via loadContentForDiffs so the caller can restrict it to a
+        // chosen subset of files.
         Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
         if (checkLocalChanges){
@@ -60,11 +62,6 @@ public class GitDiffAnalyzer {
             sourceFileDiffContexts.addAll(getChangesSinceLastRunCommit(gitContext, commitFromObjectId, commitToObjectId,
                     sourceAndTestDirs));
         }
-
-        // Load file content for the diffs. Kept as a separate step (rather than folded into the
-        // list build) so a later change can fetch content for only a chosen subset of files; this
-        // stage fetches content for every diff, preserving the original behaviour.
-        loadContentForDiffContexts(gitContext, sourceFileDiffContexts, commitFromObjectId, checkLocalChanges);
 
         return sourceFileDiffContexts;
     }
@@ -80,8 +77,8 @@ public class GitDiffAnalyzer {
      * @param commitFrom the commit the mapping is valid for (the commit-range "before")
      * @param checkLocalChanges whether the diffs are local-workspace changes
      */
-    private void loadContentForDiffContexts(GitContext gitContext, Collection<SourceFileDiffContext> diffs,
-                                            ObjectId commitFrom, boolean checkLocalChanges) {
+    void loadContentForDiffContexts(GitContext gitContext, Collection<SourceFileDiffContext> diffs,
+                                            String commitFrom, boolean checkLocalChanges) {
         if (diffs.isEmpty()) {
             return;
         }
@@ -97,7 +94,8 @@ public class GitDiffAnalyzer {
             readFileContentForVersion(repository, gitContext.getHeadObjectId(), true, diffsByPath);
             readLocalFileContent(repository, false, diffsByPath);
         } else {
-            readFileContentForVersion(repository, commitFrom, true, diffsByPath);
+            ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
+            readFileContentForVersion(repository, commitFromObjectId, true, diffsByPath);
             readFileContentForVersion(repository, gitContext.getHeadObjectId(), false, diffsByPath);
         }
     }

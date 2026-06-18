@@ -44,13 +44,15 @@ public class P4DiffAnalyzer {
      * @param checkLocalChanges should local changes be analyzed for test selection
      * @return list of SourceFileDiffContext for the files impacted in the given commit range to head
      */
-    protected Set<SourceFileDiffContext> buildDiffFilesContext(final P4Context p4Context, final String baseCl,
-                                                               final List<String> sourceAndTestFiles,
-                                                               final boolean checkLocalChanges) {
+    protected Set<SourceFileDiffContext> getDiffFiles(final P4Context p4Context, final String baseCl,
+                                                      final List<String> sourceAndTestFiles,
+                                                      final boolean checkLocalChanges) {
         String clTo = p4Context.getHeadCL();
         List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
 
-        // get changes from the previously stored CL number to HEAD - the diff list only, no content yet
+        // get changes from the previously stored CL number to HEAD - the diff list only, no content.
+        // Content is loaded separately via loadContentForDiffContexts so the caller can restrict it
+        // to a chosen subset of files.
         Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
         if (checkLocalChanges){
@@ -60,11 +62,6 @@ public class P4DiffAnalyzer {
             // get the changes since the CL that was last run with Tia
             sourceFileDiffContexts.addAll(getChangesSinceLastRunCL(p4Context, baseCl, clTo, sourceAndTestFilesSpecs));
         }
-
-        // Load file content for the diffs. Kept as a separate step (rather than folded into the
-        // list build) so a later change can fetch content for only a chosen subset of files; this
-        // stage fetches content for every diff, preserving the original behaviour.
-        loadContentForDiffContexts(p4Context, sourceFileDiffContexts, baseCl, checkLocalChanges);
 
         return sourceFileDiffContexts;
     }

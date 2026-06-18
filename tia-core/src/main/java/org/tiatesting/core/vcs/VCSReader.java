@@ -2,6 +2,7 @@ package org.tiatesting.core.vcs;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -25,17 +26,36 @@ public interface VCSReader {
     String getHeadCommit();
 
     /**
-     * Find all the source code files in a list of revisions from a given commit value to the head of the VCS.
-     * For each impacted source code file load the file content from both the starting revision and the head revision.
+     * Find all the source and test files changed from a given commit value to the head of the VCS
+     * (or in the local workspace), as diff contexts carrying their paths and change type but
+     * <strong>no file content</strong>. Content is fetched separately via
+     * {@link #loadContentForDiffs} so the caller can first decide which files actually need it
+     * (e.g. only files tracked in the mapping) and avoid fetching content for the rest.
+     *
+     * <p>Each returned context has its {@code vcsFetchKey} populated - the VCS-native handle
+     * {@link #loadContentForDiffs} fetches its content by.
      *
      * @param baseChangeNum the current commit number stored in the mapping
      * @param sourceFilesDirs the list of source code directories for the source project being analysed
      * @param testFilesDirs the list of test file directories for the project being analysed
      * @param checkLocalChanges should local changes be checked by Tia.
-     * @return the set of diff file contexts
+     * @return the set of diff file contexts, without content
      */
-    Set<SourceFileDiffContext> buildDiffFilesContext(final String baseChangeNum, final List<String> sourceFilesDirs,
-                                                     final List<String> testFilesDirs, final boolean checkLocalChanges);
+    Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum, final List<String> sourceFilesDirs,
+                                            final List<String> testFilesDirs, final boolean checkLocalChanges);
+
+    /**
+     * Load the before/after file content onto the given diff contexts (produced by
+     * {@link #getDiffFiles}), keyed by each context's {@code vcsFetchKey}. Only the contexts
+     * passed in are fetched, so a caller can restrict the (potentially expensive) content fetch
+     * to the files it actually needs.
+     *
+     * @param diffs the diff contexts to populate; may be empty
+     * @param baseChangeNum the current commit number stored in the mapping (the "before" baseline)
+     * @param checkLocalChanges whether the diffs are local-workspace changes
+     */
+    void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs, final String baseChangeNum,
+                             final boolean checkLocalChanges);
 
     /**
      * Get the repo-relative, forward-slash-normalised paths of every file changed in the

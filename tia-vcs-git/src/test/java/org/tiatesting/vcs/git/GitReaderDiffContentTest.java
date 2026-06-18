@@ -18,10 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * Verifies that {@link GitReader#buildDiffFilesContext} (which delegates to
- * {@link GitDiffAnalyzer}) populates both the before and after content of a changed source file
- * over a commit range, after the Stage 1 split of list-build vs content-load. Builds a throwaway
- * on-disk Git repository per test via JGit.
+ * Verifies that {@link GitReader#getDiffFiles} + {@link GitReader#loadContentForDiffs} (which
+ * delegate to {@link GitDiffAnalyzer}) populate both the before and after content of a changed
+ * source file over a commit range, after the split of list-build vs content-load. Builds a
+ * throwaway on-disk Git repository per test via JGit.
  */
 class GitReaderDiffContentTest {
 
@@ -56,9 +56,10 @@ class GitReaderDiffContentTest {
 
         GitReader reader = new GitReader(tempDir.getAbsolutePath());
         try {
-            // when - analyse the range from the first commit to HEAD
-            Set<SourceFileDiffContext> diffs = reader.buildDiffFilesContext(baseCommit,
+            // when - analyse the range from the first commit to HEAD via the two-step API
+            Set<SourceFileDiffContext> diffs = reader.getDiffFiles(baseCommit,
                     Collections.singletonList(SOURCE_DIR), Collections.emptyList(), false);
+            reader.loadContentForDiffs(diffs, baseCommit, false);
 
             // then - one diff context, with both versions' content loaded through the new
             // list-build-then-content-load path
