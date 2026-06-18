@@ -49,7 +49,7 @@ public class GitDiffAnalyzer {
         ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
         ObjectId commitToObjectId = gitContext.getHeadObjectId();
 
-        // get changes from the previously stored commit to HEAD
+        // get changes from the previously stored commit to HEAD - the diff list only, no content yet
         Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
         if (checkLocalChanges){
@@ -61,7 +61,45 @@ public class GitDiffAnalyzer {
                     sourceAndTestDirs));
         }
 
+        // Load file content for the diffs. Kept as a separate step (rather than folded into the
+        // list build) so a later change can fetch content for only a chosen subset of files; this
+        // stage fetches content for every diff, preserving the original behaviour.
+        loadContentForDiffContexts(gitContext, sourceFileDiffContexts, commitFromObjectId, checkLocalChanges);
+
         return sourceFileDiffContexts;
+    }
+
+    /**
+     * Load the before/after file content onto the given diff contexts, keyed by each context's
+     * {@link SourceFileDiffContext#getVcsFetchKey() repo-relative fetch key}. For the commit-range
+     * case the "before" is read at {@code commitFrom} and the "after" at head; for local changes
+     * the "before" is read at head and the "after" is the working-copy content read from disk.
+     *
+     * @param gitContext the Git context (repository + head)
+     * @param diffs the diff contexts to populate; may be empty
+     * @param commitFrom the commit the mapping is valid for (the commit-range "before")
+     * @param checkLocalChanges whether the diffs are local-workspace changes
+     */
+    private void loadContentForDiffContexts(GitContext gitContext, Collection<SourceFileDiffContext> diffs,
+                                            ObjectId commitFrom, boolean checkLocalChanges) {
+        if (diffs.isEmpty()) {
+            return;
+        }
+
+        // Rebuild the repo-relative-path-keyed map the content readers expect from the contexts' fetch keys.
+        Map<String, SourceFileDiffContext> diffsByPath = new HashMap<>();
+        for (SourceFileDiffContext diff : diffs) {
+            diffsByPath.put(diff.getVcsFetchKey(), diff);
+        }
+
+        Repository repository = gitContext.getRepository();
+        if (checkLocalChanges) {
+            readFileContentForVersion(repository, gitContext.getHeadObjectId(), true, diffsByPath);
+            readLocalFileContent(repository, false, diffsByPath);
+        } else {
+            readFileContentForVersion(repository, commitFrom, true, diffsByPath);
+            readFileContentForVersion(repository, gitContext.getHeadObjectId(), false, diffsByPath);
+        }
     }
 
     /**
@@ -139,9 +177,8 @@ public class GitDiffAnalyzer {
                 commitTo, sourceAndTestDirs);
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet());
 
-        readFileContentForVersion(gitContext.getRepository(), commitFrom, true, sourceFileDiffContexts);
-        readFileContentForVersion(gitContext.getRepository(), commitTo, false, sourceFileDiffContexts);
-
+        // Content is loaded by the caller (loadContentForDiffContexts) so it can be deferred to a
+        // chosen subset; this method returns the diff list only.
         return new HashSet<>(sourceFileDiffContexts.values());
     }
 
@@ -187,9 +224,8 @@ public class GitDiffAnalyzer {
         sourceFileDiffContexts = getSourceFilesImpactedFromLocalChanges(gitContext.getRepository(), sourceAndTestDirs);
         log.info("Source files found with local changes: {}", sourceFileDiffContexts.keySet());
 
-        readFileContentForVersion(gitContext.getRepository(), gitContext.getHeadObjectId(), true, sourceFileDiffContexts);
-        readLocalFileContent(gitContext.getRepository(),false, sourceFileDiffContexts);
-
+        // Content is loaded by the caller (loadContentForDiffContexts); this method returns the
+        // diff list only.
         return new HashSet<>(sourceFileDiffContexts.values());
     }
 
@@ -242,6 +278,10 @@ public class GitDiffAnalyzer {
                                   Map<String, SourceFileDiffContext> sourceFileDiffContexts, String pathForTracking) {
         SourceFileDiffContext diffContext = new SourceFileDiffContext(diffOldPath, diffNewPath,
                 convertGitChangeType(changeType));
+        // The repo-relative path is the handle the content readers fetch by (object-store lookup
+        // and local-disk path); record it so content can be loaded in a later step keyed off the
+        // context alone.
+        diffContext.setVcsFetchKey(pathForTracking);
         sourceFileDiffContexts.put(pathForTracking, diffContext);
     }
 

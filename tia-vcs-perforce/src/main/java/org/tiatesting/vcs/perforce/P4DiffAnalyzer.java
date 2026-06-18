@@ -50,7 +50,7 @@ public class P4DiffAnalyzer {
         String clTo = p4Context.getHeadCL();
         List<IFileSpec> sourceAndTestFilesSpecs = getSourceAndTestFilesSpecs(p4Context.getP4Connection(), sourceAndTestFiles);
 
-        // get changes from the previously stored CL number to HEAD
+        // get changes from the previously stored CL number to HEAD - the diff list only, no content yet
         Set<SourceFileDiffContext> sourceFileDiffContexts = new HashSet<>();
 
         if (checkLocalChanges){
@@ -61,7 +61,46 @@ public class P4DiffAnalyzer {
             sourceFileDiffContexts.addAll(getChangesSinceLastRunCL(p4Context, baseCl, clTo, sourceAndTestFilesSpecs));
         }
 
+        // Load file content for the diffs. Kept as a separate step (rather than folded into the
+        // list build) so a later change can fetch content for only a chosen subset of files; this
+        // stage fetches content for every diff, preserving the original behaviour.
+        loadContentForDiffContexts(p4Context, sourceFileDiffContexts, baseCl, checkLocalChanges);
+
         return sourceFileDiffContexts;
+    }
+
+    /**
+     * Load the before/after file content onto the given diff contexts, keyed by each context's
+     * {@link SourceFileDiffContext#getVcsFetchKey() depot-path fetch key}. For the submitted-range
+     * case the "before" is read at {@code baseCl} and the "after" at head; for local changes the
+     * "before" is read at head and the "after" is the working-copy content from
+     * {@link SourceFileDiffContext#getLocalContentPath()}.
+     *
+     * @param p4Context the Perforce context (connection + head CL)
+     * @param diffs the diff contexts to populate; may be empty
+     * @param baseCl the stored changelist the mapping is valid for (the submitted-range "before")
+     * @param checkLocalChanges whether the diffs are local-workspace changes
+     */
+    void loadContentForDiffContexts(P4Context p4Context, Collection<SourceFileDiffContext> diffs,
+                                            String baseCl, boolean checkLocalChanges) {
+        if (diffs.isEmpty()) {
+            return;
+        }
+
+        // Rebuild the depot-path-keyed map the content readers expect from the contexts' fetch keys.
+        Map<String, SourceFileDiffContext> diffsByDepotPath = new HashMap<>();
+        for (SourceFileDiffContext diff : diffs) {
+            diffsByDepotPath.put(diff.getVcsFetchKey(), diff);
+        }
+
+        P4Connection p4Connection = p4Context.getP4Connection();
+        if (checkLocalChanges) {
+            readFileContentForVersion(p4Connection, p4Context.getHeadCL(), true, diffsByDepotPath);
+            loadLocalContentFromDisk(diffs, false);
+        } else {
+            readFileContentForVersion(p4Connection, baseCl, true, diffsByDepotPath);
+            readFileContentForVersion(p4Connection, p4Context.getHeadCL(), false, diffsByDepotPath);
+        }
     }
 
     /**
@@ -240,10 +279,8 @@ public class P4DiffAnalyzer {
         log.info("Source files found in the commit range: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
-        if (!sourceFileDiffContexts.isEmpty()) {
-            readFileContentForVersion(p4Context.getP4Connection(), baseCl, true, sourceFileDiffContexts);
-            readFileContentForVersion(p4Context.getP4Connection(), clTo, false, sourceFileDiffContexts);
-        }
+        // Content is loaded by the caller (loadContentForDiffContexts) so it can be deferred to a
+        // chosen subset; this method returns the diff list only.
         return new HashSet<>(sourceFileDiffContexts.values());
     }
 
@@ -324,11 +361,18 @@ public class P4DiffAnalyzer {
         log.info("Source files found with local changes: {}", sourceFileDiffContexts.keySet().stream().map( key ->
                 convertDepotPathToTiaPath(key, sourceAndTestFilesSpecs)).collect(Collectors.toList()));
 
-        if (!changedLocalFiles.isEmpty()){
-            readFileContentForVersion(p4Context.getP4Connection(), p4Context.getHeadCL(), true, sourceFileDiffContexts);
-            loadLocalFileContentIntoDiffContext(changedLocalFiles, sourceFileDiffContexts, false);
+        // Capture each changed file's local workspace path on its diff context so the deferred
+        // content load can read the working-copy "new" content without needing the live
+        // IExtendedFileSpec.
+        for (IExtendedFileSpec changedLocalFile : changedLocalFiles) {
+            SourceFileDiffContext diffContext = sourceFileDiffContexts.get(changedLocalFile.getDepotPathString());
+            if (diffContext != null) {
+                diffContext.setLocalContentPath(changedLocalFile.getOriginalPathString());
+            }
         }
 
+        // Content is loaded by the caller (loadContentForDiffContexts); this method returns the
+        // diff list only.
         return new HashSet<>(sourceFileDiffContexts.values());
     }
 
@@ -503,6 +547,9 @@ public class P4DiffAnalyzer {
                 sourceFileDiffContexts, pathForTracking);
 
         if (diffContext != null){
+            // The depot path is the handle the content readers fetch by; record it so content can
+            // be loaded in a later step keyed off the context alone.
+            diffContext.setVcsFetchKey(pathForTracking);
             sourceFileDiffContexts.put(pathForTracking, diffContext);
         }
     }
@@ -606,14 +653,30 @@ public class P4DiffAnalyzer {
         }
     }
 
-    private void loadLocalFileContentIntoDiffContext(List<IExtendedFileSpec> sourceCodeFiles,
-                                                     Map<String, SourceFileDiffContext> sourceFileDiffContexts,
-                                                     boolean forOriginal){
-        for (IExtendedFileSpec fileSpec : sourceCodeFiles){
-            File file = new File(fileSpec.getOriginalPathString());
+    /**
+     * Read each diff's working-copy content from disk (via its
+     * {@link SourceFileDiffContext#getLocalContentPath() local content path}) and set it as the
+     * original or new content. Used for the local-changes flow where the workspace files are the
+     * "after" side of the diff. Diffs with no local content path (e.g. nothing opened on disk)
+     * are skipped.
+     *
+     * @param diffs the diff contexts to populate
+     * @param forOriginal {@code true} to set the content as the "before" side, {@code false} for "after"
+     */
+    private void loadLocalContentFromDisk(Collection<SourceFileDiffContext> diffs, boolean forOriginal){
+        for (SourceFileDiffContext diff : diffs){
+            String localContentPath = diff.getLocalContentPath();
+            if (localContentPath == null){
+                continue;
+            }
+            File file = new File(localContentPath);
             try {
                 String fileContent = FileUtils.readFileToString(file, "UTF-8");
-                loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, fileSpec.getDepotPathString(), fileContent);
+                if (forOriginal){
+                    diff.setSourceContentOriginal(fileContent);
+                } else {
+                    diff.setSourceContentNew(fileContent);
+                }
             } catch (IOException e) {
                 throw new VCSAnalyzerException(e);
             }
