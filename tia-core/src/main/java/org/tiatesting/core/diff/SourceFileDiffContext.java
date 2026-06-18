@@ -32,6 +32,24 @@ public class SourceFileDiffContext {
      */
     String sourceContentNew;
 
+    /**
+     * The VCS-native handle a {@code VCSReader} uses to fetch this file's content (P4: the depot
+     * path; Git: the repo-relative path). Set when the diff context is built, before content is
+     * loaded, so content can be fetched in a later, separate step for a chosen subset of files.
+     * Null until set; excluded from {@link #equals}/{@link #hashCode} as it is populated
+     * post-construction.
+     */
+    String vcsFetchKey;
+
+    /**
+     * The local filesystem path to read this file's "new" content from in local-changes mode.
+     * Only populated by the Perforce reader (whose depot-path fetch key can't be turned back
+     * into a workspace path without a {@code p4 where} round-trip); the Git reader derives the
+     * local path from {@link #vcsFetchKey} and so leaves this null. Excluded from
+     * {@link #equals}/{@link #hashCode} as it is populated post-construction.
+     */
+    String localContentPath;
+
     public SourceFileDiffContext(String oldFilePath, String newFilePath, ChangeType changeType) {
         this.oldFilePath = oldFilePath;
         this.newFilePath = newFilePath;
@@ -68,6 +86,22 @@ public class SourceFileDiffContext {
 
     public void setSourceContentNew(String sourceContentNew) {
         this.sourceContentNew = sourceContentNew;
+    }
+
+    public String getVcsFetchKey() {
+        return vcsFetchKey;
+    }
+
+    public void setVcsFetchKey(String vcsFetchKey) {
+        this.vcsFetchKey = vcsFetchKey;
+    }
+
+    public String getLocalContentPath() {
+        return localContentPath;
+    }
+
+    public void setLocalContentPath(String localContentPath) {
+        this.localContentPath = localContentPath;
     }
 
     @Override
