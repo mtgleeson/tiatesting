@@ -66,7 +66,7 @@ public interface VCSReader {
      * included.
      *
      * <p>Intended for static test selection rules that match changed file paths against
-     * user-supplied regexes; the existing {@link #buildDiffFilesContext} path remains the
+     * user-supplied regexes; the existing {@link #getDiffFiles} path remains the
      * input to method-level impact analysis and is unaffected.
      *
      * @param baseChangeNum the current commit number stored in the mapping.
