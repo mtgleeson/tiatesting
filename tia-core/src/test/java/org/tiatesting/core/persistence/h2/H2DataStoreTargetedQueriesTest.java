@@ -25,8 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for the targeted select-tests queries in {@link H2DataStore}:
- * {@code getMethodsTrackedForFiles} (Phase A: changed files to candidate methods) and
- * {@code getTestSuitesForMethods} (Phase B: impacted methods to covering suites).
+ * {@code getMethodsTrackedForFiles} (the changed-files-to-tracked-methods lookup: changed files to candidate methods) and
+ * {@code getTestSuitesForMethods} (the methods-to-covering-suites lookup: impacted methods to covering suites).
  * Uses a temp-directory embedded H2 database per test, seeded through the public persist API.
  */
 class H2DataStoreTargetedQueriesTest {
@@ -63,8 +63,8 @@ class H2DataStoreTargetedQueriesTest {
      * Seed the DB with a small mapping:
      * method 1 (Foo.java 10-20), method 2 (Foo.java 30-40), method 3 (Bar.java 5-15),
      * method 4 (Baz.java 1-10). SuiteOne covers Foo[1,2] + Bar[3]; SuiteTwo covers Foo[1];
-     * SuiteThree covers Baz[4]. Method 1 is covered by two suites so Phase A dedup and
-     * Phase B multi-suite resolution are both exercised.
+     * SuiteThree covers Baz[4]. Method 1 is covered by two suites so the changed-files-to-tracked-methods
+     * dedup and the methods-to-covering-suites multi-suite resolution are both exercised.
      */
     private void seedMapping() {
         // First contact bootstraps the schema (same pattern as the other H2 datastore tests).
@@ -102,7 +102,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseAReturnsTrackedMethodsWithLineRangesForRequestedFile() {
+    void filesToMethodsLookupReturnsTrackedMethodsWithLineRangesForRequestedFile() {
         // given
         seedMapping();
 
@@ -120,7 +120,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseADeduplicatesMethodsCoveredByMultipleSuites() {
+    void filesToMethodsLookupDeduplicatesMethodsCoveredByMultipleSuites() {
         // given - method 1 in Foo.java is covered by both SuiteOne and SuiteTwo
         seedMapping();
 
@@ -133,7 +133,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseAReturnsEntriesForEachRequestedTrackedFile() {
+    void filesToMethodsLookupReturnsEntriesForEachRequestedTrackedFile() {
         // given
         seedMapping();
 
@@ -147,7 +147,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseAOmitsUntrackedFilesAndHandlesEmptyInput() {
+    void filesToMethodsLookupOmitsUntrackedFilesAndHandlesEmptyInput() {
         // given
         seedMapping();
 
@@ -166,7 +166,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseBResolvesMethodsToAllCoveringSuites() {
+    void methodsToSuitesLookupResolvesAllCoveringSuites() {
         // given
         seedMapping();
 
@@ -181,7 +181,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseBOmitsUnknownMethodIdsAndHandlesEmptyInput() {
+    void methodsToSuitesLookupOmitsUnknownMethodIdsAndHandlesEmptyInput() {
         // given
         seedMapping();
 
@@ -198,7 +198,7 @@ class H2DataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseBChunksInputsLargerThanInClauseLimit() {
+    void methodsToSuitesLookupChunksInputsLargerThanInClauseLimit() {
         // given - 1500 requested ids forces two IN-clause chunks; only the seeded ids match
         seedMapping();
         Set<Integer> ids = new HashSet<>();
@@ -218,14 +218,14 @@ class H2DataStoreTargetedQueriesTest {
         // given - a brand new datastore that has never loaded or persisted anything
 
         // when - targeted queries are the first ever contact with the DB
-        Map<String, Map<Integer, MethodImpactTracker>> phaseA =
+        Map<String, Map<Integer, MethodImpactTracker>> filesToMethods =
                 dataStore.getMethodsTrackedForFiles(Collections.singleton(FOO_FILE));
-        Map<Integer, Set<String>> phaseB =
+        Map<Integer, Set<String>> methodsToSuites =
                 dataStore.getTestSuitesForMethods(Collections.singleton(1));
 
         // then - no exception and empty results; the schema was created on first contact
-        assertTrue(phaseA.isEmpty());
-        assertTrue(phaseB.isEmpty());
+        assertTrue(filesToMethods.isEmpty());
+        assertTrue(methodsToSuites.isEmpty());
     }
 
     @Test
@@ -250,9 +250,9 @@ class H2DataStoreTargetedQueriesTest {
 
         // then
         assertTrue(indexNames.contains("IDX_SOURCE_CLASS_FILENAME"),
-                "expected the Phase A filename index to exist");
+                "expected the changed-files-to-tracked-methods filename index to exist");
         assertTrue(indexNames.contains("IDX_SOURCE_CLASS_METHOD_METHOD_ID"),
-                "expected the Phase B method-id index to exist");
+                "expected the methods-to-covering-suites method-id index to exist");
         assertFalse(indexNames.isEmpty());
     }
 }

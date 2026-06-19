@@ -82,7 +82,7 @@ class SerializedDataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseAFiltersTrackedMethodsToRequestedFiles() {
+    void filesToMethodsLookupFiltersToRequestedFiles() {
         // given - the seeded mapping with two files
 
         // when
@@ -96,7 +96,7 @@ class SerializedDataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseAHandlesUntrackedAndEmptyInput() {
+    void filesToMethodsLookupHandlesUntrackedAndEmptyInput() {
         // given - the seeded mapping
 
         // when
@@ -114,7 +114,7 @@ class SerializedDataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseBResolvesMethodsToAllCoveringSuites() {
+    void methodsToSuitesLookupResolvesAllCoveringSuites() {
         // given - method 1 covered by two suites, method 3 by one
 
         // when
@@ -127,7 +127,7 @@ class SerializedDataStoreTargetedQueriesTest {
     }
 
     @Test
-    void phaseBHandlesUnknownAndEmptyInput() {
+    void methodsToSuitesLookupHandlesUnknownAndEmptyInput() {
         // given - the seeded mapping
 
         // when
