@@ -80,7 +80,7 @@ public class FileImpactAnalyzer {
      * @param sourceFileDiffContexts the set of diff file contexts
      * @param methodsTrackedByFile the tracked methods (with line ranges) for the changed source
      *                             files, keyed by mapping-key filename then method id - the
-     *                             targeted Phase A read for this run's diff
+     *                             targeted changed-files-to-tracked-methods read for this run's diff
      * @param sourceFilesDirs Locations of the source files for the project being tested
      * @return the set of ids for the methods that have changed
      */

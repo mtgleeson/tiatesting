@@ -74,7 +74,7 @@ public class SerializedDataStore implements DataStore {
     }
 
     /**
-     * Targeted Phase A read over the in-memory data: filter the tracked suite-class-method
+     * Targeted changed-files-to-tracked-methods read over the in-memory data: filter the tracked suite-class-method
      * graph down to the requested source files. The serialized store holds the whole DB in
      * memory after one read ({@code getTiaData(false)} uses the cached copy), so a filtered
      * walk is the natural equivalent of the H2 store's indexed query.
@@ -112,7 +112,7 @@ public class SerializedDataStore implements DataStore {
     }
 
     /**
-     * Targeted Phase B read over the in-memory data: collect the names of the test suites
+     * Targeted methods-to-covering-suites read over the in-memory data: collect the names of the test suites
      * whose coverage includes any of the given method ids, keyed per method id.
      *
      * @param methodIds the tracked method ids to find covering test suites for

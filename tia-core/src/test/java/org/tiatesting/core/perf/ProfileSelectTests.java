@@ -25,7 +25,8 @@ import java.util.Set;
  *         bulk load of suites + classes + methods + libraries. Kept as the baseline number;
  *         the targeted select path below no longer performs it.</li>
  *     <li>{@code TestSelector.selectTestsToIgnore} with a stub VCS reader - the targeted
- *         read path (suite metadata + Phase A/B diff-slice queries). {@code diffFiles=N}
+ *         read path (suite metadata + the changed-files-to-tracked-methods and
+ *         methods-to-covering-suites diff-slice queries). {@code diffFiles=N}
  *         simulates a diff touching N tracked source files (full-file modifications, so
  *         every tracked method of those files is impacted - the per-file worst case);
  *         {@code diffFiles=0} measures the no-changes floor.</li>
@@ -108,8 +109,8 @@ public final class ProfileSelectTests {
         }
 
         // Phase 3 - selectTestsToIgnore with a synthetic-diff stub VCS reader. This drives
-        // the targeted path end to end: core read, suite metadata, Phase A (changed files ->
-        // tracked methods), line-range intersection, Phase B (methods -> suites), failed
+        // the targeted path end to end: core read, suite metadata, the changed-files-to-tracked-methods
+        // lookup, line-range intersection, the methods-to-covering-suites lookup, failed
         // tests, ignore-set construction and the run-time estimate.
         TestSelector selector = new TestSelector(dataStore);
         VCSReader stubVcs = new SyntheticDiffVCSReader(args.branch, args.diffFiles);
@@ -147,7 +148,8 @@ public final class ProfileSelectTests {
     /**
      * VCS stub that simulates a diff touching {@code diffFiles} tracked source files. Each
      * simulated file is a full-file modification (every line changed), so the diff hunk covers
-     * every tracked method of that file - the per-file worst case for Phase A/B result size.
+     * every tracked method of that file - the per-file worst case for the changed-files-to-tracked-methods
+     * and methods-to-covering-suites result size.
      * File paths reuse {@link GenerateLargeTiaDb#classFilename(int)} so the mapping keys match
      * the rows the generator wrote. With {@code diffFiles=0} this behaves like the previous
      * empty-diff stub.
