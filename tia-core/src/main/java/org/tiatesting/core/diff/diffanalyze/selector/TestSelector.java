@@ -292,11 +292,10 @@ public class TestSelector {
             sourceFilesDirs.addAll(collectTrackedLibraryDirs());
         }
 
-        // Get the changed files (paths + change type, no content yet). Content is loaded below -
-        // for now for every diff, preserving the original behaviour.
+        // Get the changed files (paths + change type, NO content yet). Content is fetched further
+        // down, for only the files that turn out to be tracked in the mapping.
         Set<SourceFileDiffContext> impactedSourceFiles = vcsReader.getDiffFiles(storedCommitValue,
                 sourceFilesDirs, testFilesDirs, checkLocalChanges);
-        vcsReader.loadContentForDiffs(impactedSourceFiles, storedCommitValue, checkLocalChanges);
         Map<String, List<SourceFileDiffContext>> groupedImpactedFiles = fileImpactAnalyzer.groupImpactedTestFiles(impactedSourceFiles, testFilesDirs);
 
         List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);
@@ -306,10 +305,20 @@ public class TestSelector {
         Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile =
                 loadMethodsTrackedForDiffs(modifiedSourceDiffs, sourceFilesDirs);
 
+        // Fetch file content only for the modified source files that are actually tracked in the
+        // mapping. A changed file with no tracked coverage cannot select any test, so diffing it is
+        // wasted work - and on Perforce fetching its content from the server is the dominant cost
+        // of select-tests over a large changelist range. Selection is unchanged: the files dropped
+        // here are exactly the ones findMethodsImpacted would have found nothing for (their key has
+        // no Phase A entry). Test-file diffs need only their path, so they are never content-loaded.
+        List<SourceFileDiffContext> trackedModifiedSourceDiffs =
+                filterToTrackedFiles(modifiedSourceDiffs, methodsTrackedByFile, sourceFilesDirs);
+        vcsReader.loadContentForDiffs(trackedModifiedSourceDiffs, storedCommitValue, checkLocalChanges);
+
         // Partition source diffs: library diffs go to pending stamp, source-project diffs to immediate selection.
-        List<SourceFileDiffContext> sourceProjectDiffs = modifiedSourceDiffs;
+        List<SourceFileDiffContext> sourceProjectDiffs = trackedModifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            sourceProjectDiffs = partitionAndRecordLibraryDiffs(modifiedSourceDiffs, methodsTrackedByFile,
+            sourceProjectDiffs = partitionAndRecordLibraryDiffs(trackedModifiedSourceDiffs, methodsTrackedByFile,
                     sourceFilesDirs, libraryConfig, updateDBMapping);
         }
 
@@ -347,6 +356,35 @@ public class TestSelector {
         }
 
         return dataStore.getMethodsTrackedForFiles(changedFileKeys);
+    }
+
+    /**
+     * Filter modified-source diffs down to those tracked in the mapping - i.e. whose normalized
+     * mapping key is present in the Phase A result. Untracked changed files cannot select any
+     * test, so they are dropped before the (potentially expensive) content fetch; each drop is
+     * logged at debug. Uses the same {@link SourceFilenameUtil#normalizeToMappingKey} call as
+     * {@link #loadMethodsTrackedForDiffs}, so the keys are guaranteed to line up.
+     *
+     * @param modifiedSourceDiffs the modified source-file diff contexts
+     * @param methodsTrackedByFile the Phase A result, keyed by stored mapping key
+     * @param sourceFilesDirs the configured source root directories (used for key normalization)
+     * @return the subset of diffs whose files are tracked in the mapping
+     */
+    private List<SourceFileDiffContext> filterToTrackedFiles(
+            final List<SourceFileDiffContext> modifiedSourceDiffs,
+            final Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
+            final List<String> sourceFilesDirs){
+        List<SourceFileDiffContext> tracked = new ArrayList<>();
+        for (SourceFileDiffContext diff : modifiedSourceDiffs){
+            String mappingKey = SourceFilenameUtil.normalizeToMappingKey(diff.getOldFilePath(), sourceFilesDirs);
+            if (methodsTrackedByFile.containsKey(mappingKey)){
+                tracked.add(diff);
+            } else {
+                log.debug("Skipping content fetch for changed source file not tracked in the mapping: {}",
+                        diff.getOldFilePath());
+            }
+        }
+        return tracked;
     }
 
     /**
