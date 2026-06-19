@@ -79,7 +79,8 @@ public class TestSelector {
                                            final StaticTestSelectionConfig staticMappingConfig,
                                            final boolean updateDBMapping){
         // Targeted read path: only the single-row core data is loaded up front. The mapping
-        // is queried per diff-slice (Phase A/B) inside selectTestsToRun, and the suite-level
+        // is queried per diff-slice (the changed-files-to-tracked-methods and
+        // methods-to-covering-suites lookups) inside selectTestsToRun, and the suite-level
         // metadata (names + stats, no coverage edges) is loaded once below. The full
         // suite-class-method mapping is never bulk-loaded on this path.
         TiaData tiaCore = dataStore.getTiaCore();
@@ -261,10 +262,11 @@ public class TestSelector {
      * library-owned diffs are not misclassified as source-project diffs) but the pending-stamp persist
      * is skipped — non-primary builds read the existing tracked-library snapshot without mutating it.
      *
-     * <p>Mapping reads are targeted to the diff: one Phase A query
+     * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query
      * ({@link DataStore#getMethodsTrackedForFiles}) resolves the changed files to their tracked
-     * methods (shared by the source-impact and library-stamp paths), and one Phase B query
-     * ({@link DataStore#getTestSuitesForMethods}) resolves the impacted methods to suites.
+     * methods (shared by the source-impact and library-stamp paths), and one
+     * methods-to-covering-suites query ({@link DataStore#getTestSuitesForMethods}) resolves the
+     * impacted methods to suites.
      *
      * @param vcsReader the VCS reader used to build the diff contexts
      * @param sourceFilesDirNames the dir names for the source files
@@ -300,8 +302,9 @@ public class TestSelector {
 
         List<SourceFileDiffContext> modifiedSourceDiffs = groupedImpactedFiles.get(FileImpactAnalyzer.SOURCE_FILE_MODIFIED);
 
-        // Phase A: one targeted query for the tracked methods of ALL modified source files
-        // (source-project and library buckets alike) - both consumers below share the result.
+        // Changed-files-to-tracked-methods lookup: one targeted query for the tracked methods of
+        // ALL modified source files (source-project and library buckets alike) - both consumers
+        // below share the result.
         Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile =
                 loadMethodsTrackedForDiffs(modifiedSourceDiffs, sourceFilesDirs);
 
@@ -309,8 +312,9 @@ public class TestSelector {
         // mapping. A changed file with no tracked coverage cannot select any test, so diffing it is
         // wasted work - and on Perforce fetching its content from the server is the dominant cost
         // of select-tests over a large changelist range. Selection is unchanged: the files dropped
-        // here are exactly the ones findMethodsImpacted would have found nothing for (their key has
-        // no Phase A entry). Test-file diffs need only their path, so they are never content-loaded.
+        // here are exactly the ones findMethodsImpacted would have found nothing for (their key is
+        // absent from the changed-files-to-tracked-methods result). Test-file diffs need only their
+        // path, so they are never content-loaded.
         List<SourceFileDiffContext> trackedModifiedSourceDiffs =
                 filterToTrackedFiles(modifiedSourceDiffs, methodsTrackedByFile, sourceFilesDirs);
         vcsReader.loadContentForDiffs(trackedModifiedSourceDiffs, storedCommitValue, checkLocalChanges);
@@ -339,7 +343,7 @@ public class TestSelector {
     }
 
     /**
-     * Run the targeted Phase A read for a set of modified-source diffs: normalize each diff's
+     * Run the targeted changed-files-to-tracked-methods read for a set of modified-source diffs: normalize each diff's
      * original (pre-change) file path to its stored mapping key, then query the tracked methods
      * (with line ranges) for those files in one {@link DataStore#getMethodsTrackedForFiles} call.
      * The original path is used because the stored mapping was built before the change.
@@ -360,13 +364,13 @@ public class TestSelector {
 
     /**
      * Filter modified-source diffs down to those tracked in the mapping - i.e. whose normalized
-     * mapping key is present in the Phase A result. Untracked changed files cannot select any
+     * mapping key is present in the changed-files-to-tracked-methods result. Untracked changed files cannot select any
      * test, so they are dropped before the (potentially expensive) content fetch; each drop is
      * logged at debug. Uses the same {@link SourceFilenameUtil#normalizeToMappingKey} call as
      * {@link #loadMethodsTrackedForDiffs}, so the keys are guaranteed to line up.
      *
      * @param modifiedSourceDiffs the modified source-file diff contexts
-     * @param methodsTrackedByFile the Phase A result, keyed by stored mapping key
+     * @param methodsTrackedByFile the changed-files-to-tracked-methods result, keyed by stored mapping key
      * @param sourceFilesDirs the configured source root directories (used for key normalization)
      * @return the subset of diffs whose files are tracked in the mapping
      */
@@ -507,7 +511,7 @@ public class TestSelector {
      * For the source files that have changed, do a diff to find the methods that have changed.
      *
      * @param sourceFileDiffContexts the changed-file diff contexts to analyze
-     * @param methodsTrackedByFile the Phase A result: tracked methods for the changed files,
+     * @param methodsTrackedByFile the changed-files-to-tracked-methods result: tracked methods for the changed files,
      *                             keyed by mapping key then method id
      * @param sourceFilesDirs the configured source root directories
      * @return set of method (hashcodes) that are impacted by the diff changes
@@ -520,12 +524,12 @@ public class TestSelector {
 
     /**
      * Build the list of test suites that need to be run based on the tracked methods that have
-     * been changed, using the targeted Phase B query
+     * been changed, using the targeted methods-to-covering-suites query
      * ({@link DataStore#getTestSuitesForMethods}) instead of an in-memory reverse index over
      * the full mapping.
      *
      * @param methodsImpacted the set of method ids that the diff implicates
-     * @param methodsTrackedByFile the Phase A result, used to resolve method names for debug logging
+     * @param methodsTrackedByFile the changed-files-to-tracked-methods result, used to resolve method names for debug logging
      * @return the tests that should be executed based on the methods changed in the source code.
      */
     private Set<String> findTestSuitesForImpactedMethods(Set<Integer> methodsImpacted,
@@ -546,7 +550,7 @@ public class TestSelector {
     }
 
     /**
-     * Resolve a method id to its display name from the Phase A per-file result map. Debug
+     * Resolve a method id to its display name from the changed-files-to-tracked-methods per-file result map. Debug
      * logging only - the linear scan across the diff's files is acceptable there.
      *
      * @param methodId the tracked method id to resolve
@@ -694,7 +698,7 @@ public class TestSelector {
      * {@link PendingLibraryImpactedMethodsRecorder}.
      *
      * @param allModifiedSourceDiffs all modified source-file diff contexts for this run
-     * @param methodsTrackedByFile the Phase A result covering all modified source files
+     * @param methodsTrackedByFile the changed-files-to-tracked-methods result covering all modified source files
      *                             (library files included - their dirs are part of the
      *                             normalization roots)
      * @param sourceFilesDirs the configured source root directories
@@ -782,7 +786,7 @@ public class TestSelector {
      *
      * @param libraryDiffBuckets the modified diffs grouped per owning library
      * @param trackedLibraries the tracked libraries keyed by coordinate
-     * @param methodsTrackedByFile the Phase A result covering all modified source files
+     * @param methodsTrackedByFile the changed-files-to-tracked-methods result covering all modified source files
      * @param sourceFilesDirs the configured source root directories
      * @param libraryConfig the library impact analysis config
      * @param updateDBMapping whether this run owns mapping-DB updates

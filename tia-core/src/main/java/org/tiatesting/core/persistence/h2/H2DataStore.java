@@ -199,7 +199,7 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Targeted Phase A read: resolve a set of stored source-file keys to their tracked
+     * Targeted changed-files-to-tracked-methods read: resolve a set of stored source-file keys to their tracked
      * methods with one indexed query per {@value #IN_CLAUSE_CHUNK_SIZE}-key chunk, instead
      * of loading the full suite-to-method mapping. {@code SELECT DISTINCT} collapses the
      * per-covering-suite duplication of (file, method) pairs in {@code tia_source_class} so
@@ -232,7 +232,7 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Run the Phase A query for one chunk of source-file keys and merge the rows into the
+     * Run the changed-files-to-tracked-methods query for one chunk of source-file keys and merge the rows into the
      * caller's result map. Parameterized {@code IN} placeholders keep repo-derived filenames
      * out of the SQL text.
      *
@@ -273,7 +273,7 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Targeted Phase B read: resolve a set of impacted method ids to the names of the test
+     * Targeted methods-to-covering-suites read: resolve a set of impacted method ids to the names of the test
      * suites covering them with one indexed query per {@value #IN_CLAUSE_CHUNK_SIZE}-id
      * chunk, instead of building the full in-memory method-to-suites reverse index.
      *
@@ -303,7 +303,7 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Run the Phase B query for one chunk of method ids and merge the rows into the caller's
+     * Run the methods-to-covering-suites query for one chunk of method ids and merge the rows into the caller's
      * result map. {@code SELECT DISTINCT} collapses duplicate (method, suite) pairs that occur
      * when a suite covers the same method through multiple source classes.
      *
@@ -1429,8 +1429,9 @@ public class H2DataStore implements DataStore {
                 COL_TIA_SOURCE_METHOD_ID + " INT, " +
                 "PRIMARY KEY (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + "))";
 
-        // Indexes backing the targeted select-tests queries (Phase A filename lookup and
-        // Phase B method-id lookup). Created here for new DBs; existing DBs gain them via
+        // Indexes backing the targeted select-tests queries (changed-files-to-tracked-methods
+        // filename lookup and methods-to-covering-suites method-id lookup). Created here for new
+        // DBs; existing DBs gain them via
         // ensureTargetedQueryIndexesExist on first contact.
         String createSourceClassFilenameIndexSql = buildCreateSourceClassFilenameIndexSql();
         String createSourceClassMethodMethodIdIndexSql = buildCreateSourceClassMethodMethodIdIndexSql();
@@ -1596,7 +1597,7 @@ public class H2DataStore implements DataStore {
     /**
      * DDL for the index on {@code tia_source_class.source_filename}. Backs the targeted
      * select-tests query that resolves changed source files to their tracked methods
-     * (Phase A) - without it the filename {@code IN} predicate scans every source-class row.
+     * (the changed-files-to-tracked-methods lookup) - without it the filename {@code IN} predicate scans every source-class row.
      * Named with the {@code idx_} prefix because {@code source_filename_idx} is already taken
      * by the unique index on {@code tia_test_suite.source_filename} and H2 index names are
      * schema-global.
@@ -1611,7 +1612,7 @@ public class H2DataStore implements DataStore {
     /**
      * DDL for the index on {@code tia_source_class_method.tia_source_method_id}. Backs the
      * targeted select-tests query that resolves impacted method ids to their covering test
-     * suites (Phase B). The table's composite primary key leads with
+     * suites (the methods-to-covering-suites lookup). The table's composite primary key leads with
      * {@code tia_source_class_id}, so a method-id-leading lookup cannot use it.
      *
      * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the method-id index

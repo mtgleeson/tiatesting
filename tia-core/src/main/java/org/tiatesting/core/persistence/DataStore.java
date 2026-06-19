@@ -66,7 +66,7 @@ public interface DataStore extends AutoCloseable {
     Set<Integer> getUniqueMethodIdsTracked();
 
     /**
-     * Targeted read (Phase A of the select-tests flow): retrieve the tracked methods for a
+     * Targeted read (the changed-files-to-tracked-methods step of the select-tests flow): retrieve the tracked methods for a
      * specific set of source files, keyed by file then by method id. Used to resolve the
      * files changed in a VCS diff to their candidate methods without loading the full
      * suite-to-method mapping. The filenames must be in the stored mapping-key format
@@ -82,7 +82,7 @@ public interface DataStore extends AutoCloseable {
     Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(final Set<String> sourceFilenames);
 
     /**
-     * Targeted read (Phase B of the select-tests flow): retrieve the names of the test suites
+     * Targeted read (the methods-to-covering-suites step of the select-tests flow): retrieve the names of the test suites
      * whose coverage includes any of the given method ids, keyed per method id. Used to
      * resolve the diff-impacted methods to the suites that must run, without building the
      * full in-memory method-to-suites reverse index.

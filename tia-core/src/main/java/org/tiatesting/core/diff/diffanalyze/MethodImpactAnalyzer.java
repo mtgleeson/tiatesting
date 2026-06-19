@@ -38,7 +38,7 @@ public class MethodImpactAnalyzer {
      * @param methodsInvokedByChanges A set of methods that will be invoked by the changes in source code
      * @param methodsTrackedByFile the tracked methods (with line ranges) for the changed source
      *                             files, keyed by mapping-key filename then method id - the
-     *                             targeted Phase A read for this run's diff
+     *                             targeted changed-files-to-tracked-methods read for this run's diff
      * @param sourceFilesDirs Locations of the source files for the project being tested
      */
     public void getMethodsForImpactedFile(final String originalFileContent, final String newFilContent,
