@@ -27,6 +27,7 @@ public class H2DataStore implements DataStore {
     private static final String COL_AVG_RUN_TIME = "avg_run_time";
     private static final String COL_NUM_SUCCESS_RUNS = "num_success_runs";
     private static final String COL_NUM_FAIL_RUNS = "num_fail_runs";
+    private static final String COL_DEVELOPER_DISABLED = "developer_disabled";
     private static final String TABLE_TIA_CORE = "tia_core";
     private static final String TABLE_TIA_TEST_SUITE = "tia_test_suite";
     private static final String TABLE_TIA_TEST_SUITES_FAILED = TABLE_TIA_TEST_SUITE + "s_failed";
@@ -926,18 +927,24 @@ public class H2DataStore implements DataStore {
         Statement statement = connection.createStatement();
 
         for (TestSuiteTracker testSuite : testSuites){
+            // developer_disabled is mapping metadata, maintained on mapping-update runs only.
+            // Stats-only runs (includeClassMappings=false) leave the column out of the MERGE so
+            // the stored flag is untouched.
+            String disabledColumn = includeClassMappings ? ", " + COL_DEVELOPER_DISABLED : "";
+            String disabledValue = includeClassMappings ? ", " + testSuite.isDeveloperDisabled() : "";
+
             String mergeSql = "MERGE INTO " + TABLE_TIA_TEST_SUITE + " (" +
                     COL_NAME + ", " +
                     COL_NUM_RUNS + ", " +
                     COL_AVG_RUN_TIME + ", " +
                     COL_NUM_SUCCESS_RUNS + ", " +
-                    COL_NUM_FAIL_RUNS + ") " +
+                    COL_NUM_FAIL_RUNS + disabledColumn + ") " +
                     "KEY (" + COL_NAME + ") VALUES ('" +
                     testSuite.getName() + "', " +
                     testSuite.getTestStats().getNumRuns() + ", " +
                     testSuite.getTestStats().getAvgRunTime() + ", " +
                     testSuite.getTestStats().getNumSuccessRuns() + ", " +
-                    testSuite.getTestStats().getNumFailRuns() + ")";
+                    testSuite.getTestStats().getNumFailRuns() + disabledValue + ")";
 
             log.debug("Persisting test suites: {}", mergeSql);
             statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
@@ -1291,6 +1298,7 @@ public class H2DataStore implements DataStore {
         String sql = "SELECT ts." + COL_ID + " AS suite_id, ts." + COL_NAME + " AS suite_name, " +
                 "ts." + COL_NUM_RUNS + " AS suite_num_runs, ts." + COL_AVG_RUN_TIME + " AS suite_avg_run_time, " +
                 "ts." + COL_NUM_SUCCESS_RUNS + " AS suite_num_success_runs, ts." + COL_NUM_FAIL_RUNS + " AS suite_num_fail_runs, " +
+                "ts." + COL_DEVELOPER_DISABLED + " AS suite_developer_disabled, " +
                 "sc." + COL_ID + " AS class_id, sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
                 "scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id " +
                 "FROM " + TABLE_TIA_TEST_SUITE + " ts " +
@@ -1319,6 +1327,7 @@ public class H2DataStore implements DataStore {
                     suite.getTestStats().setAvgRunTime(rs.getLong("suite_avg_run_time"));
                     suite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
                     suite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
+                    suite.setDeveloperDisabled(rs.getBoolean("suite_developer_disabled"));
                     suite.setClassesImpacted(new ArrayList<>());
                     suitesById.put(suiteId, suite);
                     testSuites.put(suite.getName(), suite);
@@ -1376,6 +1385,7 @@ public class H2DataStore implements DataStore {
                 testSuite.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
                 testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
                 testSuite.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
+                testSuite.setDeveloperDisabled(resultSet.getBoolean(COL_DEVELOPER_DISABLED));
                 testSuites.put(testSuite.getName(), testSuite);
             }
         }
@@ -1409,7 +1419,8 @@ public class H2DataStore implements DataStore {
                 COL_NUM_RUNS + " BIGINT, " +
                 COL_AVG_RUN_TIME + " BIGINT, " +
                 COL_NUM_SUCCESS_RUNS + " BIGINT, " +
-                COL_NUM_FAIL_RUNS + " BIGINT)";
+                COL_NUM_FAIL_RUNS + " BIGINT, " +
+                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE)";
 
         String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX " + COL_SOURCE_FILENAME + "_idx ON " +
                 TABLE_TIA_TEST_SUITE + " (" + COL_SOURCE_FILENAME + ")";
@@ -1639,6 +1650,20 @@ public class H2DataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_test_suite.developer_disabled} column exists on an
+     * already-populated DB created before the flag was added. Idempotent via
+     * {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to {@code FALSE}.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureTestSuiteDeveloperDisabledColumnExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
+                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE");
+    }
+
+    /**
      * Ensure the Tia schema is ready for use on this connection: create the DB on first
      * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
      * This is the single schema-bootstrap entry point - both the full-load path
@@ -1664,6 +1689,7 @@ public class H2DataStore implements DataStore {
         ensureSourceClassTestSuiteIndexExists(connection);
         ensureTestRunHistoryTableExists(connection);
         ensureTargetedQueryIndexesExist(connection);
+        ensureTestSuiteDeveloperDisabledColumnExists(connection);
 
         schemaEnsured = true;
         return dbExisted;
