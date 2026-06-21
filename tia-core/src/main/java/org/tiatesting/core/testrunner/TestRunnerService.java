@@ -73,7 +73,8 @@ public class TestRunnerService {
         // 1. Mapping writes first. A crash anywhere in this block leaves the stored commit
         //    value at its prior setting, so the next run re-diffs against that older commit
         //    and re-does the work.
-        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(), updateDBMapping, updateDBStats);
+        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
+                testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
 
         if (updateDBMapping){
             updateMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
@@ -176,11 +177,13 @@ public class TestRunnerService {
      * @param tiaData the Tia DB
      * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
      * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
+     * @param selectedTests the suites Tia selected to run, used to maintain the developer-disabled flag
      * @param updateDBMapping should the test suite to source code mapping be updated for the test run
      * @param updateDBStats should the test stats be updated for the test run
      */
     private void updateTestSuiteMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers,
-                                        final Set<String> runnerTestSuites, final boolean updateDBMapping, final boolean updateDBStats){
+                                        final Set<String> runnerTestSuites, final Set<String> selectedTests,
+                                        final boolean updateDBMapping, final boolean updateDBStats){
 
         if (!updateDBMapping && !updateDBStats) {
             // History-only / SE-developer runs do not touch the test-suite mapping table.
@@ -201,6 +204,11 @@ public class TestRunnerService {
 
             // remove any test suites that have been deleted
             removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
+
+            // Maintain the developer-disabled flag before persisting the mapping rows. Only done
+            // on mapping runs - the flag is mapping metadata written by persistTestSuites.
+            updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(), selectedTests, runnerTestSuites,
+                    testSuiteTrackers.keySet());
         }
 
         if (updateDBStats){
@@ -214,6 +222,38 @@ public class TestRunnerService {
             // stats-only branch: leave the suite-to-source-class / method-edges untouched
             dataStore.persistTestSuiteStatsOnly(tiaData.getTestSuitesTracked());
         }
+    }
+
+    /**
+     * Maintain the per-suite {@code developerDisabled} flag from the current run's signals.
+     *
+     * <p>The flag distinguishes suites the developer disabled in source (e.g. {@code @Disabled} /
+     * {@code @Ignore}) from suites Tia itself ignored. It can only be determined unambiguously
+     * when Tia did not also disable the suite, so for each tracked suite:
+     * <ul>
+     *   <li>executed this run - cleared (executing proves it is not disabled; covers re-enable).</li>
+     *   <li>Tia selected it and the runner discovered it but it did not execute - set (Tia did not
+     *       disable it, so the skip is the developer's doing).</li>
+     *   <li>otherwise (Tia ignored it, or it wasn't discovered) - left unchanged, carrying the
+     *       stored value forward.</li>
+     * </ul>
+     *
+     * @param trackedSuites the merged tracked suites keyed by suite name (mutated in place)
+     * @param selectedTests the suites Tia selected to run
+     * @param runnerTestSuites the suites the runner discovered (executed + skipped + filtered)
+     * @param executedSuiteNames the suites that actually executed this run
+     */
+    static void updateDeveloperDisabledFlags(final Map<String, TestSuiteTracker> trackedSuites,
+                                             final Set<String> selectedTests,
+                                             final Set<String> runnerTestSuites,
+                                             final Set<String> executedSuiteNames){
+        trackedSuites.forEach((suiteName, tracker) -> {
+            if (executedSuiteNames.contains(suiteName)){
+                tracker.setDeveloperDisabled(false);
+            } else if (selectedTests.contains(suiteName) && runnerTestSuites.contains(suiteName)){
+                tracker.setDeveloperDisabled(true);
+            }
+        });
     }
 
     /**
