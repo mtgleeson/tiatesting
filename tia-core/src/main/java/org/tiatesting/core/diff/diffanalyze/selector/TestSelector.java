@@ -586,15 +586,20 @@ public class TestSelector {
      * i.e. only ignore test suites that we have previously tracked and haven't been impacted by the source changes.
      * This ensures any new test suites are executed.
      *
+     * <p>Suites flagged developer-disabled are excluded from the ignore set: the developer
+     * disabled them in source, so they would not run even without Tia, and Tia saves no time by
+     * skipping them. Excluding them keeps the Tia-ignored count a true count of suites Tia chose
+     * to skip that could otherwise have run.
+     *
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the test suites selected to run
-     * @return the tracked suites not selected to run - the ignore list
+     * @return the tracked, non-developer-disabled suites not selected to run - the ignore list
      */
-    private Set<String> getTestsToIgnore(Map<String, TestSuiteTracker> testSuitesTracked, Set<String> testsToRun){
+    static Set<String> getTestsToIgnore(Map<String, TestSuiteTracker> testSuitesTracked, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
 
-        testSuitesTracked.keySet().forEach( (testSuite) -> {
-            if (!testsToRun.contains(testSuite)){
+        testSuitesTracked.forEach( (testSuite, tracker) -> {
+            if (!testsToRun.contains(testSuite) && !tracker.isDeveloperDisabled()){
                 testsToIgnore.add(testSuite);
             }
         });
