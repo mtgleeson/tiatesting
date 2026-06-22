@@ -1,7 +1,7 @@
 # Design: Track Tia-level stat `allTestsRunTime`
 
 Date: 2026-06-19
-Status: Approved
+Status: Delivered (all 4 stages implemented on branch `track-all-tests-run-time`)
 
 ## Problem
 
