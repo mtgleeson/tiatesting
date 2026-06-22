@@ -39,12 +39,14 @@ public class TestSuiteTracker implements Serializable {
     }
 
     /**
-     * Increment the stats of this tracked test suite by the specified amounts.
+     * Increment the stats of this tracked test suite by the specified amounts. Per-suite stats
+     * always use the selected-run average; the all-tests-run regime is Tia-level only, so this
+     * passes {@code allTestsRun = false}.
      *
      * @param testStats the test statistics
      */
     public void incrementStats(final TestStats testStats){
-        this.testStats.incrementStats(testStats);
+        this.testStats.incrementStats(testStats, false);
     }
 
     public long getId() {
