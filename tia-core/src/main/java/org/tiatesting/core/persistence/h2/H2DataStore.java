@@ -27,6 +27,8 @@ public class H2DataStore implements DataStore {
     private static final String COL_AVG_RUN_TIME = "avg_run_time";
     private static final String COL_NUM_SUCCESS_RUNS = "num_success_runs";
     private static final String COL_NUM_FAIL_RUNS = "num_fail_runs";
+    private static final String COL_ALL_TESTS_RUN_TIME = "all_tests_run_time";
+    private static final String COL_NUM_ALL_TESTS_RUNS = "num_all_tests_runs";
     private static final String COL_DEVELOPER_DISABLED = "developer_disabled";
     private static final String TABLE_TIA_CORE = "tia_core";
     private static final String TABLE_TIA_TEST_SUITE = "tia_test_suite";
@@ -878,14 +880,17 @@ public class H2DataStore implements DataStore {
 
         if (existingTiaCore.getCommitValue() == null){
             sql = "INSERT INTO " + TABLE_TIA_CORE + " (" + COL_COMMIT_VALUE + ", " + COL_BRANCH + ", " + COL_LAST_UPDATED + ", " + COL_NUM_RUNS + ", " +
-                    COL_AVG_RUN_TIME + ", " + COL_NUM_SUCCESS_RUNS + ", " + COL_NUM_FAIL_RUNS + ") values ('" +
+                    COL_AVG_RUN_TIME + ", " + COL_NUM_SUCCESS_RUNS + ", " + COL_NUM_FAIL_RUNS + ", " +
+                    COL_ALL_TESTS_RUN_TIME + ", " + COL_NUM_ALL_TESTS_RUNS + ") values ('" +
                     tiaData.getCommitValue() + "', " +
                     sqlStringOrNull(tiaData.getBranch()) + ", '" +
                     tiaData.getLastUpdated() + "', " +
                     tiaData.getTestStats().getNumRuns() + ", " +
                     tiaData.getTestStats().getAvgRunTime()  + ", " +
                     tiaData.getTestStats().getNumSuccessRuns()  + ", " +
-                    tiaData.getTestStats().getNumFailRuns() + ")";
+                    tiaData.getTestStats().getNumFailRuns() + ", " +
+                    tiaData.getTestStats().getAllTestsRunTime() + ", " +
+                    tiaData.getTestStats().getNumAllTestsRuns() + ")";
         }else{
             sql = "UPDATE " + TABLE_TIA_CORE + " SET " +
                     COL_COMMIT_VALUE + "='" + tiaData.getCommitValue() +
@@ -894,7 +899,9 @@ public class H2DataStore implements DataStore {
                     "', " + COL_NUM_RUNS + "=" + tiaData.getTestStats().getNumRuns() +
                     ", " + COL_AVG_RUN_TIME + "=" + tiaData.getTestStats().getAvgRunTime() +
                     ", " + COL_NUM_SUCCESS_RUNS + "=" + tiaData.getTestStats().getNumSuccessRuns() +
-                    ", " + COL_NUM_FAIL_RUNS + "=" + tiaData.getTestStats().getNumFailRuns();
+                    ", " + COL_NUM_FAIL_RUNS + "=" + tiaData.getTestStats().getNumFailRuns() +
+                    ", " + COL_ALL_TESTS_RUN_TIME + "=" + tiaData.getTestStats().getAllTestsRunTime() +
+                    ", " + COL_NUM_ALL_TESTS_RUNS + "=" + tiaData.getTestStats().getNumAllTestsRuns();
         }
 
         log.debug("Persisting Tia core data: {}", sql);
@@ -1231,6 +1238,8 @@ public class H2DataStore implements DataStore {
             tiaData.getTestStats().setAvgRunTime(resultSet.getLong(COL_AVG_RUN_TIME));
             tiaData.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
             tiaData.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
+            tiaData.getTestStats().setAllTestsRunTime(resultSet.getLong(COL_ALL_TESTS_RUN_TIME));
+            tiaData.getTestStats().setNumAllTestsRuns(resultSet.getLong(COL_NUM_ALL_TESTS_RUNS));
         }
 
         return tiaData;
@@ -1401,7 +1410,9 @@ public class H2DataStore implements DataStore {
                 COL_NUM_RUNS + " BIGINT, " +
                 COL_AVG_RUN_TIME + " BIGINT, " +
                 COL_NUM_SUCCESS_RUNS + " BIGINT," +
-                COL_NUM_FAIL_RUNS + " BIGINT)";
+                COL_NUM_FAIL_RUNS + " BIGINT, " +
+                COL_ALL_TESTS_RUN_TIME + " BIGINT DEFAULT 0, " +
+                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0)";
 
         String createTestSuitesFailedTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITES_FAILED + " " +
                 "(" + COL_TEST_SUITE_NAME + " VARCHAR(255) PRIMARY KEY)";
@@ -1664,6 +1675,22 @@ public class H2DataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_core.all_tests_run_time} and {@code tia_core.num_all_tests_runs}
+     * columns exist on an already-populated DB created before the all-tests-run stats were added.
+     * Idempotent via {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to 0.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if either DDL statement fails
+     */
+    private void ensureTiaCoreAllTestsStatsColumnsExist(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
+                COL_ALL_TESTS_RUN_TIME + " BIGINT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
+                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0");
+    }
+
+    /**
      * Ensure the Tia schema is ready for use on this connection: create the DB on first
      * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
      * This is the single schema-bootstrap entry point - both the full-load path
@@ -1690,6 +1717,7 @@ public class H2DataStore implements DataStore {
         ensureTestRunHistoryTableExists(connection);
         ensureTargetedQueryIndexesExist(connection);
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
+        ensureTiaCoreAllTestsStatsColumnsExist(connection);
 
         schemaEnsured = true;
         return dbExisted;
