@@ -51,6 +51,8 @@ public class StatusReportGenerator {
 
         sb.append("Number of runs: " + stats.getNumRuns() + lineSep);
         sb.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
+        sb.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
         sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
         sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)");
 
