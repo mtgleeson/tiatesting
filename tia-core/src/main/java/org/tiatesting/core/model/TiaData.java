@@ -86,12 +86,14 @@ public class TiaData implements Serializable {
     private TestStats testStats = new TestStats();
 
     /**
-     * Increment the stats for Tia.
+     * Increment the Tia-level stats, routing the run's duration into the selected-run or
+     * all-tests-run rolling average.
      *
-     * @param testStats the test statistics
+     * @param testStats   the test statistics
+     * @param allTestsRun {@code true} when Tia ignored zero suites this run
      */
-    public void incrementStats(final TestStats testStats){
-        this.testStats.incrementStats(testStats);
+    public void incrementStats(final TestStats testStats, final boolean allTestsRun){
+        this.testStats.incrementStats(testStats, allTestsRun);
     }
 
     public String getCommitValue() {

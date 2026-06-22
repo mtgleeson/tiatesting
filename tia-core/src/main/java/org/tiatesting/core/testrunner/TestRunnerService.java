@@ -85,7 +85,12 @@ public class TestRunnerService {
         // 2. Seal: writing the commit value last is what makes commit X "official". Until this
         //    line executes, the stored commit value is unchanged and the next run will treat
         //    everything since the prior commit as unmapped.
-        updateTiaCoreData(tiaData, commitValue, branch, updateDBMapping, updateDBStats, testRunResult.getTestStats());
+        // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
+        // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites
+        // (Stage 1), so this stays a plain == 0 check.
+        boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0;
+        updateTiaCoreData(tiaData, commitValue, branch, updateDBMapping, updateDBStats,
+                testRunResult.getTestStats(), allTestsRun);
 
         // 3. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
@@ -139,9 +144,12 @@ public class TestRunnerService {
      * @param updateDBMapping should the test to source code mapping be updated in the DB for the test run
      * @param updateDBStats should the test stats be updated for the test run
      * @param testStats the stats for the test run
+     * @param allTestsRun {@code true} when Tia ignored zero suites this run, routing the duration
+     *                    into the all-tests-run average instead of the selected-run average
      */
     private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final String branch,
-                                   final boolean updateDBMapping, final boolean updateDBStats, final TestStats testStats){
+                                   final boolean updateDBMapping, final boolean updateDBStats, final TestStats testStats,
+                                   final boolean allTestsRun){
         if (updateDBMapping) {
             tiaData.setCommitValue(commitValue);
             tiaData.setBranch(branch);
@@ -149,7 +157,7 @@ public class TestRunnerService {
         }
 
         if (updateDBStats){
-            tiaData.incrementStats(testStats);
+            tiaData.incrementStats(testStats, allTestsRun);
         }
 
         dataStore.persistCoreData(tiaData);
