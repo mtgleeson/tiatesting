@@ -86,6 +86,8 @@ public class HtmlSummaryReport {
                                     p(
                                             span("Number of runs: " + stats.getNumRuns()), br(),
                                             span("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime())), br(),
+                                            span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
+                                            span("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime())), br(),
                                             span("Number of successful runs: " + stats.getNumSuccessRuns()
                                                     + " (" + getAvgSuccess(stats) + "%)"), br(),
                                             span("Number of failed runs: " + stats.getNumFailRuns()

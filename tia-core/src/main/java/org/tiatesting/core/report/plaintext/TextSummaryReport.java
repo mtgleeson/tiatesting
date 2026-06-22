@@ -135,6 +135,8 @@ public class TextSummaryReport {
 
         reportBuilder.append("Number of runs: " + stats.getNumRuns() + lineSep);
         reportBuilder.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
+        reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
         reportBuilder.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)"  + lineSep);
         reportBuilder.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
     }
