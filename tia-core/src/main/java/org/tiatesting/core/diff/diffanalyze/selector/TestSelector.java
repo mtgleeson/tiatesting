@@ -114,7 +114,8 @@ public class TestSelector {
 
         log.debug("Ignoring tests: {}", testsToIgnore);
 
-        RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked);
+        RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
+                tiaCore.getTestStats().getAllTestsRunTime(), updateDBMapping);
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
@@ -134,12 +135,22 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
+     * <p>When {@code updateDBMapping} is {@code true} the run will collect JaCoCo coverage per
+     * suite (and pay the other whole-run costs - JVM/agent startup, the final persist), none of
+     * which is captured in the per-suite {@code avgRunTime} (that is measured before coverage
+     * collection). To stop the estimate under-counting a mapping-update build, an amortised
+     * overhead per selected suite is added - see {@link #computeOverheadPerSuiteMs}.
+     *
      * @param testsToRun the names of the selected test suites
      * @param tracked the tracked test suites (names + stats) keyed by suite name
+     * @param allTestsRunTimeMs the recorded full-suite run time (ms); the basis for the overhead
+     * @param updateDBMapping whether this run will update the mapping (and so collect coverage);
+     *                        the overhead is only added when {@code true}
      * @return a {@link RunTimeEstimate} carrying the total estimated runtime (ms), the names
      *         of selected tests with no stats, and the median value applied to those tests
      */
-    static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked){
+    static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked,
+                                           final long allTestsRunTimeMs, final boolean updateDBMapping){
         long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
@@ -165,7 +176,42 @@ public class TestSelector {
             }
         }
 
+        if (updateDBMapping){
+            totalMs += computeOverheadPerSuiteMs(tracked, allTestsRunTimeMs) * (long) testsToRun.size();
+        }
+
         return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes);
+    }
+
+    /**
+     * Derive the per-suite overhead a mapping-update run pays beyond pure test execution: the
+     * recorded full-suite run time minus the sum of every tracked suite's {@code avgRunTime},
+     * amortised across the tracked suites. The difference captures JaCoCo coverage capture plus
+     * the whole-run fixed costs (JVM/agent startup, the final persist) that no per-suite
+     * {@code avgRunTime} includes.
+     *
+     * <p>Returns {@code 0} when there is no baseline, no tracked suites, or the baseline is below
+     * the per-suite sum. The last case means the build ran suites in parallel (wall clock less
+     * than the serial sum); this heuristic only models sequential builds, so it clamps rather
+     * than subtracting.
+     *
+     * @param tracked the tracked test suites (names + stats) keyed by suite name
+     * @param allTestsRunTimeMs the recorded full-suite run time (ms)
+     * @return the amortised overhead per suite (ms), or {@code 0} when it can't be derived
+     */
+    private static long computeOverheadPerSuiteMs(final Map<String, TestSuiteTracker> tracked, final long allTestsRunTimeMs){
+        if (allTestsRunTimeMs <= 0 || tracked.isEmpty()){
+            return 0L;
+        }
+        long sumAvg = 0L;
+        for (TestSuiteTracker tracker : tracked.values()){
+            sumAvg += tracker.getTestStats().getAvgRunTime();
+        }
+        long overhead = allTestsRunTimeMs - sumAvg;
+        if (overhead <= 0){
+            return 0L;
+        }
+        return overhead / tracked.size();
     }
 
     /**
