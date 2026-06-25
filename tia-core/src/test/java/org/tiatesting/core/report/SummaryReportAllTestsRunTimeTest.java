@@ -24,6 +24,8 @@ class SummaryReportAllTestsRunTimeTest {
 
     private static final long ALL_TESTS_RUN_TIME = 1500L;
     private static final long NUM_ALL_TESTS_RUNS = 4L;
+    private static final long NUM_RUNS = 6L;
+    private static final long NUM_PARTIAL_RUNS = NUM_RUNS - NUM_ALL_TESTS_RUNS;
 
     /**
      * Build an in-memory core {@link TiaData} carrying the all-tests-run stats and enough other
@@ -34,8 +36,8 @@ class SummaryReportAllTestsRunTimeTest {
         tiaData.setCommitValue("abc123");
         tiaData.setBranch("main");
         tiaData.setLastUpdated(Instant.now());
-        tiaData.getTestStats().setNumRuns(6);
-        tiaData.getTestStats().setNumSuccessRuns(6);
+        tiaData.getTestStats().setNumRuns(NUM_RUNS);
+        tiaData.getTestStats().setNumSuccessRuns(NUM_RUNS);
         tiaData.getTestStats().setAvgRunTime(200L);
         tiaData.getTestStats().setAllTestsRunTime(ALL_TESTS_RUN_TIME);
         tiaData.getTestStats().setNumAllTestsRuns(NUM_ALL_TESTS_RUNS);
@@ -54,6 +56,7 @@ class SummaryReportAllTestsRunTimeTest {
         dataStore.close();
 
         // then
+        assertTrue(report.contains("Number of partial runs: " + NUM_PARTIAL_RUNS), report);
         assertTrue(report.contains("Number of all-tests runs: " + NUM_ALL_TESTS_RUNS), report);
         assertTrue(report.contains("All tests run time: " + ReportUtils.prettyDuration(ALL_TESTS_RUN_TIME)), report);
     }
@@ -68,6 +71,7 @@ class SummaryReportAllTestsRunTimeTest {
         String text = new String(Files.readAllBytes(new File(fileName).toPath()));
 
         // then
+        assertTrue(text.contains("Number of partial runs: " + NUM_PARTIAL_RUNS), text);
         assertTrue(text.contains("Number of all-tests runs: " + NUM_ALL_TESTS_RUNS), text);
         assertTrue(text.contains("All tests run time: " + ReportUtils.prettyDuration(ALL_TESTS_RUN_TIME)), text);
     }
@@ -83,6 +87,7 @@ class SummaryReportAllTestsRunTimeTest {
         String html = new String(Files.readAllBytes(indexHtml.toPath()));
 
         // then
+        assertTrue(html.contains("Number of partial runs: " + NUM_PARTIAL_RUNS), html);
         assertTrue(html.contains("Number of all-tests runs: " + NUM_ALL_TESTS_RUNS), html);
         assertTrue(html.contains("All tests run time: " + ReportUtils.prettyDuration(ALL_TESTS_RUN_TIME)), html);
     }

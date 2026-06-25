@@ -133,7 +133,7 @@ public class TextSummaryReport {
         double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
-        reportBuilder.append("Number of runs: " + stats.getNumRuns() + lineSep);
+        reportBuilder.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
         reportBuilder.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
         reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
