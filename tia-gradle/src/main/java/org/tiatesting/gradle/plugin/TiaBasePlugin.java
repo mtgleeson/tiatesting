@@ -121,6 +121,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 TestSelector testSelector = new TestSelector(dataStore);
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+                // Read-only preview: no mapping writes (updateDBMapping=false).
                 TestSelectorResult result = testSelector.selectTestsToIgnore(getVCSReader(), sourceFilesDirs,
                         testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
                 Set<String> testsToRun = result.getTestsToRun();
@@ -131,7 +132,10 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     System.out.println("none");
                 } else {
                     System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
-                    System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep));
+                    // Include the mapping overhead in the estimate when the actual run being
+                    // previewed will collect coverage (the configured updateDBMapping).
+                    System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep,
+                            Boolean.TRUE.equals(getUpdateDBMapping())));
                 }
             }
         });
