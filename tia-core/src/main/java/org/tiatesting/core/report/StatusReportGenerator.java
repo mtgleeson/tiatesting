@@ -50,9 +50,13 @@ public class StatusReportGenerator {
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
         sb.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
-        sb.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        sb.append("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime()) + lineSep);
         sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         sb.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
+        if (stats.getAllTestsRunTime() > 0){
+            long totalSavings = ReportUtils.totalSavingsMs(stats.getAllTestsRunTime(), dataStore.readTestRunHistory());
+            sb.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
+        }
         sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
         sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)");
 

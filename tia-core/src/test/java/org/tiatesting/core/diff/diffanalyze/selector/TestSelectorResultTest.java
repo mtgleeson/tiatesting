@@ -40,7 +40,7 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes);
+                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L);
 
         // then
         assertSame(testsToRun, result.getTestsToRun());

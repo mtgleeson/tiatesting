@@ -134,9 +134,13 @@ public class TextSummaryReport {
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
         reportBuilder.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
-        reportBuilder.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
+        reportBuilder.append("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime()) + lineSep);
         reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
+        if (stats.getAllTestsRunTime() > 0){
+            long totalSavings = ReportUtils.totalSavingsMs(stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
+            reportBuilder.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
+        }
         reportBuilder.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)"  + lineSep);
         reportBuilder.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)" + lineSep + lineSep);
     }

@@ -58,6 +58,88 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
+     * With an all-tests-run baseline, the total line gains a "(% of all-tests time)" bracket and a
+     * savings line is added below it showing the time and percentage saved versus running all tests.
+     */
+    @Test
+    void formatEstimateBlock_withBaseline_addsPercentAndSavingsLine(){
+        // given - selected estimate 1500ms against a 2000ms all-tests baseline: 75% / saves 500ms (25%)
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 1000L), 2000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time: 1s (75%)"
+                + LINE_SEP + "Estimated savings: 500ms (25%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * With no all-tests-run baseline recorded (0), the percentage bracket and savings line are
+     * omitted - the output is the bare total run time line, unchanged from before the feature.
+     */
+    @Test
+    void formatEstimateBlock_noBaseline_omitsPercentAndSavings(){
+        // given
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 1000L), 0L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+
+        // then
+        assertEquals(LINE_SEP + "Estimated total run time: 1s", output);
+    }
+
+    /**
+     * When the selected estimate exceeds the all-tests baseline, savings is clamped to zero
+     * (0s, 0%) rather than going negative; the total-line percentage can still exceed 100%.
+     */
+    @Test
+    void formatEstimateBlock_selectedExceedsBaseline_clampsSavingsToZero(){
+        // given - selected 1500ms against a 1000ms baseline
+        Set<String> testsToRun = setOf("test1");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 1500L), 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time: 1s (150%)"
+                + LINE_SEP + "Estimated savings: 0s (0%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * The savings line sits between the total line and the new-tests note when both apply.
+     */
+    @Test
+    void formatEstimateBlock_withBaselineAndMissingStats_savingsBeforeNote(){
+        // given
+        Set<String> testsToRun = setOf("test1", "newTest");
+        Set<String> withoutStats = setOf("newTest");
+        TestSelectorResult result = buildResult(testsToRun, 700L, withoutStats, 200L,
+                perTestMap("test1", 500L, "newTest", 200L), 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time: 700ms (70%)"
+                + LINE_SEP + "Estimated savings: 300ms (30%)"
+                + LINE_SEP + LINE_SEP
+                + "Note: 1 selected test(s) have not previously been run by Tia. "
+                + "A median run time of 200ms (calculated from all tracked test suites) "
+                + "was used for them.";
+        assertEquals(expected, output);
+    }
+
+    /**
      * Some selected tests lack stats but a positive median is available - the note states
      * the median value explicitly and counts the new tests, but does <em>not</em> list them
      * (callers can find the names in {@link TestSelectorResult#getSelectedTestsWithoutStats}).
@@ -209,8 +291,19 @@ class SelectTestsOutputFormatterTest {
     private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
                                                   Set<String> withoutStats, long median,
                                                   Map<String, Long> perTestRunTimes){
+        return buildResult(testsToRun, estimatedRunTimeMs, withoutStats, median, perTestRunTimes, 0L);
+    }
+
+    /**
+     * Build a {@link TestSelectorResult} carrying an all-tests-run baseline (ms) used by the
+     * savings figures. {@code testsToIgnore} is fixed to an empty set since the formatter
+     * doesn't consult it.
+     */
+    private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
+                                                  Set<String> withoutStats, long median,
+                                                  Map<String, Long> perTestRunTimes, long allTestsRunTimeMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
-                estimatedRunTimeMs, withoutStats, median, perTestRunTimes);
+                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs);
     }
 
     /**
