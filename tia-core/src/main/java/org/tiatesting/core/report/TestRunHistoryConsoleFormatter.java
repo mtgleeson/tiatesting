@@ -42,12 +42,12 @@ public final class TestRunHistoryConsoleFormatter {
 
     private static final String[] HEADERS = {
             "Date/time", "Branch", "Commit", "Ran", "Ignored", "Failed",
-            "Duration", "Mapping", "Id"
+            "Duration", "Savings", "Savings %", "Mapping", "Id"
     };
 
-    // Right-align numeric columns (Ran, Ignored, Failed). Everything else is left-aligned.
+    // Right-align numeric columns (Ran, Ignored, Failed, Savings %). Everything else is left-aligned.
     private static final boolean[] RIGHT_ALIGN = {
-            false, false, false, true, true, true, false, false, false
+            false, false, false, true, true, true, false, false, true, false, false
     };
 
     private TestRunHistoryConsoleFormatter() { }
@@ -98,11 +98,12 @@ public final class TestRunHistoryConsoleFormatter {
      *
      * @param e    the history entry
      * @param zone the time zone used to render {@code runTimestampMs}
-     * @return a 9-element array of strings ready to be width-padded and emitted
+     * @return an 11-element array of strings ready to be width-padded and emitted
      */
     private static String[] toRow(TestRunHistoryEntry e, ZoneId zone) {
         String dateTime = Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone)
                 .format(LOCAL_DATE_TIME);
+        boolean hasSavings = e.getTimeSavingsMs() > 0;
         return new String[] {
                 dateTime,
                 nullSafe(e.getBranch()),
@@ -111,6 +112,8 @@ public final class TestRunHistoryConsoleFormatter {
                 Integer.toString(e.getNumSuitesIgnored()),
                 Integer.toString(e.getNumSuitesFailed()),
                 ReportUtils.prettyDuration(e.getDurationMs(), true),
+                hasSavings ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : "-",
+                hasSavings ? e.getSavingsPercent() + "%" : "-",
                 e.isUpdatedDbMapping() ? "yes" : "no",
                 truncate(nullSafe(e.getId()), TRUNCATE_LEN)
         };

@@ -478,15 +478,15 @@ The HTML report is the rich view, but it requires a full `tia-html-report` invoc
 ```
 Displaying the latest 20 test runs from a total of 47
 
-Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Mapping  Id
--------------------  ------------  --------  ---  -------  ------  --------  -------  --------
-2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    yes      550e8400
-2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       no       7c3e1a09
+Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Mapping  Id
+-------------------  ------------  --------  ---  -------  ------  --------  -------  ---------  -------  --------
+2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    5m 12s         79%  yes      550e8400
+2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       -                -  no       7c3e1a09
 ```
 
 The number of rows is configurable: `mvn <plugin>:history -DtiaHistoryLast=N` for Maven, `./gradlew tia-history --last=N` for Gradle. The default is **20**, chosen so the output fits in a terminal screen without scrolling. Values `<= 0` (or non-numeric for `--last`) fail fast with a clear error.
 
-Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
+Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the time that run saved versus running the full suite, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
 
 ## Chapter: Persist flow and crash safety
 
