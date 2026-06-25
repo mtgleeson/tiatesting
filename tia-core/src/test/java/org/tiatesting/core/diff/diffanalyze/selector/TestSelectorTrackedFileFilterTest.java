@@ -110,6 +110,43 @@ class TestSelectorTrackedFileFilterTest {
     }
 
     /**
+     * The result carries the base estimate (pure per-suite time) and the mapping overhead as
+     * separate figures. The overhead is always computed (it's the caller's choice, at display time,
+     * whether to add it) so the base stays the bare per-suite sum.
+     */
+    @Test
+    void resultCarriesBaseEstimateAndMappingOverheadSeparately() {
+        // given - FooTest avg 100ms, full-suite baseline 500ms => overhead (500-100)/1 = 400ms/suite
+        seedStats(100L, 500L);
+        RecordingVCSReader reader = new RecordingVCSReader(modifiedDiff(TRACKED_FILE_KEY));
+        TestSelector selector = new TestSelector(dataStore);
+
+        // when
+        TestSelectorResult result = selector.selectTestsToIgnore(reader,
+                Collections.emptyList(), Collections.emptyList(), false, null, null, false);
+
+        // then - base is the per-suite sum (no overhead folded in); overhead is reported separately
+        assertTrue(result.getTestsToRun().contains(SUITE_NAME));
+        assertEquals(100L, result.getEstimatedRunTimeMs());
+        assertEquals(400L, result.getMappingOverheadMs());
+    }
+
+    /**
+     * Overlay run-time stats onto the seeded mapping: set {@code FooTest}'s {@code avgRunTime} and
+     * the Tia-level all-tests baseline so the estimate and its overhead are exercised.
+     *
+     * @param suiteAvgMs the {@code avgRunTime} (ms) to store for {@code FooTest}
+     * @param allTestsRunTimeMs the full-suite baseline (ms) to store on the core row
+     */
+    private void seedStats(long suiteAvgMs, long allTestsRunTimeMs) {
+        TiaData tiaData = dataStore.getTiaData(true);
+        tiaData.getTestStats().setAllTestsRunTime(allTestsRunTimeMs);
+        dataStore.persistCoreData(tiaData);
+        tiaData.getTestSuitesTracked().get(SUITE_NAME).getTestStats().setAvgRunTime(suiteAvgMs);
+        dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+    }
+
+    /**
      * Seed a mapping where {@code com/example/Foo.java} has one tracked method (lines 2-8) covered
      * by {@code com.example.FooTest}. {@code com/example/Bar.java} is left untracked.
      */

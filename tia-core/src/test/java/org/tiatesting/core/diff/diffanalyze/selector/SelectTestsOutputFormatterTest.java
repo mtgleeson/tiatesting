@@ -31,7 +31,7 @@ class SelectTestsOutputFormatterTest {
         TestSelectorResult result = buildResult(setOf(), 0L, setOf(), 0L, perTestMap());
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         assertEquals("", output);
@@ -50,7 +50,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         // 1500ms is >= 1s, so the ms component is dropped
@@ -69,7 +69,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 2000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (75%)"
@@ -89,7 +89,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 0L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         assertEquals(LINE_SEP + "Estimated total run time: 1s", output);
@@ -107,7 +107,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 1500L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (150%)"
@@ -127,7 +127,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms (70%)"
@@ -136,6 +136,47 @@ class SelectTestsOutputFormatterTest {
                 + "Note: 1 selected test(s) have not previously been run by Tia. "
                 + "A median run time of 200ms (calculated from all tracked test suites) "
                 + "was used for them.";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * When {@code includeMappingOverhead} is true (the previewed run collects coverage), the
+     * mapping overhead is folded into the displayed total, and the percentage and savings reflect
+     * the higher figure.
+     */
+    @Test
+    void formatEstimateBlock_includeMappingOverhead_foldsOverheadIntoTotal(){
+        // given - base 1000ms + 1000ms overhead = 2000ms, against a 4000ms baseline => 50% / saves 50%
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1000L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true);
+
+        // then - total is base+overhead (2s), 50% of the 4s baseline, saving 2s (50%)
+        String expected = LINE_SEP + "Estimated total run time: 2s (50%)"
+                + LINE_SEP + "Estimated savings: 2s (50%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * With {@code includeMappingOverhead} false, the same result ignores the overhead - the total
+     * is the bare base estimate.
+     */
+    @Test
+    void formatEstimateBlock_excludeMappingOverhead_ignoresOverhead(){
+        // given - same result as above, but the previewed run will not collect coverage
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1000L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+
+        // then - base 1s, 25% of 4s, saving 3s (75%)
+        String expected = LINE_SEP + "Estimated total run time: 1s (25%)"
+                + LINE_SEP + "Estimated savings: 3s (75%)";
         assertEquals(expected, output);
     }
 
@@ -153,7 +194,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms" + LINE_SEP + LINE_SEP
@@ -178,7 +219,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("newTest", 0L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
 
         // then
         assertTrue(output.contains("Estimated total run time: "), "Output: " + output);
@@ -296,14 +337,25 @@ class SelectTestsOutputFormatterTest {
 
     /**
      * Build a {@link TestSelectorResult} carrying an all-tests-run baseline (ms) used by the
-     * savings figures. {@code testsToIgnore} is fixed to an empty set since the formatter
-     * doesn't consult it.
+     * savings figures, with no mapping overhead.
      */
     private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
                                                   Set<String> withoutStats, long median,
                                                   Map<String, Long> perTestRunTimes, long allTestsRunTimeMs){
+        return buildResult(testsToRun, estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs, 0L);
+    }
+
+    /**
+     * Build a {@link TestSelectorResult} carrying both an all-tests-run baseline and a mapping
+     * overhead (ms). {@code testsToIgnore} is fixed to an empty set since the formatter doesn't
+     * consult it.
+     */
+    private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
+                                                  Set<String> withoutStats, long median,
+                                                  Map<String, Long> perTestRunTimes, long allTestsRunTimeMs,
+                                                  long mappingOverheadMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
-                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs);
+                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs, mappingOverheadMs);
     }
 
     /**

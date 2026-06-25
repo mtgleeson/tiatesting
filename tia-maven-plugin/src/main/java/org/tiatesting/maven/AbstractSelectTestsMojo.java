@@ -34,6 +34,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+            // Read-only preview: no mapping writes (updateDBMapping=false).
             TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
                     testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
             Set<String> testsToRun = result.getTestsToRun();
@@ -43,7 +44,9 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
                 System.out.println("none");
             } else {
                 System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
-                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n"));
+                // Include the mapping overhead in the estimate when the actual run being previewed
+                // will collect coverage (the configured updateDBMapping).
+                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n", isTiaUpdateDBMapping()));
             }
         }
     }

@@ -34,6 +34,8 @@ public class TestSelectorResult {
 
     private final long allTestsRunTimeMs;
 
+    private final long mappingOverheadMs;
+
     /**
      * Construct a {@link TestSelectorResult}.
      *
@@ -56,6 +58,10 @@ public class TestSelectorResult {
      * @param allTestsRunTimeMs the Tia-level all-tests-run baseline (ms): the recorded average
      *                          time to run the full suite, used to show estimated savings. May be
      *                          {@code 0} when no full-suite run has been recorded yet
+     * @param mappingOverheadMs the additional time (ms) a mapping-update run would pay for the
+     *                          selected suites (per-suite coverage capture + amortised whole-run
+     *                          costs). Added to {@code estimatedRunTimeMs} only when the run being
+     *                          estimated will collect coverage; {@code 0} when not derivable
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
@@ -63,7 +69,7 @@ public class TestSelectorResult {
                                Set<String> selectedTestsWithoutStats,
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
-                               long allTestsRunTimeMs) {
+                               long allTestsRunTimeMs, long mappingOverheadMs) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -72,6 +78,7 @@ public class TestSelectorResult {
         this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
         this.selectedTestRunTimesMs = selectedTestRunTimesMs;
         this.allTestsRunTimeMs = allTestsRunTimeMs;
+        this.mappingOverheadMs = mappingOverheadMs;
     }
 
     /**
@@ -137,6 +144,16 @@ public class TestSelectorResult {
      */
     public long getAllTestsRunTimeMs() {
         return allTestsRunTimeMs;
+    }
+
+    /**
+     * @return the additional time (ms) a mapping-update run would pay for the selected suites
+     *         (per-suite coverage capture + amortised whole-run costs). Callers add this to
+     *         {@link #getEstimatedRunTimeMs()} only when the run being estimated collects coverage;
+     *         {@code 0} when there is no baseline to derive it from
+     */
+    public long getMappingOverheadMs() {
+        return mappingOverheadMs;
     }
 
     @Override
