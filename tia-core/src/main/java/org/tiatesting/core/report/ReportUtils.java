@@ -118,26 +118,40 @@ public class ReportUtils {
     }
 
     /**
-     * Sum the time Tia saved across all recorded runs in the history table: for each run where
-     * Tia ignored at least one suite, the full-suite baseline ({@code allTestsRunTimeMs}) minus
-     * that run's actual duration, clamped at zero so a run slower than the baseline contributes
-     * nothing. All-tests runs (zero ignored) saved nothing and are excluded.
+     * Compute the time Tia saved on a single run versus running the full suite: the full-suite
+     * baseline minus the run's actual duration, clamped at zero. An all-tests run saved nothing,
+     * and with no baseline yet there is nothing to compare against, so both yield {@code 0}.
      *
-     * @param allTestsRunTimeMs the recorded average time to run the full suite (ms); the baseline
-     *                          each partial run is compared against. {@code 0} (no baseline yet)
-     *                          yields a total of {@code 0}
-     * @param history the recorded test-run history rows
-     * @return the total time saved across all partial runs, in ms
+     * <p>This is computed once at persist time and frozen onto the history row (the baseline is a
+     * rolling average that changes over time, so it can't be re-derived later).
+     *
+     * @param allTestsRunTimeMs the full-suite baseline current at the time of the run (ms)
+     * @param durationMs the run's actual wall-clock duration (ms)
+     * @param allTestsRun {@code true} when this run executed the full suite (saved nothing)
+     * @return the time saved on this run (ms), never negative
      */
-    public static long totalSavingsMs(long allTestsRunTimeMs, List<TestRunHistoryEntry> history){
-        if (allTestsRunTimeMs <= 0 || history == null){
+    public static long runSavingsMs(long allTestsRunTimeMs, long durationMs, boolean allTestsRun){
+        if (allTestsRun || allTestsRunTimeMs <= 0){
+            return 0L;
+        }
+        return Math.max(0L, allTestsRunTimeMs - durationMs);
+    }
+
+    /**
+     * Sum the per-run savings frozen on the history rows. Each row's {@code time_savings} was
+     * computed against the all-tests baseline current at the time of that run, so summing the
+     * stored values is accurate even though the baseline moves over time.
+     *
+     * @param history the recorded test-run history rows
+     * @return the total time saved across all runs, in ms
+     */
+    public static long totalSavingsMs(List<TestRunHistoryEntry> history){
+        if (history == null){
             return 0L;
         }
         long total = 0L;
         for (TestRunHistoryEntry entry : history){
-            if (entry.getNumSuitesIgnored() > 0){
-                total += Math.max(0L, allTestsRunTimeMs - entry.getDurationMs());
-            }
+            total += entry.getTimeSavingsMs();
         }
         return total;
     }

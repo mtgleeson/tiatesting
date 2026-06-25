@@ -29,11 +29,13 @@ public final class TestRunHistoryEntry implements Serializable {
     private final int numSuitesFailed;
     private final long durationMs;
     private final boolean updatedDbMapping;
+    private final long timeSavingsMs;
+    private final int savingsPercent;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
      * stored on disk is round-tripped exactly. New entries should normally be created via
-     * {@link #create(String, String, long, int, int, int, long, boolean)} which derives the id.
+     * {@link #create} which derives the id.
      *
      * @param id deterministic entry id
      * @param runTimestampMs UTC epoch millis when the run started
@@ -48,10 +50,16 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param numSuitesFailed number of test suites with at least one failed test
      * @param durationMs total wall-clock duration of the test run, in ms
      * @param updatedDbMapping whether this run persisted updates to the Tia mapping DB
+     * @param timeSavingsMs time Tia saved this run versus running the full suite (ms), frozen at
+     *                      persist time against the all-tests baseline then current; {@code 0} for
+     *                      all-tests runs or when no baseline existed
+     * @param savingsPercent {@code timeSavingsMs} as a percentage of the full-suite baseline; {@code 0}
+     *                       for all-tests runs or when no baseline existed
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
-                               long durationMs, boolean updatedDbMapping) {
+                               long durationMs, boolean updatedDbMapping,
+                               long timeSavingsMs, int savingsPercent) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -61,6 +69,8 @@ public final class TestRunHistoryEntry implements Serializable {
         this.numSuitesFailed = numSuitesFailed;
         this.durationMs = durationMs;
         this.updatedDbMapping = updatedDbMapping;
+        this.timeSavingsMs = timeSavingsMs;
+        this.savingsPercent = savingsPercent;
     }
 
     /**
@@ -76,15 +86,19 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param numSuitesFailed   number of test suites with at least one failed test
      * @param durationMs        total wall-clock duration of the test run, in ms
      * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
+     * @param timeSavingsMs     time Tia saved this run versus running the full suite (ms)
+     * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
      * @return a new entry with a deterministic id
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
                                              int numSuitesRan, int numSuitesIgnored,
                                              int numSuitesFailed, long durationMs,
-                                             boolean updatedDbMapping) {
+                                             boolean updatedDbMapping, long timeSavingsMs,
+                                             int savingsPercent) {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
-                numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping);
+                numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
+                savingsPercent);
     }
 
     /**
@@ -134,6 +148,16 @@ public final class TestRunHistoryEntry implements Serializable {
 
     /** @return whether this run persisted updates to the Tia mapping DB */
     public boolean isUpdatedDbMapping() { return updatedDbMapping; }
+
+    /**
+     * @return the time Tia saved this run versus running the full suite (ms), frozen at persist
+     *         time against the all-tests baseline then current. {@code 0} for all-tests runs and
+     *         for runs persisted before any all-tests baseline existed
+     */
+    public long getTimeSavingsMs() { return timeSavingsMs; }
+
+    /** @return {@link #getTimeSavingsMs()} as a percentage of the full-suite baseline; {@code 0} when none */
+    public int getSavingsPercent() { return savingsPercent; }
 
     @Override
     public boolean equals(Object o) {

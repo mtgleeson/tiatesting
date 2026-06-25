@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,16 +36,17 @@ class SummaryReportAllTestsRunTimeTest {
 
     // avg run time over a minute -> ms dropped ("1m 30s"), and 90500 is 50% of 181000
     private static final String EXPECTED_AVG_LINE = "Average run time: 1m 30s (50%)";
-    // one partial run saved 181000-1000=180000ms (3m); the all-tests row is excluded
+    // one partial run with 180000ms (3m) of frozen savings; the all-tests row saved nothing
     private static final String EXPECTED_SAVINGS_LINE = "Total savings over all runs: 3m";
 
     /**
-     * History with one partial run (saves 3m vs the baseline) and one all-tests run (excluded).
+     * History with one partial run carrying 3m of frozen savings and one all-tests run (0 saved).
+     * The summary "Total savings" line sums the persisted {@code timeSavingsMs}.
      */
     private static List<TestRunHistoryEntry> history() {
         return Arrays.asList(
-                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false),
-                new TestRunHistoryEntry("2", 0L, "main", "c2", 5, 0, 0, ALL_TESTS_RUN_TIME, false));
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 180_000L, 99),
+                new TestRunHistoryEntry("2", 0L, "main", "c2", 5, 0, 0, ALL_TESTS_RUN_TIME, false, 0L, 0));
     }
 
     /**
@@ -124,16 +126,18 @@ class SummaryReportAllTestsRunTimeTest {
     }
 
     /**
-     * With no all-tests baseline recorded, the average-run-time percentage bracket and the total
-     * savings line are both omitted.
+     * With no all-tests baseline recorded, the average-run-time percentage bracket is omitted; and
+     * with no per-run savings on the history rows (the only state consistent with no baseline), the
+     * total savings line is omitted too.
      */
     @Test
     void textSummaryReport_noBaseline_omitsPercentAndSavings(@TempDir File tempDir) throws Exception {
-        // given
+        // given - no baseline means every run was persisted with zero frozen savings
         TiaData tiaData = coreData();
         tiaData.getTestStats().setAllTestsRunTime(0L);
         tiaData.getTestStats().setNumAllTestsRuns(0L);
-        tiaData.setTestRunHistory(history());
+        tiaData.setTestRunHistory(Collections.singletonList(
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 0L, 0)));
         TextSummaryReport report = new TextSummaryReport("txt", tempDir);
 
         // when

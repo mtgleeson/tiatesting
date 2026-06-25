@@ -47,7 +47,7 @@ class H2DataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true);
+                10, 2, 1, 5_000L, true, 4_000L, 80);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -65,6 +65,8 @@ class H2DataStoreTestRunHistoryTest {
         assertEquals(1, round.getNumSuitesFailed());
         assertEquals(5_000L, round.getDurationMs());
         assertTrue(round.isUpdatedDbMapping());
+        assertEquals(4_000L, round.getTimeSavingsMs());
+        assertEquals(80, round.getSavingsPercent());
     }
 
     @Test
@@ -82,9 +84,9 @@ class H2DataStoreTestRunHistoryTest {
     @Test
     void multipleEntriesReturnedMostRecentFirst() {
         // given three runs at distinct timestamps, inserted out of order
-        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true);
-        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true);
-        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true);
+        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0);
+        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0);
+        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0);
 
         // when
         dataStore.persistTestRunHistoryEntry(middle);
@@ -102,9 +104,9 @@ class H2DataStoreTestRunHistoryTest {
     @Test
     void persistSameLogicalRunTwiceIsIdempotent() {
         // given two persists of the same (branch, commit, timestamp) triple
-        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0);
         TestRunHistoryEntry secondWithDifferentCounts = TestRunHistoryEntry.create(
-                "main", "abc", 5_000L, 99, 99, 99, 999L, false);
+                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0);
 
         // when
         dataStore.persistTestRunHistoryEntry(first);
@@ -120,7 +122,7 @@ class H2DataStoreTestRunHistoryTest {
     @Test
     void tiaDataLoadIncludesTestRunHistory() {
         // given a persisted entry
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0);
         dataStore.persistTestRunHistoryEntry(entry);
 
         // when

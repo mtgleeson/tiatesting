@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -95,7 +96,12 @@ public class TestRunnerService {
         // 3. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
         if (updateDBTestRunHistory) {
-            persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs, testRunResult);
+            // Baseline for this run's savings: the all-tests average as it stands now. Partial runs
+            // don't move it, so it is the established full-suite time to compare against; for an
+            // all-tests run the savings are 0 regardless.
+            long allTestsRunTimeMs = tiaData.getTestStats().getAllTestsRunTime();
+            persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
+                    testRunResult, allTestsRunTimeMs);
         }
     }
 
@@ -119,21 +125,30 @@ public class TestRunnerService {
      * @param branch                VCS branch the run targeted
      * @param runStartTimestampMs   when the run started (UTC epoch ms)
      * @param testRunResult         the collected results of the test run
+     * @param allTestsRunTimeMs     the all-tests-run baseline (ms) to freeze this run's savings
+     *                              against; partial runs don't move it, so it is the established
+     *                              full-suite time
      */
     private void persistTestRunHistory(final boolean updateDBMapping, final String commitValue,
                                        final String branch, final long runStartTimestampMs,
-                                       final TestRunResult testRunResult) {
+                                       final TestRunResult testRunResult, final long allTestsRunTimeMs) {
         int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
         int failed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
         long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
 
+        // Freeze the savings for this run: 0 for an all-tests run (ignored == 0) or when no
+        // baseline exists, else the baseline minus this run's duration.
+        long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs, durationMs, ignored == 0);
+        int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
+
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs, updateDBMapping);
+                branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
+                updateDBMapping, timeSavingsMs, savingsPercent);
         dataStore.persistTestRunHistoryEntry(entry);
-        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={})",
-                entry.getId(), ran, ignored, failed, durationMs);
+        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
+                entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
     }
 
     /**

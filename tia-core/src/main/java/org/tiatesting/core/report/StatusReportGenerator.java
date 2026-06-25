@@ -53,8 +53,8 @@ public class StatusReportGenerator {
         sb.append("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime()) + lineSep);
         sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         sb.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
-        if (stats.getAllTestsRunTime() > 0){
-            long totalSavings = ReportUtils.totalSavingsMs(stats.getAllTestsRunTime(), dataStore.readTestRunHistory());
+        long totalSavings = ReportUtils.totalSavingsMs(dataStore.readTestRunHistory());
+        if (totalSavings > 0){
             sb.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
         }
         sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
