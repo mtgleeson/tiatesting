@@ -108,6 +108,8 @@ public class HtmlHistoryReport {
                                                     th("Ignored").attr(numberDataType),
                                                     th("Failed").attr(numberDataType),
                                                     th("Duration").attr(numberDataType),
+                                                    th("Savings").attr(numberDataType),
+                                                    th("Savings %").attr(numberDataType),
                                                     th("Updated Mapping?").withStyle("width: 8em"),
                                                     th("Id")
                                             )),
@@ -161,6 +163,10 @@ public class HtmlHistoryReport {
                 td(String.valueOf(entry.getNumSuitesFailed())),
                 td(ReportUtils.prettyDuration(entry.getDurationMs(), true))
                         .attr("data-sort", String.valueOf(entry.getDurationMs())),
+                td(entry.getTimeSavingsMs() > 0 ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-")
+                        .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())),
+                td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
+                        .attr("data-sort", String.valueOf(entry.getSavingsPercent())),
                 td(entry.isUpdatedDbMapping() ? "yes" : "no"),
                 // title on a span inside the td so the tooltip survives simple-datatables
                 // re-rendering the row chrome on sort/page changes.

@@ -544,10 +544,10 @@ Example output:
 ```
 Displaying the latest 20 test runs from a total of 47
 
-Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Mapping  Id
--------------------  ------------  --------  ---  -------  ------  --------  -------  --------
-2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    yes      550e8400
-2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       no       7c3e1a09
+Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Mapping  Id
+-------------------  ------------  --------  ---  -------  ------  --------  -------  ---------  -------  --------
+2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    5m 12s         79%  yes      550e8400
+2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       -                -  no       7c3e1a09
 ```
 
 **Maven, Junit5 and Git**
