@@ -66,24 +66,34 @@ public class SelectTestsOutputFormatter {
      * @param result the test-selection result
      * @param lineSep the line separator to use between lines (e.g. {@code "\n"} or
      *                {@link System#lineSeparator()})
+     * @param includeMappingOverhead whether the run being estimated will collect coverage (update
+     *                               the mapping). When {@code true} the per-suite estimate gains
+     *                               {@link TestSelectorResult#getMappingOverheadMs()} - coverage
+     *                               capture is not part of the stored per-suite times - so the
+     *                               displayed total, percentage and savings reflect a coverage run.
      * @return the formatted estimate block, or an empty string when no estimate applies
      */
-    public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep){
+    public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep,
+                                             final boolean includeMappingOverhead){
         if (result.getTestsToRun().isEmpty()){
             return "";
         }
 
+        // A mapping-update run also pays per-suite coverage capture, which is not in the stored
+        // per-suite times; fold it in only when the previewed run collects coverage.
+        long selectedMs = result.getEstimatedRunTimeMs()
+                + (includeMappingOverhead ? result.getMappingOverheadMs() : 0L);
+
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);
         sb.append("Estimated total run time: ")
-          .append(ReportUtils.prettyDuration(result.getEstimatedRunTimeMs(), true));
+          .append(ReportUtils.prettyDuration(selectedMs, true));
 
         // When an all-tests-run baseline exists, show what fraction of the full-suite time the
         // selected run is expected to take, and the savings (time and percent) versus running all
         // tests. With no baseline recorded yet we can't compute these, so the line stays bare.
         long allTestsRunTimeMs = result.getAllTestsRunTimeMs();
         if (allTestsRunTimeMs > 0){
-            long selectedMs = result.getEstimatedRunTimeMs();
             long savingsMs = Math.max(0L, allTestsRunTimeMs - selectedMs);
             long selectedPercent = Math.round((double) selectedMs / allTestsRunTimeMs * 100);
             long savingsPercent = Math.round((double) savingsMs / allTestsRunTimeMs * 100);

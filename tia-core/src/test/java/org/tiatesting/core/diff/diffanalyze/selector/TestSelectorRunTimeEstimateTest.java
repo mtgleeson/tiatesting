@@ -34,7 +34,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "test2", "test3");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(600L, estimate.getEstimatedRunTimeMs());
@@ -55,7 +55,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "test2", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(100L + 200L + 200L, estimate.getEstimatedRunTimeMs());
@@ -77,7 +77,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest1", "newTest2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(400L, estimate.getEstimatedRunTimeMs());
@@ -98,7 +98,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -120,7 +120,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         // median of [100, 200] (lower of two middles) = 100; total = 100 + 100
@@ -143,7 +143,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(20L, estimate.getMedianRunTimeMsAppliedToMissing());
@@ -163,7 +163,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = Collections.emptySet();
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -185,7 +185,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("zeroTest", "test1");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, false);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(100L, estimate.getEstimatedRunTimeMs());
@@ -196,39 +196,23 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * When the run will update the mapping (and so incur per-suite coverage capture and other
-     * whole-run overhead), the estimate adds an amortised overhead per selected suite, derived
-     * from {@code allTestsRunTime - sum(per-suite avgRunTime)} divided across the tracked suites.
+     * The mapping overhead is reported separately from the base estimate: it's the full-run
+     * baseline minus the sum of per-suite times, amortised across the tracked suites and
+     * multiplied by the number of suites selected. The base estimate stays the bare per-suite sum.
      */
     @Test
-    void estimateRunTime_updateMappingTrue_addsAmortisedOverhead(){
+    void estimateRunTime_reportsAmortisedMappingOverheadSeparately(){
         // given - 3 tracked suites summing to 600ms; full-run baseline 900ms => 300ms overhead
         // over 3 suites = 100ms/suite. Two suites selected.
         Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("test1", "test2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 900L, true);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 900L);
 
-        // then - base 300ms + overhead 100ms x 2 selected = 500ms
-        assertEquals(500L, estimate.getEstimatedRunTimeMs());
-    }
-
-    /**
-     * When the run will not update the mapping, no coverage capture happens, so no overhead is
-     * added - the per-suite times are accurate as-is.
-     */
-    @Test
-    void estimateRunTime_updateMappingFalse_noOverhead(){
-        // given
-        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
-        Set<String> testsToRun = setOf("test1", "test2");
-
-        // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 900L, false);
-
-        // then - base only
+        // then - base is the per-suite sum; overhead is 100ms/suite x 2 selected = 200ms
         assertEquals(300L, estimate.getEstimatedRunTimeMs());
+        assertEquals(200L, estimate.getMappingOverheadMs());
     }
 
     /**
@@ -236,33 +220,34 @@ class TestSelectorRunTimeEstimateTest {
      * in parallel), the overhead would be negative; it is clamped to zero rather than subtracting.
      */
     @Test
-    void estimateRunTime_baselineBelowSum_clampsOverheadToZero(){
+    void estimateRunTime_baselineBelowSum_overheadIsZero(){
         // given - sum is 600ms but baseline is only 400ms (parallel execution)
         Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("test1", "test2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 400L, true);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 400L);
 
-        // then - no overhead added
+        // then - base only, no overhead
         assertEquals(300L, estimate.getEstimatedRunTimeMs());
+        assertEquals(0L, estimate.getMappingOverheadMs());
     }
 
     /**
-     * With no all-tests baseline recorded, there is nothing to derive overhead from, so none is
-     * added even when updating the mapping.
+     * With no all-tests baseline recorded, there is nothing to derive overhead from, so it is zero.
      */
     @Test
-    void estimateRunTime_noBaseline_noOverhead(){
+    void estimateRunTime_noBaseline_overheadIsZero(){
         // given
         Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L));
         Set<String> testsToRun = setOf("test1");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L, true);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
 
         // then
         assertEquals(100L, estimate.getEstimatedRunTimeMs());
+        assertEquals(0L, estimate.getMappingOverheadMs());
     }
 
     /**

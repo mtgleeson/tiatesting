@@ -93,7 +93,7 @@ public class TestSelector {
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap(),
-                    tiaCore.getTestStats().getAllTestsRunTime());
+                    tiaCore.getTestStats().getAllTestsRunTime(), 0L);
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
@@ -115,12 +115,12 @@ public class TestSelector {
         log.debug("Ignoring tests: {}", testsToIgnore);
 
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
-                tiaCore.getTestStats().getAllTestsRunTime(), updateDBMapping);
+                tiaCore.getTestStats().getAllTestsRunTime());
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
                 estimate.getSelectedTestRunTimesMs(),
-                tiaCore.getTestStats().getAllTestsRunTime());
+                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getMappingOverheadMs());
     }
 
     /**
@@ -135,22 +135,21 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
-     * <p>When {@code updateDBMapping} is {@code true} the run will collect JaCoCo coverage per
-     * suite (and pay the other whole-run costs - JVM/agent startup, the final persist), none of
-     * which is captured in the per-suite {@code avgRunTime} (that is measured before coverage
-     * collection). To stop the estimate under-counting a mapping-update build, an amortised
-     * overhead per selected suite is added - see {@link #computeOverheadPerSuiteMs}.
+     * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
+     * per-suite JaCoCo coverage capture plus other whole-run costs (JVM/agent startup, the final
+     * persist), none of which is in {@code avgRunTime} (that is measured before coverage
+     * collection). That amount is returned separately as
+     * {@link RunTimeEstimate#getMappingOverheadMs()} - see {@link #computeOverheadPerSuiteMs} -
+     * so the caller can add it to the base only when the run being estimated collects coverage.
      *
      * @param testsToRun the names of the selected test suites
      * @param tracked the tracked test suites (names + stats) keyed by suite name
      * @param allTestsRunTimeMs the recorded full-suite run time (ms); the basis for the overhead
-     * @param updateDBMapping whether this run will update the mapping (and so collect coverage);
-     *                        the overhead is only added when {@code true}
-     * @return a {@link RunTimeEstimate} carrying the total estimated runtime (ms), the names
-     *         of selected tests with no stats, and the median value applied to those tests
+     * @return a {@link RunTimeEstimate} carrying the base estimate, the names of selected tests
+     *         with no stats, the median applied to those tests, and the mapping overhead
      */
     static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked,
-                                           final long allTestsRunTimeMs, final boolean updateDBMapping){
+                                           final long allTestsRunTimeMs){
         long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
@@ -176,11 +175,9 @@ public class TestSelector {
             }
         }
 
-        if (updateDBMapping){
-            totalMs += computeOverheadPerSuiteMs(tracked, allTestsRunTimeMs) * (long) testsToRun.size();
-        }
+        long mappingOverheadMs = computeOverheadPerSuiteMs(tracked, allTestsRunTimeMs) * (long) testsToRun.size();
 
-        return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes);
+        return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes, mappingOverheadMs);
     }
 
     /**
@@ -252,10 +249,12 @@ public class TestSelector {
         private final Set<String> selectedTestsWithoutStats;
         private final long medianRunTimeMsAppliedToMissing;
         private final Map<String, Long> selectedTestRunTimesMs;
+        private final long mappingOverheadMs;
 
         /**
-         * @param estimatedRunTimeMs total estimated runtime (ms) for the selected tests,
-         *                           including the median-fallback contribution
+         * @param estimatedRunTimeMs base estimated runtime (ms) for the selected tests - the sum
+         *                           of per-suite times including the median fallback, with no
+         *                           mapping overhead added
          * @param selectedTestsWithoutStats names of selected tests with no recorded stats
          * @param medianRunTimeMsAppliedToMissing median {@code avgRunTime} (ms) applied to
          *                                        each test in {@code selectedTestsWithoutStats},
@@ -264,17 +263,22 @@ public class TestSelector {
          *                               every entry in {@code testsToRun}, with the median
          *                               value (or {@code 0} when no median is available) used
          *                               for tests without stats
+         * @param mappingOverheadMs the additional time (ms) a mapping-update run would pay for the
+         *                          selected suites (coverage capture + amortised whole-run costs);
+         *                          callers add it to {@code estimatedRunTimeMs} only when the run
+         *                          being estimated collects coverage
          */
         RunTimeEstimate(long estimatedRunTimeMs, Set<String> selectedTestsWithoutStats,
                         long medianRunTimeMsAppliedToMissing,
-                        Map<String, Long> selectedTestRunTimesMs) {
+                        Map<String, Long> selectedTestRunTimesMs, long mappingOverheadMs) {
             this.estimatedRunTimeMs = estimatedRunTimeMs;
             this.selectedTestsWithoutStats = selectedTestsWithoutStats;
             this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
             this.selectedTestRunTimesMs = selectedTestRunTimesMs;
+            this.mappingOverheadMs = mappingOverheadMs;
         }
 
-        /** @return the total estimated runtime (ms) for the selected tests */
+        /** @return the base estimated runtime (ms) for the selected tests, without mapping overhead */
         long getEstimatedRunTimeMs() { return estimatedRunTimeMs; }
 
         /** @return names of selected tests with no recorded run-time stats */
@@ -285,6 +289,9 @@ public class TestSelector {
 
         /** @return per-test runtime (ms) keyed by test suite name */
         Map<String, Long> getSelectedTestRunTimesMs() { return selectedTestRunTimesMs; }
+
+        /** @return the mapping overhead (ms) for the selected suites; added only for coverage runs */
+        long getMappingOverheadMs() { return mappingOverheadMs; }
     }
 
     private boolean hasStoredMapping(TiaData tiaData){

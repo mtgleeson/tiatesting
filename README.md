@@ -490,9 +490,16 @@ Selected tests to run from VCS test file changes: []
 Selected tests to run from new test files: []
 Running previously failed tests: [com.example.DoorServiceTest]
 Selected tests to run: 
-	com.example.DoorServiceTest
-	com.example.ParameterizedTest
+	com.example.DoorServiceTest (12s)
+	com.example.ParameterizedTest (8s)
+
+Estimated total run time: 1m 5s (22%)
+Estimated savings: 3m 55s (78%)
 ```
+
+The bracket after each test is its average run time; the percentages compare against the full-suite run time ("Estimated total run time" as a share of running everything, and "Estimated savings" as the share avoided).
+
+When the test run is configured to update the mapping (`updateDBMapping=true`, i.e. the primary build that collects JaCoCo coverage), the "Estimated total run time" also includes an allowance for per-suite coverage capture plus other whole-run overhead (JVM/agent startup, the final persist), derived from the recorded full-suite run time and amortised across the selected suites. A run that does not update the mapping collects no coverage, so no overhead is added and the estimate is the plain sum of the per-suite times.
 
 **Maven, Junit5 and Git**
 ```
