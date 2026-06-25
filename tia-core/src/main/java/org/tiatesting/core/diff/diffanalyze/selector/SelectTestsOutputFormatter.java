@@ -78,6 +78,20 @@ public class SelectTestsOutputFormatter {
         sb.append("Estimated total run time: ")
           .append(ReportUtils.prettyDuration(result.getEstimatedRunTimeMs(), true));
 
+        // When an all-tests-run baseline exists, show what fraction of the full-suite time the
+        // selected run is expected to take, and the savings (time and percent) versus running all
+        // tests. With no baseline recorded yet we can't compute these, so the line stays bare.
+        long allTestsRunTimeMs = result.getAllTestsRunTimeMs();
+        if (allTestsRunTimeMs > 0){
+            long selectedMs = result.getEstimatedRunTimeMs();
+            long savingsMs = Math.max(0L, allTestsRunTimeMs - selectedMs);
+            long selectedPercent = Math.round((double) selectedMs / allTestsRunTimeMs * 100);
+            long savingsPercent = Math.round((double) savingsMs / allTestsRunTimeMs * 100);
+            sb.append(" (").append(selectedPercent).append("%)");
+            sb.append(lineSep).append("Estimated savings: ")
+              .append(formatSavingsDuration(savingsMs)).append(" (").append(savingsPercent).append("%)");
+        }
+
         if (!result.getSelectedTestsWithoutStats().isEmpty()){
             int n = result.getSelectedTestsWithoutStats().size();
             long median = result.getMedianRunTimeMsAppliedToMissing();
@@ -93,6 +107,22 @@ public class SelectTestsOutputFormatter {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Format the estimated-savings duration. Delegates to
+     * {@link ReportUtils#prettyDuration(long, boolean)} but renders zero (or clamped-to-zero)
+     * savings as {@code "0s"} rather than the empty string that {@code prettyDuration} returns
+     * for a zero duration.
+     *
+     * @param savingsMs the savings in milliseconds (never negative)
+     * @return the formatted savings duration, or {@code "0s"} when there is no saving
+     */
+    private static String formatSavingsDuration(final long savingsMs){
+        if (savingsMs <= 0){
+            return "0s";
+        }
+        return ReportUtils.prettyDuration(savingsMs, true);
     }
 
     /**

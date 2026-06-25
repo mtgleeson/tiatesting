@@ -32,6 +32,8 @@ public class TestSelectorResult {
 
     private final Map<String, Long> selectedTestRunTimesMs;
 
+    private final long allTestsRunTimeMs;
+
     /**
      * Construct a {@link TestSelectorResult}.
      *
@@ -51,13 +53,17 @@ public class TestSelectorResult {
      *                               stats carry the median value or {@code 0} when no median
      *                               is available. Must not be {@code null} (use an empty map
      *                               instead)
+     * @param allTestsRunTimeMs the Tia-level all-tests-run baseline (ms): the recorded average
+     *                          time to run the full suite, used to show estimated savings. May be
+     *                          {@code 0} when no full-suite run has been recorded yet
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
                                long estimatedRunTimeMs,
                                Set<String> selectedTestsWithoutStats,
                                long medianRunTimeMsAppliedToMissing,
-                               Map<String, Long> selectedTestRunTimesMs) {
+                               Map<String, Long> selectedTestRunTimesMs,
+                               long allTestsRunTimeMs) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -65,6 +71,7 @@ public class TestSelectorResult {
         this.selectedTestsWithoutStats = selectedTestsWithoutStats;
         this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
         this.selectedTestRunTimesMs = selectedTestRunTimesMs;
+        this.allTestsRunTimeMs = allTestsRunTimeMs;
     }
 
     /**
@@ -121,6 +128,15 @@ public class TestSelectorResult {
      */
     public Map<String, Long> getSelectedTestRunTimesMs() {
         return selectedTestRunTimesMs;
+    }
+
+    /**
+     * @return the Tia-level all-tests-run baseline (ms): the recorded average time to run the
+     *         full suite. {@code 0} when no full-suite run has been recorded yet, in which case
+     *         the savings figures cannot be computed
+     */
+    public long getAllTestsRunTimeMs() {
+        return allTestsRunTimeMs;
     }
 
     @Override
