@@ -404,14 +404,15 @@ Test mapping valid for commit: 70d0624e4c2c6fab629d618f0ac406d5cbf009e3
 Number of tests classes with mappings: 4
 Number of source methods tracked for tests: 35
 Number of partial runs: 1
-Average run time: 459ms
+Average run time: 12s (25%)
 Number of all-tests runs: 1
-All tests run time: 2s 480ms
+All tests run time: 48s
+Total savings over all runs: 36s
 Number of successful runs: 2 (100%)
 Number of failed runs: 0 (0%)
 ```
 
-"All tests run time" is the average time to run the full suite (runs where Tia ignored nothing); compare it against "Average run time" (Tia-selected runs) to see the time Tia saves.
+"All tests run time" is the average time to run the full suite (runs where Tia ignored nothing); compare it against "Average run time" (Tia-selected runs) to see the time Tia saves. The percentage on the "Average run time" line is the selected-run time as a share of the full-suite time, and "Total savings over all runs" sums the time saved across every recorded partial run.
 
 Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below. Pending failed tests (forced to re-run) are shown by the select-tests task.
 

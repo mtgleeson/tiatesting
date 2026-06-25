@@ -60,6 +60,11 @@ public class HtmlSummaryReport {
             int numSourceMethods = tiaData.getMethodsTracked().size();
             TestStats stats = tiaData.getTestStats();
 
+            // Total savings is only meaningful once an all-tests baseline has been recorded.
+            boolean hasAllTestsBaseline = stats.getAllTestsRunTime() > 0;
+            long totalSavingsMs = hasAllTestsBaseline
+                    ? ReportUtils.totalSavingsMs(stats.getAllTestsRunTime(), tiaData.getTestRunHistory()) : 0L;
+
             html(
                     HtmlLayout.pageHead("Summary", assetsRel),
                     body(
@@ -85,9 +90,12 @@ public class HtmlSummaryReport {
                                     ),
                                     p(
                                             span("Number of partial runs: " + stats.getNumPartialRuns()), br(),
-                                            span("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime())), br(),
+                                            span("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime())), br(),
                                             span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
                                             span("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime())), br(),
+                                            iff(hasAllTestsBaseline, span("Total savings over all runs: "
+                                                    + ReportUtils.prettyDurationDropMsAboveMinute(totalSavingsMs))),
+                                            iff(hasAllTestsBaseline, br()),
                                             span("Number of successful runs: " + stats.getNumSuccessRuns()
                                                     + " (" + getAvgSuccess(stats) + "%)"), br(),
                                             span("Number of failed runs: " + stats.getNumFailRuns()

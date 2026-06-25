@@ -92,7 +92,8 @@ public class TestSelector {
         if (!hasStoredMapping(tiaCore)){
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
-                    0L, Collections.emptySet(), 0L, Collections.emptyMap());
+                    0L, Collections.emptySet(), 0L, Collections.emptyMap(),
+                    tiaCore.getTestStats().getAllTestsRunTime());
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
@@ -117,7 +118,8 @@ public class TestSelector {
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
-                estimate.getSelectedTestRunTimesMs());
+                estimate.getSelectedTestRunTimesMs(),
+                tiaCore.getTestStats().getAllTestsRunTime());
     }
 
     /**
