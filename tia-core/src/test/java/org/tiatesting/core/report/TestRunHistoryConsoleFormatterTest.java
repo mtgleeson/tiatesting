@@ -244,7 +244,7 @@ class TestRunHistoryConsoleFormatterTest {
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true);
+                1, 0, 0, 1000L, true, 0L, 0);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -262,7 +262,7 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping);
+                durationMs, mapping, 0L, 0);
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -270,7 +270,7 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true));
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0));
         }
         return entries;
     }

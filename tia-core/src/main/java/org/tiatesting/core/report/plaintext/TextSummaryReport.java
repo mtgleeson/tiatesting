@@ -137,8 +137,8 @@ public class TextSummaryReport {
         reportBuilder.append("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime()) + lineSep);
         reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
-        if (stats.getAllTestsRunTime() > 0){
-            long totalSavings = ReportUtils.totalSavingsMs(stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
+        long totalSavings = ReportUtils.totalSavingsMs(tiaData.getTestRunHistory());
+        if (totalSavings > 0){
             reportBuilder.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
         }
         reportBuilder.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)"  + lineSep);
