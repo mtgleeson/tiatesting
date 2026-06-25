@@ -49,7 +49,7 @@ public class StatusReportGenerator {
         double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
-        sb.append("Number of runs: " + stats.getNumRuns() + lineSep);
+        sb.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
         sb.append("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime()) + lineSep);
         sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         sb.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);

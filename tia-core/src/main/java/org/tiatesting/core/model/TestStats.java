@@ -118,6 +118,16 @@ public class TestStats implements Serializable {
         return numAllTestsRuns;
     }
 
+    /**
+     * The number of partial (Tia-selected) runs: the total run count minus the all-tests runs.
+     * These are the runs that fed {@link #avgRunTime}, so the two are reported together.
+     *
+     * @return {@code numRuns - numAllTestsRuns}
+     */
+    public long getNumPartialRuns() {
+        return numRuns - numAllTestsRuns;
+    }
+
     public void setNumAllTestsRuns(long numAllTestsRuns) {
         this.numAllTestsRuns = numAllTestsRuns;
     }

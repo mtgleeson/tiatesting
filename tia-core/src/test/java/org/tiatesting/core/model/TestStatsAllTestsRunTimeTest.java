@@ -104,6 +104,27 @@ class TestStatsAllTestsRunTimeTest {
     }
 
     /**
+     * The partial-run count is the total run count minus the all-tests-run count - the runs that
+     * fed avgRunTime.
+     */
+    @Test
+    void getNumPartialRuns_isTotalMinusAllTestsRuns(){
+        // given
+        TestStats stats = new TestStats();
+        stats.incrementStats(run(100, 1, 0), true);    // all-tests run
+        stats.incrementStats(run(200, 1, 0), false);   // partial run
+        stats.incrementStats(run(300, 1, 0), false);   // partial run
+
+        // when
+        long partialRuns = stats.getNumPartialRuns();
+
+        // then
+        assertEquals(2, partialRuns);
+        assertEquals(3, stats.getNumRuns());
+        assertEquals(1, stats.getNumAllTestsRuns());
+    }
+
+    /**
      * A Surefire retry carrying numRuns == 0 is a no-op in both regimes.
      */
     @Test
