@@ -236,7 +236,7 @@ File: `tia-core/src/main/java/org/tiatesting/core/persistence/h2/H2DataStore.jav
 ## Stage 4 - Reports (Tia-level summary only)
 
 Add a "Number of all-tests runs" line and an "All tests run time" line
-(via `ReportUtils.prettyDuration`) next to the existing "Number of runs" / "Average run time":
+(via `ReportUtils.prettyDuration`) next to the run-count / average lines:
 
 - `tia-core/.../report/StatusReportGenerator.java`
 - `tia-core/.../report/plaintext/TextSummaryReport.java`
@@ -244,6 +244,15 @@ Add a "Number of all-tests runs" line and an "All tests run time" line
 
 Per-suite reports (`HtmlTestSuiteReport`, `HtmlSourceMethodReport`) are unchanged - the
 all-tests stat is Tia-level only and is always 0 per suite.
+
+Follow-up clarity fix (post-delivery): the existing "Number of runs" line was relabelled
+"Number of partial runs" and now shows `TestStats.getNumPartialRuns()` (`numRuns -
+numAllTestsRuns`) so the count pairs with the partial-only `avgRunTime` beside it (and
+"Number of all-tests runs" pairs with "All tests run time"). This avoids the confusing
+"Number of runs: 1 / Average run time: 0" reading after a first all-tests seed run. The stored
+`numRuns` stays the true total and the success/fail percentages stay denominated on it; only
+the display is derived. `avgRunTime` was already correct - the selected-run branch divides by
+`numRuns - numAllTestsRuns`, so all-tests runs never polluted it.
 
 ## Testing (Stages 2-4)
 

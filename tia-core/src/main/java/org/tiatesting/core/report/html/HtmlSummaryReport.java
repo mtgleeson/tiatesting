@@ -84,7 +84,7 @@ public class HtmlSummaryReport {
                                             span("Number of source methods tracked for tests: " + numSourceMethods)
                                     ),
                                     p(
-                                            span("Number of runs: " + stats.getNumRuns()), br(),
+                                            span("Number of partial runs: " + stats.getNumPartialRuns()), br(),
                                             span("Average run time: " + ReportUtils.prettyDuration(stats.getAvgRunTime())), br(),
                                             span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
                                             span("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime())), br(),
