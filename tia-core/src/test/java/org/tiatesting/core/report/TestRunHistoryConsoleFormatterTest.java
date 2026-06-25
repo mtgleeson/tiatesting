@@ -255,6 +255,30 @@ class TestRunHistoryConsoleFormatterTest {
                 "Expected local-time string '" + expectedLocal + "' in output:\n" + output);
     }
 
+    /**
+     * A partial run's frozen savings render as a duration and a percent; an all-tests run with no
+     * savings renders {@code "-"} in both columns.
+     */
+    @Test
+    void savingsColumns_renderDurationPercentAndDashForZero() {
+        // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
+        TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
+                8, 2, 0, 1000L, true, 4000L, 80);
+        TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
+                10, 0, 0, 5000L, true, 0L, 0);
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Arrays.asList(partial, allTests), 20, LF);
+
+        // then
+        assertTrue(output.contains("Savings"), "header should include a Savings column. Output:\n" + output);
+        assertTrue(output.contains("Savings %"), "header should include a Savings % column. Output:\n" + output);
+        assertTrue(output.contains("4s"), "partial run should show its savings duration. Output:\n" + output);
+        assertTrue(output.contains("80%"), "partial run should show its savings percent. Output:\n" + output);
+        assertTrue(output.contains("-"), "all-tests run should show a dash for no savings. Output:\n" + output);
+    }
+
     private static TestRunHistoryEntry entry(int year, int month, int day, int hour, int minute,
                                              int second, String branch, String commit, String id,
                                              int ran, int ignored, int failed, long durationMs,
