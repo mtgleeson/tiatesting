@@ -17,11 +17,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ReportUtilsTest {
 
     /**
-     * Build a history entry carrying only the fields the savings calculation reads
-     * ({@code numSuitesIgnored}, {@code durationMs}); the rest are filler.
+     * Build a history entry carrying the persisted {@code timeSavingsMs} the aggregation reads;
+     * the rest are filler.
      */
-    private static TestRunHistoryEntry historyEntry(int numSuitesIgnored, long durationMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, numSuitesIgnored, 0, durationMs, false);
+    private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0);
     }
 
     /**
@@ -69,39 +69,42 @@ class ReportUtilsTest {
     }
 
     /**
-     * Total savings sums, over history rows where Tia ignored at least one suite, the
-     * full-suite baseline minus that run's actual duration (never negative). All-tests runs
-     * (zero ignored) and runs slower than the baseline contribute nothing.
+     * A single run's savings is the baseline minus its duration, clamped at zero. An all-tests
+     * run and a run with no baseline save nothing; a run slower than the baseline clamps to zero.
      */
     @Test
-    void totalSavingsMs_sumsPartialRunSavingsAgainstBaseline(){
-        // given - baseline 5000ms; a partial run that saved 4000ms, an all-tests run (excluded),
-        // and a partial run slower than the baseline (clamped to 0)
-        List<TestRunHistoryEntry> history = Arrays.asList(
-                historyEntry(2, 1000L),
-                historyEntry(0, 4800L),
-                historyEntry(1, 6000L));
-
-        // when
-        long savings = ReportUtils.totalSavingsMs(5000L, history);
-
-        // then
-        assertEquals(4000L, savings);
+    void runSavingsMs_partialRunAgainstBaseline(){
+        // given / when / then
+        assertEquals(4000L, ReportUtils.runSavingsMs(5000L, 1000L, false));   // partial run
+        assertEquals(0L, ReportUtils.runSavingsMs(5000L, 1000L, true));       // all-tests run
+        assertEquals(0L, ReportUtils.runSavingsMs(0L, 1000L, false));         // no baseline
+        assertEquals(0L, ReportUtils.runSavingsMs(5000L, 6000L, false));      // slower than baseline
     }
 
     /**
-     * With no all-tests baseline recorded the savings cannot be computed, so the total is 0.
+     * Total savings sums the per-run {@code timeSavingsMs} frozen on the history rows.
      */
     @Test
-    void totalSavingsMs_noBaseline_isZero(){
-        // given
-        List<TestRunHistoryEntry> history = Collections.singletonList(historyEntry(2, 1000L));
+    void totalSavingsMs_sumsPersistedPerRunSavings(){
+        // given - rows carrying frozen savings of 4000, 0 and 1500
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                historyEntry(4000L), historyEntry(0L), historyEntry(1500L));
 
         // when
-        long savings = ReportUtils.totalSavingsMs(0L, history);
+        long savings = ReportUtils.totalSavingsMs(history);
 
         // then
-        assertEquals(0L, savings);
+        assertEquals(5500L, savings);
+    }
+
+    /**
+     * A null or empty history yields zero total savings.
+     */
+    @Test
+    void totalSavingsMs_nullOrEmpty_isZero(){
+        // given / when / then
+        assertEquals(0L, ReportUtils.totalSavingsMs(null));
+        assertEquals(0L, ReportUtils.totalSavingsMs(Collections.emptyList()));
     }
 
     /**

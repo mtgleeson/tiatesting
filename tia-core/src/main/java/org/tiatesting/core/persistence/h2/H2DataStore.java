@@ -65,6 +65,8 @@ public class H2DataStore implements DataStore {
     private static final String COL_NUM_SUITES_FAILED = "num_suites_failed";
     private static final String COL_DURATION_MS = "duration_ms";
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
+    private static final String COL_TIME_SAVINGS = "time_savings";
+    private static final String COL_SAVINGS_PERCENT = "savings_percent";
     private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
     // statement well under H2's parameter limits and bounds per-statement parse cost;
@@ -762,8 +764,10 @@ public class H2DataStore implements DataStore {
                     + COL_NUM_SUITES_IGNORED + ", "
                     + COL_NUM_SUITES_FAILED + ", "
                     + COL_DURATION_MS + ", "
-                    + COL_UPDATED_DB_MAPPING + ") "
-                    + "KEY (" + COL_ID + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + COL_UPDATED_DB_MAPPING + ", "
+                    + COL_TIME_SAVINGS + ", "
+                    + COL_SAVINGS_PERCENT + ") "
+                    + "KEY (" + COL_ID + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, entry.getId());
@@ -775,6 +779,8 @@ public class H2DataStore implements DataStore {
             ps.setInt(7, entry.getNumSuitesFailed());
             ps.setLong(8, entry.getDurationMs());
             ps.setBoolean(9, entry.isUpdatedDbMapping());
+            ps.setLong(10, entry.getTimeSavingsMs());
+            ps.setInt(11, entry.getSavingsPercent());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -813,7 +819,9 @@ public class H2DataStore implements DataStore {
                         resultSet.getInt(COL_NUM_SUITES_IGNORED),
                         resultSet.getInt(COL_NUM_SUITES_FAILED),
                         resultSet.getLong(COL_DURATION_MS),
-                        resultSet.getBoolean(COL_UPDATED_DB_MAPPING)));
+                        resultSet.getBoolean(COL_UPDATED_DB_MAPPING),
+                        resultSet.getLong(COL_TIME_SAVINGS),
+                        resultSet.getInt(COL_SAVINGS_PERCENT)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1567,7 +1575,9 @@ public class H2DataStore implements DataStore {
                 + COL_NUM_SUITES_IGNORED + " INT, "
                 + COL_NUM_SUITES_FAILED + " INT, "
                 + COL_DURATION_MS + " BIGINT, "
-                + COL_UPDATED_DB_MAPPING + " BOOLEAN)";
+                + COL_UPDATED_DB_MAPPING + " BOOLEAN, "
+                + COL_TIME_SAVINGS + " BIGINT DEFAULT 0, "
+                + COL_SAVINGS_PERCENT + " INT DEFAULT 0)";
     }
 
     /**
@@ -1594,6 +1604,12 @@ public class H2DataStore implements DataStore {
         Statement statement = connection.createStatement();
         statement.executeUpdate(buildCreateTestRunHistoryTableSql());
         statement.executeUpdate(buildCreateTestRunHistoryIndexSql());
+        // Migration: add the per-run savings columns to DBs created before this feature. Old rows
+        // default to 0 - their original baselines are unrecoverable.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_TIME_SAVINGS + " BIGINT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_SAVINGS_PERCENT + " INT DEFAULT 0");
     }
 
     /**
