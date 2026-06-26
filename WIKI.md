@@ -13,6 +13,7 @@ Chapters will be added retrospectively as design choices come up. Each chapter i
 - [Profiling `select-tests` against a synthetic large DB](#chapter-profiling-select-tests-against-a-synthetic-large-db)
 - [Test-run history log (`tia_test_run_history`)](#chapter-test-run-history-log-tia_test_run_history)
 - [The select-tests run-time estimate and its mapping overhead](#chapter-the-select-tests-run-time-estimate-and-its-mapping-overhead)
+- [Database schema (tables and relationships)](#chapter-database-schema-tables-and-relationships)
 - [Persist flow and crash safety](#chapter-persist-flow-and-crash-safety)
 - [Embedded vs server-mode H2 connections](#chapter-embedded-vs-server-mode-h2-connections)
 - [Static test selection — user-declared change-to-suite rules](#chapter-static-test-selection--user-declared-change-to-suite-rules)
@@ -515,6 +516,129 @@ Two guards: with no baseline (`allTestsRunTime == 0`) or no tracked suites, no o
 The overhead is **always computed** and carried on `TestSelectorResult.getMappingOverheadMs()`, separate from the base `getEstimatedRunTimeMs()`. Whether to add it is decided where the estimate is *shown*: `SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep, includeMappingOverhead)`. The two preview tasks pass `includeMappingOverhead` from the configured `updateDBMapping` (Maven `isTiaUpdateDBMapping()`, Gradle `getUpdateDBMapping()`).
 
 This keeps the inclusion decision off the `selectTestsToIgnore` write-flag, which it must not be gated on: the read-only `select-tests` preview passes `updateDBMapping=false` (no library/stamp writes) yet still estimates a run that may collect coverage. Gating the overhead on that write-flag was a real bug - it never showed in the preview, the one place the estimate is printed. Computing the overhead unconditionally and folding it in only at display time avoids that, and means the real-run selection path (Maven agent, Spock) carries no extra flag at all - it never displays the estimate, so the discarded overhead figure is simply ignored.
+
+## Chapter: Database schema (tables and relationships)
+
+Tia stores everything in a single H2 database (embedded file or server mode). All DDL lives in
+`H2DataStore` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The nine tables
+fall into three clusters: the **mapping** cluster (what test covers what code - the bulk of the
+data), the **library-impact** cluster, and a few **standalone** header/audit tables.
+
+```mermaid
+erDiagram
+    tia_test_suite ||--o{ tia_source_class : "covers"
+    tia_source_class ||--o{ tia_source_class_method : "edges"
+    tia_source_method ||--o{ tia_source_class_method : "covered by"
+    tia_library ||--o{ tia_pending_library_impacted_method : "FK (cascade)"
+    tia_source_method ||--o{ tia_pending_library_impacted_method : "by method id"
+
+    tia_core {
+        VARCHAR commit_value PK
+        VARCHAR branch
+        TIMESTAMP last_updated
+        BIGINT num_runs
+        BIGINT avg_run_time
+        BIGINT num_success_runs
+        BIGINT num_fail_runs
+        BIGINT all_tests_run_time
+        BIGINT num_all_tests_runs
+    }
+
+    tia_test_suite {
+        BIGINT id PK
+        VARCHAR name
+        VARCHAR source_filename UK
+        BIGINT num_runs
+        BIGINT avg_run_time
+        BIGINT num_success_runs
+        BIGINT num_fail_runs
+        BOOLEAN developer_disabled
+    }
+
+    tia_source_class {
+        BIGINT id PK
+        BIGINT tia_test_suite_id FK
+        VARCHAR source_filename
+    }
+
+    tia_source_method {
+        INT id PK
+        VARCHAR method_name
+        INT line_number_start
+        INT line_number_end
+    }
+
+    tia_source_class_method {
+        BIGINT tia_source_class_id PK, FK
+        INT tia_source_method_id PK, FK
+    }
+
+    tia_test_suites_failed {
+        VARCHAR test_suite_name PK
+    }
+
+    tia_test_run_history {
+        VARCHAR id PK
+        BIGINT run_timestamp
+        VARCHAR branch
+        VARCHAR commit_value
+        INT num_suites_ran
+        INT num_suites_ignored
+        INT num_suites_failed
+        BIGINT duration_ms
+        BOOLEAN updated_db_mapping
+        BIGINT time_savings
+        INT savings_percent
+    }
+
+    tia_library {
+        VARCHAR group_artifact PK
+        VARCHAR project_dir
+        VARCHAR source_dirs_csv
+        VARCHAR last_source_project_version
+        VARCHAR last_source_project_jar_hash
+        VARCHAR last_released_library_version
+    }
+
+    tia_pending_library_impacted_method {
+        VARCHAR group_artifact PK, FK
+        VARCHAR stamp_version PK
+        VARCHAR stamp_jar_hash
+        BOOLEAN unknown_next_version
+        INT tia_source_method_id PK, FK
+    }
+```
+
+(`tia_core`, `tia_test_suites_failed` and `tia_test_run_history` carry no foreign keys - they are
+linked only logically, by commit / branch / suite name.)
+
+### Table purposes
+
+- **tia_core** - single-row header: the sealed `commit_value` the mapping is valid for, the branch,
+  and the Tia-level aggregate run stats (selected-run average `avg_run_time`, full-suite baseline
+  `all_tests_run_time`, run/success/fail counts).
+- **tia_test_suite** - one row per tracked test suite: name, source file, per-suite run stats, and
+  the `developer_disabled` flag (suite disabled in source by the developer, not ignored by Tia).
+- **tia_source_class** - the source classes a given suite exercises; the first hop of the
+  suite -> class -> method coverage mapping (`tia_test_suite_id` points back to the suite).
+- **tia_source_method** - catalogue of every tracked source method with its line range; the unit of
+  change-impact analysis.
+- **tia_source_class_method** - the join table holding the coverage **edges** (which methods each
+  tracked source-class row covers). This is the bulk of the database - millions of rows on a large
+  project.
+- **tia_test_suites_failed** - the set of suites with a pending failure, force-re-run on the next
+  selection ("Running previously failed tests").
+- **tia_test_run_history** - audit log: one row per run (timestamp, branch, commit, ran/ignored/
+  failed counts, duration, frozen per-run savings). Drives the `history` task and HTML History tab.
+- **tia_library** - tracked external libraries for library-impact analysis: declared coordinates,
+  source dirs, and last-seen version / jar-hash stamps.
+- **tia_pending_library_impacted_method** - source methods impacted by a library change, stamped at
+  a library version and awaiting "drain" once the dependent project upgrades (FK to `tia_library`,
+  `ON DELETE CASCADE`).
+
+The mapping read path runs this chain in reverse: a code change resolves changed files to
+`tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the
+`tia_test_suite`s that must run.
 
 ## Chapter: Persist flow and crash safety
 
