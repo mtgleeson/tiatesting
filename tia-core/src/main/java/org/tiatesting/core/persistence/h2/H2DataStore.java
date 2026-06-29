@@ -67,6 +67,11 @@ public class H2DataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
+
+    private static final String INSERT_SOURCE_CLASS_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS
+            + " (" + COL_ID + ", " + COL_TIA_TEST_SUITE_ID + ", " + COL_SOURCE_FILENAME + ") VALUES (?, ?, ?)";
+    private static final String INSERT_SOURCE_CLASS_METHOD_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS_METHOD
+            + " (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + ") VALUES (?, ?)";
     private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
     // statement well under H2's parameter limits and bounds per-statement parse cost;
@@ -941,42 +946,115 @@ public class H2DataStore implements DataStore {
 
         Statement statement = connection.createStatement();
 
-        for (TestSuiteTracker testSuite : testSuites){
-            // developer_disabled is mapping metadata, maintained on mapping-update runs only.
-            // Stats-only runs (includeClassMappings=false) leave the column out of the MERGE so
-            // the stored flag is untouched.
-            String disabledColumn = includeClassMappings ? ", " + COL_DEVELOPER_DISABLED : "";
-            String disabledValue = includeClassMappings ? ", " + testSuite.isDeveloperDisabled() : "";
+        // The class/edge inserts reuse two prepared statements for the whole persist (one parse,
+        // not one per row), and assign tia_source_class ids application-side from MAX(id)+1 so the
+        // inserts can be batched instead of going row-by-row to fetch each generated key.
+        long[] nextSourceClassId = null;
+        PreparedStatement classPs = null;
+        PreparedStatement edgePs = null;
+        if (includeClassMappings){
+            nextSourceClassId = new long[]{ readMaxSourceClassId(connection) + 1 };
+            classPs = connection.prepareStatement(INSERT_SOURCE_CLASS_SQL);
+            edgePs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_SQL);
+        }
 
-            String mergeSql = "MERGE INTO " + TABLE_TIA_TEST_SUITE + " (" +
-                    COL_NAME + ", " +
-                    COL_NUM_RUNS + ", " +
-                    COL_AVG_RUN_TIME + ", " +
-                    COL_NUM_SUCCESS_RUNS + ", " +
-                    COL_NUM_FAIL_RUNS + disabledColumn + ") " +
-                    "KEY (" + COL_NAME + ") VALUES ('" +
-                    testSuite.getName() + "', " +
-                    testSuite.getTestStats().getNumRuns() + ", " +
-                    testSuite.getTestStats().getAvgRunTime() + ", " +
-                    testSuite.getTestStats().getNumSuccessRuns() + ", " +
-                    testSuite.getTestStats().getNumFailRuns() + disabledValue + ")";
+        try {
+            for (TestSuiteTracker testSuite : testSuites){
+                // developer_disabled is mapping metadata, maintained on mapping-update runs only.
+                // Stats-only runs (includeClassMappings=false) leave the column out of the MERGE so
+                // the stored flag is untouched.
+                String disabledColumn = includeClassMappings ? ", " + COL_DEVELOPER_DISABLED : "";
+                String disabledValue = includeClassMappings ? ", " + testSuite.isDeveloperDisabled() : "";
 
-            log.debug("Persisting test suites: {}", mergeSql);
-            statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
+                String mergeSql = "MERGE INTO " + TABLE_TIA_TEST_SUITE + " (" +
+                        COL_NAME + ", " +
+                        COL_NUM_RUNS + ", " +
+                        COL_AVG_RUN_TIME + ", " +
+                        COL_NUM_SUCCESS_RUNS + ", " +
+                        COL_NUM_FAIL_RUNS + disabledColumn + ") " +
+                        "KEY (" + COL_NAME + ") VALUES ('" +
+                        testSuite.getName() + "', " +
+                        testSuite.getTestStats().getNumRuns() + ", " +
+                        testSuite.getTestStats().getAvgRunTime() + ", " +
+                        testSuite.getTestStats().getNumSuccessRuns() + ", " +
+                        testSuite.getTestStats().getNumFailRuns() + disabledValue + ")";
 
-            // only update the source classes mapping for the test suite if the caller is the
-            // full-mapping path AND mapping data exists for this test run. Stats-only runs
-            // (includeClassMappings=false) skip this entirely so tia_source_class /
-            // tia_source_class_method remain untouched.
-            if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
-                ResultSet rs = statement.getGeneratedKeys();
-                rs.next();
-                persistTestSuiteClasses(connection, rs.getLong(COL_ID), testSuite.getClassesImpacted());
+                statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
+
+                // only update the source classes mapping for the test suite if the caller is the
+                // full-mapping path AND mapping data exists for this test run. Stats-only runs
+                // (includeClassMappings=false) skip this entirely so tia_source_class /
+                // tia_source_class_method remain untouched.
+                if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
+                    ResultSet rs = statement.getGeneratedKeys();
+                    rs.next();
+                    persistTestSuiteClasses(connection, rs.getLong(COL_ID),
+                            testSuite.getClassesImpacted(), classPs, edgePs, nextSourceClassId);
+                }
             }
+
+            if (includeClassMappings){
+                restartSourceClassIdentity(connection, nextSourceClassId[0]);
+            }
+        } finally {
+            if (classPs != null){ classPs.close(); }
+            if (edgePs != null){ edgePs.close(); }
         }
     }
 
-    private void persistTestSuiteClasses(Connection connection, long testSuiteId, List<ClassImpactTracker> sourceClasses) throws SQLException {
+    /**
+     * Read the highest existing {@code tia_source_class} id, or {@code 0} when the table is empty.
+     * Ids are auto-increment starting at 1, so {@code 0} unambiguously means "empty" - used to
+     * derive the first application-assigned id ({@code result + 1}).
+     *
+     * @param connection the H2 connection
+     * @return the maximum stored id, or {@code 0} when no rows exist
+     * @throws SQLException if the query fails
+     */
+    private long readMaxSourceClassId(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("SELECT MAX(" + COL_ID + ") FROM " + TABLE_TIA_SOURCE_CLASS)) {
+            rs.next();
+            long max = rs.getLong(1);
+            return rs.wasNull() ? 0L : max;
+        }
+    }
+
+    /**
+     * Reseat the {@code tia_source_class} identity sequence so the next auto-increment value is
+     * {@code nextId}. Required after inserting rows with explicit ids, so any later insert that
+     * relies on auto-increment cannot collide with an application-assigned id.
+     *
+     * @param connection the H2 connection
+     * @param nextId the value the identity should next produce
+     * @throws SQLException if the DDL fails
+     */
+    private void restartSourceClassIdentity(Connection connection, long nextId) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_CLASS
+                    + " ALTER COLUMN " + COL_ID + " RESTART WITH " + nextId);
+        }
+    }
+
+    /**
+     * Re-persist one suite's source-class -> method mapping using the shared, reused prepared
+     * statements. Deletes the suite's existing classes and edges (a no-op on a seed where the table
+     * is empty), assigns each class an application-side id from {@code nextId}, and batch-inserts
+     * the class rows and their edge rows. Kept inside a per-suite transaction so a failure leaves
+     * the suite's previous mapping intact.
+     *
+     * @param connection the H2 connection
+     * @param testSuiteId the id of the suite these classes belong to
+     * @param sourceClasses the suite's impacted classes (each with its method-id set)
+     * @param classPs reused insert statement for {@code tia_source_class}
+     * @param edgePs reused insert statement for {@code tia_source_class_method}
+     * @param nextId one-element holder for the next application-assigned class id; advanced in place
+     * @throws SQLException if any insert/delete fails (the suite's transaction is rolled back first)
+     */
+    private void persistTestSuiteClasses(Connection connection, long testSuiteId,
+                                         List<ClassImpactTracker> sourceClasses,
+                                         PreparedStatement classPs, PreparedStatement edgePs,
+                                         long[] nextId) throws SQLException {
         if (sourceClasses.isEmpty()){
             return;
         }
@@ -984,10 +1062,6 @@ public class H2DataStore implements DataStore {
         // Per-test-suite atomicity: the DELETE-then-INSERT for one suite's classes + its
         // class-method edges is wrapped in one transaction, so a failure midway through the
         // re-insert leaves the suite's previous mappings intact rather than half-wiped.
-        // Wrapping the entire outer persistTestSuites loop would put millions of edges in
-        // one transaction and risk MVStore undo-log blow-up; per-suite is the right balance —
-        // each suite is internally consistent, and at worst a partial outer-loop failure
-        // leaves some suites updated and some not (which is what would happen anyway).
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
@@ -996,34 +1070,31 @@ public class H2DataStore implements DataStore {
             String deleteClassMethodSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " WHERE " + COL_TIA_SOURCE_CLASS_ID +
                     " IN (SELECT " + COL_ID + " FROM " + TABLE_TIA_SOURCE_CLASS +
                     " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId + ")";
-            log.debug("Deleting test suite class methods: {}", deleteClassMethodSql);
             statement.executeUpdate(deleteClassMethodSql);
 
             String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
-            log.debug("Deleting test suite class: {}", deleteClassSql);
             statement.executeUpdate(deleteClassSql);
 
             for (ClassImpactTracker sourceClass : sourceClasses){
-                String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS + " (" +
-                        COL_TIA_TEST_SUITE_ID + ", " +
-                        COL_SOURCE_FILENAME + ") " +
-                        "VALUES (" +
-                        testSuiteId + ", '" +
-                        sourceClass.getSourceFilename() + "')";
+                long classId = nextId[0]++;
+                classPs.setLong(1, classId);
+                classPs.setLong(2, testSuiteId);
+                classPs.setString(3, sourceClass.getSourceFilename());
+                classPs.addBatch();
 
-                log.debug("Persisting test suite class: {}", insertSql);
-                statement.executeUpdate(insertSql, Statement.RETURN_GENERATED_KEYS);
-                try (ResultSet rs = statement.getGeneratedKeys()) {
-                    rs.next();
-                    persistTestSuiteClassMethods(connection, rs.getLong(COL_ID), sourceClass.getMethodsImpacted());
+                for (Integer methodId : sourceClass.getMethodsImpacted()){
+                    edgePs.setLong(1, classId);
+                    edgePs.setInt(2, methodId);
+                    edgePs.addBatch();
                 }
             }
 
+            classPs.executeBatch();
+            edgePs.executeBatch();
             connection.commit();
         } catch (Exception e) {
-            // Catch Exception (not just SQLException) so any failure in this block — including
-            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
-            // any exception in this class as a stop-the-world condition: roll back, then
+            // Catch Exception (not just SQLException) so any failure in this block triggers the
+            // rollback. Tia treats any exception in this class as stop-the-world: roll back, then
             // re-throw so the failure bubbles up rather than continuing with a half-written DB.
             try {
                 connection.rollback();
@@ -1038,33 +1109,6 @@ public class H2DataStore implements DataStore {
                 // best-effort restore — the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
             }
-        }
-    }
-
-    /**
-     * Insert the (class, method) edge rows for one source class. Runs inside the surrounding
-     * transaction opened by {@link #persistTestSuiteClasses(Connection, long, List)} — must not
-     * touch {@code connection.setAutoCommit(...)} or the rollback semantics on its caller break.
-     */
-    private void persistTestSuiteClassMethods(Connection connection, long testSuiteClassId, Set<Integer> sourceMethodIds) throws SQLException {
-        if (sourceMethodIds.isEmpty()){
-            return;
-        }
-
-        String insertSql = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS_METHOD + " (" +
-                COL_TIA_SOURCE_CLASS_ID + ", " +
-                COL_TIA_SOURCE_METHOD_ID + ") " +
-                "VALUES (? , ?)";
-
-        try (PreparedStatement ps = connection.prepareStatement(insertSql)) {
-            for (Integer sourceMethodId : sourceMethodIds){
-                ps.setLong(1, testSuiteClassId);
-                ps.setLong(2, sourceMethodId);
-                ps.addBatch();
-            }
-
-            log.debug("Persisting test suite class methods: {}", insertSql);
-            ps.executeBatch();
         }
     }
 
