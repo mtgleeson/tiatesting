@@ -68,10 +68,36 @@ public class H2DataStore implements DataStore {
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
 
-    private static final String INSERT_SOURCE_CLASS_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS
-            + " (" + COL_ID + ", " + COL_TIA_TEST_SUITE_ID + ", " + COL_SOURCE_FILENAME + ") VALUES (?, ?, ?)";
-    private static final String INSERT_SOURCE_CLASS_METHOD_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS_METHOD
-            + " (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + ") VALUES (?, ?)";
+    // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
+    // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
+    // collapses INSERT_CHUNK rows into one round trip. A full-chunk statement is prepared once and
+    // reused; each suite's remainder (< INSERT_CHUNK) is inserted with a one-off sized statement.
+    private static final int INSERT_CHUNK = 1000;
+    private static final String SOURCE_CLASS_COLS = COL_ID + ", " + COL_TIA_TEST_SUITE_ID + ", " + COL_SOURCE_FILENAME;
+    private static final String SOURCE_CLASS_METHOD_COLS = COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID;
+    private static final String INSERT_SOURCE_CLASS_CHUNK_SQL =
+            buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, INSERT_CHUNK);
+    private static final String INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL =
+            buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, INSERT_CHUNK);
+
+    /**
+     * Build a multi-row {@code INSERT ... VALUES (?,..),(?,..),...} statement with {@code rows}
+     * value tuples, each carrying {@code paramsPerRow} placeholders.
+     *
+     * @param table the target table
+     * @param columnsCsv the comma-separated column list
+     * @param paramsPerRow the number of columns (placeholders) per row
+     * @param rows the number of value tuples
+     * @return the parameterised multi-row insert SQL
+     */
+    private static String buildMultiRowInsertSql(String table, String columnsCsv, int paramsPerRow, int rows) {
+        StringBuilder tuple = new StringBuilder("(");
+        for (int p = 0; p < paramsPerRow; p++) { tuple.append(p > 0 ? ", ?" : "?"); }
+        tuple.append(')');
+        StringBuilder sb = new StringBuilder("INSERT INTO ").append(table).append(" (").append(columnsCsv).append(") VALUES ");
+        for (int r = 0; r < rows; r++) { if (r > 0) { sb.append(','); } sb.append(tuple); }
+        return sb.toString();
+    }
     private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
     // statement well under H2's parameter limits and bounds per-statement parse cost;
@@ -946,16 +972,16 @@ public class H2DataStore implements DataStore {
 
         Statement statement = connection.createStatement();
 
-        // The class/edge inserts reuse two prepared statements for the whole persist (one parse,
-        // not one per row), and assign tia_source_class ids application-side from MAX(id)+1 so the
-        // inserts can be batched instead of going row-by-row to fetch each generated key.
+        // The class/edge inserts reuse two full-chunk multi-row prepared statements for the whole
+        // persist, and assign tia_source_class ids application-side from MAX(id)+1 so rows can be
+        // inserted INSERT_CHUNK at a time (one round trip per chunk) instead of one per row.
         long[] nextSourceClassId = null;
-        PreparedStatement classPs = null;
-        PreparedStatement edgePs = null;
+        PreparedStatement classChunkPs = null;
+        PreparedStatement edgeChunkPs = null;
         if (includeClassMappings){
             nextSourceClassId = new long[]{ readMaxSourceClassId(connection) + 1 };
-            classPs = connection.prepareStatement(INSERT_SOURCE_CLASS_SQL);
-            edgePs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_SQL);
+            classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
+            edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
 
         try {
@@ -989,7 +1015,7 @@ public class H2DataStore implements DataStore {
                     ResultSet rs = statement.getGeneratedKeys();
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
-                            testSuite.getClassesImpacted(), classPs, edgePs, nextSourceClassId);
+                            testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
                 }
             }
 
@@ -997,8 +1023,8 @@ public class H2DataStore implements DataStore {
                 restartSourceClassIdentity(connection, nextSourceClassId[0]);
             }
         } finally {
-            if (classPs != null){ classPs.close(); }
-            if (edgePs != null){ edgePs.close(); }
+            if (classChunkPs != null){ classChunkPs.close(); }
+            if (edgeChunkPs != null){ edgeChunkPs.close(); }
         }
     }
 
@@ -1046,17 +1072,29 @@ public class H2DataStore implements DataStore {
      * @param connection the H2 connection
      * @param testSuiteId the id of the suite these classes belong to
      * @param sourceClasses the suite's impacted classes (each with its method-id set)
-     * @param classPs reused insert statement for {@code tia_source_class}
-     * @param edgePs reused insert statement for {@code tia_source_class_method}
+     * @param classChunkPs reused full-chunk multi-row insert for {@code tia_source_class}
+     * @param edgeChunkPs reused full-chunk multi-row insert for {@code tia_source_class_method}
      * @param nextId one-element holder for the next application-assigned class id; advanced in place
      * @throws SQLException if any insert/delete fails (the suite's transaction is rolled back first)
      */
     private void persistTestSuiteClasses(Connection connection, long testSuiteId,
                                          List<ClassImpactTracker> sourceClasses,
-                                         PreparedStatement classPs, PreparedStatement edgePs,
+                                         PreparedStatement classChunkPs, PreparedStatement edgeChunkPs,
                                          long[] nextId) throws SQLException {
         if (sourceClasses.isEmpty()){
             return;
+        }
+
+        // Materialise this suite's class rows and edge rows, then insert them with chunked multi-row
+        // statements. Per-suite, so the buffers are bounded by the suite's size.
+        List<Object[]> classRows = new ArrayList<>(sourceClasses.size());
+        List<Object[]> edgeRows = new ArrayList<>();
+        for (ClassImpactTracker sourceClass : sourceClasses){
+            long classId = nextId[0]++;
+            classRows.add(new Object[]{ classId, testSuiteId, sourceClass.getSourceFilename() });
+            for (Integer methodId : sourceClass.getMethodsImpacted()){
+                edgeRows.add(new Object[]{ classId, methodId });
+            }
         }
 
         // Per-test-suite atomicity: the DELETE-then-INSERT for one suite's classes + its
@@ -1075,22 +1113,9 @@ public class H2DataStore implements DataStore {
             String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
             statement.executeUpdate(deleteClassSql);
 
-            for (ClassImpactTracker sourceClass : sourceClasses){
-                long classId = nextId[0]++;
-                classPs.setLong(1, classId);
-                classPs.setLong(2, testSuiteId);
-                classPs.setString(3, sourceClass.getSourceFilename());
-                classPs.addBatch();
+            insertRowsChunked(connection, classChunkPs, TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, classRows);
+            insertRowsChunked(connection, edgeChunkPs, TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, edgeRows);
 
-                for (Integer methodId : sourceClass.getMethodsImpacted()){
-                    edgePs.setLong(1, classId);
-                    edgePs.setInt(2, methodId);
-                    edgePs.addBatch();
-                }
-            }
-
-            classPs.executeBatch();
-            edgePs.executeBatch();
             connection.commit();
         } catch (Exception e) {
             // Catch Exception (not just SQLException) so any failure in this block triggers the
@@ -1108,6 +1133,59 @@ public class H2DataStore implements DataStore {
             } catch (SQLException restoreEx) {
                 // best-effort restore — the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Insert {@code rows} into {@code table} using multi-row inserts: full {@value #INSERT_CHUNK}-row
+     * chunks go through the reused {@code fullChunkPs} (one round trip per chunk), and any remainder
+     * (< {@value #INSERT_CHUNK} rows) is inserted with a single one-off statement sized to it. This
+     * collapses the per-row round trips that dominate a remote-server persist.
+     *
+     * @param connection the H2 connection
+     * @param fullChunkPs the reused statement carrying exactly {@value #INSERT_CHUNK} value tuples
+     * @param table the target table (for building the remainder statement)
+     * @param columnsCsv the column list (for building the remainder statement)
+     * @param paramsPerRow the number of columns per row
+     * @param rows the row values, each an {@code Object[]} of length {@code paramsPerRow}
+     * @throws SQLException if an insert fails
+     */
+    private void insertRowsChunked(Connection connection, PreparedStatement fullChunkPs, String table,
+                                   String columnsCsv, int paramsPerRow, List<Object[]> rows) throws SQLException {
+        int total = rows.size();
+        int index = 0;
+        while (total - index >= INSERT_CHUNK){
+            bindRows(fullChunkPs, rows, index, INSERT_CHUNK, paramsPerRow);
+            fullChunkPs.executeUpdate();
+            index += INSERT_CHUNK;
+        }
+        int remainder = total - index;
+        if (remainder > 0){
+            String remainderSql = buildMultiRowInsertSql(table, columnsCsv, paramsPerRow, remainder);
+            try (PreparedStatement remainderPs = connection.prepareStatement(remainderSql)) {
+                bindRows(remainderPs, rows, index, remainder, paramsPerRow);
+                remainderPs.executeUpdate();
+            }
+        }
+    }
+
+    /**
+     * Bind {@code count} rows from {@code rows} (starting at {@code from}) into a multi-row insert
+     * statement, laying each row's values out consecutively across the placeholders.
+     *
+     * @param ps the multi-row insert statement (sized to hold at least {@code count} tuples)
+     * @param rows the row values
+     * @param from the index of the first row to bind
+     * @param count the number of rows to bind
+     * @param paramsPerRow the number of columns per row
+     * @throws SQLException if binding fails
+     */
+    private void bindRows(PreparedStatement ps, List<Object[]> rows, int from, int count, int paramsPerRow) throws SQLException {
+        for (int r = 0; r < count; r++){
+            Object[] values = rows.get(from + r);
+            for (int p = 0; p < paramsPerRow; p++){
+                ps.setObject(r * paramsPerRow + p + 1, values[p]);
             }
         }
     }

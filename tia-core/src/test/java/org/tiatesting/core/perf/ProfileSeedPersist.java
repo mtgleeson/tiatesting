@@ -35,18 +35,24 @@ public final class ProfileSeedPersist {
     /**
      * Build the synthetic mapping, persist it once against a fresh DB, and print the elapsed time.
      *
-     * @param args optional: [numSuites] [classesPerSuite] [methodsPerClass]
+     * @param args optional: [numSuites] [classesPerSuite] [methodsPerClass] [serverJdbcUrl].
+     *             When a server URL (e.g. {@code jdbc:h2:tcp://localhost:9119/./profdb}) is given,
+     *             the persist runs against that H2 server instead of a local embedded file - the
+     *             round-trip cost that dominates a real seed only shows up in server mode.
      * @throws Exception on any IO/DB failure
      */
     public static void main(String[] args) throws Exception {
         int numSuites = args.length > 0 ? Integer.parseInt(args[0]) : 5000;
         int classesPerSuite = args.length > 1 ? Integer.parseInt(args[1]) : 196;
         int methodsPerClass = args.length > 2 ? Integer.parseInt(args[2]) : 6;
+        String serverUrl = args.length > 3 ? args[3] : null;
 
-        File dir = File.createTempFile("tia-seed-persist-", "");
-        dir.delete();
-        dir.mkdirs();
-        H2DataStore dataStore = new H2DataStore(H2ConnectionSettings.embedded(dir.getAbsolutePath(), "perf"));
+        File dir = serverUrl == null ? File.createTempFile("tia-seed-persist-", "") : null;
+        if (dir != null) { dir.delete(); dir.mkdirs(); }
+        H2ConnectionSettings settings = serverUrl != null
+                ? H2ConnectionSettings.server(serverUrl, "sa", "", "perf")
+                : H2ConnectionSettings.embedded(dir.getAbsolutePath(), "perf");
+        H2DataStore dataStore = new H2DataStore(settings);
         dataStore.getTiaData(true); // bootstrap schema
 
         // Bounded pool of distinct methods (shared across classes), so the edge count can be huge
@@ -85,7 +91,9 @@ public final class ProfileSeedPersist {
         System.out.println("persistTestSuites took " + (elapsed / 1000.0) + "s");
 
         dataStore.close();
-        for (File f : dir.listFiles()) { f.delete(); }
-        dir.delete();
+        if (dir != null) {
+            for (File f : dir.listFiles()) { f.delete(); }
+            dir.delete();
+        }
     }
 }

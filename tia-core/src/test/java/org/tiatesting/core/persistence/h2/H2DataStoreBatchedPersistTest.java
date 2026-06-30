@@ -146,6 +146,29 @@ class H2DataStoreBatchedPersistTest {
         assertEquals("com/example/B.java", b.getClassesImpacted().get(0).getSourceFilename());
     }
 
+    @Test
+    void persistsSuiteLargerThanChunk_crossesFullChunkAndRemainder() {
+        // given - a suite with 1200 classes (> the 1000-row insert chunk), each covering one method,
+        // so both the class and edge multi-row inserts span a full chunk plus a 200-row remainder
+        int[] methodIds = new int[1000];
+        for (int i = 0; i < 1000; i++) { methodIds[i] = i + 1; }
+        seedMethods(methodIds);
+        Map<String, int[]> classes = new HashMap<>();
+        for (int i = 0; i < 1200; i++) { classes.put("com/example/C" + i + ".java", new int[]{ (i % 1000) + 1 }); }
+        Map<String, TestSuiteTracker> suites = new HashMap<>();
+        suites.put("com.example.BigTest", suite("com.example.BigTest", classes));
+
+        // when
+        dataStore.persistTestSuites(suites);
+        TiaData loaded = dataStore.getTiaData(true);
+
+        // then - all 1200 classes and 1200 edges round-trip across the chunk boundary
+        TestSuiteTracker round = loaded.getTestSuitesTracked().get("com.example.BigTest");
+        assertEquals(1200, round.getClassesImpacted().size());
+        int totalEdges = round.getClassesImpacted().stream().mapToInt(c -> c.getMethodsImpacted().size()).sum();
+        assertEquals(1200, totalEdges);
+    }
+
     private Map<String, int[]> singleClass(String file, int... ids) {
         Map<String, int[]> m = new HashMap<>();
         m.put(file, ids);
