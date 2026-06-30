@@ -62,6 +62,13 @@ public class TestRunnerService {
                                    final String commitValue, final String branch,
                                    final long runStartTimestampMs,
                                    final TestRunResult testRunResult){
+        // Capture the run duration up front, before any DB read/write below. This is the
+        // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
+        // mapping/seal persist work that follows, which on a seed run is seconds of bulk inserts.
+        // The savings baseline (allTestsRunTime) is likewise pure test-execution time, so the two
+        // must be measured on the same clock for savings = baseline - duration to be meaningful.
+        final long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
+
         if (updateDBMapping){
             log.info("Persisting core data with commit value: " + commitValue);
         }
@@ -101,7 +108,7 @@ public class TestRunnerService {
             // all-tests run the savings are 0 regardless.
             long allTestsRunTimeMs = tiaData.getTestStats().getAllTestsRunTime();
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
-                    testRunResult, allTestsRunTimeMs);
+                    durationMs, testRunResult, allTestsRunTimeMs);
         }
     }
 
@@ -117,13 +124,16 @@ public class TestRunnerService {
      * from the {@code tiaIgnoredTestSuiteCount} system property). Engine-level skips that Tia
      * did not cause (user {@code @Disabled}, surefire {@code groups} filters, etc.) are
      * deliberately excluded so the history column reflects Tia's selection decision only.
-     * {@code failed} is the failed-suite set size. {@code durationMs} is the wall clock from
-     * {@code runStartTimestampMs} to now.
+     * {@code failed} is the failed-suite set size. {@code durationMs} is the test-execution wall
+     * clock captured by the caller before its DB persist work, so it excludes Tia's own
+     * mapping/seal overhead and stays comparable to the savings baseline.
      *
      * @param updateDBMapping       was this run also updating the Tia mapping DB (stamped on the row)
      * @param commitValue           VCS commit / changelist the run was against
      * @param branch                VCS branch the run targeted
-     * @param runStartTimestampMs   when the run started (UTC epoch ms)
+     * @param runStartTimestampMs   when the run started (UTC epoch ms); recorded as the row timestamp
+     * @param durationMs            the run's test-execution duration (ms), captured before the
+     *                              persist work so it excludes Tia's mapping/seal overhead
      * @param testRunResult         the collected results of the test run
      * @param allTestsRunTimeMs     the all-tests-run baseline (ms) to freeze this run's savings
      *                              against; partial runs don't move it, so it is the established
@@ -131,12 +141,12 @@ public class TestRunnerService {
      */
     private void persistTestRunHistory(final boolean updateDBMapping, final String commitValue,
                                        final String branch, final long runStartTimestampMs,
-                                       final TestRunResult testRunResult, final long allTestsRunTimeMs) {
+                                       final long durationMs, final TestRunResult testRunResult,
+                                       final long allTestsRunTimeMs) {
         int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
         int failed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
-        long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
 
         // Freeze the savings for this run: 0 for an all-tests run (ignored == 0) or when no
         // baseline exists, else the baseline minus this run's duration.
