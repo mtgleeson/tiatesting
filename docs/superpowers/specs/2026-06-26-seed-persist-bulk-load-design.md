@@ -39,10 +39,18 @@ fast incremental persist (a few suites re-run) or its crash semantics, and witho
 
 Two distinct regimes, sharing one insert engine:
 
-- **Tier 1 - always (seed + incremental):** replace the row-by-row `Statement` inserts with reused,
-  **batched `PreparedStatement`s** using application-assigned ids, committed in large batches. This
-  removes the ~979K round trips and ~979K re-prepares. No index or concurrency impact, so it is safe
-  for the concurrent-reader incremental case.
+- **Tier 1 - always (seed + incremental):** replace the row-by-row `Statement` inserts with
+  **chunked multi-row `INSERT ... VALUES (?,?),(?,?),...`** (1000 rows per statement) using
+  application-assigned ids. This collapses the per-row network round trips that dominate a remote
+  (server-mode) persist. No index or concurrency impact, so it is safe for the concurrent-reader
+  incremental case.
+
+  **Key finding (measured):** H2's `PreparedStatement.executeBatch()` does **not** pipeline over the
+  wire - it sends one round trip per row, same as individual `executeUpdate`s. A first attempt using
+  `executeBatch` cut only the per-class `prepareStatement`/`getGeneratedKeys` round trips and the
+  per-row logging (30 min -> 17.5 min in server mode), not the per-row `INSERT` round trips. Local
+  H2-server benchmark, 200K rows: `executeBatch` 6847ms vs multi-row 429ms (~16x). So multi-row
+  `INSERT`, not `executeBatch`, is the mechanism.
 - **Tier 2 - seed only:** additionally **drop the secondary read-indexes**, bulk-load, then
   **recreate** them. This removes the per-row index maintenance, confined to the run where it is
   safe (a seed runs effectively alone; incremental builds have concurrent readers, and dropping a
@@ -69,21 +77,24 @@ This avoids rippling a `seed` boolean through the `DataStore` interface, `TestRu
 test call sites. The trade-off is that a crashed-seed *retry* (which leaves `tia_source_class`
 non-empty) takes the incremental path instead of the fast bulk path - correct but slower, and rare.
 
-## Tier 1: batched inserts with application-assigned ids
+## Tier 1: chunked multi-row inserts with application-assigned ids
 
 Replaces the insert bodies of `persistTestSuiteClasses` / `persistTestSuiteClassMethods`.
 
 - Read `MAX(id)` from `tia_source_class` once at the start: `NULL` -> seed and `nextId = 1`;
   otherwise `nextId = MAX(id) + 1`. (This is the same read that gates seed vs incremental.)
-- Open two long-lived prepared statements for the whole persist:
-  - `INSERT INTO tia_source_class (id, tia_test_suite_id, source_filename) VALUES (?, ?, ?)`
-  - `INSERT INTO tia_source_class_method (tia_source_class_id, tia_source_method_id) VALUES (?, ?)`
+- Build two **full-chunk** multi-row insert statements (1000 value tuples each), prepared once and
+  reused for the whole persist:
+  - `INSERT INTO tia_source_class (id, tia_test_suite_id, source_filename) VALUES (?,?,?),(?,?,?),...`
+  - `INSERT INTO tia_source_class_method (tia_source_class_id, tia_source_method_id) VALUES (?,?),(?,?),...`
 - Per suite (the existing MERGE on `tia_test_suite` still yields the suite id - suites number in the
   thousands, not the bottleneck): assign each of the suite's classes an explicit id app-side
-  (`nextId++`), `addBatch` the class row, and `addBatch` each of its edge rows referencing that id.
-  No per-row `RETURN_GENERATED_KEYS`.
-- `executeBatch` + `commit` every N rows (default 50,000; tunable constant) to bound the MVStore
-  undo log.
+  (`nextId++`), then insert the suite's class rows and edge rows via the chunked helper - full
+  1000-row chunks go through the reused statement (one round trip each), and the suite's remainder
+  (< 1000 rows) through a single one-off statement sized to it. No per-row `RETURN_GENERATED_KEYS`.
+  A suite of ~200 classes / ~1200 edges becomes ~a handful of round trips instead of ~thousands.
+- Keep the per-suite transaction (commit per suite) for atomicity; suites number in the thousands,
+  so the commit count is fine.
 - After all inserts: `ALTER TABLE tia_source_class ALTER COLUMN id RESTART WITH <next>` so any future
   auto-increment insert cannot collide. Safe because exactly one mapping writer ever inserts these
   rows (MAX+1 id allocation is therefore race-free across clients).
@@ -116,22 +127,22 @@ still a seed run by selection - but `tia_source_class` is now non-empty, so the 
 every suite), and `ensureSchema` (`CREATE INDEX IF NOT EXISTS` on every contact) restores any missing
 index. The retry is therefore correct, just slower (it does not get the index-drop speedup).
 
-**Atomicity trade, stated plainly:** the seed becomes batch-committed rather than per-suite-atomic.
-This is acceptable because a seed is re-runnable and self-healing as above, but it is a real change
-from the current per-suite crash semantics.
+**Atomicity:** the per-suite transaction is **kept** (each suite's DELETE + multi-row inserts commit
+together), so per-suite crash semantics are unchanged from today on both paths. The only non-atomic
+seed action is the index drop/recreate (DDL is auto-commit in H2), handled by the self-healing retry
+above.
 
 ## Incremental path (unchanged semantics)
 
 Keeps today's per-suite `DELETE` of the suite's classes + edges, then re-inserts via the Tier 1
-batched engine. Commits on suite/batch boundaries - the same partial-failure semantics the current
-code already documents ("a partial outer-loop failure leaves some suites updated and some not").
-**No index DDL** - safe with concurrent `select-tests` readers.
+multi-row engine, inside the same per-suite transaction. **No index DDL** - safe with concurrent
+`select-tests` readers.
 
 ## Concurrency
 
 - The seed runs effectively alone (no concurrent readers), so its index drop/recreate is safe.
 - Incremental builds commonly run with concurrent readers, so they perform no index DDL - only the
-  batched inserts, which are read-safe.
+  multi-row inserts, which are read-safe.
 - Id allocation (`MAX(id)+1`) is race-free because exactly one build is ever the mapping writer.
 
 ## Testing
@@ -157,18 +168,27 @@ the existing `H2DataStore*Test` style):
 
 Add a `profileSeedPersist` harness under `tia-core/src/test/java/org/tiatesting/core/perf/` (sibling
 to `profileSelectTests`) that builds a large synthetic in-memory mapping (~980K classes / ~5.86M
-edges) and times a seed `persistTestSuites` against an empty embedded DB. Run before/after each stage
-to quantify the win, and confirm select-tests reads still hit the recreated indexes. Target:
-single-digit minutes for the seed.
+edges, with a bounded pool of distinct methods) and times a seed `persistTestSuites`. The harness
+takes an optional server JDBC URL so it can measure **server mode** - which is essential, because the
+round-trip cost only appears there (embedded has none).
+
+Measured (local H2 TCP server, 940K edges): original row-by-row **38.3s** -> multi-row **3.8s**
+(~10x on localhost; larger on a real-RTT network). Embedded full size (5.88M edges) is ~26s either
+way - confirming round trips, not embedded insert cost, were the bottleneck. Target: well under a
+minute for the seed on the real server.
 
 ## Delivery
 
 New branch off `main`. Staged delivery with a review pause and a commit-message summary after each
 stage:
 
-1. **Tier 1 + measurement harness.** The `profileSeedPersist` harness, then the batched-insert engine
-   (app-side ids, reused prepared statements, batch commits, identity restart) applied to both the
-   seed and incremental paths, with indexes left in place. Tests + before/after numbers. This stage
-   alone removes the row-by-row cost.
+1. **Tier 1 + measurement harness.** The `profileSeedPersist` harness, then the multi-row insert
+   engine (app-side ids, reused full-chunk statements, per-suite transaction, identity restart)
+   applied to both the seed and incremental paths, with indexes left in place. Tests + before/after
+   numbers. This stage removes the per-row round trips and is the high-value fix.
+   - Note: the first committed attempt (`9272d9f`) used `executeBatch`, which does not pipeline in H2
+     server mode (one round trip per row); it was superseded by chunked multi-row `INSERT`.
 2. **Tier 2 seed bulk.** Internal seed detection (`MAX(id) IS NULL`) and drop/recreate of the
-   secondary indexes on the seed path. Tests + before/after numbers.
+   secondary indexes on the seed path. Tests + before/after numbers. **Deferred** - Stage 1 (multi-row)
+   already addresses the dominant server-mode cost; Stage 2 saves only server-side index-build time
+   and stays optional pending a real server-mode re-measure.

@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Cut the seed / large mapping persist (currently ~30 min for ~979K `tia_source_class` + ~5.86M `tia_source_class_method` rows) to single-digit minutes by batching the inserts and dropping/recreating secondary indexes on the seed.
+**Goal:** Cut the seed / large mapping persist (currently ~30 min for ~979K `tia_source_class` + ~5.86M `tia_source_class_method` rows) to single-digit minutes with chunked multi-row inserts and (deferred) dropping/recreating secondary indexes on the seed.
 
-**Architecture:** Two tiers inside `H2DataStore`. Tier 1 (always): replace the row-by-row `Statement` inserts with reused, batched `PreparedStatement`s using application-assigned `tia_source_class` ids, keeping today's per-suite transaction. Tier 2 (seed only, detected by `tia_source_class` being empty): drop the three secondary read-indexes before the load and recreate them after.
+**Architecture:** Two tiers inside `H2DataStore`. Tier 1 (always): replace the row-by-row `Statement` inserts with **chunked multi-row `INSERT ... VALUES (?,?),(?,?),...`** (1000 rows/statement) using application-assigned `tia_source_class` ids, keeping today's per-suite transaction. Tier 2 (seed only, detected by `tia_source_class` being empty): drop the three secondary read-indexes before the load and recreate them after.
+
+> **Revision note (post-execution):** Task 2 below was first implemented with `addBatch`/`executeBatch` (committed `9272d9f`). Measurement showed H2's `executeBatch` does **not** pipeline over the wire - one round trip per row - so it only got server-mode persist from 30 min to 17.5 min. It was superseded by **chunked multi-row `INSERT`** (local-server benchmark: original row-by-row 38.3s -> multi-row 3.8s at 940K edges). The Task 2 code blocks below have been updated to the multi-row mechanism; the live implementation is in `H2DataStore` (`buildMultiRowInsertSql`, `insertRowsChunked`, `bindRows`, `persistTestSuiteClasses`).
 
 **Tech Stack:** Java 8, H2 (embedded/server), JUnit 5, Gradle. All DB code is in `tia-core/src/main/java/org/tiatesting/core/persistence/h2/H2DataStore.java`.
 
@@ -20,7 +22,7 @@
 
 ---
 
-## Stage 1 — Measurement harness + Tier 1 batched inserts
+## Stage 1 — Measurement harness + Tier 1 multi-row inserts
 
 ### Task 1: Seed-persist profiling harness
 
@@ -136,7 +138,7 @@ git commit -m "Add seed-persist profiling harness for measuring mapping persist 
 
 ---
 
-### Task 2: Tier 1 — batched class + edge inserts with app-side ids
+### Task 2: Tier 1 — multi-row class + edge inserts with app-side ids
 
 **Files:**
 - Modify: `tia-core/src/main/java/org/tiatesting/core/persistence/h2/H2DataStore.java` (`persistTestSuites(Connection, Collection, boolean)`, `persistTestSuiteClasses`, `persistTestSuiteClassMethods`; add SQL constants + two helpers)
@@ -144,7 +146,7 @@ git commit -m "Add seed-persist profiling harness for measuring mapping persist 
 
 **Interfaces:**
 - Consumes: existing `getConnection()`, `COL_*` / `TABLE_*` constants, `TestSuiteTracker.getClassesImpacted()`, `ClassImpactTracker.getSourceFilename()` / `.getMethodsImpacted()` (a `MethodIdSet implements Set<Integer>`), `getTiaData(true)` for read-back.
-- Produces: unchanged public method `void persistTestSuites(Map<String, TestSuiteTracker>)`. New private helpers `long readMaxSourceClassId(Connection)` and `void restartSourceClassIdentity(Connection, long)`. New private constants `INSERT_SOURCE_CLASS_SQL`, `INSERT_SOURCE_CLASS_METHOD_SQL`.
+- Produces: unchanged public method `void persistTestSuites(Map<String, TestSuiteTracker>)`. New private helpers `long readMaxSourceClassId(Connection)`, `void restartSourceClassIdentity(Connection, long)`, `String buildMultiRowInsertSql(...)`, `void insertRowsChunked(...)`, `void bindRows(...)`. New private constants `INSERT_CHUNK`, `INSERT_SOURCE_CLASS_CHUNK_SQL`, `INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL`.
 
 - [ ] **Step 1: Write the failing test (round-trip + app-side ids + identity restart)**
 
@@ -312,11 +314,25 @@ Expected: FAIL — `assignsContiguousIdsAndReseatsIdentity` fails on the reseat 
 Add near the other `private static final String` constants in `H2DataStore`:
 
 ```java
-    private static final String INSERT_SOURCE_CLASS_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS
-            + " (" + COL_ID + ", " + COL_TIA_TEST_SUITE_ID + ", " + COL_SOURCE_FILENAME + ") VALUES (?, ?, ?)";
-    private static final String INSERT_SOURCE_CLASS_METHOD_SQL = "INSERT INTO " + TABLE_TIA_SOURCE_CLASS_METHOD
-            + " (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + ") VALUES (?, ?)";
+    private static final int INSERT_CHUNK = 1000;
+    private static final String SOURCE_CLASS_COLS = COL_ID + ", " + COL_TIA_TEST_SUITE_ID + ", " + COL_SOURCE_FILENAME;
+    private static final String SOURCE_CLASS_METHOD_COLS = COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID;
+    private static final String INSERT_SOURCE_CLASS_CHUNK_SQL =
+            buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, INSERT_CHUNK);
+    private static final String INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL =
+            buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, INSERT_CHUNK);
+
+    private static String buildMultiRowInsertSql(String table, String columnsCsv, int paramsPerRow, int rows) {
+        StringBuilder tuple = new StringBuilder("(");
+        for (int p = 0; p < paramsPerRow; p++) { tuple.append(p > 0 ? ", ?" : "?"); }
+        tuple.append(')');
+        StringBuilder sb = new StringBuilder("INSERT INTO ").append(table).append(" (").append(columnsCsv).append(") VALUES ");
+        for (int r = 0; r < rows; r++) { if (r > 0) { sb.append(','); } sb.append(tuple); }
+        return sb.toString();
+    }
 ```
+
+(`buildMultiRowInsertSql` builds `INSERT ... VALUES (?,?,?),(?,?,?),...` with `rows` tuples; the chunk constants use `INSERT_CHUNK` rows.)
 
 Add these helper methods to `H2DataStore`:
 
@@ -358,7 +374,7 @@ Add these helper methods to `H2DataStore`:
 
 - [ ] **Step 4: Rewrite the insert path**
 
-Replace the class-mapping persist in `persistTestSuites(Connection, Collection<TestSuiteTracker>, boolean)`. The suite MERGE loop stays (suites are few); prepare the two statements once, track `nextId` in a one-element holder, and call the new batched per-suite method:
+Replace the class-mapping persist in `persistTestSuites(Connection, Collection<TestSuiteTracker>, boolean)`. The suite MERGE loop stays (suites are few); prepare the two statements once, track `nextId` in a one-element holder, and call the new multi-row per-suite method:
 
 ```java
     private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites,
@@ -369,15 +385,15 @@ Replace the class-mapping persist in `persistTestSuites(Connection, Collection<T
 
         Statement statement = connection.createStatement();
 
-        // Prepared once and reused across every suite/class/edge for the whole persist, instead of a
-        // new statement (and a new parse) per row.
+        // Two full-chunk multi-row statements prepared once and reused for the whole persist, so
+        // rows go in INSERT_CHUNK at a time (one round trip per chunk) instead of one per row.
         long[] nextSourceClassId = null;
-        PreparedStatement classPs = null;
-        PreparedStatement edgePs = null;
+        PreparedStatement classChunkPs = null;
+        PreparedStatement edgeChunkPs = null;
         if (includeClassMappings){
             nextSourceClassId = new long[]{ readMaxSourceClassId(connection) + 1 };
-            classPs = connection.prepareStatement(INSERT_SOURCE_CLASS_SQL);
-            edgePs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_SQL);
+            classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
+            edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
 
         try {
@@ -404,7 +420,7 @@ Replace the class-mapping persist in `persistTestSuites(Connection, Collection<T
                     ResultSet rs = statement.getGeneratedKeys();
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
-                            testSuite.getClassesImpacted(), classPs, edgePs, nextSourceClassId);
+                            testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
                 }
             }
 
@@ -412,8 +428,8 @@ Replace the class-mapping persist in `persistTestSuites(Connection, Collection<T
                 restartSourceClassIdentity(connection, nextSourceClassId[0]);
             }
         } finally {
-            if (classPs != null){ classPs.close(); }
-            if (edgePs != null){ edgePs.close(); }
+            if (classChunkPs != null){ classChunkPs.close(); }
+            if (edgeChunkPs != null){ edgeChunkPs.close(); }
         }
     }
 ```
@@ -424,24 +440,36 @@ Replace `persistTestSuiteClasses` and delete `persistTestSuiteClassMethods` (its
     /**
      * Re-persist one suite's source-class -> method mapping using the shared, reused prepared
      * statements. Deletes the suite's existing classes and edges (a no-op on a seed where the table
-     * is empty), assigns each class an application-side id from {@code nextId}, and batch-inserts the
-     * class rows and their edge rows. Kept inside a per-suite transaction so a failure leaves the
-     * suite's previous mapping intact.
+     * is empty), assigns each class an application-side id from {@code nextId}, and inserts the
+     * class rows and their edge rows via chunked multi-row inserts. Kept inside a per-suite
+     * transaction so a failure leaves the suite's previous mapping intact.
      *
      * @param connection the H2 connection
      * @param testSuiteId the id of the suite these classes belong to
      * @param sourceClasses the suite's impacted classes (each with its method-id set)
-     * @param classPs reused insert statement for {@code tia_source_class}
-     * @param edgePs reused insert statement for {@code tia_source_class_method}
+     * @param classChunkPs reused full-chunk multi-row insert for {@code tia_source_class}
+     * @param edgeChunkPs reused full-chunk multi-row insert for {@code tia_source_class_method}
      * @param nextId one-element holder for the next application-assigned class id; advanced in place
      * @throws SQLException if any insert/delete fails (the suite's transaction is rolled back first)
      */
     private void persistTestSuiteClasses(Connection connection, long testSuiteId,
                                          List<ClassImpactTracker> sourceClasses,
-                                         PreparedStatement classPs, PreparedStatement edgePs,
+                                         PreparedStatement classChunkPs, PreparedStatement edgeChunkPs,
                                          long[] nextId) throws SQLException {
         if (sourceClasses.isEmpty()){
             return;
+        }
+
+        // Materialise this suite's class rows and edge rows, then insert them with chunked multi-row
+        // statements. Per-suite, so the buffers are bounded by the suite's size.
+        List<Object[]> classRows = new ArrayList<>(sourceClasses.size());
+        List<Object[]> edgeRows = new ArrayList<>();
+        for (ClassImpactTracker sourceClass : sourceClasses){
+            long classId = nextId[0]++;
+            classRows.add(new Object[]{ classId, testSuiteId, sourceClass.getSourceFilename() });
+            for (Integer methodId : sourceClass.getMethodsImpacted()){
+                edgeRows.add(new Object[]{ classId, methodId });
+            }
         }
 
         boolean previousAutoCommit = connection.getAutoCommit();
@@ -456,22 +484,9 @@ Replace `persistTestSuiteClasses` and delete `persistTestSuiteClassMethods` (its
             String deleteClassSql = "DELETE FROM " + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " = " + testSuiteId;
             statement.executeUpdate(deleteClassSql);
 
-            for (ClassImpactTracker sourceClass : sourceClasses){
-                long classId = nextId[0]++;
-                classPs.setLong(1, classId);
-                classPs.setLong(2, testSuiteId);
-                classPs.setString(3, sourceClass.getSourceFilename());
-                classPs.addBatch();
+            insertRowsChunked(connection, classChunkPs, TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, classRows);
+            insertRowsChunked(connection, edgeChunkPs, TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, edgeRows);
 
-                for (Integer methodId : sourceClass.getMethodsImpacted()){
-                    edgePs.setLong(1, classId);
-                    edgePs.setInt(2, methodId);
-                    edgePs.addBatch();
-                }
-            }
-
-            classPs.executeBatch();
-            edgePs.executeBatch();
             connection.commit();
         } catch (Exception e) {
             try {
@@ -488,9 +503,47 @@ Replace `persistTestSuiteClasses` and delete `persistTestSuiteClassMethods` (its
             }
         }
     }
+
+    /**
+     * Insert {@code rows} into {@code table} using multi-row inserts: full INSERT_CHUNK-row chunks go
+     * through the reused {@code fullChunkPs} (one round trip per chunk), and any remainder
+     * (< INSERT_CHUNK rows) is inserted with a single one-off statement sized to it. This collapses
+     * the per-row round trips that dominate a remote-server persist.
+     */
+    private void insertRowsChunked(Connection connection, PreparedStatement fullChunkPs, String table,
+                                   String columnsCsv, int paramsPerRow, List<Object[]> rows) throws SQLException {
+        int total = rows.size();
+        int index = 0;
+        while (total - index >= INSERT_CHUNK){
+            bindRows(fullChunkPs, rows, index, INSERT_CHUNK, paramsPerRow);
+            fullChunkPs.executeUpdate();
+            index += INSERT_CHUNK;
+        }
+        int remainder = total - index;
+        if (remainder > 0){
+            String remainderSql = buildMultiRowInsertSql(table, columnsCsv, paramsPerRow, remainder);
+            try (PreparedStatement remainderPs = connection.prepareStatement(remainderSql)) {
+                bindRows(remainderPs, rows, index, remainder, paramsPerRow);
+                remainderPs.executeUpdate();
+            }
+        }
+    }
+
+    /**
+     * Bind {@code count} rows from {@code rows} (starting at {@code from}) into a multi-row insert
+     * statement, laying each row's values out consecutively across the placeholders.
+     */
+    private void bindRows(PreparedStatement ps, List<Object[]> rows, int from, int count, int paramsPerRow) throws SQLException {
+        for (int r = 0; r < count; r++){
+            Object[] values = rows.get(from + r);
+            for (int p = 0; p < paramsPerRow; p++){
+                ps.setObject(r * paramsPerRow + p + 1, values[p]);
+            }
+        }
+    }
 ```
 
-Remove the now-unused `persistTestSuiteClassMethods` method. Add `import java.sql.PreparedStatement;` if not already present (it is used elsewhere in the file, so it likely is).
+Remove the now-unused `persistTestSuiteClassMethods` method. `import java.sql.PreparedStatement;` is already present in the file.
 
 - [ ] **Step 5: Run the new tests**
 
@@ -701,15 +754,15 @@ In `persistTestSuites(Connection, Collection, boolean)`, the `includeClassMappin
 
 ```java
         long[] nextSourceClassId = null;
-        PreparedStatement classPs = null;
-        PreparedStatement edgePs = null;
+        PreparedStatement classChunkPs = null;
+        PreparedStatement edgeChunkPs = null;
         boolean seed = false;
         if (includeClassMappings){
             long maxId = readMaxSourceClassId(connection);
             seed = (maxId == 0L); // empty table -> seed (full rebuild, runs alone)
             nextSourceClassId = new long[]{ maxId + 1 };
-            classPs = connection.prepareStatement(INSERT_SOURCE_CLASS_SQL);
-            edgePs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_SQL);
+            classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
+            edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
             if (seed){
                 dropSourceMappingSecondaryIndexes(connection);
             }
