@@ -1,7 +1,6 @@
 package org.tiatesting.core.persistence.h2;
 
 
-import org.h2.jdbcx.JdbcConnectionPool;
 import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,6 +102,13 @@ public class H2DataStore implements DataStore {
     // statement well under H2's parameter limits and bounds per-statement parse cost;
     // larger inputs are split into multiple queries and merged client-side.
     private static final int IN_CLAUSE_CHUNK_SIZE = 1000;
+    // Server-mode connection retry: an initial attempt plus retries before giving up. Server-mode
+    // connections cross a real network/server boundary, so a single transient abort (e.g. the first
+    // connection after the server has sat idle) should not fail the whole task.
+    static final int CONNECTION_MAX_ATTEMPTS = 3;
+    // Base backoff between server-mode connection retries, multiplied by the attempt number for a
+    // simple linear backoff (250ms, then 500ms, ...).
+    static final long CONNECTION_RETRY_BACKOFF_MS = 250L;
     private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
     private final H2ConnectionSettings settings;
     private final String jdbcURL;
@@ -1899,17 +1905,85 @@ public class H2DataStore implements DataStore {
         }
     }
 
-    private Connection getConnection(){
-        Connection connection;
+    /**
+     * Acquire a connection to the H2 database. In server mode the acquisition is retried a few
+     * times with a short backoff, because the connection crosses a real network/server boundary
+     * where a single transient abort (a reset socket, or a server still warming up after sitting
+     * idle) is expected and should not fail the whole task - until now the only workaround was to
+     * re-run the command by hand. In embedded mode a failure is deterministic (bad path, locked
+     * file), so it is surfaced immediately without retry.
+     *
+     * @return an open connection to the configured H2 database
+     * @throws TiaPersistenceException if the connection cannot be established (after exhausting the
+     *         server-mode retries, or on the first embedded-mode failure)
+     */
+    Connection getConnection(){
+        if (settings.isServerMode()){
+            return acquireServerConnectionWithRetry();
+        }
         try {
-            DataSource dataSource = this.establishDataSource();
-            connection = dataSource.getConnection() ;
-            log.debug("Connected to the embedded H2 database {}", jdbcURL);
+            return acquireConnection();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
+    }
 
+    /**
+     * Acquire a server-mode connection, retrying transient failures with a linear backoff up to
+     * {@link #CONNECTION_MAX_ATTEMPTS} total attempts. Each failed attempt is logged at WARN with
+     * the underlying message; if every attempt fails the last failure is wrapped and rethrown.
+     *
+     * @return an open connection
+     * @throws TiaPersistenceException wrapping the last {@link SQLException} when all attempts fail
+     */
+    private Connection acquireServerConnectionWithRetry(){
+        SQLException lastFailure = null;
+        for (int attempt = 1; attempt <= CONNECTION_MAX_ATTEMPTS; attempt++){
+            try {
+                return acquireConnection();
+            } catch (SQLException e) {
+                lastFailure = e;
+                if (attempt < CONNECTION_MAX_ATTEMPTS){
+                    long backoffMs = CONNECTION_RETRY_BACKOFF_MS * attempt;
+                    log.warn("H2 server connection attempt {} of {} to {} failed: {}. Retrying in {}ms.",
+                            attempt, CONNECTION_MAX_ATTEMPTS, jdbcURL, e.getMessage(), backoffMs);
+                    backoffBeforeRetry(backoffMs);
+                }
+            }
+        }
+
+        log.error("H2 server connection to {} failed after {} attempts.", jdbcURL, CONNECTION_MAX_ATTEMPTS);
+        throw new TiaPersistenceException(lastFailure);
+    }
+
+    /**
+     * Open a single raw connection to the configured H2 database with no retry. Package-private so
+     * a test can override it to simulate transient connection failures.
+     *
+     * @return a newly opened connection
+     * @throws SQLException if the connection cannot be opened
+     */
+    Connection acquireConnection() throws SQLException {
+        DataSource dataSource = this.establishDataSource();
+        Connection connection = dataSource.getConnection();
+        log.debug("Connected to the H2 database {}", jdbcURL);
         return connection;
+    }
+
+    /**
+     * Wait for the given backoff before the next server-mode connection retry. Package-private so a
+     * test can override it to avoid real delays. Restores the interrupt flag and aborts the retry
+     * loop (by throwing) if the thread is interrupted while waiting.
+     *
+     * @param backoffMs the number of milliseconds to wait before retrying
+     */
+    void backoffBeforeRetry(long backoffMs){
+        try {
+            Thread.sleep(backoffMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new TiaPersistenceException(ie);
+        }
     }
 
     private DataSource establishDataSource() {
