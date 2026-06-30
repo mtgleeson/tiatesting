@@ -6,7 +6,7 @@ public class StringUtil {
 
     /**
      * Remove all trailing spaces and new lines for each element.
-     *
+     *0.1.
      * @param inputStrings the input strings
      */
     public static void sanitizeInputArray(List<String> inputStrings) {
