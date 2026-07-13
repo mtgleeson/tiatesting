@@ -10,6 +10,7 @@ import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -100,11 +101,16 @@ public class TestSelector {
         // the ignore list and the run-time estimate.
         Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
 
+        // Populated only on a preview build (updateDBMapping=false): the in-memory pending batches
+        // built from library diffs in this run, keyed by library coordinate. Fed to the drain preview
+        // below so first-seen library changes are reflected in the selected tests and the estimate.
+        Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatches = new HashMap<>();
+
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig, updateDBMapping);
+                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig, updateDBMapping, syntheticLibraryBatches);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, checkLocalChanges, testsToRun);
+                libraryConfig, checkLocalChanges, updateDBMapping, testsToRun, syntheticLibraryBatches);
 
         applyStaticTestSelection(vcsReader, staticMappingConfig, tiaCore.getCommitValue(), testSuitesTracked,
                 testsToRun, checkLocalChanges);
@@ -313,9 +319,11 @@ public class TestSelector {
      * In {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
      * diffs are treated as source-project diffs so tests run immediately against local changes.
      *
-     * <p>When {@code updateDBMapping} is {@code false}, library-diff partitioning still runs (so that
-     * library-owned diffs are not misclassified as source-project diffs) but the pending-stamp persist
-     * is skipped — non-primary builds read the existing tracked-library snapshot without mutating it.
+     * <p>When {@code updateDBMapping} is {@code false} (a preview build such as {@code select-tests}),
+     * library-diff partitioning still runs (so that library-owned diffs are not misclassified as
+     * source-project diffs) and the impacted methods are still analyzed, but instead of persisting a
+     * pending stamp the batch is built in memory and collected into {@code syntheticLibraryBatchesOut}
+     * for the drain preview. No pending rows are written and no tracked-library state is advanced.
      *
      * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query
      * ({@link DataStore#getMethodsTrackedForFiles}) resolves the changed files to their tracked
@@ -331,6 +339,11 @@ public class TestSelector {
      * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured
      * @param updateDBMapping whether this run owns mapping-DB updates
+     * @param syntheticLibraryBatchesOut out-param populated only on a preview build
+     *                                   ({@code updateDBMapping == false}) with the in-memory pending
+     *                                   batches built from this run's library diffs, keyed by library
+     *                                   coordinate; left empty on a primary build (which persists them
+     *                                   instead)
      * @return the test suites that should be executed for the current changes
      */
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
@@ -338,7 +351,8 @@ public class TestSelector {
                                          final String storedCommitValue,
                                          final Map<String, TestSuiteTracker> testSuitesTracked,
                                          final LibraryImpactAnalysisConfig libraryConfig,
-                                         final boolean updateDBMapping){
+                                         final boolean updateDBMapping,
+                                         final Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -378,7 +392,7 @@ public class TestSelector {
         List<SourceFileDiffContext> sourceProjectDiffs = trackedModifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
             sourceProjectDiffs = partitionAndRecordLibraryDiffs(trackedModifiedSourceDiffs, methodsTrackedByFile,
-                    sourceFilesDirs, libraryConfig, updateDBMapping);
+                    sourceFilesDirs, libraryConfig, updateDBMapping, syntheticLibraryBatchesOut);
         }
 
         // Find all test suites that execute the source code methods that have changed
@@ -764,13 +778,16 @@ public class TestSelector {
      * @param sourceFilesDirs the configured source root directories
      * @param libraryConfig the library impact analysis config
      * @param updateDBMapping whether this run owns mapping-DB updates
+     * @param syntheticLibraryBatchesOut out-param populated with in-memory pending batches on a
+     *                                   preview build; left empty on a primary build
      * @return the source-project diffs (those not belonging to any tracked library).
      */
     private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
             List<SourceFileDiffContext> allModifiedSourceDiffs,
             Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
             List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig,
-            boolean updateDBMapping) {
+            boolean updateDBMapping,
+            Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut) {
 
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         if (trackedLibraries.isEmpty()) {
@@ -783,8 +800,9 @@ public class TestSelector {
         partitionDiffsByLibraryProjectDir(allModifiedSourceDiffs, trackedLibraries,
                 sourceProjectDiffs, libraryDiffBuckets);
 
-        recordImpactedMethodsForLibraryBuckets(libraryDiffBuckets, trackedLibraries,
-                methodsTrackedByFile, sourceFilesDirs, libraryConfig, updateDBMapping);
+        analyzeLibraryBuckets(libraryDiffBuckets, trackedLibraries,
+                methodsTrackedByFile, sourceFilesDirs, libraryConfig, updateDBMapping,
+                syntheticLibraryBatchesOut);
 
         return sourceProjectDiffs;
     }
@@ -836,13 +854,18 @@ public class TestSelector {
     }
 
     /**
-     * For each library bucket, run method-impact analysis on the library's diffs
-     * and record the impacted method IDs as pending via the recorder.
+     * For each library bucket, run method-impact analysis on the library's diffs and turn the
+     * impacted method IDs into a pending batch. The batch's fate depends on the run mode:
+     * <ul>
+     *   <li><b>Primary build</b> ({@code updateDBMapping == true}) — the batch is persisted as
+     *       pending rows and the library high water mark is advanced via the recorder.</li>
+     *   <li><b>Preview build</b> ({@code updateDBMapping == false}, e.g. {@code select-tests}) — the
+     *       batch is built in memory only and accumulated into {@code syntheticLibraryBatchesOut}
+     *       for the drain preview, without writing any pending rows or advancing library state.</li>
+     * </ul>
      *
-     * <p>When {@code updateDBMapping} is {@code false} the partitioning still runs (so library-owned
-     * diffs are kept out of the source-project bucket and don't trigger immediate test selection),
-     * but the recorder is not invoked — non-primary builds must not write pending rows or advance
-     * the high water mark on a shared mapping DB.
+     * <p>Method-impact analysis runs in both modes: the preview needs the impacted methods to build
+     * an accurate synthetic batch, and the analysis is read-only.
      *
      * @param libraryDiffBuckets the modified diffs grouped per owning library
      * @param trackedLibraries the tracked libraries keyed by coordinate
@@ -850,14 +873,17 @@ public class TestSelector {
      * @param sourceFilesDirs the configured source root directories
      * @param libraryConfig the library impact analysis config
      * @param updateDBMapping whether this run owns mapping-DB updates
+     * @param syntheticLibraryBatchesOut out-param that collects the in-memory batches on a preview
+     *                                   build; left untouched on a primary build
      */
-    private void recordImpactedMethodsForLibraryBuckets(
+    private void analyzeLibraryBuckets(
             Map<String, List<SourceFileDiffContext>> libraryDiffBuckets,
             Map<String, TrackedLibrary> trackedLibraries,
             Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
             List<String> sourceFilesDirs,
             LibraryImpactAnalysisConfig libraryConfig,
-            boolean updateDBMapping) {
+            boolean updateDBMapping,
+            Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut) {
 
         PendingLibraryImpactedMethodsRecorder recorder = new PendingLibraryImpactedMethodsRecorder();
 
@@ -866,41 +892,68 @@ public class TestSelector {
             List<SourceFileDiffContext> libraryDiffs = entry.getValue();
             TrackedLibrary trackedLibrary = trackedLibraries.get(groupArtifact);
 
-            if (!updateDBMapping) {
-                log.info("Library '{}' has {} modified source files - skipping pending-stamp persist (updateDBMapping=false).",
-                        groupArtifact, libraryDiffs.size());
-                continue;
-            }
-
-            log.info("Library '{}' has {} modified source files - analyzing impacted methods.",
-                    groupArtifact, libraryDiffs.size());
-
+            log.info("Library '{}' has {} modified source files - analyzing impacted methods (updateDBMapping={}).",
+                    groupArtifact, libraryDiffs.size(), updateDBMapping);
             Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, methodsTrackedByFile, sourceFilesDirs);
-            recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
+
+            if (updateDBMapping) {
+                recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
+            } else {
+                PendingLibraryImpactedMethod syntheticBatch =
+                        recorder.buildPendingBatch(trackedLibrary, impactedMethods, libraryConfig);
+                if (syntheticBatch != null) {
+                    syntheticLibraryBatchesOut
+                            .computeIfAbsent(groupArtifact, k -> new ArrayList<>())
+                            .add(syntheticBatch);
+                }
+            }
         }
     }
 
     /**
-     * Drain pending library impacted methods when library impact analysis is configured
-     * and we are not in local-changes mode. Resolved tests from drained batches are added
-     * directly to {@code testsToRun}. The drain result is returned so the caller can carry
-     * it to the post-test-run cleanup phase.
+     * Drain pending library impacted methods when library impact analysis is configured and we are
+     * not in local-changes mode. Resolved tests from qualifying batches are added directly to
+     * {@code testsToRun} in both modes; the behaviour otherwise splits on {@code updateDBMapping}:
+     * <ul>
+     *   <li><b>Primary build</b> — drains the persisted pending batches and returns a
+     *       {@link LibraryImpactDrainResult} so the caller can delete the drained rows and advance
+     *       {@code tia_library} after the test run.</li>
+     *   <li><b>Preview build</b> — evaluates the union of the persisted batches and the in-memory
+     *       {@code syntheticLibraryBatches} built earlier in this run, returning the tests that
+     *       <em>would</em> drain now without mutating anything. Returns {@code null} because there is
+     *       no cleanup to carry. This is what keeps the {@code select-tests} run set (and its runtime
+     *       estimate) accurate for first-seen library changes that have never been persisted.</li>
+     * </ul>
      *
      * @param libraryConfig the library impact analysis configuration, or null when not configured
      * @param checkLocalChanges whether this run analyzes local (uncommitted) changes - draining
      *                          is skipped in that mode
-     * @param testsToRun the run set to add drained tests to
-     * @return the drain result for post-run cleanup, or null when draining was skipped
+     * @param updateDBMapping whether this run owns mapping-DB updates (primary vs preview build)
+     * @param testsToRun the run set to add drained/previewed tests to
+     * @param syntheticLibraryBatches the in-memory batches built on a preview build; ignored on a
+     *                                primary build
+     * @return the drain result for post-run cleanup on a primary build, or null on a preview build
+     *         or when draining was skipped
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
-            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
-            Set<String> testsToRun) {
+            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges, boolean updateDBMapping,
+            Set<String> testsToRun, Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatches) {
 
         if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
         }
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
+
+        if (!updateDBMapping) {
+            Set<String> previewTests = drainer.previewTestsForBatches(dataStore, libraryConfig, syntheticLibraryBatches);
+            if (!previewTests.isEmpty()) {
+                log.info("Selected tests to run from pending library changes (preview): {}", previewTests);
+                testsToRun.addAll(previewTests);
+            }
+            return null;
+        }
+
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 drainer.drainPendingMethods(dataStore, libraryConfig);
 
