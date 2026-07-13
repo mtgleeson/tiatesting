@@ -39,46 +39,90 @@ public class PendingLibraryImpactedMethodsRecorder {
     public void recordPendingImpactedMethods(DataStore dataStore, TrackedLibrary trackedLibrary,
                                              Set<Integer> impactedMethodIds,
                                              LibraryImpactAnalysisConfig libraryConfig) {
+        PendingLibraryImpactedMethod pending = buildPendingBatch(trackedLibrary, impactedMethodIds, libraryConfig);
+        if (pending == null) {
+            return;
+        }
+
+        // Release stamps may advance the library's high water mark; SNAPSHOT stamps never do.
+        if (!isSnapshotVersion(pending.getStampVersion())) {
+            advanceHwmIfNeeded(pending.getStampVersion(), trackedLibrary,
+                    libraryConfig.getVersionPolicy(), dataStore);
+        }
+
+        dataStore.persistPendingLibraryImpactedMethods(pending);
+        log.info("Stamped {} pending impacted methods for library '{}' at version '{}' (unknownNextVersion={}).",
+                pending.getSourceMethodIds().size(), pending.getGroupArtifact(),
+                pending.getStampVersion(), pending.isUnknownNextVersion());
+    }
+
+    /**
+     * Build the pending impacted-methods batch for a library change without persisting it or
+     * mutating any tracked-library state. Reads the library's declared HEAD version, computes the
+     * JAR content hash for SNAPSHOT versions, and classifies the {@code unknownNextVersion} flag
+     * for release versions against the library's current (un-advanced) high water mark.
+     *
+     * <p>This is the pure, side-effect-free core shared by the persisting record path
+     * ({@link #recordPendingImpactedMethods}) and the in-memory preview path used by
+     * {@code select-tests}, which must not write to the data store. It deliberately does not advance
+     * the high water mark; callers that persist are responsible for calling {@link #advanceHwmIfNeeded}.
+     *
+     * @param trackedLibrary the tracked library whose source changed.
+     * @param impactedMethodIds the source method IDs impacted by the library change.
+     * @param libraryConfig the library impact analysis configuration.
+     * @return the constructed pending batch, or {@code null} when there are no impacted methods or
+     *         the library's declared version cannot be determined.
+     */
+    public PendingLibraryImpactedMethod buildPendingBatch(TrackedLibrary trackedLibrary,
+                                                          Set<Integer> impactedMethodIds,
+                                                          LibraryImpactAnalysisConfig libraryConfig) {
         if (impactedMethodIds == null || impactedMethodIds.isEmpty()) {
             log.debug("No impacted methods for library '{}', skipping pending stamp.",
                     trackedLibrary.getGroupArtifact());
-            return;
+            return null;
         }
 
         String stampVersion = readDeclaredVersionForLibrary(trackedLibrary, libraryConfig);
         if (stampVersion == null) {
             log.warn("Could not determine declared version for library '{}' —  skipping pending stamp.",
                     trackedLibrary.getGroupArtifact());
-            return;
+            return null;
         }
 
         String stampJarHash = null;
         boolean unknownNextVersion = false;
-
         if (isSnapshotVersion(stampVersion)) {
             stampJarHash = computeSnapshotStampJarHash(trackedLibrary, libraryConfig);
         } else {
-            unknownNextVersion = classifyReleaseStampAndAdvanceHwm(stampVersion, trackedLibrary,
-                    libraryConfig.getVersionPolicy(), dataStore);
+            unknownNextVersion = classifyReleaseStamp(stampVersion, trackedLibrary,
+                    libraryConfig.getVersionPolicy());
         }
 
-        persistPendingMethods(dataStore, trackedLibrary.getGroupArtifact(),
-                stampVersion, stampJarHash, unknownNextVersion, impactedMethodIds);
+        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
+                trackedLibrary.getGroupArtifact(), stampVersion, stampJarHash, impactedMethodIds);
+        pending.setUnknownNextVersion(unknownNextVersion);
+        return pending;
     }
 
     /**
-     * For release-version stamps, classify the stamp against the library's high water mark
-     * and policy, advance the high water mark when the stamp exceeds it (only under
-     * {@link LibraryVersionPolicy#BUMP_AT_RELEASE}), and return the value of
-     * {@code unknownNextVersion} for the stamp row.
+     * Classify a release-version stamp against the library's current high water mark and version
+     * policy to determine the {@code unknownNextVersion} flag, without advancing or persisting the
+     * high water mark. Under {@link LibraryVersionPolicy#BUMP_AFTER_RELEASE} every release stamp is
+     * known ({@code false}). Under {@link LibraryVersionPolicy#BUMP_AT_RELEASE} a stamp above the
+     * high water mark is known, a stamp at the mark is destined for the next unknown release
+     * ({@code true}), and a stamp below the mark is held conservatively ({@code true}).
      *
-     * <p>The high water mark is only maintained under {@code BUMP_AT_RELEASE} — that policy is
-     * the only consumer. Under {@code BUMP_AFTER_RELEASE} the field is left {@code null} for
-     * the lifetime of the library to avoid surfacing data that would grow stale as new releases
-     * happen between stamp events. See {@code WIKI.md} for the full model.
+     * <p>The high water mark is only consumed under {@code BUMP_AT_RELEASE}. Under
+     * {@code BUMP_AFTER_RELEASE} the field is left untouched for the lifetime of the library to
+     * avoid surfacing data that would grow stale as releases happen between stamp events.
+     *
+     * @param stampVersion the library's declared release version being stamped.
+     * @param trackedLibrary the tracked library, source of the current high water mark.
+     * @param policy the library's version-increment policy.
+     * @return {@code true} when the batch must be held as an unknown-next-version stamp.
      */
-    private boolean classifyReleaseStampAndAdvanceHwm(String stampVersion, TrackedLibrary trackedLibrary,
-                                                       LibraryVersionPolicy policy, DataStore dataStore) {
+    private boolean classifyReleaseStamp(String stampVersion, TrackedLibrary trackedLibrary,
+                                         LibraryVersionPolicy policy) {
         if (policy != LibraryVersionPolicy.BUMP_AT_RELEASE) {
             return false;
         }
@@ -87,25 +131,43 @@ public class PendingLibraryImpactedMethodsRecorder {
         int cmp = (priorHwm == null) ? 1
                 : PendingLibraryImpactedMethodsDrainer.compareVersions(stampVersion, priorHwm);
 
-        boolean unknownNextVersion;
         if (cmp > 0) {
-            unknownNextVersion = false;
-        } else if (cmp == 0) {
-            unknownNextVersion = true;
-        } else {
+            return false;
+        }
+        if (cmp < 0) {
             log.warn("Library '{}' version '{}' regressed below observed high water mark '{}' — holding stamp conservatively.",
                     trackedLibrary.getGroupArtifact(), stampVersion, priorHwm);
-            unknownNextVersion = true;
+        }
+        return true;
+    }
+
+    /**
+     * Advance and persist the library's high water mark when a release stamp under
+     * {@link LibraryVersionPolicy#BUMP_AT_RELEASE} exceeds the currently recorded mark. This is the
+     * persisting counterpart to {@link #classifyReleaseStamp}; it is a no-op under
+     * {@code BUMP_AFTER_RELEASE} (which does not maintain the mark) and when the stamp does not
+     * exceed the current mark.
+     *
+     * @param stampVersion the library's declared release version being stamped.
+     * @param trackedLibrary the tracked library whose high water mark may be advanced.
+     * @param policy the library's version-increment policy.
+     * @param dataStore the persistence layer used to store the advanced high water mark.
+     */
+    private void advanceHwmIfNeeded(String stampVersion, TrackedLibrary trackedLibrary,
+                                    LibraryVersionPolicy policy, DataStore dataStore) {
+        if (policy != LibraryVersionPolicy.BUMP_AT_RELEASE) {
+            return;
         }
 
+        String priorHwm = trackedLibrary.getLastReleasedLibraryVersion();
+        int cmp = (priorHwm == null) ? 1
+                : PendingLibraryImpactedMethodsDrainer.compareVersions(stampVersion, priorHwm);
         if (cmp > 0) {
             trackedLibrary.setLastReleasedLibraryVersion(stampVersion);
             dataStore.persistTrackedLibrary(trackedLibrary);
             log.debug("Advanced lastReleasedLibraryVersion for '{}' to '{}'.",
                     trackedLibrary.getGroupArtifact(), stampVersion);
         }
-
-        return unknownNextVersion;
     }
 
     /**
@@ -146,23 +208,6 @@ public class PendingLibraryImpactedMethodsRecorder {
         }
 
         return computeSha256Hash(new File(resolved.get(0).getJarFilePath()));
-    }
-
-    /**
-     * Persist new impacted method IDs as pending rows. The data store uses MERGE
-     * semantics so duplicate {@code (groupArtifact, stampVersion, methodId)} rows
-     * are handled without error.
-     */
-    private void persistPendingMethods(DataStore dataStore, String groupArtifact,
-                                       String stampVersion, String stampJarHash,
-                                       boolean unknownNextVersion, Set<Integer> newMethodIds) {
-        PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod(
-                groupArtifact, stampVersion, stampJarHash, newMethodIds);
-        pending.setUnknownNextVersion(unknownNextVersion);
-
-        dataStore.persistPendingLibraryImpactedMethods(pending);
-        log.info("Stamped {} pending impacted methods for library '{}' at version '{}' (unknownNextVersion={}).",
-                newMethodIds.size(), groupArtifact, stampVersion, unknownNextVersion);
     }
 
     /**

@@ -346,6 +346,128 @@ class PendingLibraryImpactedMethodsRecorderTest {
         assertEquals("1.0.0", reloaded.getLastReleasedLibraryVersion());
     }
 
+    /**
+     * The pure builder must produce the same release stamp the record path would, but without any
+     * side effects: it takes no data store, so it cannot persist a pending row, and it must not
+     * advance the library's high water mark even when the stamp version exceeds it. This is what
+     * lets the {@code select-tests} preview reuse the builder without writing to the database.
+     */
+    @Test
+    void buildPendingBatchReturnsReleaseBatchWithoutPersistingOrAdvancingHwm() {
+        // given a tracked library at HWM 1.0.0 whose build file now declares 1.1.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.1.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+        Set<Integer> methodIds = new HashSet<>(Arrays.asList(10, 20));
+
+        // when we build the batch (without recording it)
+        PendingLibraryImpactedMethod batch = recorder.buildPendingBatch(lib, methodIds, config);
+
+        // then the batch matches the release stamp and nothing was persisted or advanced
+        assertNotNull(batch);
+        assertEquals("com.example:lib", batch.getGroupArtifact());
+        assertEquals("1.1.0", batch.getStampVersion());
+        assertNull(batch.getStampJarHash());
+        assertFalse(batch.isUnknownNextVersion());
+        assertEquals(methodIds, batch.getSourceMethodIds());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods("com.example:lib").isEmpty());
+        assertEquals("1.0.0", lib.getLastReleasedLibraryVersion());
+        assertEquals("1.0.0", dataStore.readTrackedLibraries().get("com.example:lib").getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * When the stamp version equals the high water mark under {@code BUMP_AT_RELEASE}, the builder
+     * classifies it as an unknown-next-version stamp (the drainer will hold it) - and still without
+     * persisting the row or touching the high water mark.
+     */
+    @Test
+    void buildPendingBatchAtHighWaterMarkFlagsUnknownNextVersionWithoutPersisting() {
+        // given a tracked library at HWM 1.0.0 whose build file still declares 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        lib.setLastReleasedLibraryVersion("1.0.0");
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader reader = new StubMetadataReader("1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we build the batch (without recording it)
+        PendingLibraryImpactedMethod batch = recorder.buildPendingBatch(lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the batch is flagged unknownNextVersion=true and nothing was persisted
+        assertNotNull(batch);
+        assertTrue(batch.isUnknownNextVersion());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods("com.example:lib").isEmpty());
+        assertEquals("1.0.0", dataStore.readTrackedLibraries().get("com.example:lib").getLastReleasedLibraryVersion());
+    }
+
+    /**
+     * For a SNAPSHOT version the builder computes the JAR content hash (used by the drainer to
+     * detect a rebuilt SNAPSHOT) and leaves {@code unknownNextVersion} false, again with no
+     * persistence.
+     */
+    @Test
+    void buildPendingBatchForSnapshotComputesHashWithoutPersisting() throws Exception {
+        // given a tracked library with a SNAPSHOT JAR available for hashing
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        dataStore.persistTrackedLibrary(lib);
+        File fakeJar = new File(tempDir, "lib-1.0-SNAPSHOT.jar");
+        try (FileOutputStream fos = new FileOutputStream(fakeJar)) {
+            fos.write("snapshot-jar".getBytes());
+        }
+        LibraryMetadataReader reader = new StubMetadataReader("1.0-SNAPSHOT", fakeJar.getAbsolutePath());
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader,
+                LibraryVersionPolicy.BUMP_AT_RELEASE);
+
+        // when we build the batch (without recording it)
+        PendingLibraryImpactedMethod batch = recorder.buildPendingBatch(lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then the SNAPSHOT hash is populated, the flag is false and nothing was persisted
+        assertNotNull(batch);
+        assertEquals("1.0-SNAPSHOT", batch.getStampVersion());
+        assertNotNull(batch.getStampJarHash());
+        assertEquals(64, batch.getStampJarHash().length());
+        assertFalse(batch.isUnknownNextVersion());
+        assertTrue(dataStore.readPendingLibraryImpactedMethods("com.example:lib").isEmpty());
+    }
+
+    /**
+     * The builder returns {@code null} (rather than an empty batch) when there are no impacted
+     * methods or the library's declared version cannot be read, so callers can cheaply skip both
+     * the persist and the preview.
+     */
+    @Test
+    void buildPendingBatchReturnsNullWhenNothingToStamp() {
+        // given a tracked library whose declared version cannot be determined
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, null, null);
+        dataStore.persistTrackedLibrary(lib);
+        LibraryMetadataReader unknownVersionReader = new StubMetadataReader(null, null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", unknownVersionReader);
+
+        // when we build with empty methods, null methods and an unknown version
+        PendingLibraryImpactedMethod emptyMethods = recorder.buildPendingBatch(lib, Collections.emptySet(),
+                new LibraryImpactAnalysisConfig(Collections.singletonList("com.example:lib"), null,
+                        "/projects/source", new StubMetadataReader("1.0.0", null)));
+        PendingLibraryImpactedMethod nullMethods = recorder.buildPendingBatch(lib, null,
+                new LibraryImpactAnalysisConfig(Collections.singletonList("com.example:lib"), null,
+                        "/projects/source", new StubMetadataReader("1.0.0", null)));
+        PendingLibraryImpactedMethod unknownVersion = recorder.buildPendingBatch(lib,
+                new HashSet<>(Arrays.asList(10)), config);
+
+        // then all three return null
+        assertNull(emptyMethods);
+        assertNull(nullMethods);
+        assertNull(unknownVersion);
+    }
+
     @Test
     void computeSha256HashProducesDeterministicResult() throws Exception {
         File testFile = new File(tempDir, "test.bin");
