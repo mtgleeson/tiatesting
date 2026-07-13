@@ -1868,21 +1868,30 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Force-close the embedded H2 database so the underlying {@code .mv.db} file lock is
-     * released. Required when running inside a Maven plugin's JVM that will later fork a
-     * surefire/test JVM: without an explicit close, {@code DB_CLOSE_DELAY=-1} keeps the
+     * Close the embedded H2 database, flushing pending writes to disk and releasing the underlying
+     * {@code .mv.db} file lock. Required when running inside a Maven plugin's JVM that will later
+     * fork a surefire/test JVM: without an explicit close, {@code DB_CLOSE_DELAY=-1} keeps the
      * database open in the Maven JVM and the forked test JVM cannot open the same file —
      * H2 reports {@code "Database may be already in use"}.
      *
-     * <p>Issues {@code SHUTDOWN IMMEDIATELY} via a short-lived connection. Failures during
-     * close are swallowed (logged at debug) so cleanup errors never mask the real exception
-     * a calling {@code try}/{@code finally} block is unwinding.
+     * <p>Issues a graceful {@code SHUTDOWN} (deliberately <em>not</em> {@code SHUTDOWN IMMEDIATELY})
+     * via a short-lived connection. The graceful form writes the MVStore's buffered pages to the
+     * file before closing; {@code IMMEDIATELY} skips that flush and would drop any committed change
+     * the MVStore's delayed writer has not yet persisted. That loss is silent and small-write
+     * biased: a tracked-library reconcile performed in the plugin JVM is a tiny write that has not
+     * reached disk when the plugin's {@code close()} runs, so under {@code IMMEDIATELY} the forked
+     * test JVM finds no schema, recreates an empty DB, and the tracked library disappears (reconcile
+     * does not run on the persist path). Plain {@code SHUTDOWN} does not compact or defrag, so the
+     * only added cost over {@code IMMEDIATELY} is flushing pages that had to be written anyway - a
+     * read-only run has no dirty pages and pays nothing. Failures during close are swallowed
+     * (logged at debug) so cleanup errors never mask the real exception a calling {@code try}/{@code
+     * finally} block is unwinding.
      *
      * <p>This is an <b>embedded-mode-only</b> concern. In server mode the database engine lives
      * in the remote server process and is shared by every connected client, so issuing
-     * {@code SHUTDOWN IMMEDIATELY} would tear down the whole server database for all of them.
-     * Server-mode {@code close()} is therefore a no-op - individual connections are already
-     * closed by each operation's {@code finally} block.
+     * {@code SHUTDOWN} would tear down the whole server database for all of them. Server-mode
+     * {@code close()} is therefore a no-op - individual connections are already closed by each
+     * operation's {@code finally} block.
      */
     @Override
     public void close() {
@@ -1892,14 +1901,14 @@ public class H2DataStore implements DataStore {
             return;
         }
 
-        // try-with-resources on Connection + Statement: SHUTDOWN IMMEDIATELY tears down the
-        // session, so the implicit close() calls typically throw "connection is closed" —
-        // that's expected and the outer catch swallows it. Failures during close are logged
-        // at debug so cleanup errors never mask the real exception a calling try/finally is
-        // unwinding.
+        // Graceful SHUTDOWN flushes the MVStore write buffer to disk, then closes and releases the
+        // file lock. The final connection/statement close() in this try-with-resources may throw
+        // because the database is already shut down; that's expected and the outer catch swallows
+        // it. Failures during close are logged at debug so cleanup errors never mask the real
+        // exception a calling try/finally is unwinding.
         try (Connection connection = getConnection();
              Statement statement = connection.createStatement()) {
-            statement.execute("SHUTDOWN IMMEDIATELY");
+            statement.execute("SHUTDOWN");
         } catch (Throwable t) {
             log.debug("H2DataStore.close ignoring shutdown exception for {}: {}", jdbcURL, t.toString());
         }
@@ -2010,9 +2019,12 @@ public class H2DataStore implements DataStore {
      * its JVM shutdown hook to close the database on exit. The shutdown hook is unsafe inside
      * Maven plugins because Plexus tears down the plugin's {@code ClassRealm} before the hook
      * fires, so the hook's call to {@code DbException.get(...)} fails with a
-     * {@code NoClassDefFoundError: org/h2/api/ErrorCode}. Writes are still durable because every
-     * persist method commits its transaction explicitly via {@code connection.commit()}, which
-     * forces the MVStore to flush the changed pages.
+     * {@code NoClassDefFoundError: org/h2/api/ErrorCode}. A committed transaction is immediately
+     * durable <em>within this JVM</em> (later reads on any connection see it), but MVStore's delayed
+     * writer means the change may not have reached the {@code .mv.db} file yet. Cross-JVM durability
+     * therefore relies on {@link #close()} issuing a graceful {@code SHUTDOWN}, which flushes those
+     * buffered pages to disk before releasing the file lock - so the plugin JVM must close the
+     * datastore before a forked test JVM opens the same file.
      *
      * <p>In <b>server mode</b> the user-supplied URL is used as given. The embedded-only
      * options above are deliberately omitted: {@code PAGE_SIZE} / {@code CACHE_SIZE} /
