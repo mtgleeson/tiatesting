@@ -465,6 +465,147 @@ class PendingLibraryImpactedMethodsDrainerTest {
     }
 
     /**
+     * The preview must surface a library change that appears for the first time in the analyzed
+     * range - supplied only as an in-memory synthetic batch, never persisted - so that the
+     * {@code select-tests} estimate reflects it. The evaluation itself must write nothing.
+     */
+    @Test
+    void previewDrainsSyntheticBatchWithoutPersisting() {
+        // given a tracked library with no persisted pending batches and a mapping for methods 10, 20
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10, 20);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+        Map<String, List<PendingLibraryImpactedMethod>> synthetic = Collections.singletonMap(
+                "com.example:lib", Collections.singletonList(new PendingLibraryImpactedMethod(
+                        "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10, 20)))));
+
+        // when we preview with the synthetic batch against a resolved version of 1.0.0
+        Set<String> tests = drainer.previewTestsForBatches(dataStore, config, synthetic);
+
+        // then the covering tests are selected and nothing was persisted for the library
+        assertTrue(tests.contains("com.example.TestA"));
+        assertTrue(tests.contains("com.example.TestB"));
+        assertTrue(dataStore.readPendingLibraryImpactedMethods("com.example:lib").isEmpty());
+    }
+
+    /**
+     * With no synthetic batches supplied, the preview mirrors the real drain over the persisted
+     * batches - selecting the same tests - but, being read-only, must not delete the persisted
+     * batch the way the post-run cleanup would.
+     */
+    @Test
+    void previewDrainsPersistedBatchWithoutDeletingIt() {
+        // given a persisted pending batch that is eligible to drain at the resolved version
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10))));
+        setupTestMappingWithMethods(10);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+
+        // when we preview with no synthetic batches
+        Set<String> tests = drainer.previewTestsForBatches(dataStore, config, null);
+
+        // then the persisted batch's tests are selected and the batch itself is left in place
+        assertTrue(tests.contains("com.example.TestA"));
+        List<PendingLibraryImpactedMethod> stillPending =
+                dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, stillPending.size());
+        assertEquals("1.0.0", stillPending.get(0).getStampVersion());
+    }
+
+    /**
+     * A synthetic batch and a persisted batch that share a {@code stampVersion} are merged by
+     * unioning their impacted method ids, so the preview selects the covering tests for both sets
+     * of methods (mirroring the recorder's MERGE semantics for the same stamp).
+     */
+    @Test
+    void previewMergesSyntheticAndPersistedForSameStampVersion() {
+        // given a persisted batch (method 10) and a synthetic batch (method 20) at the same stamp 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10))));
+        setupTestMappingWithMethods(10, 20);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+        Map<String, List<PendingLibraryImpactedMethod>> synthetic = Collections.singletonMap(
+                "com.example:lib", Collections.singletonList(new PendingLibraryImpactedMethod(
+                        "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(20)))));
+
+        // when we preview the union
+        Set<String> tests = drainer.previewTestsForBatches(dataStore, config, synthetic);
+
+        // then tests covering both methods are selected
+        assertTrue(tests.contains("com.example.TestA"));
+        assertTrue(tests.contains("com.example.TestB"));
+    }
+
+    /**
+     * "What would run now" semantics: a synthetic batch stamped above the currently resolved
+     * version is not yet reachable, so the preview must hold it back and select no tests for it -
+     * the estimate must not count tests that this build will not run.
+     */
+    @Test
+    void previewHoldsSyntheticBatchStampedAboveResolvedVersion() {
+        // given a synthetic batch at stamp 2.0.0 while the source project resolves only 1.0.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        setupTestMappingWithMethods(10);
+        StubMetadataReader reader = new StubMetadataReader("1.0.0", "1.0.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+        Map<String, List<PendingLibraryImpactedMethod>> synthetic = Collections.singletonMap(
+                "com.example:lib", Collections.singletonList(new PendingLibraryImpactedMethod(
+                        "com.example:lib", "2.0.0", null, new HashSet<>(Arrays.asList(10)))));
+
+        // when we preview against the lower resolved version
+        Set<String> tests = drainer.previewTestsForBatches(dataStore, config, synthetic);
+
+        // then no tests are selected - the batch is held until the resolved version reaches it
+        assertTrue(tests.isEmpty());
+    }
+
+    /**
+     * No-mutation guarantee for the whole preview path: given a mix of a persisted and a synthetic
+     * batch that both drain, the preview must neither delete the persisted batch nor persist the
+     * synthetic one, so the stored pending rows are exactly the single pre-existing batch.
+     */
+    @Test
+    void previewWritesNothingToTheDataStore() {
+        // given one persisted batch (1.0.0) and one synthetic batch (1.1.0), both eligible at resolved 1.1.0
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        dataStore.persistTrackedLibrary(lib);
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:lib", "1.0.0", null, new HashSet<>(Arrays.asList(10))));
+        setupTestMappingWithMethods(10, 20);
+        StubMetadataReader reader = new StubMetadataReader("1.1.0", "1.1.0", null);
+        LibraryImpactAnalysisConfig config = new LibraryImpactAnalysisConfig(
+                Collections.singletonList("com.example:lib"), null, "/projects/source", reader);
+        Map<String, List<PendingLibraryImpactedMethod>> synthetic = Collections.singletonMap(
+                "com.example:lib", Collections.singletonList(new PendingLibraryImpactedMethod(
+                        "com.example:lib", "1.1.0", null, new HashSet<>(Arrays.asList(20)))));
+
+        // when we preview the union (both would drain)
+        Set<String> tests = drainer.previewTestsForBatches(dataStore, config, synthetic);
+
+        // then both sets of tests are selected but only the original persisted batch remains stored
+        assertTrue(tests.contains("com.example.TestA"));
+        assertTrue(tests.contains("com.example.TestB"));
+        List<PendingLibraryImpactedMethod> stillPending =
+                dataStore.readPendingLibraryImpactedMethods("com.example:lib");
+        assertEquals(1, stillPending.size());
+        assertEquals("1.0.0", stillPending.get(0).getStampVersion());
+        assertEquals("0.9.0", dataStore.readTrackedLibraries().get("com.example:lib").getLastSourceProjectVersion());
+    }
+
+    /**
      * Set up TiaData with test suite mappings where TestA covers method 10 and TestB covers method 20.
      */
     private void setupTestMappingWithMethods(int... methodIds) {

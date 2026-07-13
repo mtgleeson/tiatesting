@@ -70,9 +70,54 @@ public class PendingLibraryImpactedMethodsDrainer {
     }
 
     /**
-     * Drain pending batches for a single tracked library using the pre-resolved library versions.
-     * Evaluates each pending batch against the drain rules and collects impacted tests for
-     * batches that qualify.
+     * Dry-run drain used by the {@code select-tests} preview: evaluate the drain rules against the
+     * union of the persisted pending batches and the caller-supplied in-memory {@code synthetic}
+     * batches, and return the test suites that <em>would</em> be selected right now, without
+     * mutating any state. Nothing is persisted, no batch is deleted, and no {@code tia_library}
+     * state is advanced - so the result reflects "what would run now" for the current resolved
+     * library versions, matching what a real mapping-updating run would select.
+     *
+     * <p>Synthetic batches let the preview account for library changes that appear for the first
+     * time in the analyzed range and have therefore never been recorded as persisted rows. They
+     * are merged with any persisted batch sharing the same {@code (groupArtifact, stampVersion)}
+     * by unioning their impacted method ids, mirroring the recorder's MERGE semantics.
+     *
+     * @param dataStore the persistence layer (read-only here) for tracked libraries, persisted
+     *                  pending batches and per-batch test-suite resolution.
+     * @param libraryConfig the library impact analysis configuration (provides the metadata reader).
+     * @param syntheticByLib in-memory candidate batches keyed by {@code groupArtifact}; may be null
+     *                       or empty, in which case only persisted batches are evaluated.
+     * @return the test suites that the current library state would drain; never null.
+     */
+    public Set<String> previewTestsForBatches(DataStore dataStore, LibraryImpactAnalysisConfig libraryConfig,
+                                              Map<String, List<PendingLibraryImpactedMethod>> syntheticByLib) {
+        Set<String> testsToAdd = new LinkedHashSet<>();
+
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        if (trackedLibraries.isEmpty()) {
+            return testsToAdd;
+        }
+
+        Map<String, ResolvedSourceProjectLibrary> resolvedLibraries =
+                resolveAllLibrariesOnSourceProject(libraryConfig, trackedLibraries);
+
+        for (TrackedLibrary library : trackedLibraries.values()) {
+            List<PendingLibraryImpactedMethod> persisted =
+                    dataStore.readPendingLibraryImpactedMethods(library.getGroupArtifact());
+            List<PendingLibraryImpactedMethod> synthetic =
+                    syntheticByLib != null ? syntheticByLib.get(library.getGroupArtifact()) : null;
+            List<PendingLibraryImpactedMethod> batches = mergeBatches(persisted, synthetic);
+
+            // drainResult == null signals preview mode: collect tests but record no drain/cleanup state.
+            evaluateBatchesForLibrary(dataStore, library, batches, resolvedLibraries, testsToAdd, null);
+        }
+
+        return testsToAdd;
+    }
+
+    /**
+     * Drain pending batches for a single tracked library: read the library's persisted pending
+     * batches and evaluate them against the drain rules using the pre-resolved library versions.
      *
      * @param dataStore the persistence layer for pending batches and test-suite resolution
      * @param library the tracked library whose pending batches are evaluated
@@ -86,8 +131,33 @@ public class PendingLibraryImpactedMethodsDrainer {
                                                 LibraryImpactDrainResult drainResult) {
         List<PendingLibraryImpactedMethod> pendingBatches =
                 dataStore.readPendingLibraryImpactedMethods(library.getGroupArtifact());
+        evaluateBatchesForLibrary(dataStore, library, pendingBatches, resolvedLibraries,
+                testsFromDrain, drainResult);
+    }
 
-        if (pendingBatches.isEmpty()) {
+    /**
+     * Evaluate a supplied list of batches for one library against the drain rules and collect the
+     * covering test suites for those that qualify. Shared by the real drain
+     * ({@link #drainPendingMethodsForLibrary}) and the preview ({@link #previewTestsForBatches}).
+     *
+     * <p>When {@code drainResult} is non-null (real drain) the drained batch keys and the observed
+     * resolved library state are recorded for post-run cleanup. When {@code drainResult} is null
+     * (preview) only {@code testsFromDrain} is populated and no drain/cleanup state is recorded -
+     * the evaluation itself is read-only either way.
+     *
+     * @param dataStore the persistence layer for per-batch test-suite resolution
+     * @param library the tracked library whose batches are evaluated
+     * @param batches the batches to evaluate (persisted, synthetic, or their union)
+     * @param resolvedLibraries the libraries resolved on the source project classpath, by coordinate
+     * @param testsFromDrain accumulator for the test suites selected by qualifying batches
+     * @param drainResult accumulator for drained batch keys and observed state, or null for preview
+     */
+    private void evaluateBatchesForLibrary(DataStore dataStore, TrackedLibrary library,
+                                           List<PendingLibraryImpactedMethod> batches,
+                                           Map<String, ResolvedSourceProjectLibrary> resolvedLibraries,
+                                           Set<String> testsFromDrain,
+                                           LibraryImpactDrainResult drainResult) {
+        if (batches.isEmpty()) {
             return;
         }
 
@@ -106,12 +176,14 @@ public class PendingLibraryImpactedMethodsDrainer {
                 resolvedJarHash != null ? resolvedJarHash : "N/A");
 
         boolean anyDrained = false;
-        for (PendingLibraryImpactedMethod batch : pendingBatches) {
+        for (PendingLibraryImpactedMethod batch : batches) {
             if (shouldDrainBatch(batch, library, resolvedVersion, resolvedJarHash)) {
                 Set<String> testsForBatch = resolveTestSuitesFromMethodIds(batch.getSourceMethodIds(),
                         dataStore);
                 testsFromDrain.addAll(testsForBatch);
-                drainResult.addDrainedBatch(library.getGroupArtifact(), batch.getStampVersion());
+                if (drainResult != null) {
+                    drainResult.addDrainedBatch(library.getGroupArtifact(), batch.getStampVersion());
+                }
                 anyDrained = true;
 
                 log.info("Drained pending batch for library '{}' at stamp version '{}' — {} tests selected.",
@@ -122,8 +194,52 @@ public class PendingLibraryImpactedMethodsDrainer {
             }
         }
 
-        if (anyDrained) {
+        if (anyDrained && drainResult != null) {
             drainResult.setObservedLibraryState(library.getGroupArtifact(), resolvedVersion, resolvedJarHash);
+        }
+    }
+
+    /**
+     * Merge a library's persisted and synthetic pending batches into a single list, deduplicating
+     * by {@code stampVersion} (all batches here belong to one library) and unioning the impacted
+     * method ids of batches that share a stamp. Copies each batch so neither the caller's synthetic
+     * list nor the data store's returned rows are mutated by the union.
+     *
+     * @param persisted the library's persisted pending batches; may be null
+     * @param synthetic the in-memory candidate batches for the library; may be null
+     * @return the merged, de-duplicated batch list; never null
+     */
+    private List<PendingLibraryImpactedMethod> mergeBatches(List<PendingLibraryImpactedMethod> persisted,
+                                                            List<PendingLibraryImpactedMethod> synthetic) {
+        Map<String, PendingLibraryImpactedMethod> byStampVersion = new LinkedHashMap<>();
+        addBatchesByStampVersion(byStampVersion, persisted);
+        addBatchesByStampVersion(byStampVersion, synthetic);
+        return new ArrayList<>(byStampVersion.values());
+    }
+
+    /**
+     * Add batches into the stamp-version-keyed accumulator, creating a defensive copy on first
+     * insertion and unioning impacted method ids when a later batch shares an existing stamp.
+     *
+     * @param byStampVersion the accumulator keyed by {@code stampVersion}
+     * @param batches the batches to add; may be null
+     */
+    private void addBatchesByStampVersion(Map<String, PendingLibraryImpactedMethod> byStampVersion,
+                                          List<PendingLibraryImpactedMethod> batches) {
+        if (batches == null) {
+            return;
+        }
+        for (PendingLibraryImpactedMethod batch : batches) {
+            PendingLibraryImpactedMethod existing = byStampVersion.get(batch.getStampVersion());
+            if (existing == null) {
+                PendingLibraryImpactedMethod copy = new PendingLibraryImpactedMethod(
+                        batch.getGroupArtifact(), batch.getStampVersion(), batch.getStampJarHash(),
+                        new LinkedHashSet<>(batch.getSourceMethodIds()));
+                copy.setUnknownNextVersion(batch.isUnknownNextVersion());
+                byStampVersion.put(batch.getStampVersion(), copy);
+            } else {
+                existing.getSourceMethodIds().addAll(batch.getSourceMethodIds());
+            }
         }
     }
 
