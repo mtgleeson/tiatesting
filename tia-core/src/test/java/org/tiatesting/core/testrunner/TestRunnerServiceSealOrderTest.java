@@ -325,8 +325,8 @@ class TestRunnerServiceSealOrderTest {
             return delegate.readLibraryPublishes(groupArtifact);
         }
         @Override
-        public long persistLibraryPublish(LibraryPublish publish) {
-            return delegate.persistLibraryPublish(publish);
+        public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
+            return delegate.persistLibraryPublish(publish, impactedMethodIds);
         }
         @Override
         public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) {
