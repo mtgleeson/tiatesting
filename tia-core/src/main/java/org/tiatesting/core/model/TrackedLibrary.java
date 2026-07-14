@@ -37,6 +37,24 @@ public class TrackedLibrary implements Serializable {
      */
     private String lastReleasedLibraryVersion;
 
+    /**
+     * The commit at which this library's tracked method line numbers were last captured (an
+     * all-tests run, or a primary run that drained this library's stamps and so re-covered its
+     * suites). The publish-time stamp task diffs from this commit so the diff's original-side
+     * line coordinates exactly match the mapping's ranges. Null until first captured.
+     * See {@code DESIGN-publish-time-stamping.md} section 4.
+     */
+    private String mappingBaselineCommit;
+
+    /**
+     * Monotonic high-water mark: the {@code publishSeq} of the last published build whose
+     * impacted tests the consumer has run. Deliberately not part of the drain predicate (the
+     * pending-stamp set is self-describing via delete-on-drain); used only for the downgrade /
+     * stale-resolve warning and reporting. Null until the first drain under the ledger model.
+     * See {@code DESIGN-publish-time-stamping.md} section 2.2.
+     */
+    private Long lastAppliedSeq;
+
     public TrackedLibrary() {
     }
 
@@ -104,6 +122,22 @@ public class TrackedLibrary implements Serializable {
 
     public void setLastReleasedLibraryVersion(String lastReleasedLibraryVersion) {
         this.lastReleasedLibraryVersion = lastReleasedLibraryVersion;
+    }
+
+    public String getMappingBaselineCommit() {
+        return mappingBaselineCommit;
+    }
+
+    public void setMappingBaselineCommit(String mappingBaselineCommit) {
+        this.mappingBaselineCommit = mappingBaselineCommit;
+    }
+
+    public Long getLastAppliedSeq() {
+        return lastAppliedSeq;
+    }
+
+    public void setLastAppliedSeq(Long lastAppliedSeq) {
+        this.lastAppliedSeq = lastAppliedSeq;
     }
 
     @Override

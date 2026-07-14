@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
@@ -216,6 +217,23 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void deleteTrackedLibrary(String groupArtifact) {
         // tracked libraries are only supported in the H2 data store
+    }
+
+    @Override
+    public List<LibraryPublish> readLibraryPublishes(String groupArtifact) {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public long persistLibraryPublish(LibraryPublish publish) {
+        // the library publish ledger is only supported in the H2 data store
+        return 0;
+    }
+
+    @Override
+    public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) {
+        // the library publish ledger is only supported in the H2 data store
+        return null;
     }
 
     @Override
