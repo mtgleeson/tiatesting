@@ -5,6 +5,7 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
@@ -52,6 +53,13 @@ public class H2DataStore implements DataStore {
     private static final String COL_LAST_SOURCE_PROJECT_VERSION = "last_source_project_version";
     private static final String COL_LAST_SOURCE_PROJECT_JAR_HASH = "last_source_project_jar_hash";
     private static final String COL_LAST_RELEASED_LIBRARY_VERSION = "last_released_library_version";
+    private static final String COL_MAPPING_BASELINE_COMMIT = "mapping_baseline_commit";
+    private static final String COL_LAST_APPLIED_SEQ = "last_applied_seq";
+    private static final String TABLE_TIA_LIBRARY_PUBLISH = "tia_library_publish";
+    private static final String COL_PUBLISH_SEQ = "publish_seq";
+    private static final String COL_PUBLISHED_VERSION = "published_version";
+    private static final String COL_JAR_HASH = "jar_hash";
+    private static final String COL_PUBLISHED_AT = "published_at";
     private static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
     private static final String COL_STAMP_VERSION = "stamp_version";
     private static final String COL_STAMP_JAR_HASH = "stamp_jar_hash";
@@ -594,6 +602,9 @@ public class H2DataStore implements DataStore {
                 lib.setLastSourceProjectVersion(resultSet.getString(COL_LAST_SOURCE_PROJECT_VERSION));
                 lib.setLastSourceProjectJarHash(resultSet.getString(COL_LAST_SOURCE_PROJECT_JAR_HASH));
                 lib.setLastReleasedLibraryVersion(resultSet.getString(COL_LAST_RELEASED_LIBRARY_VERSION));
+                lib.setMappingBaselineCommit(resultSet.getString(COL_MAPPING_BASELINE_COMMIT));
+                long lastAppliedSeq = resultSet.getLong(COL_LAST_APPLIED_SEQ);
+                lib.setLastAppliedSeq(resultSet.wasNull() ? null : lastAppliedSeq);
                 libraries.put(lib.getGroupArtifact(), lib);
             }
         } catch (SQLException e) {
@@ -621,8 +632,10 @@ public class H2DataStore implements DataStore {
                     + COL_SOURCE_DIRS_CSV + ", "
                     + COL_LAST_SOURCE_PROJECT_VERSION + ", "
                     + COL_LAST_SOURCE_PROJECT_JAR_HASH + ", "
-                    + COL_LAST_RELEASED_LIBRARY_VERSION + ") "
-                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?, ?)";
+                    + COL_LAST_RELEASED_LIBRARY_VERSION + ", "
+                    + COL_MAPPING_BASELINE_COMMIT + ", "
+                    + COL_LAST_APPLIED_SEQ + ") "
+                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, trackedLibrary.getGroupArtifact());
@@ -631,6 +644,12 @@ public class H2DataStore implements DataStore {
             ps.setString(4, trackedLibrary.getLastSourceProjectVersion());
             ps.setString(5, trackedLibrary.getLastSourceProjectJarHash());
             ps.setString(6, trackedLibrary.getLastReleasedLibraryVersion());
+            ps.setString(7, trackedLibrary.getMappingBaselineCommit());
+            if (trackedLibrary.getLastAppliedSeq() != null) {
+                ps.setLong(8, trackedLibrary.getLastAppliedSeq());
+            } else {
+                ps.setNull(8, Types.BIGINT);
+            }
             ps.executeUpdate();
             log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
         } catch (SQLException e) {
@@ -731,9 +750,10 @@ public class H2DataStore implements DataStore {
                 String insertSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
                         + COL_STAMP_JAR_HASH + ", " + COL_UNKNOWN_NEXT_VERSION + ", "
+                        + COL_PUBLISH_SEQ + ", "
                         + COL_TIA_SOURCE_METHOD_ID + ") "
                         + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?, ?)";
+                        + "VALUES (?, ?, ?, ?, ?, ?)";
                 PreparedStatement insertPs = connection.prepareStatement(insertSql);
 
                 for (Integer methodId : pending.getSourceMethodIds()) {
@@ -741,7 +761,12 @@ public class H2DataStore implements DataStore {
                     insertPs.setString(2, pending.getStampVersion());
                     insertPs.setString(3, pending.getStampJarHash());
                     insertPs.setBoolean(4, pending.isUnknownNextVersion());
-                    insertPs.setInt(5, methodId);
+                    if (pending.getPublishSeq() != null) {
+                        insertPs.setLong(5, pending.getPublishSeq());
+                    } else {
+                        insertPs.setNull(5, Types.BIGINT);
+                    }
+                    insertPs.setInt(6, methodId);
                     insertPs.addBatch();
                 }
                 insertPs.executeBatch();
@@ -784,6 +809,163 @@ public class H2DataStore implements DataStore {
                 throw new TiaPersistenceException(e);
             }
         }
+    }
+
+    @Override
+    public List<LibraryPublish> readLibraryPublishes(final String groupArtifact) {
+        List<LibraryPublish> result = new ArrayList<>();
+        Connection connection = getConnection();
+
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+                return result;
+            }
+            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
+                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? ORDER BY " + COL_PUBLISH_SEQ + " ASC";
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, groupArtifact);
+            ResultSet resultSet = ps.executeQuery();
+            while (resultSet.next()) {
+                result.add(buildLibraryPublishFromRow(resultSet));
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    public long persistLibraryPublish(final LibraryPublish publish) {
+        Connection connection = getConnection();
+
+        try {
+            ensureLibraryPublishTableExists(connection);
+            connection.setAutoCommit(false);
+
+            // Assign the next per-library sequence inside the insert transaction. Under a
+            // concurrent publish (server mode) two writers can race to the same max; the
+            // (group_artifact, publish_seq) primary key turns that into a duplicate-key failure
+            // rather than a silent double-assignment.
+            String maxSql = "SELECT COALESCE(MAX(" + COL_PUBLISH_SEQ + "), 0) FROM "
+                    + TABLE_TIA_LIBRARY_PUBLISH + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
+            PreparedStatement maxPs = connection.prepareStatement(maxSql);
+            maxPs.setString(1, publish.getGroupArtifact());
+            ResultSet maxRs = maxPs.executeQuery();
+            maxRs.next();
+            long assignedSeq = maxRs.getLong(1) + 1;
+
+            String insertSql = "INSERT INTO " + TABLE_TIA_LIBRARY_PUBLISH + " ("
+                    + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_PUBLISHED_VERSION + ", "
+                    + COL_JAR_HASH + ", " + COL_COMMIT_VALUE + ", " + COL_PUBLISHED_AT + ") "
+                    + "VALUES (?, ?, ?, ?, ?, ?)";
+            PreparedStatement insertPs = connection.prepareStatement(insertSql);
+            insertPs.setString(1, publish.getGroupArtifact());
+            insertPs.setLong(2, assignedSeq);
+            insertPs.setString(3, publish.getPublishedVersion());
+            insertPs.setString(4, publish.getJarHash());
+            insertPs.setString(5, publish.getCommitValue());
+            insertPs.setLong(6, publish.getPublishedAt());
+            insertPs.executeUpdate();
+            connection.commit();
+
+            publish.setPublishSeq(assignedSeq);
+            log.debug("Persisted library publish {} at seq {} (version '{}').",
+                    publish.getGroupArtifact(), assignedSeq, publish.getPublishedVersion());
+            return assignedSeq;
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    @Override
+    public LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version) {
+        Connection connection = getConnection();
+
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+                return null;
+            }
+
+            LibraryPublish byHash = findHighestSeqPublish(connection, groupArtifact, COL_JAR_HASH, jarHash);
+            if (byHash != null) {
+                return byHash;
+            }
+            return findHighestSeqPublish(connection, groupArtifact, COL_PUBLISHED_VERSION, version);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * Find the highest-sequence publish row for a library where the given column equals the given
+     * value. Matches are expected to be rare (usually one), so the highest sequence is selected in
+     * Java rather than with a dialect-specific row-limit clause.
+     *
+     * @param connection the open H2 connection to query on
+     * @param groupArtifact the library coordinate to search within
+     * @param matchColumn the ledger column to match on ({@code jar_hash} or {@code published_version})
+     * @param matchValue the value to match; a null value skips the match and returns null
+     * @return the matching row with the highest {@code publish_seq}, or null when nothing matches
+     * @throws SQLException if the query fails
+     */
+    private LibraryPublish findHighestSeqPublish(Connection connection, String groupArtifact,
+                                                 String matchColumn, String matchValue) throws SQLException {
+        if (matchValue == null) {
+            return null;
+        }
+        String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
+                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + matchColumn + " = ?";
+        PreparedStatement ps = connection.prepareStatement(sql);
+        ps.setString(1, groupArtifact);
+        ps.setString(2, matchValue);
+        ResultSet resultSet = ps.executeQuery();
+
+        LibraryPublish best = null;
+        while (resultSet.next()) {
+            LibraryPublish candidate = buildLibraryPublishFromRow(resultSet);
+            if (best == null || candidate.getPublishSeq() > best.getPublishSeq()) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Materialise a {@link LibraryPublish} from the current row of a {@code tia_library_publish}
+     * result set.
+     *
+     * @param resultSet the result set positioned on a ledger row
+     * @return the populated publish model
+     * @throws SQLException if a column read fails
+     */
+    private LibraryPublish buildLibraryPublishFromRow(ResultSet resultSet) throws SQLException {
+        LibraryPublish publish = new LibraryPublish();
+        publish.setGroupArtifact(resultSet.getString(COL_GROUP_ARTIFACT));
+        publish.setPublishSeq(resultSet.getLong(COL_PUBLISH_SEQ));
+        publish.setPublishedVersion(resultSet.getString(COL_PUBLISHED_VERSION));
+        publish.setJarHash(resultSet.getString(COL_JAR_HASH));
+        publish.setCommitValue(resultSet.getString(COL_COMMIT_VALUE));
+        publish.setPublishedAt(resultSet.getLong(COL_PUBLISHED_AT));
+        return publish;
     }
 
     @Override
@@ -900,6 +1082,8 @@ public class H2DataStore implements DataStore {
                 batch = new PendingLibraryImpactedMethod(ga, sv,
                         resultSet.getString(COL_STAMP_JAR_HASH), new HashSet<>());
                 batch.setUnknownNextVersion(resultSet.getBoolean(COL_UNKNOWN_NEXT_VERSION));
+                long publishSeq = resultSet.getLong(COL_PUBLISH_SEQ);
+                batch.setPublishSeq(resultSet.wasNull() ? null : publishSeq);
                 batchMap.put(key, batch);
             }
             batch.getSourceMethodIds().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
@@ -1596,6 +1780,7 @@ public class H2DataStore implements DataStore {
 
         String createLibraryTableSql = buildCreateLibraryTableSql();
         String createPendingLibraryMethodTableSql = buildCreatePendingLibraryImpactedMethodTableSql();
+        String createLibraryPublishTableSql = buildCreateLibraryPublishTableSql();
         String createTestRunHistoryTableSql = buildCreateTestRunHistoryTableSql();
         String createTestRunHistoryIndexSql = buildCreateTestRunHistoryIndexSql();
 
@@ -1614,6 +1799,7 @@ public class H2DataStore implements DataStore {
             statement.executeUpdate(createSourceClassMethodMethodIdIndexSql);
             statement.executeUpdate(createLibraryTableSql);
             statement.executeUpdate(createPendingLibraryMethodTableSql);
+            statement.executeUpdate(createLibraryPublishTableSql);
             statement.executeUpdate(createTestRunHistoryTableSql);
             statement.executeUpdate(createTestRunHistoryIndexSql);
             connection.close();
@@ -1645,7 +1831,9 @@ public class H2DataStore implements DataStore {
                 + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
                 + COL_LAST_SOURCE_PROJECT_VERSION + " VARCHAR(128), "
                 + COL_LAST_SOURCE_PROJECT_JAR_HASH + " VARCHAR(128), "
-                + COL_LAST_RELEASED_LIBRARY_VERSION + " VARCHAR(128))";
+                + COL_LAST_RELEASED_LIBRARY_VERSION + " VARCHAR(128), "
+                + COL_MAPPING_BASELINE_COMMIT + " VARCHAR(128), "
+                + COL_LAST_APPLIED_SEQ + " BIGINT)";
     }
 
     /**
@@ -1670,6 +1858,7 @@ public class H2DataStore implements DataStore {
                 + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
                 + COL_STAMP_JAR_HASH + " VARCHAR(128), "
                 + COL_UNKNOWN_NEXT_VERSION + " BOOLEAN NOT NULL DEFAULT FALSE, "
+                + COL_PUBLISH_SEQ + " BIGINT, "
                 + COL_TIA_SOURCE_METHOD_ID + " INT NOT NULL, "
                 + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + "), "
                 + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
@@ -1685,6 +1874,42 @@ public class H2DataStore implements DataStore {
             Statement statement = connection.createStatement();
             statement.executeUpdate(buildCreatePendingLibraryImpactedMethodTableSql());
             log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD);
+        }
+    }
+
+    /**
+     * Build the DDL for the {@code tia_library_publish} table - the publish ledger, one row per
+     * published build of a tracked library, ordered per library by {@code publish_seq}.
+     * See {@code DESIGN-publish-time-stamping.md} section 2.1.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the publish ledger
+     */
+    private String buildCreateLibraryPublishTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_LIBRARY_PUBLISH + " ("
+                + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
+                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
+                + COL_PUBLISHED_VERSION + " VARCHAR(128) NOT NULL, "
+                + COL_JAR_HASH + " VARCHAR(128), "
+                + COL_COMMIT_VALUE + " VARCHAR(128), "
+                + COL_PUBLISHED_AT + " BIGINT NOT NULL, "
+                + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + "), "
+                + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
+    }
+
+    /**
+     * Ensure the {@code tia_library_publish} table exists, creating it and its parent
+     * {@code tia_library} table if necessary. Mirrors the on-demand creation guard the sibling
+     * library tables use so a publish persisted before the schema bootstrap ran still succeeds.
+     *
+     * @param connection the H2 connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureLibraryPublishTableExists(Connection connection) throws SQLException {
+        ensureLibraryTableExists(connection);
+        if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+            Statement statement = connection.createStatement();
+            statement.executeUpdate(buildCreateLibraryPublishTableSql());
+            log.debug("Created {} table in existing Tia DB", TABLE_TIA_LIBRARY_PUBLISH);
         }
     }
 

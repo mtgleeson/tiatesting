@@ -33,6 +33,14 @@ public class PendingLibraryImpactedMethod implements Serializable {
      */
     private boolean unknownNextVersion;
 
+    /**
+     * The publish-ledger sequence number of the build this stamp shipped in, referencing
+     * {@code tia_library_publish}. Null when the stamp has no published identity: in-memory
+     * synthetic stamps, and stamps written by the app-side recorder path (which the publish-time
+     * stamp task replaces). See {@code DESIGN-publish-time-stamping.md} section 2.1.
+     */
+    private Long publishSeq;
+
     public PendingLibraryImpactedMethod() {
         this.sourceMethodIds = new HashSet<>();
     }
@@ -91,6 +99,14 @@ public class PendingLibraryImpactedMethod implements Serializable {
 
     public void setUnknownNextVersion(boolean unknownNextVersion) {
         this.unknownNextVersion = unknownNextVersion;
+    }
+
+    public Long getPublishSeq() {
+        return publishSeq;
+    }
+
+    public void setPublishSeq(Long publishSeq) {
+        this.publishSeq = publishSeq;
     }
 
     @Override
