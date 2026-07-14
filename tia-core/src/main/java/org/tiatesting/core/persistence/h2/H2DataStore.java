@@ -842,7 +842,7 @@ public class H2DataStore implements DataStore {
     }
 
     @Override
-    public long persistLibraryPublish(final LibraryPublish publish) {
+    public long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds) {
         Connection connection = getConnection();
 
         try {
@@ -873,11 +873,40 @@ public class H2DataStore implements DataStore {
             insertPs.setString(5, publish.getCommitValue());
             insertPs.setLong(6, publish.getPublishedAt());
             insertPs.executeUpdate();
+
+            // Stamp the impacted methods against the assigned sequence in the same transaction,
+            // so a publish row can never exist without the stamps of the build it identifies.
+            // Stamp rows are still keyed (group_artifact, stamp_version, method_id); repeated
+            // publishes at one version therefore merge into the latest cumulative batch. The
+            // per-publish keying by publish_seq lands with the drain rework (Stage 3), when the
+            // version-keyed app-side writer is removed.
+            if (impactedMethodIds != null && !impactedMethodIds.isEmpty()) {
+                String stampSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
+                        + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
+                        + COL_STAMP_JAR_HASH + ", " + COL_UNKNOWN_NEXT_VERSION + ", "
+                        + COL_PUBLISH_SEQ + ", "
+                        + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + "VALUES (?, ?, ?, ?, ?, ?)";
+                PreparedStatement stampPs = connection.prepareStatement(stampSql);
+                for (Integer methodId : impactedMethodIds) {
+                    stampPs.setString(1, publish.getGroupArtifact());
+                    stampPs.setString(2, publish.getPublishedVersion());
+                    stampPs.setString(3, publish.getJarHash());
+                    stampPs.setBoolean(4, false);
+                    stampPs.setLong(5, assignedSeq);
+                    stampPs.setInt(6, methodId);
+                    stampPs.addBatch();
+                }
+                stampPs.executeBatch();
+            }
+
             connection.commit();
 
             publish.setPublishSeq(assignedSeq);
-            log.debug("Persisted library publish {} at seq {} (version '{}').",
-                    publish.getGroupArtifact(), assignedSeq, publish.getPublishedVersion());
+            log.debug("Persisted library publish {} at seq {} (version '{}', {} stamped methods).",
+                    publish.getGroupArtifact(), assignedSeq, publish.getPublishedVersion(),
+                    impactedMethodIds != null ? impactedMethodIds.size() : 0);
             return assignedSeq;
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1898,14 +1927,15 @@ public class H2DataStore implements DataStore {
 
     /**
      * Ensure the {@code tia_library_publish} table exists, creating it and its parent
-     * {@code tia_library} table if necessary. Mirrors the on-demand creation guard the sibling
-     * library tables use so a publish persisted before the schema bootstrap ran still succeeds.
+     * {@code tia_library} table (plus the pending-stamp table the atomic publish write also
+     * inserts into) if necessary. Mirrors the on-demand creation guard the sibling library
+     * tables use so a publish persisted before the schema bootstrap ran still succeeds.
      *
      * @param connection the H2 connection to issue the DDL on
      * @throws SQLException if the DDL statement fails
      */
     private void ensureLibraryPublishTableExists(Connection connection) throws SQLException {
-        ensureLibraryTableExists(connection);
+        ensurePendingLibraryImpactedMethodTableExists(connection);
         if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
             Statement statement = connection.createStatement();
             statement.executeUpdate(buildCreateLibraryPublishTableSql());

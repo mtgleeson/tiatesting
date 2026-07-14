@@ -355,7 +355,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public void deleteTestSuites(Set<String> testSuites) { delegate.deleteTestSuites(testSuites); }
         @Override public Map<String, TrackedLibrary> readTrackedLibraries() { return delegate.readTrackedLibraries(); }
         @Override public List<LibraryPublish> readLibraryPublishes(String groupArtifact) { return delegate.readLibraryPublishes(groupArtifact); }
-        @Override public long persistLibraryPublish(LibraryPublish publish) { return delegate.persistLibraryPublish(publish); }
+        @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) { return delegate.persistLibraryPublish(publish, impactedMethodIds); }
         @Override public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) { return delegate.lookupLibraryPublish(groupArtifact, jarHash, version); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }

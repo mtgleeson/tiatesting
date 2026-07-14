@@ -200,15 +200,21 @@ public interface DataStore extends AutoCloseable {
     List<LibraryPublish> readLibraryPublishes(final String groupArtifact);
 
     /**
-     * Persist a publish ledger row, assigning it the library's next sequence number
-     * ({@code max(publishSeq)+1}) within the insert transaction. The assigned sequence is also
-     * set on the given object. The library must already exist in {@code tia_library} (the ledger
-     * cascades from it).
+     * Persist a publish ledger row and its impacted-method stamp in one transaction, assigning
+     * the row the library's next sequence number ({@code max(publishSeq)+1}). The stamp rows
+     * (when {@code impactedMethodIds} is non-empty) carry the assigned sequence, the published
+     * version as their stamp version and the publish's jar hash - written atomically with the
+     * ledger row so a publish can never exist without the stamps of the build it identifies
+     * (a consumer resolving that build would otherwise drain past untested changes). The
+     * assigned sequence is also set on the given object. The library must already exist in
+     * {@code tia_library} (the ledger cascades from it).
      *
      * @param publish the publish row to persist; its {@code publishSeq} is ignored on input.
+     * @param impactedMethodIds the source method ids impacted since the library's mapping
+     *                          baseline; null or empty writes the ledger row only.
      * @return the assigned sequence number.
      */
-    long persistLibraryPublish(final LibraryPublish publish);
+    long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds);
 
     /**
      * Resolve a consumed artifact to its publish ledger row: match by jar content hash first
