@@ -225,7 +225,7 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
-    public long persistLibraryPublish(LibraryPublish publish) {
+    public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
         // the library publish ledger is only supported in the H2 data store
         return 0;
     }

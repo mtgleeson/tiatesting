@@ -9,6 +9,7 @@ import org.tiatesting.core.model.TrackedLibrary;
 
 import java.io.File;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,9 +63,9 @@ class H2DataStoreLibraryPublishTest {
         LibraryPublish first = new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "c1", 1000L);
         LibraryPublish second = new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H2", "c2", 2000L);
         LibraryPublish otherFirst = new LibraryPublish("com.example:other", "2.0.0", "H9", "c3", 3000L);
-        long seq1 = dataStore.persistLibraryPublish(first);
-        long seq2 = dataStore.persistLibraryPublish(second);
-        long otherSeq = dataStore.persistLibraryPublish(otherFirst);
+        long seq1 = dataStore.persistLibraryPublish(first, Collections.emptySet());
+        long seq2 = dataStore.persistLibraryPublish(second, Collections.emptySet());
+        long otherSeq = dataStore.persistLibraryPublish(otherFirst, Collections.emptySet());
 
         // then sequences are monotonic per library and set on the objects, independent across libraries
         assertEquals(1L, seq1);
@@ -75,6 +76,30 @@ class H2DataStoreLibraryPublishTest {
     }
 
     /**
+     * A publish persisted with impacted method ids writes the ledger row and the stamp rows
+     * together: the stamp carries the assigned sequence, the published version as its stamp
+     * version and the publish's jar hash.
+     */
+    @Test
+    void persistWithImpactedMethodsWritesStampCarryingAssignedSequence() {
+        // given a tracked library
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+
+        // when a publish is persisted with impacted methods
+        long seq = dataStore.persistLibraryPublish(
+                new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "c1", 1000L),
+                new HashSet<>(Arrays.asList(10, 20)));
+
+        // then the stamp batch exists with the assigned seq, published version and jar hash
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods(LIB);
+        assertEquals(1, pending.size());
+        assertEquals(Long.valueOf(seq), pending.get(0).getPublishSeq());
+        assertEquals("1.0.0-SNAPSHOT", pending.get(0).getStampVersion());
+        assertEquals("H1", pending.get(0).getStampJarHash());
+        assertEquals(new HashSet<>(Arrays.asList(10, 20)), pending.get(0).getSourceMethodIds());
+    }
+
+    /**
      * A persisted ledger row round-trips all its fields and the per-library read returns rows
      * ordered by sequence ascending.
      */
@@ -82,8 +107,8 @@ class H2DataStoreLibraryPublishTest {
     void readLibraryPublishesRoundTripsFieldsInSequenceOrder() {
         // given a tracked library with two persisted publishes
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "commitA", 1111L));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", null, "commitB", 2222L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "commitA", 1111L), Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", null, "commitB", 2222L), Collections.emptySet());
 
         // when the ledger is read back
         List<LibraryPublish> ledger = dataStore.readLibraryPublishes(LIB);
@@ -108,8 +133,8 @@ class H2DataStoreLibraryPublishTest {
     void lookupPrefersJarHashMatchOverVersionMatch() {
         // given two publishes sharing a version but with distinct hashes
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H2", "c2", 2000L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H2", "c2", 2000L), Collections.emptySet());
 
         // when looking up with the older build's hash and the shared version
         LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H1", "1.0.0");
@@ -128,7 +153,7 @@ class H2DataStoreLibraryPublishTest {
     void lookupFallsBackToVersionWhenHashUnknown() {
         // given a release publish
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
 
         // when looking up with an unknown hash but a matching version
         LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-unknown", "1.0.0");
@@ -146,9 +171,9 @@ class H2DataStoreLibraryPublishTest {
     void lookupReturnsHighestSequenceOnDuplicateMatches() {
         // given the same jar hash published at two sequences (identical artifact republished)
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c1", 1000L));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-other", "c2", 2000L));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c3", 3000L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c1", 1000L), Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-other", "c2", 2000L), Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c3", 3000L), Collections.emptySet());
 
         // when looking up that hash
         LibraryPublish found = dataStore.lookupLibraryPublish(LIB, "H-same", null);
@@ -166,7 +191,7 @@ class H2DataStoreLibraryPublishTest {
     void lookupReturnsNullWhenNothingMatches() {
         // given one publish
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
 
         // when looking up unknown identities and null identities
         LibraryPublish unknown = dataStore.lookupLibraryPublish(LIB, "H-x", "9.9.9");
@@ -185,7 +210,7 @@ class H2DataStoreLibraryPublishTest {
     void deleteTrackedLibraryCascadesToLedger() {
         // given a tracked library with a ledger row
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
         assertEquals(1, dataStore.readLibraryPublishes(LIB).size());
 
         // when the library is deleted
