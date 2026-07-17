@@ -3,7 +3,6 @@ package org.tiatesting.spock.library;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryMetadataReader;
-import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 
@@ -20,9 +19,9 @@ class LibraryMetadataSystemPropertiesTest {
 
     @Test
     void unsetMetadataProducesNullConfig() {
-        assertNull(LibraryMetadataSystemProperties.fromValues(null, null, null));
-        assertNull(LibraryMetadataSystemProperties.fromValues("", null, null));
-        assertNull(LibraryMetadataSystemProperties.fromValues("   ", null, null));
+        assertNull(LibraryMetadataSystemProperties.fromValues(null, null));
+        assertNull(LibraryMetadataSystemProperties.fromValues("", null));
+        assertNull(LibraryMetadataSystemProperties.fromValues("   ", null));
     }
 
     @Test
@@ -35,13 +34,12 @@ class LibraryMetadataSystemPropertiesTest {
         String encoded = LibraryMetadataSystemProperties.formatEntries(Collections.singletonList(input));
 
         LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(
-                encoded, "/abs/source-project", "BUMP_AT_RELEASE");
+                encoded, "/abs/source-project");
 
         assertNotNull(config);
         assertEquals(Collections.singletonList("com.example:lib"), config.getCoordinates());
         assertEquals("/abs/path/to/lib", config.getLibraryProjectDir("com.example:lib"));
         assertEquals("/abs/source-project", config.getSourceProjectDir());
-        assertEquals(LibraryVersionPolicy.BUMP_AT_RELEASE, config.getVersionPolicy());
 
         LibraryMetadataReader reader = config.getMetadataReader();
 
@@ -72,7 +70,7 @@ class LibraryMetadataSystemPropertiesTest {
                 Collections.singletonList("/projects/b/src/main/java"), "2.0.0", "/jars/b-2.0.0.jar");
 
         String encoded = LibraryMetadataSystemProperties.formatEntries(Arrays.asList(a, b));
-        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null, null);
+        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null);
 
         assertNotNull(config);
         assertEquals(Arrays.asList("com.example:a", "com.example:b"), config.getCoordinates());
@@ -89,7 +87,7 @@ class LibraryMetadataSystemPropertiesTest {
     void missingFieldsDoNotProduceMetadataEntries() {
         // Only coord + projectDir present; declared/resolved/sourceDirs all empty.
         String encoded = "com.example:lib:/abs/path::::";
-        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null, null);
+        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null);
 
         assertNotNull(config);
         LibraryMetadataReader reader = config.getMetadataReader();
@@ -108,7 +106,7 @@ class LibraryMetadataSystemPropertiesTest {
                 "com.example:a", "/projects/a", "1.0.0",
                 Collections.singletonList("/projects/a/src/main/java"), "1.0.0", "/jars/a.jar");
         String encoded = LibraryMetadataSystemProperties.formatEntries(Collections.singletonList(a));
-        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null, null);
+        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null);
 
         LibraryMetadataReader reader = config.getMetadataReader();
         assertTrue(reader.readLibraryBuildMetadata("/ignored", Collections.singletonList("com.example:not-tracked")).isEmpty());
@@ -119,24 +117,10 @@ class LibraryMetadataSystemPropertiesTest {
     void invalidEntriesAreSkipped() {
         // First entry is malformed (only one segment) — must be skipped without erroring.
         String encoded = "malformed,com.example:lib:/abs/path:1.0.0::1.0.0:/jar.jar";
-        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null, null);
+        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null);
 
         assertNotNull(config);
         assertEquals(Collections.singletonList("com.example:lib"), config.getCoordinates());
     }
 
-    @Test
-    void policyDefaultsAndCaseInsensitive() {
-        String encoded = "com.example:lib:/p:1.0.0::1.0.0:/jar.jar";
-
-        assertEquals(LibraryVersionPolicy.BUMP_AFTER_RELEASE,
-                LibraryMetadataSystemProperties.fromValues(encoded, null, null).getVersionPolicy());
-        assertEquals(LibraryVersionPolicy.BUMP_AFTER_RELEASE,
-                LibraryMetadataSystemProperties.fromValues(encoded, null, "  ").getVersionPolicy());
-        assertEquals(LibraryVersionPolicy.BUMP_AT_RELEASE,
-                LibraryMetadataSystemProperties.fromValues(encoded, null, "bump_at_release").getVersionPolicy());
-        assertEquals(LibraryVersionPolicy.BUMP_AFTER_RELEASE,
-                LibraryMetadataSystemProperties.fromValues(encoded, null, "garbage").getVersionPolicy(),
-                "Unknown policy values must fall back to BUMP_AFTER_RELEASE.");
-    }
 }

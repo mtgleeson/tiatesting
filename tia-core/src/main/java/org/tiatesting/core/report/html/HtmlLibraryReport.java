@@ -52,12 +52,6 @@ public class HtmlLibraryReport {
         Map<String, TrackedLibrary> tracked = tiaData.getLibrariesTracked() != null
                 ? tiaData.getLibrariesTracked() : new HashMap<>();
 
-        // BUMP_AFTER_RELEASE leaves lastReleasedLibraryVersion null for the lifetime of the
-        // library, so the column would be all dashes. Hide it when no row has a value.
-        boolean showReleasedVersion = tracked.values().stream()
-                .anyMatch(lib -> lib.getLastReleasedLibraryVersion() != null
-                        && !lib.getLastReleasedLibraryVersion().isEmpty());
-
         try (FileWriter writer = new FileWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
@@ -78,8 +72,7 @@ public class HtmlLibraryReport {
                                                     thead(tr(
                                                             th("Group:Artifact"),
                                                             th("Project Dir"),
-                                                            th("Last source-project version"),
-                                                            iff(showReleasedVersion, th("Last released version (HWM)")),
+                                                            th("Last applied publish seq").attr(numberDataType),
                                                             th("Pending batches").attr(numberDataType),
                                                             th("Source dirs")
                                                     )),
@@ -87,8 +80,8 @@ public class HtmlLibraryReport {
                                                             tr(
                                                                     td(lib.getGroupArtifact()),
                                                                     td(emptyDash(lib.getProjectDir())),
-                                                                    td(emptyDash(lib.getLastSourceProjectVersion())),
-                                                                    iff(showReleasedVersion, td(emptyDash(lib.getLastReleasedLibraryVersion()))),
+                                                                    td(lib.getLastAppliedSeq() != null
+                                                                            ? String.valueOf(lib.getLastAppliedSeq()) : "—"),
                                                                     td(String.valueOf(pendingPerLib.getOrDefault(lib.getGroupArtifact(), 0))),
                                                                     td(emptyDash(lib.getSourceDirsCsv()))
                                                             )

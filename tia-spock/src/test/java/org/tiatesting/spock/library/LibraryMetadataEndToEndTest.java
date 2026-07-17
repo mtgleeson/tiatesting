@@ -27,9 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * End-to-end check that the Gradle/Spock test-JVM path can drive
  * {@link TestSelector#selectTestsToIgnore} with a {@link LibraryImpactAnalysisConfig} built from
- * the {@code tiaLibrariesMetadata} system-property contract — and that reconcile + stamp + drain
- * happen against the real H2 store on a primary build (updateDBMapping=true), producing the same
- * effects the Maven path produces today.
+ * the {@code tiaLibrariesMetadata} system-property contract — and that the reconcile happens
+ * against the real H2 store on a primary build (updateDBMapping=true) while a non-primary build
+ * writes nothing, producing the same effects the Maven path produces.
  */
 class LibraryMetadataEndToEndTest {
 
@@ -64,7 +64,7 @@ class LibraryMetadataEndToEndTest {
                 "0.9.0", "/abs/jar/lib-0.9.0.jar");
         String encoded = LibraryMetadataSystemProperties.formatEntries(Collections.singletonList(entry));
         LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(
-                encoded, "/abs/source-project", "BUMP_AFTER_RELEASE");
+                encoded, "/abs/source-project");
         assertNotNull(config);
 
         // Seed an existing commit value so selectTestsToIgnore proceeds past the initial-run guard.
@@ -74,12 +74,13 @@ class LibraryMetadataEndToEndTest {
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.<String>emptyList(),
                 Collections.<String>emptyList(), false, config, null, true);
 
-        // Reconciler must have inserted the library row using the resolved baseline.
+        // Reconciler must have inserted the library row with the pre-resolved source dirs; the
+        // ledger state starts null (seeded by the library's first publish, not by reconcile).
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:lib"),
                 "Reconciler must insert tia_library row from system-property metadata.");
-        assertEquals("0.9.0",
-                dataStore.readTrackedLibraries().get("com.example:lib").getLastSourceProjectVersion(),
-                "Baseline version must come from the pre-resolved resolvedVersion field.");
+        assertEquals("/abs/path/to/lib/src/main/java",
+                dataStore.readTrackedLibraries().get("com.example:lib").getSourceDirsCsv(),
+                "Source dirs must come from the pre-resolved metadata.");
     }
 
     @Test
@@ -89,7 +90,7 @@ class LibraryMetadataEndToEndTest {
                 Collections.singletonList("/abs/path/to/lib/src/main/java"),
                 "0.9.0", "/abs/jar/lib-0.9.0.jar");
         String encoded = LibraryMetadataSystemProperties.formatEntries(Collections.singletonList(entry));
-        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null, null);
+        LibraryImpactAnalysisConfig config = LibraryMetadataSystemProperties.fromValues(encoded, null);
 
         seedStoredCommit("abc123");
 

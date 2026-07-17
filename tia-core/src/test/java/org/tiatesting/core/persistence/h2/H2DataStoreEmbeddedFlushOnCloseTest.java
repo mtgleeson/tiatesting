@@ -53,8 +53,10 @@ class H2DataStoreEmbeddedFlushOnCloseTest {
         // given a fresh embedded datastore that creates the schema, writes a tracked library, closes
         H2DataStore first = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master"));
         first.getTiaData(true);
-        first.persistTrackedLibrary(new TrackedLibrary(
-                "org.example:lib", "/projects/lib", null, "1.0-SNAPSHOT", "hash123"));
+        TrackedLibrary lib = new TrackedLibrary("org.example:lib", "/projects/lib", null);
+        lib.setMappingBaselineCommit("baseline-abc");
+        lib.setLastAppliedSeq(7L);
+        first.persistTrackedLibrary(lib);
         first.close();
 
         // when a fresh datastore opens the same on-disk DB (as the forked test JVM would)
@@ -65,8 +67,8 @@ class H2DataStoreEmbeddedFlushOnCloseTest {
             // then the row written before close() is still present - close() flushed it to disk
             assertTrue(tracked.containsKey("org.example:lib"),
                     "Tracked library written before close() must survive a reopen; close() must flush.");
-            assertEquals("1.0-SNAPSHOT", tracked.get("org.example:lib").getLastSourceProjectVersion());
-            assertEquals("hash123", tracked.get("org.example:lib").getLastSourceProjectJarHash());
+            assertEquals("baseline-abc", tracked.get("org.example:lib").getMappingBaselineCommit());
+            assertEquals(Long.valueOf(7L), tracked.get("org.example:lib").getLastAppliedSeq());
         } finally {
             second.close();
         }

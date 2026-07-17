@@ -351,7 +351,14 @@ Reconcile or retire feature/select-tests-library-preview here.
 Tests: local uncommitted change selects covering tests with zero DB writes; preview parity with
 a primary run over the same range.
 
-Stage 6 - docs and cleanup. Rewrite the WIKI stamp/drain chapter around this design (fold this
+Stage 6 - reporting. The existing libraries task keeps its scope (tracked libraries, each with
+its pending changes - now seq-based). Two new tasks/mojos, each taking a {@code group:artifact}
+input parameter and rendering table-formatted output: one lists the library's pending impacted
+methods, the other lists the library's publish ledger (seq, version, jar hash, commit,
+published-at). The HTML report gains a per-library publish-ledger table alongside the tracked
+libraries and their pending changes.
+
+Stage 7 - docs and cleanup. Rewrite the WIKI stamp/drain chapter around this design (fold this
 file in), update README library-tracking sections, remove policy configuration from docs and
 sample configs, drop the now-dead tia_library columns from the schema DDL.
 

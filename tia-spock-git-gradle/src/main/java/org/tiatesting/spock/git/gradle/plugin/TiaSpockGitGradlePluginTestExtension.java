@@ -274,10 +274,6 @@ public class TiaSpockGitGradlePluginTestExtension {
         if (sourceProjectDir != null && !sourceProjectDir.isEmpty()) {
             testTask.systemProperty(LibraryMetadataSystemProperties.PROP_SOURCE_PROJECT_DIR, sourceProjectDir);
         }
-        String policy = tiaTaskExtension.getLibraryVersionPolicy();
-        if (policy != null && !policy.isEmpty()) {
-            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_LIBRARY_VERSION_POLICY, policy);
-        }
     }
 
     /**

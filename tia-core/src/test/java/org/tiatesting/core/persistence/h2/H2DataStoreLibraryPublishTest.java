@@ -56,8 +56,8 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void persistAssignsMonotonicSequencePerLibrary() {
         // given two tracked libraries
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:other", "/projects/other", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:other", "/projects/other", null));
 
         // when publishes are persisted for both
         LibraryPublish first = new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "c1", 1000L);
@@ -77,25 +77,24 @@ class H2DataStoreLibraryPublishTest {
 
     /**
      * A publish persisted with impacted method ids writes the ledger row and the stamp rows
-     * together: the stamp carries the assigned sequence, the published version as its stamp
-     * version and the publish's jar hash.
+     * together: the stamp carries the assigned sequence and the published version as its
+     * display version.
      */
     @Test
     void persistWithImpactedMethodsWritesStampCarryingAssignedSequence() {
         // given a tracked library
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
 
         // when a publish is persisted with impacted methods
         long seq = dataStore.persistLibraryPublish(
                 new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "c1", 1000L),
                 new HashSet<>(Arrays.asList(10, 20)));
 
-        // then the stamp batch exists with the assigned seq, published version and jar hash
+        // then the stamp batch exists with the assigned seq and published version
         List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods(LIB);
         assertEquals(1, pending.size());
-        assertEquals(Long.valueOf(seq), pending.get(0).getPublishSeq());
+        assertEquals(seq, pending.get(0).getPublishSeq());
         assertEquals("1.0.0-SNAPSHOT", pending.get(0).getStampVersion());
-        assertEquals("H1", pending.get(0).getStampJarHash());
         assertEquals(new HashSet<>(Arrays.asList(10, 20)), pending.get(0).getSourceMethodIds());
     }
 
@@ -106,7 +105,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void readLibraryPublishesRoundTripsFieldsInSequenceOrder() {
         // given a tracked library with two persisted publishes
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H1", "commitA", 1111L), Collections.emptySet());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", null, "commitB", 2222L), Collections.emptySet());
 
@@ -132,7 +131,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void lookupPrefersJarHashMatchOverVersionMatch() {
         // given two publishes sharing a version but with distinct hashes
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H2", "c2", 2000L), Collections.emptySet());
 
@@ -152,7 +151,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void lookupFallsBackToVersionWhenHashUnknown() {
         // given a release publish
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
 
         // when looking up with an unknown hash but a matching version
@@ -170,7 +169,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void lookupReturnsHighestSequenceOnDuplicateMatches() {
         // given the same jar hash published at two sequences (identical artifact republished)
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c1", 1000L), Collections.emptySet());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-other", "c2", 2000L), Collections.emptySet());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT", "H-same", "c3", 3000L), Collections.emptySet());
@@ -190,7 +189,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void lookupReturnsNullWhenNothingMatches() {
         // given one publish
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
 
         // when looking up unknown identities and null identities
@@ -209,7 +208,7 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void deleteTrackedLibraryCascadesToLedger() {
         // given a tracked library with a ledger row
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L), Collections.emptySet());
         assertEquals(1, dataStore.readLibraryPublishes(LIB).size());
 
@@ -227,11 +226,11 @@ class H2DataStoreLibraryPublishTest {
     @Test
     void trackedLibraryLedgerFieldsRoundTrip() {
         // given a tracked library carrying the new ledger fields, and one leaving them unset
-        TrackedLibrary withFields = new TrackedLibrary(LIB, "/projects/lib", null, "1.0.0", null);
+        TrackedLibrary withFields = new TrackedLibrary(LIB, "/projects/lib", null);
         withFields.setMappingBaselineCommit("baseline-commit-abc");
         withFields.setLastAppliedSeq(7L);
         dataStore.persistTrackedLibrary(withFields);
-        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:bare", "/projects/bare", null, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:bare", "/projects/bare", null));
 
         // when the libraries are read back
         Map<String, TrackedLibrary> tracked = dataStore.readTrackedLibraries();
@@ -244,30 +243,27 @@ class H2DataStoreLibraryPublishTest {
     }
 
     /**
-     * A pending stamp's {@code publishSeq} round-trips through persist/read, and a stamp without
-     * one (e.g. an app-side recorder stamp with no published identity) comes back null.
+     * A pending stamp's {@code publishSeq} round-trips through persist/read and keys the batch.
      */
     @Test
     void pendingStampPublishSeqRoundTrips() {
-        // given a tracked library and two pending stamps, one with a publish seq and one without
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null, null, null));
-        PendingLibraryImpactedMethod withSeq = new PendingLibraryImpactedMethod(
-                LIB, "1.0.0", null, new HashSet<>(Arrays.asList(10)));
-        withSeq.setPublishSeq(3L);
-        dataStore.persistPendingLibraryImpactedMethods(withSeq);
+        // given a tracked library and two pending stamps at different publish seqs
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
-                LIB, "2.0.0", null, new HashSet<>(Arrays.asList(20))));
+                LIB, "1.0.0", 3L, new HashSet<>(Arrays.asList(10))));
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                LIB, "2.0.0", 4L, new HashSet<>(Arrays.asList(20))));
 
         // when the pending stamps are read back
         List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods(LIB);
 
-        // then the publish seq round-trips and the unset one is null
+        // then each batch carries its publish seq
         assertEquals(2, pending.size());
         for (PendingLibraryImpactedMethod batch : pending) {
             if ("1.0.0".equals(batch.getStampVersion())) {
-                assertEquals(Long.valueOf(3L), batch.getPublishSeq());
+                assertEquals(3L, batch.getPublishSeq());
             } else {
-                assertNull(batch.getPublishSeq());
+                assertEquals(4L, batch.getPublishSeq());
             }
         }
     }

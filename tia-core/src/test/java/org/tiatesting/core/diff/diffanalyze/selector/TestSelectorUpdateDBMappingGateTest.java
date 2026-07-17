@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -47,8 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <ul>
  *     <li><b>Reconcile gate</b> - {@code TrackedLibraryReconciler} must not insert/update/delete
  *         {@code tia_library} rows when the run isn't the mapping owner.</li>
- *     <li><b>Stamp gate</b> - {@code PendingLibraryImpactedMethodsRecorder} must not persist
- *         pending rows nor advance the BUMP_AT_RELEASE high water mark on a non-primary run.</li>
+ *     <li><b>No app-side stamping</b> - the app run must never persist pending stamp rows;
+ *         stamping is owned by the library's publish task under publish-time stamping.</li>
  * </ul>
  */
 class TestSelectorUpdateDBMappingGateTest {
@@ -112,7 +113,7 @@ class TestSelectorUpdateDBMappingGateTest {
      */
     @Test
     void reconcileSkipsRemovalWhenUpdateDBMappingFalse() {
-        TrackedLibrary preExisting = new TrackedLibrary("com.example:gone", "/projects/gone", null, "1.0.0", null);
+        TrackedLibrary preExisting = new TrackedLibrary("com.example:gone", "/projects/gone", null);
         dataStore.persistTrackedLibrary(preExisting);
 
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
@@ -126,14 +127,15 @@ class TestSelectorUpdateDBMappingGateTest {
     }
 
     /**
-     * Non-primary build with a library diff that would normally be stamped as pending: the
-     * recorder must not be invoked. Verified via a {@link CountingDataStore} so the test does not
-     * depend on whether method-impact analysis produces a non-empty set for the synthetic diff.
+     * A library diff on the app run must never produce a stamp - stamping is owned by the
+     * library's publish task under publish-time stamping. Verified for a non-primary run via a
+     * {@link CountingDataStore}; the primary-run counterpart lives in
+     * {@code TestSelectorLibraryPreviewTest}.
      */
     @Test
     void stampPersistSkippedWhenUpdateDBMappingFalse() {
         TrackedLibrary tracked = new TrackedLibrary("com.example:lib", "/projects/lib",
-                "/projects/lib/src/main/java", "1.0.0", null);
+                "/projects/lib/src/main/java");
         dataStore.persistTrackedLibrary(tracked);
         seedStoredCommit("abc123");
 
@@ -147,7 +149,7 @@ class TestSelectorUpdateDBMappingGateTest {
         assertEquals(0, counting.persistPendingCalls.get(),
                 "Non-primary build must not call persistPendingLibraryImpactedMethods.");
         assertEquals(0, counting.persistTrackedLibraryCalls.get(),
-                "Non-primary build must not call persistTrackedLibrary (no reconcile, no HWM advance).");
+                "Non-primary build must not call persistTrackedLibrary (no reconcile).");
         assertEquals(0, counting.deleteTrackedLibraryCalls.get(),
                 "Non-primary build must not call deleteTrackedLibrary.");
     }
@@ -155,18 +157,21 @@ class TestSelectorUpdateDBMappingGateTest {
     /**
      * Preview path (Maven {@code tia-select-tests} mojo / Gradle {@code tia-select-tests} task):
      * {@code selectTestsToIgnore} is called with a real {@link LibraryImpactAnalysisConfig} and
-     * {@code updateDBMapping=false}. A pending batch whose stamp is now resolvable in the source
-     * project must be drained into {@code testsToRun}, but the drain must not mutate the DB -
-     * post-test cleanup is the primary build's job.
+     * {@code updateDBMapping=false}. A pending stamp contained in the build the app resolves
+     * (identified via the publish ledger) must be drained into {@code testsToRun}, but the drain
+     * must not mutate the DB - post-test cleanup is the primary build's job.
      */
     @Test
     void previewDrainsPendingBatchIntoTestsToRunWithoutDbWrites() {
         TrackedLibrary tracked = new TrackedLibrary("com.example:lib", "/projects/lib",
-                "/projects/lib/src/main/java", "0.9.0", null);
+                "/projects/lib/src/main/java");
         dataStore.persistTrackedLibrary(tracked);
         seedStoredCommitWithTestMapping("abc123", 42, "com.example.LibTest");
-        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
-                "com.example:lib", "1.0.0", null, new HashSet<>(Collections.singletonList(42))));
+        // Publish-time stamp: ledger row at version 1.0.0 with method 42 stamped. The stub
+        // metadata reader resolves the library at 1.0.0 with no jar, so the drain identifies the
+        // build via the release-version fallback.
+        dataStore.persistLibraryPublish(new LibraryPublish("com.example:lib", "1.0.0", null,
+                "lib-commit", 1000L), new HashSet<>(Collections.singletonList(42)));
 
         CountingDataStore counting = new CountingDataStore(dataStore);
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
@@ -181,7 +186,7 @@ class TestSelectorUpdateDBMappingGateTest {
         assertEquals(0, counting.persistPendingCalls.get(),
                 "Preview must not write pending rows.");
         assertEquals(0, counting.persistTrackedLibraryCalls.get(),
-                "Preview must not advance HWM or reconcile tracked-library rows.");
+                "Preview must not advance tracked-library state.");
         assertEquals(0, counting.deleteTrackedLibraryCalls.get(),
                 "Preview must not delete tracked-library rows.");
         assertEquals(0, counting.deletePendingCalls.get(),
@@ -189,8 +194,8 @@ class TestSelectorUpdateDBMappingGateTest {
 
         assertEquals(1, dataStore.readPendingLibraryImpactedMethods("com.example:lib").size(),
                 "Pending row must remain in DB after preview.");
-        assertEquals("0.9.0", dataStore.readTrackedLibraries().get("com.example:lib").getLastSourceProjectVersion(),
-                "Tracked library version must remain unchanged after preview.");
+        assertNull(dataStore.readTrackedLibraries().get("com.example:lib").getLastAppliedSeq(),
+                "Tracked library applied seq must remain unchanged after preview.");
     }
 
     private LibraryImpactAnalysisConfig libraryConfigFor(String coordinate, String projectDir) {
@@ -360,9 +365,9 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }
         @Override
-        public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
+        public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) {
             deletePendingCalls.incrementAndGet();
-            delegate.deletePendingLibraryImpactedMethods(groupArtifact, stampVersion);
+            delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq);
         }
 
         @Override

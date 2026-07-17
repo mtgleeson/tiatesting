@@ -252,7 +252,7 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
-    public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
+    public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) {
         // pending library methods are only supported in the H2 data store
     }
 

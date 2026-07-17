@@ -7,10 +7,8 @@ import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
-import org.tiatesting.core.library.PendingLibraryImpactedMethodsRecorder;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -69,9 +67,9 @@ public class TestSelector {
      *                            unioned into the dynamic test selection.
      * @param updateDBMapping whether this run owns mapping-DB updates. When {@code false} (non-primary
      *                       build / local workspace), test selection still runs but no mapping/library
-     *                       writes are performed: tracked-library reconcile is skipped and pending
-     *                       library impacted methods are not stamped. Stats writes are independent
-     *                       and not affected by this flag.
+     *                       writes are performed: tracked-library reconcile is skipped. Library
+     *                       stamping never happens on the app run - the library's own publish owns
+     *                       it. Stats writes are independent and not affected by this flag.
      * @return list of test suites to ignore in the current test run.
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
@@ -101,16 +99,11 @@ public class TestSelector {
         // the ignore list and the run-time estimate.
         Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
 
-        // Populated only on a preview build (updateDBMapping=false): the in-memory pending batches
-        // built from library diffs in this run, keyed by library coordinate. Fed to the drain preview
-        // below so first-seen library changes are reflected in the selected tests and the estimate.
-        Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatches = new HashMap<>();
-
         Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig, updateDBMapping, syntheticLibraryBatches);
+                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, checkLocalChanges, updateDBMapping, testsToRun, syntheticLibraryBatches);
+                libraryConfig, checkLocalChanges, testsToRun);
 
         applyStaticTestSelection(vcsReader, staticMappingConfig, tiaCore.getCommitValue(), testSuitesTracked,
                 testsToRun, checkLocalChanges);
@@ -314,22 +307,17 @@ public class TestSelector {
 
     /**
      * Core test selection logic. When a {@link LibraryImpactAnalysisConfig} is provided and
-     * enabled, modified source diffs are partitioned into source-project vs per-library buckets.
-     * Library-bucket methods are stamped as pending (not added to the run set in this stage).
-     * In {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
+     * enabled, modified source diffs are partitioned into source-project vs per-library buckets
+     * and the library-owned diffs are excluded from source selection - under publish-time
+     * stamping the library's own publish records their impacted methods, and the drain selects
+     * the covering tests once the app resolves a build that contains them. In
+     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
      * diffs are treated as source-project diffs so tests run immediately against local changes.
-     *
-     * <p>When {@code updateDBMapping} is {@code false} (a preview build such as {@code select-tests}),
-     * library-diff partitioning still runs (so that library-owned diffs are not misclassified as
-     * source-project diffs) and the impacted methods are still analyzed, but instead of persisting a
-     * pending stamp the batch is built in memory and collected into {@code syntheticLibraryBatchesOut}
-     * for the drain preview. No pending rows are written and no tracked-library state is advanced.
      *
      * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query
      * ({@link DataStore#getMethodsTrackedForFiles}) resolves the changed files to their tracked
-     * methods (shared by the source-impact and library-stamp paths), and one
-     * methods-to-covering-suites query ({@link DataStore#getTestSuitesForMethods}) resolves the
-     * impacted methods to suites.
+     * methods, and one methods-to-covering-suites query
+     * ({@link DataStore#getTestSuitesForMethods}) resolves the impacted methods to suites.
      *
      * @param vcsReader the VCS reader used to build the diff contexts
      * @param sourceFilesDirNames the dir names for the source files
@@ -338,21 +326,13 @@ public class TestSelector {
      * @param storedCommitValue the commit the stored mapping was built at (diff baseline)
      * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured
-     * @param updateDBMapping whether this run owns mapping-DB updates
-     * @param syntheticLibraryBatchesOut out-param populated only on a preview build
-     *                                   ({@code updateDBMapping == false}) with the in-memory pending
-     *                                   batches built from this run's library diffs, keyed by library
-     *                                   coordinate; left empty on a primary build (which persists them
-     *                                   instead)
      * @return the test suites that should be executed for the current changes
      */
     private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                          final String storedCommitValue,
                                          final Map<String, TestSuiteTracker> testSuitesTracked,
-                                         final LibraryImpactAnalysisConfig libraryConfig,
-                                         final boolean updateDBMapping,
-                                         final Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut){
+                                         final LibraryImpactAnalysisConfig libraryConfig){
         List<String> sourceFilesDirs = getFullFilePaths(sourceFilesDirNames);
         List<String> testFilesDirs = getFullFilePaths(testFilesDirNames);
 
@@ -388,11 +368,11 @@ public class TestSelector {
                 filterToTrackedFiles(modifiedSourceDiffs, methodsTrackedByFile, sourceFilesDirs);
         vcsReader.loadContentForDiffs(trackedModifiedSourceDiffs, storedCommitValue, checkLocalChanges);
 
-        // Partition source diffs: library diffs go to pending stamp, source-project diffs to immediate selection.
+        // Partition source diffs: library diffs are excluded (stamped at publish time by the
+        // library's own build), source-project diffs go to immediate selection.
         List<SourceFileDiffContext> sourceProjectDiffs = trackedModifiedSourceDiffs;
         if (shouldPartitionLibraryDiffs(libraryConfig, checkLocalChanges)) {
-            sourceProjectDiffs = partitionAndRecordLibraryDiffs(trackedModifiedSourceDiffs, methodsTrackedByFile,
-                    sourceFilesDirs, libraryConfig, updateDBMapping, syntheticLibraryBatchesOut);
+            sourceProjectDiffs = partitionOutLibraryDiffs(trackedModifiedSourceDiffs);
         }
 
         // Find all test suites that execute the source code methods that have changed
@@ -766,28 +746,18 @@ public class TestSelector {
     }
 
     /**
-     * Partition modified source diffs into source-project and per-library buckets.
-     * For each library bucket, run method-impact analysis and (when {@code updateDBMapping} is
-     * {@code true}) record the impacted method IDs as pending via
-     * {@link PendingLibraryImpactedMethodsRecorder}.
+     * Partition modified source diffs into source-project and per-library buckets, returning the
+     * source-project diffs. Library-owned diffs are deliberately excluded from source selection -
+     * a library change is not a source-project change - and, under publish-time stamping, the app
+     * run does not stamp them either: the library's own publish records the impacted methods, and
+     * the drain picks them up once the app resolves a build that contains them.
+     * See {@code DESIGN-publish-time-stamping.md} section 3.
      *
      * @param allModifiedSourceDiffs all modified source-file diff contexts for this run
-     * @param methodsTrackedByFile the changed-files-to-tracked-methods result covering all modified source files
-     *                             (library files included - their dirs are part of the
-     *                             normalization roots)
-     * @param sourceFilesDirs the configured source root directories
-     * @param libraryConfig the library impact analysis config
-     * @param updateDBMapping whether this run owns mapping-DB updates
-     * @param syntheticLibraryBatchesOut out-param populated with in-memory pending batches on a
-     *                                   preview build; left empty on a primary build
      * @return the source-project diffs (those not belonging to any tracked library).
      */
-    private List<SourceFileDiffContext> partitionAndRecordLibraryDiffs(
-            List<SourceFileDiffContext> allModifiedSourceDiffs,
-            Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
-            List<String> sourceFilesDirs, LibraryImpactAnalysisConfig libraryConfig,
-            boolean updateDBMapping,
-            Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut) {
+    private List<SourceFileDiffContext> partitionOutLibraryDiffs(
+            List<SourceFileDiffContext> allModifiedSourceDiffs) {
 
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         if (trackedLibraries.isEmpty()) {
@@ -800,9 +770,11 @@ public class TestSelector {
         partitionDiffsByLibraryProjectDir(allModifiedSourceDiffs, trackedLibraries,
                 sourceProjectDiffs, libraryDiffBuckets);
 
-        analyzeLibraryBuckets(libraryDiffBuckets, trackedLibraries,
-                methodsTrackedByFile, sourceFilesDirs, libraryConfig, updateDBMapping,
-                syntheticLibraryBatchesOut);
+        for (Map.Entry<String, List<SourceFileDiffContext>> entry : libraryDiffBuckets.entrySet()) {
+            log.info("Library '{}' has {} modified source files in range - excluded from source "
+                    + "selection (library changes are stamped at publish time).",
+                    entry.getKey(), entry.getValue().size());
+        }
 
         return sourceProjectDiffs;
     }
@@ -854,106 +826,29 @@ public class TestSelector {
     }
 
     /**
-     * For each library bucket, run method-impact analysis on the library's diffs and turn the
-     * impacted method IDs into a pending batch. The batch's fate depends on the run mode:
-     * <ul>
-     *   <li><b>Primary build</b> ({@code updateDBMapping == true}) — the batch is persisted as
-     *       pending rows and the library high water mark is advanced via the recorder.</li>
-     *   <li><b>Preview build</b> ({@code updateDBMapping == false}, e.g. {@code select-tests}) — the
-     *       batch is built in memory only and accumulated into {@code syntheticLibraryBatchesOut}
-     *       for the drain preview, without writing any pending rows or advancing library state.</li>
-     * </ul>
-     *
-     * <p>Method-impact analysis runs in both modes: the preview needs the impacted methods to build
-     * an accurate synthetic batch, and the analysis is read-only.
-     *
-     * @param libraryDiffBuckets the modified diffs grouped per owning library
-     * @param trackedLibraries the tracked libraries keyed by coordinate
-     * @param methodsTrackedByFile the changed-files-to-tracked-methods result covering all modified source files
-     * @param sourceFilesDirs the configured source root directories
-     * @param libraryConfig the library impact analysis config
-     * @param updateDBMapping whether this run owns mapping-DB updates
-     * @param syntheticLibraryBatchesOut out-param that collects the in-memory batches on a preview
-     *                                   build; left untouched on a primary build
-     */
-    private void analyzeLibraryBuckets(
-            Map<String, List<SourceFileDiffContext>> libraryDiffBuckets,
-            Map<String, TrackedLibrary> trackedLibraries,
-            Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile,
-            List<String> sourceFilesDirs,
-            LibraryImpactAnalysisConfig libraryConfig,
-            boolean updateDBMapping,
-            Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatchesOut) {
-
-        PendingLibraryImpactedMethodsRecorder recorder = new PendingLibraryImpactedMethodsRecorder();
-
-        for (Map.Entry<String, List<SourceFileDiffContext>> entry : libraryDiffBuckets.entrySet()) {
-            String groupArtifact = entry.getKey();
-            List<SourceFileDiffContext> libraryDiffs = entry.getValue();
-            TrackedLibrary trackedLibrary = trackedLibraries.get(groupArtifact);
-
-            log.info("Library '{}' has {} modified source files - analyzing impacted methods (updateDBMapping={}).",
-                    groupArtifact, libraryDiffs.size(), updateDBMapping);
-            Set<Integer> impactedMethods = findMethodsImpacted(libraryDiffs, methodsTrackedByFile, sourceFilesDirs);
-
-            if (updateDBMapping) {
-                recorder.recordPendingImpactedMethods(dataStore, trackedLibrary, impactedMethods, libraryConfig);
-            } else {
-                PendingLibraryImpactedMethod syntheticBatch =
-                        recorder.buildPendingBatch(trackedLibrary, impactedMethods, libraryConfig);
-                if (syntheticBatch != null) {
-                    syntheticLibraryBatchesOut
-                            .computeIfAbsent(groupArtifact, k -> new ArrayList<>())
-                            .add(syntheticBatch);
-                }
-            }
-        }
-    }
-
-    /**
-     * Drain pending library impacted methods when library impact analysis is configured and we are
-     * not in local-changes mode. Resolved tests from qualifying batches are added directly to
-     * {@code testsToRun} in both modes; the behaviour otherwise splits on {@code updateDBMapping}:
-     * <ul>
-     *   <li><b>Primary build</b> — drains the persisted pending batches and returns a
-     *       {@link LibraryImpactDrainResult} so the caller can delete the drained rows and advance
-     *       {@code tia_library} after the test run.</li>
-     *   <li><b>Preview build</b> — evaluates the union of the persisted batches and the in-memory
-     *       {@code syntheticLibraryBatches} built earlier in this run, returning the tests that
-     *       <em>would</em> drain now without mutating anything. Returns {@code null} because there is
-     *       no cleanup to carry. This is what keeps the {@code select-tests} run set (and its runtime
-     *       estimate) accurate for first-seen library changes that have never been persisted.</li>
-     * </ul>
+     * Drain pending library impacted-method stamps when library impact analysis is configured and
+     * we are not in local-changes mode. The drain is identical for primary and preview builds - it
+     * is a read-only evaluation of the persisted stamps against the build the app resolved, and
+     * every published change has a persisted stamp under publish-time stamping - so both get the
+     * resolved tests added to {@code testsToRun}. The returned drain result only takes effect on a
+     * primary run: {@code TestRunnerService} applies the cleanup under its own
+     * {@code updateDBMapping} gate, and preview flows never reach the persist phase at all.
      *
      * @param libraryConfig the library impact analysis configuration, or null when not configured
      * @param checkLocalChanges whether this run analyzes local (uncommitted) changes - draining
      *                          is skipped in that mode
-     * @param updateDBMapping whether this run owns mapping-DB updates (primary vs preview build)
-     * @param testsToRun the run set to add drained/previewed tests to
-     * @param syntheticLibraryBatches the in-memory batches built on a preview build; ignored on a
-     *                                primary build
-     * @return the drain result for post-run cleanup on a primary build, or null on a preview build
-     *         or when draining was skipped
+     * @param testsToRun the run set to add drained tests to
+     * @return the drain result for post-run cleanup, or null when draining was skipped
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
-            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges, boolean updateDBMapping,
-            Set<String> testsToRun, Map<String, List<PendingLibraryImpactedMethod>> syntheticLibraryBatches) {
+            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
+            Set<String> testsToRun) {
 
         if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
         }
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
-
-        if (!updateDBMapping) {
-            Set<String> previewTests = drainer.previewTestsForBatches(dataStore, libraryConfig, syntheticLibraryBatches);
-            if (!previewTests.isEmpty()) {
-                log.info("Selected tests to run from pending library changes (preview): {}", previewTests);
-                testsToRun.addAll(previewTests);
-            }
-            return null;
-        }
-
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 drainer.drainPendingMethods(dataStore, libraryConfig);
 
