@@ -4,10 +4,11 @@ import java.io.Serializable;
 import java.util.*;
 
 /**
- * Represents a batch of pending source method IDs for a single library stamp.
- * Each batch is keyed by {@code (groupArtifact, stampVersion)} and holds the set of
- * impacted method IDs that were detected when the library's source changed but the
- * consuming project had not yet picked up the new version.
+ * Represents the pending impacted-method stamp of a single published library build. Each batch is
+ * keyed by {@code (groupArtifact, publishSeq)} - the publish-ledger row the changes shipped in -
+ * and holds the set of tracked source method ids impacted since the library's mapping baseline.
+ * The consumer's drain runs the tests covering every batch at or below the sequence of the build
+ * it resolved. See {@code DESIGN-publish-time-stamping.md} section 2.
  */
 public class PendingLibraryImpactedMethod implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -15,31 +16,14 @@ public class PendingLibraryImpactedMethod implements Serializable {
     /** {@code groupId:artifactId} of the tracked library. */
     private String groupArtifact;
 
-    /** The library's declared HEAD version at the time the impacted methods were stamped. */
+    /** The version the batch's publish shipped under - display only; the drain keys on {@link #publishSeq}. */
     private String stampVersion;
 
-    /** SHA-256 content hash of the JAR at stamp time (non-null only for SNAPSHOT versions). */
-    private String stampJarHash;
+    /** The publish-ledger sequence of the build this stamp shipped in ({@code tia_library_publish}). */
+    private long publishSeq;
 
-    /** The set of source method IDs impacted by the library change at this stamp. */
+    /** The set of source method IDs impacted by the library changes in this publish. */
     private Set<Integer> sourceMethodIds;
-
-    /**
-     * When {@code true}, the stamp is tagged with the last observed released version rather than
-     * the (unknown) version the changes will actually ship under. The drainer holds batches with
-     * this flag until the library's build-file version advances past {@link #stampVersion} — i.e.
-     * a new release has occurred. Always {@code false} under {@code BUMP_AFTER_RELEASE}, and
-     * always {@code false} for SNAPSHOT stamps. See {@code WIKI.md} for the full model.
-     */
-    private boolean unknownNextVersion;
-
-    /**
-     * The publish-ledger sequence number of the build this stamp shipped in, referencing
-     * {@code tia_library_publish}. Null when the stamp has no published identity: in-memory
-     * synthetic stamps, and stamps written by the app-side recorder path (which the publish-time
-     * stamp task replaces). See {@code DESIGN-publish-time-stamping.md} section 2.1.
-     */
-    private Long publishSeq;
 
     public PendingLibraryImpactedMethod() {
         this.sourceMethodIds = new HashSet<>();
@@ -49,15 +33,15 @@ public class PendingLibraryImpactedMethod implements Serializable {
      * Construct a fully populated pending impacted methods batch.
      *
      * @param groupArtifact {@code groupId:artifactId} of the tracked library.
-     * @param stampVersion the library's declared HEAD version at the time the impacted methods were stamped.
-     * @param stampJarHash SHA-256 content hash of the JAR at stamp time (non-null only for SNAPSHOT versions).
-     * @param sourceMethodIds the set of source method IDs impacted by the library change at this stamp.
+     * @param stampVersion the version the batch's publish shipped under (display only).
+     * @param publishSeq the publish-ledger sequence of the build this stamp shipped in.
+     * @param sourceMethodIds the set of source method IDs impacted by the publish's changes.
      */
     public PendingLibraryImpactedMethod(String groupArtifact, String stampVersion,
-                                        String stampJarHash, Set<Integer> sourceMethodIds) {
+                                        long publishSeq, Set<Integer> sourceMethodIds) {
         this.groupArtifact = groupArtifact;
         this.stampVersion = stampVersion;
-        this.stampJarHash = stampJarHash;
+        this.publishSeq = publishSeq;
         this.sourceMethodIds = sourceMethodIds != null ? sourceMethodIds : new HashSet<>();
     }
 
@@ -77,12 +61,12 @@ public class PendingLibraryImpactedMethod implements Serializable {
         this.stampVersion = stampVersion;
     }
 
-    public String getStampJarHash() {
-        return stampJarHash;
+    public long getPublishSeq() {
+        return publishSeq;
     }
 
-    public void setStampJarHash(String stampJarHash) {
-        this.stampJarHash = stampJarHash;
+    public void setPublishSeq(long publishSeq) {
+        this.publishSeq = publishSeq;
     }
 
     public Set<Integer> getSourceMethodIds() {
@@ -93,41 +77,25 @@ public class PendingLibraryImpactedMethod implements Serializable {
         this.sourceMethodIds = sourceMethodIds;
     }
 
-    public boolean isUnknownNextVersion() {
-        return unknownNextVersion;
-    }
-
-    public void setUnknownNextVersion(boolean unknownNextVersion) {
-        this.unknownNextVersion = unknownNextVersion;
-    }
-
-    public Long getPublishSeq() {
-        return publishSeq;
-    }
-
-    public void setPublishSeq(Long publishSeq) {
-        this.publishSeq = publishSeq;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         PendingLibraryImpactedMethod that = (PendingLibraryImpactedMethod) o;
-        return Objects.equals(groupArtifact, that.groupArtifact)
-                && Objects.equals(stampVersion, that.stampVersion);
+        return publishSeq == that.publishSeq
+                && Objects.equals(groupArtifact, that.groupArtifact);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupArtifact, stampVersion);
+        return Objects.hash(groupArtifact, publishSeq);
     }
 
     @Override
     public String toString() {
         return "PendingLibraryImpactedMethod{groupArtifact='" + groupArtifact
-                + "', stampVersion='" + stampVersion
-                + "', unknownNextVersion=" + unknownNextVersion
-                + ", methodCount=" + sourceMethodIds.size() + "}";
+                + "', publishSeq=" + publishSeq
+                + ", stampVersion='" + stampVersion
+                + "', methodCount=" + sourceMethodIds.size() + "}";
     }
 }

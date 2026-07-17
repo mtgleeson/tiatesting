@@ -48,11 +48,9 @@ public class LibrariesReportGenerator {
             sb.append("\t").append(lib.getGroupArtifact()).append(lineSep);
             sb.append("\t\tProject dir: ").append(orDash(lib.getProjectDir())).append(lineSep);
             sb.append("\t\tSource dirs: ").append(orDash(lib.getSourceDirsCsv())).append(lineSep);
-            sb.append("\t\tLast source-project version: ").append(orDash(lib.getLastSourceProjectVersion())).append(lineSep);
-            String lastReleased = lib.getLastReleasedLibraryVersion();
-            if (lastReleased != null && !lastReleased.isEmpty()) {
-                sb.append("\t\tLast released version (HWM): ").append(lastReleased).append(lineSep);
-            }
+            sb.append("\t\tLast applied publish seq: ")
+                    .append(lib.getLastAppliedSeq() != null ? lib.getLastAppliedSeq() : "-").append(lineSep);
+            sb.append("\t\tMapping baseline commit: ").append(orDash(lib.getMappingBaselineCommit())).append(lineSep);
             sb.append(formatPendingBatches(pendingByLib.get(lib.getGroupArtifact()), lineSep));
         }
 
@@ -66,8 +64,8 @@ public class LibrariesReportGenerator {
 
     /**
      * Format one library's pending impacted-method batches: a count line, then one line per
-     * batch with the stamp version, pending method count, unknown-next-version marker and a
-     * truncated jar hash when present.
+     * batch with the publish sequence, the version the batch's publish shipped under, and the
+     * pending method count.
      *
      * @param pending the library's pending batches; may be null or empty
      * @param lineSep the line separator to use
@@ -83,17 +81,11 @@ public class LibrariesReportGenerator {
 
         for (PendingLibraryImpactedMethod batch : pending) {
             int methodCount = batch.getSourceMethodIds() != null ? batch.getSourceMethodIds().size() : 0;
-            sb.append("\t\t\t@ ").append(batch.getStampVersion())
+            sb.append("\t\t\tseq ").append(batch.getPublishSeq())
+                    .append(" @ ").append(batch.getStampVersion())
                     .append(" - ").append(methodCount).append(" method")
-                    .append(methodCount == 1 ? "" : "s").append(" pending");
-            if (batch.isUnknownNextVersion()) {
-                sb.append(" (unknown next version)");
-            }
-            if (batch.getStampJarHash() != null) {
-                String hash = batch.getStampJarHash();
-                sb.append(" [hash: ").append(hash.length() > 12 ? hash.substring(0, 12) + "..." : hash).append("]");
-            }
-            sb.append(lineSep);
+                    .append(methodCount == 1 ? "" : "s").append(" pending")
+                    .append(lineSep);
         }
         return sb.toString();
     }

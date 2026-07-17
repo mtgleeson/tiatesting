@@ -8,7 +8,6 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
-import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
@@ -290,9 +289,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getSourceLibs();
-        LibraryVersionPolicy policy = parseLibraryVersionPolicy(tiaTaskExtension.getLibraryVersionPolicy());
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null, null, policy);
+            return new LibraryImpactAnalysisConfig(null, null, null, null);
         }
 
         List<String> coordinates = new ArrayList<>();
@@ -315,19 +313,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         }
 
         LibraryJarResolver reader = new LibraryJarResolver(project, LOGGER);
-        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader, policy);
-    }
-
-    private LibraryVersionPolicy parseLibraryVersionPolicy(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
-        try {
-            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            LOGGER.warn("Invalid libraryVersionPolicy value '{}' - expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.", raw);
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader);
     }
 
     /**

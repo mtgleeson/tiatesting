@@ -70,7 +70,7 @@ public class LibraryPublishStamper {
         }
 
         String jarHash = jarFilePath != null
-                ? PendingLibraryImpactedMethodsRecorder.computeSha256Hash(new File(jarFilePath)) : null;
+                ? LibraryJarHasher.computeSha256Hash(new File(jarFilePath)) : null;
         String headCommit = vcsReader.getHeadCommit();
         LibraryPublish publish = new LibraryPublish(groupArtifact, publishedVersion, jarHash,
                 headCommit, System.currentTimeMillis());

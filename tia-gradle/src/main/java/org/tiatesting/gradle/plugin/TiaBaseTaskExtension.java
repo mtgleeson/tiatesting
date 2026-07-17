@@ -15,7 +15,6 @@ public class TiaBaseTaskExtension {
     private String sourceFilesDirs;
     private String sourceLibs;
     private String sourceProjectDir;
-    private String libraryVersionPolicy;
     private String testFilesDirs;
     private String dbFilePath;
     private String dbUrl;
@@ -74,16 +73,6 @@ public class TiaBaseTaskExtension {
 
     public void setSourceProjectDir(String sourceProjectDir) {
         this.sourceProjectDir = sourceProjectDir;
-    }
-
-    @Input
-    @org.gradle.api.tasks.Optional
-    public String getLibraryVersionPolicy() {
-        return libraryVersionPolicy;
-    }
-
-    public void setLibraryVersionPolicy(String libraryVersionPolicy) {
-        this.libraryVersionPolicy = libraryVersionPolicy;
     }
 
     @Input

@@ -7,7 +7,6 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
-import org.tiatesting.core.library.LibraryVersionPolicy;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
@@ -91,14 +90,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(property = "tiaSourceProjectDir")
     String tiaSourceProjectDir;
-
-    /**
-     * Project-wide library versioning policy. Accepts {@code BUMP_AT_RELEASE} or
-     * {@code BUMP_AFTER_RELEASE} (case-insensitive); defaults to {@code BUMP_AFTER_RELEASE}
-     * when not specified. See {@code WIKI.md} for the full model.
-     */
-    @Parameter(property = "tiaLibraryVersionPolicy")
-    String tiaLibraryVersionPolicy;
 
     /**
      * The test files directories for the project being analyzed.
@@ -274,10 +265,6 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaSourceProjectDir;
     }
 
-    public String getTiaLibraryVersionPolicy() {
-        return tiaLibraryVersionPolicy;
-    }
-
     public String getTiaTestFilesDirs() {
         return tiaTestFilesDirs;
     }
@@ -340,14 +327,12 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * {@code groupId:artifactId} or {@code groupId:artifactId:projectDir}.
      *
      * @return the library impact analysis configuration parsed from the mojo's
-     *         {@code tiaSourceLibs}, {@code tiaSourceProjectDir}, and
-     *         {@code tiaLibraryVersionPolicy} parameters.
+     *         {@code tiaSourceLibs} and {@code tiaSourceProjectDir} parameters.
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
         String libs = getTiaSourceLibs();
-        LibraryVersionPolicy policy = parseLibraryVersionPolicy(getTiaLibraryVersionPolicy());
         if (libs == null || libs.trim().isEmpty()) {
-            return new LibraryImpactAnalysisConfig(null, null, null, null, policy);
+            return new LibraryImpactAnalysisConfig(null, null, null, null);
         }
 
         List<String> coordinates = new ArrayList<>();
@@ -373,20 +358,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         LibraryJarResolver reader = new LibraryJarResolver(
                 projectBuilder, session.getProjectBuildingRequest(), getLog());
 
-        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader, policy);
-    }
-
-    private LibraryVersionPolicy parseLibraryVersionPolicy(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
-        try {
-            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            getLog().warn("Invalid tiaLibraryVersionPolicy value '" + raw
-                    + "' - expected BUMP_AT_RELEASE or BUMP_AFTER_RELEASE. Falling back to BUMP_AFTER_RELEASE.");
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getTiaSourceProjectDir(), reader);
     }
 
     /**

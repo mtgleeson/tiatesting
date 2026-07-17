@@ -205,7 +205,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }
         @Override public void persistPendingLibraryImpactedMethods(PendingLibraryImpactedMethod pending) { delegate.persistPendingLibraryImpactedMethods(pending); }
-        @Override public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) { delegate.deletePendingLibraryImpactedMethods(groupArtifact, stampVersion); }
+        @Override public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) { delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq); }
         @Override public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) { delegate.persistTestRunHistoryEntry(entry); }
         @Override public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
     }
