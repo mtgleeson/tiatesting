@@ -78,6 +78,28 @@ public class TiaData implements Serializable {
     private transient boolean pendingLibraryImpactedMethodsLoaded = true;
 
     /**
+     * The publish-ledger rows across all tracked libraries. Lazy for the same reason as the
+     * pending-method list: only the HTML library report consumes it, so the data-store load
+     * path installs a loader via {@link #setLibraryPublishesLoader(Supplier)} instead of
+     * eagerly scanning the ledger.
+     */
+    private List<LibraryPublish> libraryPublishes = new ArrayList<>();
+
+    /**
+     * When set, supplies the publish ledger on first access via {@link #getLibraryPublishes()}.
+     * Marked {@code transient} because the supplier typically closes over the
+     * {@code DataStore} and is not part of TiaData's persistable state.
+     */
+    private transient Supplier<List<LibraryPublish>> libraryPublishesLoader;
+
+    /**
+     * Tracks whether {@link #libraryPublishes} reflects a real load. Starts {@code true} for
+     * the default empty list; {@link #setLibraryPublishesLoader} flips it to {@code false} so
+     * the next getter call triggers the loader exactly once.
+     */
+    private transient boolean libraryPublishesLoaded = true;
+
+    /**
      * Log of past Tia test runs on the current branch, ordered most-recent-first.
      * Populated from the {@code tia_test_run_history} table when {@link TiaData} is loaded.
      */
@@ -200,6 +222,48 @@ public class TiaData implements Serializable {
     public void setPendingLibraryImpactedMethodsLoader(Supplier<List<PendingLibraryImpactedMethod>> loader) {
         this.pendingLibraryImpactedMethodsLoader = loader;
         this.pendingLibraryImpactedMethodsLoaded = (loader == null);
+    }
+
+    /**
+     * Return the publish-ledger rows across all tracked libraries. On first call after
+     * {@link #setLibraryPublishesLoader(Supplier)} was used to install a lazy loader, this
+     * invokes the loader and caches the result; subsequent calls return the cached list.
+     * Only the HTML library report consumes this, so the select-tests read path never pays
+     * for the ledger scan.
+     *
+     * @return the publish ledger rows (never null)
+     */
+    public List<LibraryPublish> getLibraryPublishes() {
+        if (!libraryPublishesLoaded && libraryPublishesLoader != null) {
+            libraryPublishes = libraryPublishesLoader.get();
+            libraryPublishesLoaded = true;
+        }
+        return libraryPublishes;
+    }
+
+    /**
+     * Eager setter. Marks the field as loaded so a previously-installed lazy loader is not
+     * consulted on the next getter call.
+     *
+     * @param libraryPublishes the resolved publish-ledger list
+     */
+    public void setLibraryPublishes(List<LibraryPublish> libraryPublishes) {
+        this.libraryPublishes = libraryPublishes;
+        this.libraryPublishesLoaded = true;
+    }
+
+    /**
+     * Install a lazy loader for the publish-ledger list. The loader is invoked on the first
+     * subsequent call to {@link #getLibraryPublishes()}; the resolved list is cached so the
+     * loader runs at most once per TiaData instance.
+     *
+     * @param loader supplier that materialises the ledger, typically backed by
+     *               {@code DataStore.readAllLibraryPublishes()}. {@code null} clears any
+     *               previously-installed loader and leaves the current cached value in place.
+     */
+    public void setLibraryPublishesLoader(Supplier<List<LibraryPublish>> loader) {
+        this.libraryPublishesLoader = loader;
+        this.libraryPublishesLoaded = (loader == null);
     }
 
     public TestStats getTestStats() {

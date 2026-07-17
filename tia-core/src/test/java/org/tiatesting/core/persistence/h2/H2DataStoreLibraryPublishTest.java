@@ -267,4 +267,59 @@ class H2DataStoreLibraryPublishTest {
             }
         }
     }
+
+    /**
+     * The all-libraries ledger read returns every library's rows ordered by library then
+     * sequence - the reporting read behind the HTML publishes table.
+     */
+    @Test
+    void readAllLibraryPublishesReturnsAllLibrariesInOrder() {
+        // given two tracked libraries with publishes persisted out of library order
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:b", "/projects/b", null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:a", "/projects/a", null));
+        dataStore.persistLibraryPublish(new LibraryPublish("com.example:b", "2.0.0", "HB", "c1", 1000L),
+                Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish("com.example:a", "1.0.0", "HA1", "c2", 2000L),
+                Collections.emptySet());
+        dataStore.persistLibraryPublish(new LibraryPublish("com.example:a", "1.1.0", "HA2", "c3", 3000L),
+                Collections.emptySet());
+
+        // when the whole ledger is read
+        List<LibraryPublish> all = dataStore.readAllLibraryPublishes();
+
+        // then rows come back grouped by library, sequence ascending
+        assertEquals(3, all.size());
+        assertEquals("com.example:a", all.get(0).getGroupArtifact());
+        assertEquals(1L, all.get(0).getPublishSeq());
+        assertEquals(2L, all.get(1).getPublishSeq());
+        assertEquals("com.example:b", all.get(2).getGroupArtifact());
+    }
+
+    /**
+     * The targeted method-id read returns trackers for the requested ids only, omitting ids
+     * with no tracked row - the reporting read behind the pending-methods table.
+     */
+    @Test
+    void getMethodsTrackedForIdsReturnsOnlyRequestedTrackedMethods() {
+        // given tracked methods 10 and 20 persisted via the core API
+        org.tiatesting.core.model.TiaData tiaData = dataStore.getTiaData(true);
+        tiaData.setCommitValue("seed");
+        tiaData.setLastUpdated(java.time.Instant.now());
+        Map<Integer, org.tiatesting.core.model.MethodImpactTracker> methods = new java.util.HashMap<>();
+        methods.put(10, new org.tiatesting.core.model.MethodImpactTracker("com/example/A.m.()V", 2, 8));
+        methods.put(20, new org.tiatesting.core.model.MethodImpactTracker("com/example/B.m.()V", 10, 20));
+        tiaData.setMethodsTracked(methods);
+        dataStore.persistCoreData(tiaData);
+        dataStore.persistSourceMethods(methods);
+
+        // when reading a mix of tracked and unknown ids
+        Map<Integer, org.tiatesting.core.model.MethodImpactTracker> result =
+                dataStore.getMethodsTrackedForIds(new HashSet<>(Arrays.asList(10, 999)));
+
+        // then only the tracked id resolves, with its name and line range intact
+        assertEquals(1, result.size());
+        assertEquals("com/example/A.m.()V", result.get(10).getMethodName());
+        assertEquals(2, result.get(10).getLineNumberStart());
+        assertEquals(8, result.get(10).getLineNumberEnd());
+    }
 }
