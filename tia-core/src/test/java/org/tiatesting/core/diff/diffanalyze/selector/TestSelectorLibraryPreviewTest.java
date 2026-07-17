@@ -43,9 +43,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>an unpublished library change in the diff range is partitioned out and selects nothing -
  *       the resolved jar does not contain it, and its stamp will be written by the library's own
  *       publish, not by the app run;</li>
- *   <li>the app run never persists stamp rows, in either run mode.</li>
+ *   <li>the app run never persists stamp rows, in either run mode;</li>
+ *   <li>local-changes mode ({@code checkLocalChanges=true}) selects tests for local library
+ *       edits directly (the partition is bypassed - the in-memory equivalent of stamp+drain)
+ *       AND drains persisted stamps for published changes the local classpath contains, all
+ *       with zero writes.</li>
  * </ul>
- * See {@code DESIGN-publish-time-stamping.md} sections 2-3.
+ * See the library stamp/drain chapter in {@code WIKI.md}.
  */
 class TestSelectorLibraryPreviewTest {
 
@@ -149,6 +153,55 @@ class TestSelectorLibraryPreviewTest {
                 "The primary app run must not stamp library changes - the publish task owns stamping.");
         assertFalse(result.getTestsToRun().contains(LIB_TEST),
                 "Library diffs must not feed direct source selection.");
+    }
+
+    /**
+     * The local dev flow: in {@code checkLocalChanges} mode a local (unpublished) library edit
+     * bypasses the partition and selects its covering tests directly - the in-memory equivalent
+     * of a stamp+drain, with zero DB writes. This is how a developer tests a library change
+     * before review/commit.
+     */
+    @Test
+    void localChangesRunSelectsTestsForLocalLibraryEditDirectly() {
+        // given a tracked library whose source has a local edit in the working tree
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
+        seedLibraryMethodMapping();
+
+        // when a local-changes run (checkLocalChanges=true, non-primary) analyzes the edit
+        TestSelector selector = new TestSelector(dataStore);
+        TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
+                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false);
+
+        // then the covering test is selected directly and nothing was written
+        assertTrue(result.getTestsToRun().contains(LIB_TEST),
+                "Local-changes mode must select tests for a local library edit directly.");
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
+                "The local flow must not persist any stamps.");
+    }
+
+    /**
+     * Local-changes mode also drains persisted stamps: a published library change contained in
+     * the build the dev's classpath resolves should be tested locally too. The drain is
+     * read-only, so the stamp survives for the primary run's cleanup.
+     */
+    @Test
+    void localChangesRunAlsoDrainsPersistedStamps() {
+        // given a published, stamped build the local classpath resolves, and no local edits
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
+        seedLibraryMethodMapping();
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB_COORD, "1.0.0", null, "lib-commit", 1000L),
+                new HashSet<>(Collections.singletonList(METHOD_ID)));
+
+        // when a local-changes run executes with no diffs of its own
+        TestSelector selector = new TestSelector(dataStore);
+        TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
+                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false);
+
+        // then the published change's covering test is selected and the stamp remains pending
+        assertTrue(result.getTestsToRun().contains(LIB_TEST),
+                "Local-changes mode must drain persisted stamps the resolved build contains.");
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).size() == 1,
+                "The local drain must not delete the stamp - cleanup belongs to the primary run.");
     }
 
     /**
