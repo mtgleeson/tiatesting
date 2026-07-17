@@ -217,6 +217,24 @@ public interface DataStore extends AutoCloseable {
     long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds);
 
     /**
+     * Read the publish ledger across all tracked libraries, ordered by library then
+     * {@code publishSeq} ascending. Reporting-only read (console and HTML library reports).
+     *
+     * @return every library's publish rows; empty when none exist.
+     */
+    List<LibraryPublish> readAllLibraryPublishes();
+
+    /**
+     * Read the tracked source methods for a specific set of method ids - a targeted read for
+     * callers (e.g. the pending-methods report) that need method names and line ranges for a
+     * small id set without loading the full methods map.
+     *
+     * @param methodIds the tracked method ids to read.
+     * @return map of method id to its tracker; ids with no tracked row are absent.
+     */
+    Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(final Set<Integer> methodIds);
+
+    /**
      * Resolve a consumed artifact to its publish ledger row: match by jar content hash first
      * (identifies both SNAPSHOT and release builds), falling back to an exact published-version
      * match when no hash row matches. When multiple rows match (e.g. an identical artifact

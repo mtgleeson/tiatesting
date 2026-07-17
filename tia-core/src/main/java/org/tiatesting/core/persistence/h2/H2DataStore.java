@@ -891,6 +891,85 @@ public class H2DataStore implements DataStore {
     }
 
     @Override
+    public List<LibraryPublish> readAllLibraryPublishes() {
+        List<LibraryPublish> result = new ArrayList<>();
+        Connection connection = getConnection();
+
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+                return result;
+            }
+            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
+                    + " ORDER BY " + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + " ASC";
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(sql);
+            while (resultSet.next()) {
+                result.add(buildLibraryPublishFromRow(resultSet));
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(final Set<Integer> methodIds) {
+        Map<Integer, MethodImpactTracker> result = new HashMap<>();
+        if (methodIds == null || methodIds.isEmpty()) {
+            return result;
+        }
+
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            List<Integer> ids = new ArrayList<>(methodIds);
+            for (int from = 0; from < ids.size(); from += IN_CLAUSE_CHUNK_SIZE) {
+                List<Integer> chunk = ids.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, ids.size()));
+                queryMethodsForIds(connection, chunk, result);
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+
+        return result;
+    }
+
+    /**
+     * Run the method-by-id read for one chunk of ids and merge the rows into the caller's map.
+     *
+     * @param connection the open H2 connection to query on
+     * @param chunk the method ids for this chunk
+     * @param result accumulator mapping method id to its tracker
+     * @throws SQLException if the query fails
+     */
+    private void queryMethodsForIds(Connection connection, List<Integer> chunk,
+                                    Map<Integer, MethodImpactTracker> result) throws SQLException {
+        StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < chunk.size(); i++) {
+            placeholders.append(i == 0 ? "?" : ", ?");
+        }
+        String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_METHOD
+                + " WHERE " + COL_ID + " IN (" + placeholders + ")";
+        PreparedStatement ps = connection.prepareStatement(sql);
+        for (int i = 0; i < chunk.size(); i++) {
+            ps.setInt(i + 1, chunk.get(i));
+        }
+        ResultSet resultSet = ps.executeQuery();
+        while (resultSet.next()) {
+            result.put(resultSet.getInt(COL_ID), new MethodImpactTracker(
+                    resultSet.getString(COL_METHOD_NAME),
+                    resultSet.getInt(COL_LINE_NUMBER_START),
+                    resultSet.getInt(COL_LINE_NUMBER_END)));
+        }
+    }
+
+    @Override
     public LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version) {
         Connection connection = getConnection();
 
@@ -1525,6 +1604,7 @@ public class H2DataStore implements DataStore {
                 // for a full-table scan + result materialisation here on every load is wasted IO.
                 // The loader runs on first getter call and caches; reports trigger it naturally.
                 tiaData.setPendingLibraryImpactedMethodsLoader(this::readAllPendingLibraryImpactedMethods);
+                tiaData.setLibraryPublishesLoader(this::readAllLibraryPublishes);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setTestRunHistory(readTestRunHistory());
                 log.debug("SQL query time for test run history: {}", (System.currentTimeMillis() - startQueryTime) / 1000);

@@ -4,6 +4,7 @@ import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -11,6 +12,7 @@ import org.tiatesting.core.model.TrackedLibrary;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,9 +20,9 @@ import java.util.Map;
 import static j2html.TagCreator.*;
 
 /**
- * Lists every tracked library with its on-classpath state and pending-batch count.
- * Per-library detail page is intentionally deferred — the row's pending count links to the
- * pending section on {@code index.html} for now.
+ * Lists every tracked library with its ledger state and pending-batch count, followed by the
+ * per-library publish ledger (one row per published build) and the pending impacted-method
+ * batches (one row per publish still awaiting its drain).
  */
 public class HtmlLibraryReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlLibraryReport.class);
@@ -47,10 +49,14 @@ public class HtmlLibraryReport {
         log.info("Writing the libraries report to {}", fileName);
 
         Map<String, Integer> pendingPerLib = countPendingPerLibrary(tiaData);
-        int pendingCount = tiaData.getPendingLibraryImpactedMethods() != null
-                ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
+        List<PendingLibraryImpactedMethod> pending = tiaData.getPendingLibraryImpactedMethods() != null
+                ? tiaData.getPendingLibraryImpactedMethods() : new java.util.ArrayList<>();
+        int pendingCount = pending.size();
         Map<String, TrackedLibrary> tracked = tiaData.getLibrariesTracked() != null
                 ? tiaData.getLibrariesTracked() : new HashMap<>();
+        List<LibraryPublish> publishes = tiaData.getLibraryPublishes() != null
+                ? tiaData.getLibraryPublishes() : new java.util.ArrayList<>();
+        Map<String, Integer> pendingMethodsBySeq = countPendingMethodsBySeq(pending);
 
         try (FileWriter writer = new FileWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
@@ -86,6 +92,54 @@ public class HtmlLibraryReport {
                                                                     td(emptyDash(lib.getSourceDirsCsv()))
                                                             )
                                                     ))
+                                            ),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_LIBRARY, "Publishes"),
+                                    publishes.isEmpty()
+                                            ? p(span("No publishes recorded.").withClass("tia-empty"))
+                                            : table(attrs("#tiaLibraryPublishesTable"),
+                                                    thead(tr(
+                                                            th("Library"),
+                                                            th("Seq").attr(numberDataType),
+                                                            th("Version"),
+                                                            th("Jar hash"),
+                                                            th("Commit"),
+                                                            th("Published at"),
+                                                            th("Methods pending").attr(numberDataType)
+                                                    )),
+                                                    tbody(each(publishes, publish ->
+                                                            tr(
+                                                                    td(publish.getGroupArtifact()),
+                                                                    td(String.valueOf(publish.getPublishSeq())),
+                                                                    td(publish.getPublishedVersion()),
+                                                                    publish.getJarHash() != null
+                                                                            ? td(truncate(publish.getJarHash())).attr("title", publish.getJarHash())
+                                                                            : td("—"),
+                                                                    td(emptyDash(truncate(publish.getCommitValue()))),
+                                                                    td(Instant.ofEpochMilli(publish.getPublishedAt()).toString()),
+                                                                    td(String.valueOf(pendingMethodsBySeq.getOrDefault(
+                                                                            publish.getGroupArtifact() + "|" + publish.getPublishSeq(), 0)))
+                                                            )
+                                                    ))
+                                            ),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_LIBRARY, "Pending changes"),
+                                    pending.isEmpty()
+                                            ? p(span("No pending library changes.").withClass("tia-empty"))
+                                            : table(attrs("#tiaLibraryPendingTable"),
+                                                    thead(tr(
+                                                            th("Library"),
+                                                            th("Publish seq").attr(numberDataType),
+                                                            th("Version"),
+                                                            th("Methods pending").attr(numberDataType)
+                                                    )),
+                                                    tbody(each(pending, batch ->
+                                                            tr(
+                                                                    td(batch.getGroupArtifact()),
+                                                                    td(String.valueOf(batch.getPublishSeq())),
+                                                                    td(batch.getStampVersion()),
+                                                                    td(String.valueOf(batch.getSourceMethodIds() != null
+                                                                            ? batch.getSourceMethodIds().size() : 0))
+                                                            )
+                                                    ))
                                             )
                             ),
                             HtmlLayout.pageFooter(),
@@ -111,6 +165,35 @@ public class HtmlLibraryReport {
             counts.merge(m.getGroupArtifact(), 1, Integer::sum);
         }
         return counts;
+    }
+
+    /**
+     * Count each pending batch's methods keyed by {@code groupArtifact|publishSeq}, so the
+     * publishes table can show how many of a build's stamped methods still await their drain.
+     *
+     * @param pending all pending batches across libraries
+     * @return map of {@code groupArtifact|publishSeq} to the batch's pending method count
+     */
+    private Map<String, Integer> countPendingMethodsBySeq(List<PendingLibraryImpactedMethod> pending) {
+        Map<String, Integer> counts = new HashMap<>();
+        for (PendingLibraryImpactedMethod batch : pending) {
+            counts.put(batch.getGroupArtifact() + "|" + batch.getPublishSeq(),
+                    batch.getSourceMethodIds() != null ? batch.getSourceMethodIds().size() : 0);
+        }
+        return counts;
+    }
+
+    /**
+     * Truncate a hash/commit value to 12 characters for table display.
+     *
+     * @param value the value to truncate
+     * @return the truncated value with an ellipsis, or null when the input is null
+     */
+    private static String truncate(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() > 12 ? value.substring(0, 12) + "…" : value;
     }
 
     private static String emptyDash(String s) {
