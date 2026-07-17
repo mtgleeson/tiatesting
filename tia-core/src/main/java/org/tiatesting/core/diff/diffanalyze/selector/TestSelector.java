@@ -103,7 +103,7 @@ public class TestSelector {
                 tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, checkLocalChanges, testsToRun);
+                libraryConfig, testsToRun);
 
         applyStaticTestSelection(vcsReader, staticMappingConfig, tiaCore.getCommitValue(), testSuitesTracked,
                 testsToRun, checkLocalChanges);
@@ -826,25 +826,27 @@ public class TestSelector {
     }
 
     /**
-     * Drain pending library impacted-method stamps when library impact analysis is configured and
-     * we are not in local-changes mode. The drain is identical for primary and preview builds - it
-     * is a read-only evaluation of the persisted stamps against the build the app resolved, and
-     * every published change has a persisted stamp under publish-time stamping - so both get the
-     * resolved tests added to {@code testsToRun}. The returned drain result only takes effect on a
-     * primary run: {@code TestRunnerService} applies the cleanup under its own
-     * {@code updateDBMapping} gate, and preview flows never reach the persist phase at all.
+     * Drain pending library impacted-method stamps when library impact analysis is configured.
+     * The drain is identical for every run mode - primary, preview and local-changes - because it
+     * is a read-only evaluation of the persisted stamps against the build the app actually
+     * resolved: it can only select tests for changes that build provably contains, so running it
+     * on a local dev machine is safe and desirable (a published library change the dev's
+     * classpath picked up should be tested locally too). The returned drain result only takes
+     * effect on a primary run: {@code TestRunnerService} applies the cleanup under its own
+     * {@code updateDBMapping} gate, and preview/local flows never reach the persist phase.
+     *
+     * <p>Local UNPUBLISHED library edits are handled separately: in {@code checkLocalChanges}
+     * mode the library-diff partition is bypassed, so those diffs feed direct source selection -
+     * the in-memory equivalent of a stamp+drain, with no version identity needed.
      *
      * @param libraryConfig the library impact analysis configuration, or null when not configured
-     * @param checkLocalChanges whether this run analyzes local (uncommitted) changes - draining
-     *                          is skipped in that mode
      * @param testsToRun the run set to add drained tests to
      * @return the drain result for post-run cleanup, or null when draining was skipped
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
-            LibraryImpactAnalysisConfig libraryConfig, boolean checkLocalChanges,
-            Set<String> testsToRun) {
+            LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun) {
 
-        if (checkLocalChanges || libraryConfig == null || !libraryConfig.isEnabled()) {
+        if (libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
         }
 

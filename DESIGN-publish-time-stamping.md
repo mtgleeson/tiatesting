@@ -251,9 +251,13 @@ Two-tier drain rule, summarised:
 | drain condition  | seq <= resolved seq; unknown resolved build -> hold + warn | unconditional, within-run |
 | writes           | ledger + stamp rows              | zero                                |
 
-Behaviour change required: `checkLocalChanges` mode currently skips the library drain path
-entirely (`TestSelector.drainPendingLibraryMethodsIfConfigured` returns null); the synthetic
-stamp+drain must run there.
+Implementation note (stage 5): the two halves land as follows. Local unpublished edits need no
+new machinery - checkLocalChanges mode already bypasses the library-diff partition, so those
+diffs feed direct source selection, which IS the in-memory stamp+drain (no version identity
+needed). The behaviour change is on the persisted side: the drain no longer skips
+checkLocalChanges mode - it is read-only and can only select changes the resolved build provably
+contains, so a local run now also picks up published-but-not-yet-applied library changes on the
+dev's classpath. Cleanup remains gated on the primary run's updateDBMapping.
 
 Staleness footgun and its mitigation: if the developer forgets to `mvn install` the library, the
 app resolves a stale jar and the synthetic drain tests old code. Recommended local invocation is a
