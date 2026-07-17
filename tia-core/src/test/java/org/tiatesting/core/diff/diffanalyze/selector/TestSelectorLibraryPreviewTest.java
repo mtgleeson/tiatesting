@@ -10,8 +10,8 @@ import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryBuildMetadata;
+import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -30,21 +30,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Stage 3 integration coverage for the {@code select-tests} library preview: a library source
- * change that appears for the first time in the analyzed range (and so has never been recorded as a
- * persisted pending batch) must still be surfaced by a preview build ({@code updateDBMapping=false})
- * so the selected-tests set - and the runtime estimate derived from it - is accurate. The preview
- * must achieve this without writing anything, whereas the primary build ({@code updateDBMapping=true})
- * persists the same change as a pending batch as before.
- *
- * <p>Drives the real {@code selectTestsToIgnore} diff-analysis path end to end: the stub VCS reader
- * supplies content whose changed line falls inside the tracked library method's line range, so
- * {@code findMethodsImpacted} produces a genuine impacted method that flows into the synthetic batch.
+ * Integration coverage for the app-run library flow under publish-time stamping, driven through
+ * the real {@code selectTestsToIgnore} path:
+ * <ul>
+ *   <li>a published library change (persisted ledger row + stamp) is drained into the selected
+ *       tests once the app resolves a build that contains it - identically for preview and
+ *       primary runs, with zero writes from either;</li>
+ *   <li>an unpublished library change in the diff range is partitioned out and selects nothing -
+ *       the resolved jar does not contain it, and its stamp will be written by the library's own
+ *       publish, not by the app run;</li>
+ *   <li>the app run never persists stamp rows, in either run mode.</li>
+ * </ul>
+ * See {@code DESIGN-publish-time-stamping.md} sections 2-3.
  */
 class TestSelectorLibraryPreviewTest {
 
@@ -80,79 +81,74 @@ class TestSelectorLibraryPreviewTest {
     }
 
     /**
-     * A first-seen library change under a preview build must surface the covering test from an
-     * in-memory synthetic batch (resolved version 1.0.0 is at/above the stamp and differs from the
-     * tracked 0.9.0, so it drains), while persisting nothing and leaving tracked-library state alone.
+     * A published library change is drained into the selected tests on a preview run: the ledger
+     * row identifies the resolved build (release-version fallback here) and the covering test is
+     * selected, with nothing written.
      */
     @Test
-    void previewSurfacesFirstSeenLibraryChangeWithoutDbWrites() {
-        // given a tracked library at 0.9.0 with a mapped method/test and NO persisted pending batch
-        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR, "0.9.0", null);
-        dataStore.persistTrackedLibrary(lib);
+    void previewSelectsTestsForPublishedLibraryChange() {
+        // given a tracked library with a published, stamped build the app resolves
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
         seedLibraryMethodMapping();
-        LibraryImpactAnalysisConfig config = libraryConfig();
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB_COORD, "1.0.0", null, "lib-commit", 1000L),
+                new HashSet<>(Collections.singletonList(METHOD_ID)));
 
-        // when a preview build (updateDBMapping=false) analyzes a diff to the library source file
+        // when a preview build (updateDBMapping=false) runs selection with no app diffs
         TestSelector selector = new TestSelector(dataStore);
-        TestSelectorResult result = selector.selectTestsToIgnore(libraryDiffReader(),
-                Collections.emptyList(), Collections.emptyList(), false, config, null, false);
+        TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false);
 
-        // then the covering test is surfaced from the in-memory synthetic batch...
+        // then the covering test is selected and the stamp remains pending (no cleanup on preview)
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
-                "Preview must surface the test covering a first-seen library change.");
-        // ...and nothing was written: no pending row was persisted, tracked version is unchanged
-        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
-                "Preview must not persist a pending batch for the first-seen change.");
-        assertEquals("0.9.0", dataStore.readTrackedLibraries().get(LIB_COORD).getLastSourceProjectVersion(),
-                "Preview must not advance tracked-library state.");
+                "Preview must select the test covering a published, resolvable library change.");
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).size() == 1,
+                "Preview must not delete the drained stamp.");
     }
 
     /**
-     * "What would run now" semantics at the integration level: when the resolved version has not yet
-     * reached the change's stamp, the preview holds the synthetic batch back and selects no test for
-     * it, so the estimate does not count a test this build will not run.
+     * An unpublished library change appearing in the app's diff range is partitioned out of
+     * source selection and selects nothing: the jar the app resolves does not contain the change,
+     * so running its covering tests would prove nothing. The change is picked up later via the
+     * library's own publish stamp.
      */
     @Test
-    void previewHoldsFirstSeenLibraryChangeWhenResolvedVersionBelowStamp() {
-        // given the source project still resolves 0.9.0 - below the library's declared/stamp 1.0.0
-        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR, "0.9.0", null);
-        dataStore.persistTrackedLibrary(lib);
+    void unpublishedLibraryChangeInRangeSelectsNothing() {
+        // given a tracked library whose source changed in the diff range but was never published
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
         seedLibraryMethodMapping();
-        LibraryImpactAnalysisConfig config = libraryConfig("1.0.0", "0.9.0");
 
-        // when a preview build analyzes the library diff
+        // when a preview run analyzes the library diff
         TestSelector selector = new TestSelector(dataStore);
-        TestSelectorResult result = selector.selectTestsToIgnore(libraryDiffReader(),
-                Collections.emptyList(), Collections.emptyList(), false, config, null, false);
+        TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false);
 
-        // then the change is held - the covering test is not selected
+        // then no test is selected for the unpublished change and nothing was persisted
         assertFalse(result.getTestsToRun().contains(LIB_TEST),
-                "Preview must hold a change whose stamp is above the resolved version.");
+                "An unpublished library change must not select tests - the resolved jar does not contain it.");
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
+                "The app run must not stamp library changes.");
     }
 
     /**
-     * Contrast/parity with the primary build: the same first-seen library diff under
-     * {@code updateDBMapping=true} is stamped as a persisted pending batch (the pre-existing
-     * behaviour), rather than being handled in memory only.
+     * The primary run behaves identically: a library diff in range produces no stamp rows -
+     * stamping is owned by the library's publish task, not the app run.
      */
     @Test
-    void primaryBuildPersistsFirstSeenLibraryChange() {
-        // given a tracked library at 0.9.0 with a mapped method/test and NO persisted pending batch
-        TrackedLibrary lib = new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR, "0.9.0", null);
-        dataStore.persistTrackedLibrary(lib);
+    void primaryRunDoesNotStampLibraryDiffs() {
+        // given a tracked library whose source changed in the diff range
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
         seedLibraryMethodMapping();
-        LibraryImpactAnalysisConfig config = libraryConfig();
 
         // when a primary build (updateDBMapping=true) analyzes the library diff
         TestSelector selector = new TestSelector(dataStore);
-        selector.selectTestsToIgnore(libraryDiffReader(),
-                Collections.emptyList(), Collections.emptyList(), false, config, null, true);
+        TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, true);
 
-        // then the change is stamped as a persisted pending batch at the declared version
-        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods(LIB_COORD);
-        assertEquals(1, pending.size(), "Primary build must persist the first-seen library change.");
-        assertEquals("1.0.0", pending.get(0).getStampVersion());
-        assertTrue(pending.get(0).getSourceMethodIds().contains(METHOD_ID));
+        // then no stamp rows exist and the library diff selected no tests directly
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
+                "The primary app run must not stamp library changes - the publish task owns stamping.");
+        assertFalse(result.getTestsToRun().contains(LIB_TEST),
+                "Library diffs must not feed direct source selection.");
     }
 
     /**
@@ -180,37 +176,45 @@ class TestSelectorLibraryPreviewTest {
         dataStore.persistSourceMethods(methods);
     }
 
-    private LibraryImpactAnalysisConfig libraryConfig() {
-        return libraryConfig("1.0.0", "1.0.0");
-    }
-
-    private LibraryImpactAnalysisConfig libraryConfig(String declaredVersion, String resolvedVersion) {
+    /**
+     * Build a config whose metadata reader resolves the library at the given release version
+     * (no jar available, so the drain identifies the build via the version fallback).
+     *
+     * @param resolvedVersion the version resolved on the app classpath
+     * @return the library config
+     */
+    private LibraryImpactAnalysisConfig configResolving(String resolvedVersion) {
         Map<String, String> projectDirs = new HashMap<>();
         projectDirs.put(LIB_COORD, LIB_PROJECT_DIR);
         return new LibraryImpactAnalysisConfig(
                 Collections.singletonList(LIB_COORD), projectDirs, "/projects/source",
-                new StubMetadataReader(declaredVersion, resolvedVersion));
-    }
-
-    private VCSReader libraryDiffReader() {
-        return new ContentProvidingVCSReader(new SourceFileDiffContext(
-                LIB_DIFF_PATH, LIB_DIFF_PATH, ChangeType.MODIFY));
+                new StubMetadataReader(resolvedVersion));
     }
 
     /**
-     * Stub reader returning a single MODIFY diff and, on content load, supplying original/changed
-     * content that differs on line 5 - inside the seeded method's 2-8 range - so method-impact
-     * analysis yields the tracked method.
+     * Build a MODIFY diff for the library source file.
+     *
+     * @return a content-less MODIFY diff context for the library file
      */
-    private static final class ContentProvidingVCSReader implements VCSReader {
+    private static SourceFileDiffContext libraryDiff() {
+        return new SourceFileDiffContext(LIB_DIFF_PATH, LIB_DIFF_PATH, ChangeType.MODIFY);
+    }
+
+    /**
+     * Stub reader returning a fixed diff set and, on content load, supplying original/changed
+     * content that differs on line 5 - inside the seeded method's 2-8 range.
+     */
+    private static final class StubVCSReader implements VCSReader {
+        private final String headCommit;
         private final Set<SourceFileDiffContext> diffs;
 
-        ContentProvidingVCSReader(SourceFileDiffContext diff) {
-            this.diffs = new HashSet<>(Collections.singletonList(diff));
+        StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
+            this.headCommit = headCommit;
+            this.diffs = new HashSet<>(java.util.Arrays.asList(diffs));
         }
 
         @Override public String getBranchName() { return "test"; }
-        @Override public String getHeadCommit() { return "head"; }
+        @Override public String getHeadCommit() { return headCommit; }
 
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
@@ -238,25 +242,18 @@ class TestSelectorLibraryPreviewTest {
     }
 
     /**
-     * Stub metadata reader returning a fixed declared version (used for the pending stamp) and a
-     * fixed resolved version (used by the drain preview to decide eligibility).
+     * Stub metadata reader resolving the library at a fixed version with no jar path.
      */
     private static final class StubMetadataReader implements LibraryMetadataReader {
-        private final String declaredVersion;
         private final String resolvedVersion;
 
-        StubMetadataReader(String declaredVersion, String resolvedVersion) {
-            this.declaredVersion = declaredVersion;
+        StubMetadataReader(String resolvedVersion) {
             this.resolvedVersion = resolvedVersion;
         }
 
         @Override
         public List<LibraryBuildMetadata> readLibraryBuildMetadata(String libraryProjectDir, List<String> coordinates) {
-            List<LibraryBuildMetadata> result = new ArrayList<>();
-            for (String coord : coordinates) {
-                result.add(new LibraryBuildMetadata(coord, declaredVersion));
-            }
-            return result;
+            return Collections.emptyList();
         }
 
         @Override
@@ -271,8 +268,6 @@ class TestSelectorLibraryPreviewTest {
 
         @Override
         public List<String> readSourceDirectories(String libraryProjectDir) {
-            // Return the tracked source dir so the primary-build reconcile is a no-op for this
-            // library (keeps sourceDirsCsv stable, so diff-path normalization stays consistent).
             return Collections.singletonList(LIB_SRC_DIR);
         }
     }

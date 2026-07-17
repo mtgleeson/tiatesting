@@ -60,11 +60,12 @@ class LibrariesReportGeneratorTest {
     }
 
     @Test
-    void listsLibraryDetailsIncludingSourceDirsAndVersions() {
-        // given
+    void listsLibraryDetailsIncludingSourceDirsAndLedgerState() {
+        // given a tracked library with ledger state set
         TrackedLibrary library = new TrackedLibrary("com.example:mylib", "/projects/mylib",
-                "/projects/mylib/src/main/java,/projects/mylib/src/main/groovy", "1.2.0", null);
-        library.setLastReleasedLibraryVersion("1.3.0");
+                "/projects/mylib/src/main/java,/projects/mylib/src/main/groovy");
+        library.setLastAppliedSeq(4L);
+        library.setMappingBaselineCommit("baseline-abc");
         dataStore.persistTrackedLibrary(library);
 
         // when
@@ -74,43 +75,40 @@ class LibrariesReportGeneratorTest {
         assertTrue(report.contains("com.example:mylib"));
         assertTrue(report.contains("Project dir: /projects/mylib"));
         assertTrue(report.contains("Source dirs: /projects/mylib/src/main/java,/projects/mylib/src/main/groovy"));
-        assertTrue(report.contains("Last source-project version: 1.2.0"));
-        assertTrue(report.contains("Last released version (HWM): 1.3.0"));
+        assertTrue(report.contains("Last applied publish seq: 4"));
+        assertTrue(report.contains("Mapping baseline commit: baseline-abc"));
         assertTrue(report.contains("Pending batches: 0"));
     }
 
     @Test
-    void omitsReleasedVersionLineWhenNotTracked() {
-        // given - bump-after-release policy never records a released version
-        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", "/projects/mylib",
-                null, "1.2.0", null));
+    void showsDashesForUnsetLedgerState() {
+        // given a freshly tracked library with no ledger state yet
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", "/projects/mylib", null));
 
         // when
         String report = generator.generateLibrariesReport(dataStore);
 
         // then
-        assertFalse(report.contains("Last released version"));
+        assertTrue(report.contains("Last applied publish seq: -"));
+        assertTrue(report.contains("Mapping baseline commit: -"));
         assertTrue(report.contains("Source dirs: -"));
     }
 
     @Test
     void listsPendingBatchDetailUnderTheOwningLibrary() {
-        // given - one library with two pending batches, one stamped for an unknown next version
-        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", "/projects/mylib",
-                null, "1.2.0", null));
-        PendingLibraryImpactedMethod unknownNextBatch = new PendingLibraryImpactedMethod(
-                "com.example:mylib", "1.2.0", "abcdef1234567890", new HashSet<>(Arrays.asList(10, 20)));
-        unknownNextBatch.setUnknownNextVersion(true);
-        dataStore.persistPendingLibraryImpactedMethods(unknownNextBatch);
+        // given one library with two pending batches at different publish seqs
+        dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", "/projects/mylib", null));
         dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
-                "com.example:mylib", "1.1.0", null, new HashSet<>(Arrays.asList(30))));
+                "com.example:mylib", "1.2.0-SNAPSHOT", 2L, new HashSet<>(Arrays.asList(10, 20))));
+        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
+                "com.example:mylib", "1.1.0", 1L, new HashSet<>(Arrays.asList(30))));
 
         // when
         String report = generator.generateLibrariesReport(dataStore);
 
         // then
         assertTrue(report.contains("Pending batches: 2"));
-        assertTrue(report.contains("@ 1.2.0 - 2 methods pending (unknown next version) [hash: abcdef123456...]"));
-        assertTrue(report.contains("@ 1.1.0 - 1 method pending"));
+        assertTrue(report.contains("seq 2 @ 1.2.0-SNAPSHOT - 2 methods pending"));
+        assertTrue(report.contains("seq 1 @ 1.1.0 - 1 method pending"));
     }
 }

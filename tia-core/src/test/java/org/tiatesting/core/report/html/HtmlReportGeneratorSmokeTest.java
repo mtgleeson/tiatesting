@@ -156,8 +156,8 @@ class HtmlReportGeneratorSmokeTest {
         lib.setGroupArtifact("com.example:libA");
         lib.setProjectDir("/abs/path/to/libA");
         lib.setSourceDirsCsv("/abs/path/to/libA/src/main/java");
-        lib.setLastSourceProjectVersion("1.0.0");
-        lib.setLastReleasedLibraryVersion("1.0.0");
+        lib.setLastAppliedSeq(1L);
+        lib.setMappingBaselineCommit("baseline-1");
         Map<String, TrackedLibrary> libs = new LinkedHashMap<>();
         libs.put(lib.getGroupArtifact(), lib);
         tiaData.setLibrariesTracked(libs);
@@ -165,7 +165,7 @@ class HtmlReportGeneratorSmokeTest {
         PendingLibraryImpactedMethod pending = new PendingLibraryImpactedMethod();
         pending.setGroupArtifact("com.example:libA");
         pending.setStampVersion("1.1.0");
-        pending.setUnknownNextVersion(false);
+        pending.setPublishSeq(2L);
         pending.setSourceMethodIds(new java.util.HashSet<>(java.util.Arrays.asList(1, 2, 3)));
         List<PendingLibraryImpactedMethod> pendingList = new ArrayList<>();
         pendingList.add(pending);

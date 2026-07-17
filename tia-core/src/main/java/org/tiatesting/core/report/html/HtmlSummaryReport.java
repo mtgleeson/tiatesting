@@ -139,30 +139,22 @@ public class HtmlSummaryReport {
         return table(
                 thead(tr(
                         th("Library"),
-                        th("Stamp version"),
-                        th("Methods pending"),
-                        th("Unknown next version"),
-                        th("JAR hash (SNAPSHOT)")
+                        th("Publish seq"),
+                        th("Version"),
+                        th("Methods pending")
                 )),
                 tbody(each(byLib.entrySet(), entry ->
                         each(entry.getValue(), batch ->
                                 tr(
                                         td(entry.getKey()),
+                                        td(String.valueOf(batch.getPublishSeq())),
                                         td(batch.getStampVersion()),
                                         td(String.valueOf(batch.getSourceMethodIds() != null
-                                                ? batch.getSourceMethodIds().size() : 0)),
-                                        td(batch.isUnknownNextVersion() ? "yes" : "no"),
-                                        batch.getStampJarHash() != null
-                                                ? td(truncateHash(batch.getStampJarHash())).attr("title", batch.getStampJarHash())
-                                                : td("—")
+                                                ? batch.getSourceMethodIds().size() : 0))
                                 )
                         )
                 ))
         );
-    }
-
-    private String truncateHash(String hash) {
-        return hash.length() > 12 ? hash.substring(0, 12) + "…" : hash;
     }
 
     private String getAvgSuccess(TestStats stats){

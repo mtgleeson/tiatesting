@@ -73,7 +73,7 @@ class LibraryPublishStamperTest {
     @Test
     void firstPublishSeedsBaselineWithoutStamping() {
         // given a tracked library with no mapping baseline
-        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR, null, null));
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR));
 
         // when the first publish is stamped
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -97,7 +97,7 @@ class LibraryPublishStamperTest {
     @Test
     void publishStampsImpactedMethodsSinceBaseline() throws Exception {
         // given a tracked library with a seeded baseline and a jar to hash
-        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR, null, null);
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
         lib.setMappingBaselineCommit("baseline-1");
         dataStore.persistTrackedLibrary(lib);
         File jar = new File(tempDir, "lib.jar");
@@ -136,7 +136,7 @@ class LibraryPublishStamperTest {
     @Test
     void emptyDiffPublishWritesLedgerRowOnly() {
         // given a tracked library with a seeded baseline
-        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR, null, null);
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
         lib.setMappingBaselineCommit("baseline-1");
         dataStore.persistTrackedLibrary(lib);
 
@@ -180,7 +180,7 @@ class LibraryPublishStamperTest {
     @Test
     void successivePublishesStampCumulativeSupersetSinceBaseline() {
         // given a tracked library with a seeded baseline
-        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR, null, null);
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
         lib.setMappingBaselineCommit("baseline-1");
         dataStore.persistTrackedLibrary(lib);
 

@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -84,19 +85,23 @@ public class TestRunnerService {
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
                 testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
 
+        // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
+        // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites
+        // (Stage 1), so this stays a plain == 0 check.
+        boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0;
+
         if (updateDBMapping){
             updateMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
             updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
-            applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult());
+            applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult(), commitValue);
+            if (allTestsRun) {
+                advanceAllMappingBaselines(commitValue);
+            }
         }
 
         // 2. Seal: writing the commit value last is what makes commit X "official". Until this
         //    line executes, the stored commit value is unchanged and the next run will treat
         //    everything since the prior commit as unmapped.
-        // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
-        // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites
-        // (Stage 1), so this stays a plain == 0 check.
-        boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0;
         updateTiaCoreData(tiaData, commitValue, branch, updateDBMapping, updateDBStats,
                 testRunResult.getTestStats(), allTestsRun);
 
@@ -321,56 +326,84 @@ public class TestRunnerService {
 
     /**
      * Apply the library impact drain result after a successful test run. Deletes the drained
-     * library changes pending rows from the data store and updates each drained library's
-     * {@code last_source_project_version} and {@code last_source_project_jar_hash} to the
-     * values observed at drain time.
+     * stamp rows from the data store and advances each drained library's
+     * {@code last_applied_seq} to the resolved build's sequence and its
+     * {@code mapping_baseline_commit} to this run's sealed commit - the drain ran the library's
+     * covering suites with coverage, so their method line numbers were just re-captured at this
+     * commit. See {@code DESIGN-publish-time-stamping.md} sections 2.2 and 4.
      *
      * @param drainResult the drain result from test selection, or {@code null} if no drain occurred.
+     * @param commitValue the commit this run seals - the new mapping baseline for drained libraries.
      */
-    private void applyLibraryImpactDrainResult(final LibraryImpactDrainResult drainResult) {
+    private void applyLibraryImpactDrainResult(final LibraryImpactDrainResult drainResult,
+                                               final String commitValue) {
         if (drainResult == null || !drainResult.hasDrainedBatches()) {
             return;
         }
 
         deleteDrainedPendingBatches(drainResult);
-        updateTrackedLibraryVersions(drainResult);
+        updateAppliedLibraryState(drainResult, commitValue);
     }
 
     /**
-     * Delete each drained {@code (groupArtifact, stampVersion)} batch from the pending table.
+     * Delete each drained {@code (groupArtifact, publishSeq)} batch from the pending table.
+     *
+     * @param drainResult the drain result carrying the drained batch keys.
      */
     private void deleteDrainedPendingBatches(final LibraryImpactDrainResult drainResult) {
         for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedBatchKeys()) {
             log.info("Deleting drained pending batch: {}", key);
-            dataStore.deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getStampVersion());
+            dataStore.deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getPublishSeq());
         }
     }
 
     /**
-     * Update each drained library's {@code last_source_project_version} and
-     * {@code last_source_project_jar_hash} to the resolved values observed at drain time.
+     * Advance each drained library's {@code last_applied_seq} to the sequence of the build the
+     * source project resolved, and its {@code mapping_baseline_commit} to this run's sealed
+     * commit (its covering suites just re-ran with coverage).
+     *
+     * @param drainResult the drain result carrying the applied sequence per drained library.
+     * @param commitValue the commit this run seals.
      */
-    private void updateTrackedLibraryVersions(final LibraryImpactDrainResult drainResult) {
+    private void updateAppliedLibraryState(final LibraryImpactDrainResult drainResult,
+                                           final String commitValue) {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
 
-        for (Map.Entry<String, LibraryImpactDrainResult.ObservedLibraryState> entry
-                : drainResult.getObservedLibraryStates().entrySet()) {
+        for (Map.Entry<String, Long> entry : drainResult.getAppliedSeqByLibrary().entrySet()) {
             String groupArtifact = entry.getKey();
-            LibraryImpactDrainResult.ObservedLibraryState state = entry.getValue();
             TrackedLibrary library = trackedLibraries.get(groupArtifact);
 
             if (library == null) {
-                log.warn("Tracked library '{}' not found during drain cleanup — skipping version update.",
+                log.warn("Tracked library '{}' not found during drain cleanup — skipping applied-seq update.",
                         groupArtifact);
                 continue;
             }
 
-            library.setLastSourceProjectVersion(state.getResolvedVersion());
-            library.setLastSourceProjectJarHash(state.getResolvedJarHash());
+            library.setLastAppliedSeq(entry.getValue());
+            library.setMappingBaselineCommit(commitValue);
             dataStore.persistTrackedLibrary(library);
-            log.info("Updated tracked library '{}': last_source_project_version='{}', last_source_project_jar_hash='{}'.",
-                    groupArtifact, state.getResolvedVersion(),
-                    state.getResolvedJarHash() != null ? state.getResolvedJarHash() : "N/A");
+            log.info("Updated tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
+                    groupArtifact, entry.getValue(), commitValue);
+        }
+    }
+
+    /**
+     * Advance every tracked library's {@code mapping_baseline_commit} to this run's sealed
+     * commit after an all-tests run: every suite ran with coverage, so every library's tracked
+     * method line numbers were just re-captured at this commit. A no-op when no libraries are
+     * tracked. See {@code DESIGN-publish-time-stamping.md} section 4.
+     *
+     * @param commitValue the commit this run seals.
+     */
+    private void advanceAllMappingBaselines(final String commitValue) {
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        for (TrackedLibrary library : trackedLibraries.values()) {
+            if (!Objects.equals(library.getMappingBaselineCommit(), commitValue)) {
+                library.setMappingBaselineCommit(commitValue);
+                dataStore.persistTrackedLibrary(library);
+                log.info("All-tests run - advanced mapping baseline for library '{}' to '{}'.",
+                        library.getGroupArtifact(), commitValue);
+            }
         }
     }
 

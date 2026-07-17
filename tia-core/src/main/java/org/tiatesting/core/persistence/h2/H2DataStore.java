@@ -50,9 +50,6 @@ public class H2DataStore implements DataStore {
     private static final String COL_GROUP_ARTIFACT = "group_artifact";
     private static final String COL_PROJECT_DIR = "project_dir";
     private static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
-    private static final String COL_LAST_SOURCE_PROJECT_VERSION = "last_source_project_version";
-    private static final String COL_LAST_SOURCE_PROJECT_JAR_HASH = "last_source_project_jar_hash";
-    private static final String COL_LAST_RELEASED_LIBRARY_VERSION = "last_released_library_version";
     private static final String COL_MAPPING_BASELINE_COMMIT = "mapping_baseline_commit";
     private static final String COL_LAST_APPLIED_SEQ = "last_applied_seq";
     private static final String TABLE_TIA_LIBRARY_PUBLISH = "tia_library_publish";
@@ -62,8 +59,6 @@ public class H2DataStore implements DataStore {
     private static final String COL_PUBLISHED_AT = "published_at";
     private static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
     private static final String COL_STAMP_VERSION = "stamp_version";
-    private static final String COL_STAMP_JAR_HASH = "stamp_jar_hash";
-    private static final String COL_UNKNOWN_NEXT_VERSION = "unknown_next_version";
     private static final String TABLE_TIA_TEST_RUN_HISTORY = "tia_test_run_history";
     private static final String COL_RUN_TIMESTAMP = "run_timestamp";
     private static final String COL_BRANCH = "branch";
@@ -599,9 +594,6 @@ public class H2DataStore implements DataStore {
                 lib.setGroupArtifact(resultSet.getString(COL_GROUP_ARTIFACT));
                 lib.setProjectDir(resultSet.getString(COL_PROJECT_DIR));
                 lib.setSourceDirsCsv(resultSet.getString(COL_SOURCE_DIRS_CSV));
-                lib.setLastSourceProjectVersion(resultSet.getString(COL_LAST_SOURCE_PROJECT_VERSION));
-                lib.setLastSourceProjectJarHash(resultSet.getString(COL_LAST_SOURCE_PROJECT_JAR_HASH));
-                lib.setLastReleasedLibraryVersion(resultSet.getString(COL_LAST_RELEASED_LIBRARY_VERSION));
                 lib.setMappingBaselineCommit(resultSet.getString(COL_MAPPING_BASELINE_COMMIT));
                 long lastAppliedSeq = resultSet.getLong(COL_LAST_APPLIED_SEQ);
                 lib.setLastAppliedSeq(resultSet.wasNull() ? null : lastAppliedSeq);
@@ -630,25 +622,19 @@ public class H2DataStore implements DataStore {
                     + COL_GROUP_ARTIFACT + ", "
                     + COL_PROJECT_DIR + ", "
                     + COL_SOURCE_DIRS_CSV + ", "
-                    + COL_LAST_SOURCE_PROJECT_VERSION + ", "
-                    + COL_LAST_SOURCE_PROJECT_JAR_HASH + ", "
-                    + COL_LAST_RELEASED_LIBRARY_VERSION + ", "
                     + COL_MAPPING_BASELINE_COMMIT + ", "
                     + COL_LAST_APPLIED_SEQ + ") "
-                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?)";
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, trackedLibrary.getGroupArtifact());
             ps.setString(2, trackedLibrary.getProjectDir());
             ps.setString(3, trackedLibrary.getSourceDirsCsv());
-            ps.setString(4, trackedLibrary.getLastSourceProjectVersion());
-            ps.setString(5, trackedLibrary.getLastSourceProjectJarHash());
-            ps.setString(6, trackedLibrary.getLastReleasedLibraryVersion());
-            ps.setString(7, trackedLibrary.getMappingBaselineCommit());
+            ps.setString(4, trackedLibrary.getMappingBaselineCommit());
             if (trackedLibrary.getLastAppliedSeq() != null) {
-                ps.setLong(8, trackedLibrary.getLastAppliedSeq());
+                ps.setLong(5, trackedLibrary.getLastAppliedSeq());
             } else {
-                ps.setNull(8, Types.BIGINT);
+                ps.setNull(5, Types.BIGINT);
             }
             ps.executeUpdate();
             log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
@@ -749,31 +735,24 @@ public class H2DataStore implements DataStore {
             if (!pending.getSourceMethodIds().isEmpty()) {
                 String insertSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_STAMP_JAR_HASH + ", " + COL_UNKNOWN_NEXT_VERSION + ", "
                         + COL_PUBLISH_SEQ + ", "
                         + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?, ?, ?)";
+                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
+                        + "VALUES (?, ?, ?, ?)";
                 PreparedStatement insertPs = connection.prepareStatement(insertSql);
 
                 for (Integer methodId : pending.getSourceMethodIds()) {
                     insertPs.setString(1, pending.getGroupArtifact());
                     insertPs.setString(2, pending.getStampVersion());
-                    insertPs.setString(3, pending.getStampJarHash());
-                    insertPs.setBoolean(4, pending.isUnknownNextVersion());
-                    if (pending.getPublishSeq() != null) {
-                        insertPs.setLong(5, pending.getPublishSeq());
-                    } else {
-                        insertPs.setNull(5, Types.BIGINT);
-                    }
-                    insertPs.setInt(6, methodId);
+                    insertPs.setLong(3, pending.getPublishSeq());
+                    insertPs.setInt(4, methodId);
                     insertPs.addBatch();
                 }
                 insertPs.executeBatch();
             }
 
-            log.debug("Persisted {} pending impacted methods for {}@{}",
-                    pending.getSourceMethodIds().size(), pending.getGroupArtifact(), pending.getStampVersion());
+            log.debug("Persisted {} pending impacted methods for {} at seq {}",
+                    pending.getSourceMethodIds().size(), pending.getGroupArtifact(), pending.getPublishSeq());
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -786,7 +765,7 @@ public class H2DataStore implements DataStore {
     }
 
     @Override
-    public void deletePendingLibraryImpactedMethods(final String groupArtifact, final String stampVersion) {
+    public void deletePendingLibraryImpactedMethods(final String groupArtifact, final long publishSeq) {
         Connection connection = getConnection();
 
         try {
@@ -794,12 +773,12 @@ public class H2DataStore implements DataStore {
                 return;
             }
             String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_STAMP_VERSION + " = ?";
+                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, groupArtifact);
-            ps.setString(2, stampVersion);
+            ps.setLong(2, publishSeq);
             ps.executeUpdate();
-            log.debug("Deleted pending impacted methods for {}@{}", groupArtifact, stampVersion);
+            log.debug("Deleted pending impacted methods for {} at seq {}", groupArtifact, publishSeq);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -876,26 +855,18 @@ public class H2DataStore implements DataStore {
 
             // Stamp the impacted methods against the assigned sequence in the same transaction,
             // so a publish row can never exist without the stamps of the build it identifies.
-            // Stamp rows are still keyed (group_artifact, stamp_version, method_id); repeated
-            // publishes at one version therefore merge into the latest cumulative batch. The
-            // per-publish keying by publish_seq lands with the drain rework (Stage 3), when the
-            // version-keyed app-side writer is removed.
             if (impactedMethodIds != null && !impactedMethodIds.isEmpty()) {
-                String stampSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
+                String stampSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_STAMP_JAR_HASH + ", " + COL_UNKNOWN_NEXT_VERSION + ", "
                         + COL_PUBLISH_SEQ + ", "
                         + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?, ?, ?)";
+                        + "VALUES (?, ?, ?, ?)";
                 PreparedStatement stampPs = connection.prepareStatement(stampSql);
                 for (Integer methodId : impactedMethodIds) {
                     stampPs.setString(1, publish.getGroupArtifact());
                     stampPs.setString(2, publish.getPublishedVersion());
-                    stampPs.setString(3, publish.getJarHash());
-                    stampPs.setBoolean(4, false);
-                    stampPs.setLong(5, assignedSeq);
-                    stampPs.setInt(6, methodId);
+                    stampPs.setLong(3, assignedSeq);
+                    stampPs.setInt(4, methodId);
                     stampPs.addBatch();
                 }
                 stampPs.executeBatch();
@@ -1095,7 +1066,7 @@ public class H2DataStore implements DataStore {
      *
      * @param resultSet the JDBC result set positioned before the first row
      * @return one {@link PendingLibraryImpactedMethod} per distinct
-     *         {@code (groupArtifact, stampVersion)} pair in the result
+     *         {@code (groupArtifact, publishSeq)} pair in the result
      * @throws SQLException if the underlying result-set traversal fails
      */
     private List<PendingLibraryImpactedMethod> buildPendingBatchesFromResultSet(ResultSet resultSet) throws SQLException {
@@ -1103,16 +1074,13 @@ public class H2DataStore implements DataStore {
 
         while (resultSet.next()) {
             String ga = resultSet.getString(COL_GROUP_ARTIFACT);
-            String sv = resultSet.getString(COL_STAMP_VERSION);
-            String key = ga + "|" + sv;
+            long publishSeq = resultSet.getLong(COL_PUBLISH_SEQ);
+            String key = ga + "|" + publishSeq;
 
             PendingLibraryImpactedMethod batch = batchMap.get(key);
             if (batch == null) {
-                batch = new PendingLibraryImpactedMethod(ga, sv,
-                        resultSet.getString(COL_STAMP_JAR_HASH), new HashSet<>());
-                batch.setUnknownNextVersion(resultSet.getBoolean(COL_UNKNOWN_NEXT_VERSION));
-                long publishSeq = resultSet.getLong(COL_PUBLISH_SEQ);
-                batch.setPublishSeq(resultSet.wasNull() ? null : publishSeq);
+                batch = new PendingLibraryImpactedMethod(ga, resultSet.getString(COL_STAMP_VERSION),
+                        publishSeq, new HashSet<>());
                 batchMap.put(key, batch);
             }
             batch.getSourceMethodIds().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
@@ -1858,9 +1826,6 @@ public class H2DataStore implements DataStore {
                 + COL_GROUP_ARTIFACT + " VARCHAR(512) PRIMARY KEY, "
                 + COL_PROJECT_DIR + " VARCHAR(1000), "
                 + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
-                + COL_LAST_SOURCE_PROJECT_VERSION + " VARCHAR(128), "
-                + COL_LAST_SOURCE_PROJECT_JAR_HASH + " VARCHAR(128), "
-                + COL_LAST_RELEASED_LIBRARY_VERSION + " VARCHAR(128), "
                 + COL_MAPPING_BASELINE_COMMIT + " VARCHAR(128), "
                 + COL_LAST_APPLIED_SEQ + " BIGINT)";
     }
@@ -1885,11 +1850,9 @@ public class H2DataStore implements DataStore {
         return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
                 + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
                 + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
-                + COL_STAMP_JAR_HASH + " VARCHAR(128), "
-                + COL_UNKNOWN_NEXT_VERSION + " BOOLEAN NOT NULL DEFAULT FALSE, "
-                + COL_PUBLISH_SEQ + " BIGINT, "
+                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
                 + COL_TIA_SOURCE_METHOD_ID + " INT NOT NULL, "
-                + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_TIA_SOURCE_METHOD_ID + "), "
+                + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_TIA_SOURCE_METHOD_ID + "), "
                 + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
     }
 

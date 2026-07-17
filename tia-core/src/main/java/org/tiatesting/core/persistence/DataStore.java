@@ -236,7 +236,7 @@ public interface DataStore extends AutoCloseable {
      * Read all pending library impacted method batches for a given library.
      *
      * @param groupArtifact the {@code groupId:artifactId} to read pending batches for.
-     * @return list of pending batches, one per stamp version.
+     * @return list of pending batches, one per publish sequence.
      */
     List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(final String groupArtifact);
 
@@ -248,21 +248,22 @@ public interface DataStore extends AutoCloseable {
     List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods();
 
     /**
-     * Persist (insert or merge) a pending library impacted methods batch.
-     * If a batch already exists for the same {@code (groupArtifact, stampVersion)},
-     * the method IDs are replaced.
+     * Persist (insert or merge) a pending library impacted methods batch, keyed by
+     * {@code (groupArtifact, publishSeq)}. Production stamps are written atomically with their
+     * ledger row via {@link #persistLibraryPublish}; this standalone persist serves batch-level
+     * writes outside that flow (e.g. tests).
      *
      * @param pending the pending batch to persist.
      */
     void persistPendingLibraryImpactedMethods(final PendingLibraryImpactedMethod pending);
 
     /**
-     * Delete all pending library impacted method rows for a specific stamp.
+     * Delete all pending library impacted method rows for a drained publish.
      *
      * @param groupArtifact the {@code groupId:artifactId} of the library.
-     * @param stampVersion the stamp version to delete.
+     * @param publishSeq the publish sequence whose stamp rows should be deleted.
      */
-    void deletePendingLibraryImpactedMethods(final String groupArtifact, final String stampVersion);
+    void deletePendingLibraryImpactedMethods(final String groupArtifact, final long publishSeq);
 
     /**
      * Persist a single Tia test-run history entry. Idempotent on the entry's deterministic id —

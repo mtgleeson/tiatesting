@@ -29,27 +29,24 @@ class LibraryImpactDrainResultSerializerTest {
 
     @Test
     void serializeAndDeserializeRoundTrip() {
+        // given a drain result with two drained batches and an applied seq
         LibraryImpactDrainResult original = new LibraryImpactDrainResult();
-        original.addDrainedBatch("com.example:lib", "1.0.0");
-        original.addDrainedBatch("com.example:lib", "1.1.0");
-        original.setObservedLibraryState("com.example:lib", "1.1.0", "somehash");
+        original.addDrainedBatch("com.example:lib", 1L);
+        original.addDrainedBatch("com.example:lib", 2L);
+        original.setAppliedSeq("com.example:lib", 2L);
 
+        // when it is serialized and deserialized (the Maven plugin-to-fork transport)
         File file = new File(tempDir, "drain.ser");
         LibraryImpactDrainResultSerializer.serialize(original, file);
-
         LibraryImpactDrainResult deserialized = LibraryImpactDrainResultSerializer.deserialize(file.getAbsolutePath());
 
+        // then the batch keys and applied seqs survive the round trip
         assertNotNull(deserialized);
         assertTrue(deserialized.hasDrainedBatches());
         assertEquals(2, deserialized.getDrainedBatchKeys().size());
-        assertEquals("1.0.0", deserialized.getDrainedBatchKeys().get(0).getStampVersion());
-        assertEquals("1.1.0", deserialized.getDrainedBatchKeys().get(1).getStampVersion());
-
-        LibraryImpactDrainResult.ObservedLibraryState state =
-                deserialized.getObservedLibraryStates().get("com.example:lib");
-        assertNotNull(state);
-        assertEquals("1.1.0", state.getResolvedVersion());
-        assertEquals("somehash", state.getResolvedJarHash());
+        assertEquals(1L, deserialized.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(2L, deserialized.getDrainedBatchKeys().get(1).getPublishSeq());
+        assertEquals(Long.valueOf(2L), deserialized.getAppliedSeqByLibrary().get("com.example:lib"));
     }
 
     @Test

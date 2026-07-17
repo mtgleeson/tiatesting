@@ -5,8 +5,10 @@ import java.util.Objects;
 
 /**
  * Represents a single library tracked by TIA in the {@code tia_library} table.
- * Each row captures the library's identity (group:artifact), its source directory
- * layout, and the last version/hash observed on the source project's classpath.
+ * Each row captures the library's identity (group:artifact), its source directory layout, and
+ * the consumer-side ledger state: the mapping baseline commit the publish-time stamper diffs
+ * from, and the last applied publish sequence used for downgrade warnings and reporting.
+ * See {@code DESIGN-publish-time-stamping.md}.
  */
 public class TrackedLibrary implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -19,23 +21,6 @@ public class TrackedLibrary implements Serializable {
 
     /** CSV of absolute paths to the library's source directories (e.g. {@code src/main/java}). */
     private String sourceDirsCsv;
-
-    /** Last version of this library observed on the source project's resolved classpath. */
-    private String lastSourceProjectVersion;
-
-    /** SHA-256 content hash of the JAR the last time the source project resolved it (SNAPSHOT path). */
-    private String lastSourceProjectJarHash;
-
-    /**
-     * High-water mark of build-file versions observed for this library. Advances strictly forward
-     * whenever a stamp sees a build-file version greater than the stored value; never regresses.
-     * Seeded from the library's current build-file version when the library is first onboarded.
-     *
-     * <p>Under {@code BUMP_AT_RELEASE} this drives the "unknown next version" classification at
-     * stamp time. Under {@code BUMP_AFTER_RELEASE} it is maintained symmetrically but does not
-     * influence drain decisions. See {@code WIKI.md} for the full model.
-     */
-    private String lastReleasedLibraryVersion;
 
     /**
      * The commit at which this library's tracked method line numbers were last captured (an
@@ -50,7 +35,7 @@ public class TrackedLibrary implements Serializable {
      * Monotonic high-water mark: the {@code publishSeq} of the last published build whose
      * impacted tests the consumer has run. Deliberately not part of the drain predicate (the
      * pending-stamp set is self-describing via delete-on-drain); used only for the downgrade /
-     * stale-resolve warning and reporting. Null until the first drain under the ledger model.
+     * stale-resolve warning and reporting. Null until the first drain.
      * See {@code DESIGN-publish-time-stamping.md} section 2.2.
      */
     private Long lastAppliedSeq;
@@ -59,21 +44,18 @@ public class TrackedLibrary implements Serializable {
     }
 
     /**
-     * Construct a fully populated tracked-library row.
+     * Construct a tracked-library row from its configuration-derived identity. The ledger state
+     * fields ({@code mappingBaselineCommit}, {@code lastAppliedSeq}) start null and are advanced
+     * by the publish stamper and the post-test-run cleanup respectively.
      *
      * @param groupArtifact {@code groupId:artifactId} — primary key in {@code tia_library}.
      * @param projectDir absolute path to the library's project directory on disk.
      * @param sourceDirsCsv CSV of absolute paths to the library's source directories (e.g. {@code src/main/java}).
-     * @param lastSourceProjectVersion last version of this library observed on the source project's resolved classpath.
-     * @param lastSourceProjectJarHash SHA-256 content hash of the JAR the last time the source project resolved it (SNAPSHOT path).
      */
-    public TrackedLibrary(String groupArtifact, String projectDir, String sourceDirsCsv,
-                          String lastSourceProjectVersion, String lastSourceProjectJarHash) {
+    public TrackedLibrary(String groupArtifact, String projectDir, String sourceDirsCsv) {
         this.groupArtifact = groupArtifact;
         this.projectDir = projectDir;
         this.sourceDirsCsv = sourceDirsCsv;
-        this.lastSourceProjectVersion = lastSourceProjectVersion;
-        this.lastSourceProjectJarHash = lastSourceProjectJarHash;
     }
 
     public String getGroupArtifact() {
@@ -98,30 +80,6 @@ public class TrackedLibrary implements Serializable {
 
     public void setSourceDirsCsv(String sourceDirsCsv) {
         this.sourceDirsCsv = sourceDirsCsv;
-    }
-
-    public String getLastSourceProjectVersion() {
-        return lastSourceProjectVersion;
-    }
-
-    public void setLastSourceProjectVersion(String lastSourceProjectVersion) {
-        this.lastSourceProjectVersion = lastSourceProjectVersion;
-    }
-
-    public String getLastSourceProjectJarHash() {
-        return lastSourceProjectJarHash;
-    }
-
-    public void setLastSourceProjectJarHash(String lastSourceProjectJarHash) {
-        this.lastSourceProjectJarHash = lastSourceProjectJarHash;
-    }
-
-    public String getLastReleasedLibraryVersion() {
-        return lastReleasedLibraryVersion;
-    }
-
-    public void setLastReleasedLibraryVersion(String lastReleasedLibraryVersion) {
-        this.lastReleasedLibraryVersion = lastReleasedLibraryVersion;
     }
 
     public String getMappingBaselineCommit() {
@@ -156,7 +114,7 @@ public class TrackedLibrary implements Serializable {
     @Override
     public String toString() {
         return "TrackedLibrary{groupArtifact='" + groupArtifact
-                + "', lastSourceProjectVersion='" + lastSourceProjectVersion
-                + "', lastReleasedLibraryVersion='" + lastReleasedLibraryVersion + "'}";
+                + "', mappingBaselineCommit='" + mappingBaselineCommit
+                + "', lastAppliedSeq=" + lastAppliedSeq + "}";
     }
 }

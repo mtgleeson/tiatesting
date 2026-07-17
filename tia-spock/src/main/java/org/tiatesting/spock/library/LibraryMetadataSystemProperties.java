@@ -1,7 +1,6 @@
 package org.tiatesting.spock.library;
 
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
-import org.tiatesting.core.library.LibraryVersionPolicy;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -27,8 +26,7 @@ import java.util.Map;
  * <p>Within an entry, fields are colon-separated and positional. The {@code sourceDirs} field is
  * itself a list, pipe-separated. Empty positional fields are permitted (e.g. unresolvable JAR).
  *
- * <p>Globals are passed via two additional flat properties: {@code tiaSourceProjectDir} and
- * {@code tiaLibraryVersionPolicy}.
+ * <p>One global is passed via an additional flat property: {@code tiaSourceProjectDir}.
  *
  * <p>Path values must not contain {@code ,}, {@code :} or {@code |} - this matches the existing
  * limitation on {@code tiaSourceLibs}.
@@ -37,7 +35,6 @@ public final class LibraryMetadataSystemProperties {
 
     public static final String PROP_LIBRARIES_METADATA = "tiaLibrariesMetadata";
     public static final String PROP_SOURCE_PROJECT_DIR = "tiaSourceProjectDir";
-    public static final String PROP_LIBRARY_VERSION_POLICY = "tiaLibraryVersionPolicy";
 
     private static final String ENTRY_DELIM = ",";
     private static final String FIELD_DELIM = ":";
@@ -46,7 +43,7 @@ public final class LibraryMetadataSystemProperties {
     private LibraryMetadataSystemProperties() {}
 
     /**
-     * Read the three properties from {@link System} and build a config, or return {@code null}
+     * Read the properties from {@link System} and build a config, or return {@code null}
      * when {@code tiaLibrariesMetadata} is unset / empty (no library config in effect).
      *
      * @return the assembled config, or {@code null} when no library metadata is set on system properties.
@@ -54,8 +51,7 @@ public final class LibraryMetadataSystemProperties {
     public static LibraryImpactAnalysisConfig fromSystemProperties() {
         return fromValues(
                 System.getProperty(PROP_LIBRARIES_METADATA),
-                System.getProperty(PROP_SOURCE_PROJECT_DIR),
-                System.getProperty(PROP_LIBRARY_VERSION_POLICY));
+                System.getProperty(PROP_SOURCE_PROJECT_DIR));
     }
 
     /**
@@ -65,14 +61,10 @@ public final class LibraryMetadataSystemProperties {
      *                          documented at the class level.
      * @param sourceProjectDir absolute path of the source project (or {@code null} when the test
      *                         project is the source project).
-     * @param libraryVersionPolicy the policy name ({@code BUMP_AFTER_RELEASE} or
-     *                             {@code BUMP_AT_RELEASE}); falls back to {@code BUMP_AFTER_RELEASE}
-     *                             when null/blank/unknown.
      * @return the assembled config, or {@code null} when {@code librariesMetadata} is blank or
      *         contains no parseable entries.
      */
-    public static LibraryImpactAnalysisConfig fromValues(String librariesMetadata, String sourceProjectDir,
-                                                         String libraryVersionPolicy) {
+    public static LibraryImpactAnalysisConfig fromValues(String librariesMetadata, String sourceProjectDir) {
         if (librariesMetadata == null || librariesMetadata.trim().isEmpty()) {
             return null;
         }
@@ -92,9 +84,7 @@ public final class LibraryMetadataSystemProperties {
         }
 
         PreResolvedLibraryMetadataReader reader = new PreResolvedLibraryMetadataReader(entries);
-        LibraryVersionPolicy policy = parsePolicy(libraryVersionPolicy);
-
-        return new LibraryImpactAnalysisConfig(coordinates, projectDirs, sourceProjectDir, reader, policy);
+        return new LibraryImpactAnalysisConfig(coordinates, projectDirs, sourceProjectDir, reader);
     }
 
     private static List<PreResolvedLibraryMetadataReader.Entry> parseEntries(String raw) {
@@ -147,17 +137,6 @@ public final class LibraryMetadataSystemProperties {
             }
         }
         return dirs;
-    }
-
-    private static LibraryVersionPolicy parsePolicy(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
-        try {
-            return LibraryVersionPolicy.valueOf(raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return LibraryVersionPolicy.BUMP_AFTER_RELEASE;
-        }
     }
 
     /**

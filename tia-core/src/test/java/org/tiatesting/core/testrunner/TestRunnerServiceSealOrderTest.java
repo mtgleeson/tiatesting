@@ -145,14 +145,14 @@ class TestRunnerServiceSealOrderTest {
     @Test
     void crashDuringLibraryDrain_storedCommitValueRemainsPriorValue() {
         // given - seed a tracked library + a pending row so the drain has work to do
-        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null, "0.9.0", null);
+        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null);
         dataStore.persistTrackedLibrary(lib);
         dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
-                "com.example:lib", "1.0.0", null, new HashSet<>(java.util.Arrays.asList(10))));
+                "com.example:lib", "1.0.0", 1L, new HashSet<>(java.util.Arrays.asList(10))));
 
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
-        drainResult.addDrainedBatch("com.example:lib", "1.0.0");
-        drainResult.setObservedLibraryState("com.example:lib", "1.0.0", null);
+        drainResult.addDrainedBatch("com.example:lib", 1L);
+        drainResult.setAppliedSeq("com.example:lib", 1L);
 
         RecordingDataStore spy = new RecordingDataStore(dataStore);
         spy.throwOnDeletePendingLibraryImpactedMethods = true;
@@ -342,12 +342,12 @@ class TestRunnerServiceSealOrderTest {
             delegate.persistPendingLibraryImpactedMethods(pending);
         }
         @Override
-        public void deletePendingLibraryImpactedMethods(String groupArtifact, String stampVersion) {
+        public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) {
             callOrder.add("deletePendingLibraryImpactedMethods");
             if (throwOnDeletePendingLibraryImpactedMethods) {
                 throw new RuntimeException("simulated failure in deletePendingLibraryImpactedMethods");
             }
-            delegate.deletePendingLibraryImpactedMethods(groupArtifact, stampVersion);
+            delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq);
         }
         @Override
         public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
