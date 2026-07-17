@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Stage 1 coverage for the publish-ledger schema and CRUD ({@code tia_library_publish}, the
  * ledger columns added to {@code tia_library} and the pending table). Verifies sequence
  * assignment, round trips, the hash-then-version lookup precedence with highest-seq wins, and
- * the cascade delete from {@code tia_library}. See {@code DESIGN-publish-time-stamping.md}.
+ * the cascade delete from {@code tia_library}. See the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class H2DataStoreLibraryPublishTest {
 

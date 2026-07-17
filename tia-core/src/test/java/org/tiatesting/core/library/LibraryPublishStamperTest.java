@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Stage 2 coverage for {@link LibraryPublishStamper}: first-publish baseline seeding, stamping the
  * methods impacted since the mapping baseline (with the ledger row and stamp written together),
  * ledger-only empty-diff publishes, the untracked-library skip, and cumulative-since-baseline
- * stamps across successive publishes. See {@code DESIGN-publish-time-stamping.md} sections 3-4.
+ * stamps across successive publishes. See the publish-stamp-task and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class LibraryPublishStamperTest {
 

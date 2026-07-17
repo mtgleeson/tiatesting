@@ -192,7 +192,7 @@ public interface DataStore extends AutoCloseable {
 
     /**
      * Read a tracked library's publish ledger: one row per published build, ordered by
-     * {@code publishSeq} ascending. See {@code DESIGN-publish-time-stamping.md} section 2.1.
+     * {@code publishSeq} ascending. See the publish-ledger section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param groupArtifact the {@code groupId:artifactId} to read the ledger for.
      * @return the library's publish rows in sequence order; empty when none exist.

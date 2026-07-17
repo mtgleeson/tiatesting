@@ -16,7 +16,7 @@ import java.util.*;
  * is matched against the publish ledger (jar hash first, exact version for a resolved release) to
  * find its publish sequence R; every pending stamp with {@code publishSeq <= R} drains, because
  * builds are cumulative - the jar at R physically contains every change stamped at or before R.
- * See {@code DESIGN-publish-time-stamping.md} section 2.2.
+ * See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
  *
  * <p>Hold rules - the drain selects nothing (and warns) when it cannot prove the resolved build
  * contains the pending changes:

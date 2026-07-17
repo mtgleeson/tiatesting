@@ -8,7 +8,7 @@ import java.util.*;
  * keyed by {@code (groupArtifact, publishSeq)} - the publish-ledger row the changes shipped in -
  * and holds the set of tracked source method ids impacted since the library's mapping baseline.
  * The consumer's drain runs the tests covering every batch at or below the sequence of the build
- * it resolved. See {@code DESIGN-publish-time-stamping.md} section 2.
+ * it resolved. See the ledger and drain sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public class PendingLibraryImpactedMethod implements Serializable {
     private static final long serialVersionUID = 1L;

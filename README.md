@@ -306,8 +306,6 @@ The Maven plugin reads the source project's resolved dependencies by loading its
     <tiaSourceLibs>com.example:my-lib:/path/to/my-lib,com.example:other-lib:/path/to/other-lib</tiaSourceLibs>
     <!-- optional: only needed when the test project differs from the source project -->
     <tiaSourceProjectDir>/absolute/path/to/source-project</tiaSourceProjectDir>
-    <!-- optional: BUMP_AFTER_RELEASE (default) or BUMP_AT_RELEASE — see policy description below -->
-    <tiaLibraryVersionPolicy>BUMP_AFTER_RELEASE</tiaLibraryVersionPolicy>
 </properties>
 
 <build>
@@ -320,11 +318,34 @@ The Maven plugin reads the source project's resolved dependencies by loading its
                 <!-- ...existing Tia plugin configuration... -->
                 <tiaSourceLibs>${tiaSourceLibs}</tiaSourceLibs>
                 <tiaSourceProjectDir>${tiaSourceProjectDir}</tiaSourceProjectDir>
-                <tiaLibraryVersionPolicy>${tiaLibraryVersionPolicy}</tiaLibraryVersionPolicy>
             </configuration>
         </plugin>
     </plugins>
 </build>
+```
+
+Each tracked **library module's** own build must also run Tia's `publish-lib-stamp` goal so its
+publishes are recorded (see "How library change tracking works" below):
+
+`library pom.xml`
+```xml
+<plugin>
+    <groupId>org.tiatesting</groupId>
+    <artifactId>tia-junit5-git-maven-plugin</artifactId>
+    <executions>
+        <execution>
+            <goals><goal>publish-lib-stamp</goal></goals>
+            <!-- default phase is install: fires on both mvn install and mvn deploy -->
+        </execution>
+    </executions>
+    <configuration>
+        <tiaEnabled>true</tiaEnabled>
+        <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
+        <tiaProjectDir>${project.basedir}</tiaProjectDir>
+        <!-- must point at the same Tia DB location the consuming project uses -->
+        <tiaDBFilePath>/path/to/consuming-project</tiaDBFilePath>
+    </configuration>
+</plugin>
 ```
 
 #### Gradle
@@ -341,45 +362,36 @@ tia {
     sourceLibs = 'com.example:my-lib,com.example:other-lib'
     // optional: only needed when the source project differs from the test project
     sourceProjectDir = '/absolute/path/to/source-project'
-    // optional: BUMP_AFTER_RELEASE (default) or BUMP_AT_RELEASE — see policy description below
-    libraryVersionPolicy = 'BUMP_AFTER_RELEASE'
 }
 ```
+
+On the Gradle side the tracked **library module** applies the Tia plugin too: Tia hooks its
+publish stamp onto the module's `publish` and `publishToMavenLocal` tasks automatically (see
+"How library change tracking works" below), so publishing the library records the build in the
+Tia publish ledger. The library module's `tia { ... }` block needs `enabled`, `updateDBMapping`
+and the shared DB location.
 
 The Gradle plugin pre-resolves library metadata (declared version, source directories, resolved version, JAR path) at task-action time and forwards it to the forked test JVM via system properties — TIA's library partitioning, reconcile, stamp, and drain phases all run inside the test JVM as part of Spock's selection lifecycle. No state is exchanged via files; the wire format is internal and not part of the public configuration surface.
 
 **Single-fork requirement when `updateDBMapping=true`.** The Gradle/Spock path must run with `maxParallelForks=1` and `forkEvery=0` (Gradle's defaults) when persisting mapping data. Each forked JVM persists independently using only the test suites it observed, so multi-fork runs corrupt the on-disk mapping by deleting the suites other forks owned. This affects test-suite-mapping persistence in general (not specific to library tracking) — leaving Gradle's defaults in place avoids it.
 
-#### How library change tracking works (stamp/drain)
+#### How library change tracking works (publish-time stamping)
 
-When a tracked library's source code changes in VCS, Tia does **not** run the impacted tests immediately. Instead, it uses a two-phase stamp/drain approach:
+When a tracked library's source code changes, Tia does **not** run the impacted tests immediately — the consuming project may still be on an older build of the library, and running the tests against stale code would produce a false green. Instead, Tia records the change at the one moment its shipping identity is an unambiguous fact: when the library is **published**.
 
-**Stamp phase (at commit analysis time):** When Tia detects source changes in a tracked library's directory, it identifies the impacted source methods and records them as *pending* in the Tia database, tagged with the library's current declared version (and a JAR content hash for SNAPSHOT versions). No tests are added to the run set at this point — the source project may still be consuming an older version of the library, so running the tests now would exercise stale code and produce a false green result.
+**Stamp (at library publish):** the library module's Tia publish task (`publish-lib-stamp` on Maven, the automatic `publish`/`publishToMavenLocal` hook on Gradle) records every published build in a per-library **publish ledger** — the exact version, the jar's content hash, and a monotonically increasing publish sequence number — and stamps the source methods impacted since the library's mapping baseline against that sequence. Commits alone write nothing; a change becomes drainable when it becomes consumable.
 
-**Drain phase (at test selection time):** On each test run, Tia checks whether the source project has caught up to any pending library versions:
-- **Release versions:** A pending batch drains when the source project's resolved library version is >= the stamped version AND differs from the last version Tia saw on the source project. The "differs" check prevents re-draining when the library's source changes are committed but the version number hasn't been bumped yet.
-- **SNAPSHOT versions:** A pending batch drains when the SHA-256 hash of the resolved JAR file differs from the last hash Tia tracked. This detects new SNAPSHOT builds even though the version string stays the same.
+**Drain (at test selection):** on each Tia run, the consuming project resolves the library on its classpath and looks the artifact up in the ledger (by jar hash, or exact version for releases). Every pending stamp at or below the resolved build's sequence drains — builds are cumulative, so the resolved jar provably contains those changes. Tia resolves the stamped method IDs to covering test suites using the **current** test-to-source mapping and adds them to the run set. If the resolved artifact is unknown to the ledger, everything is held with a warning (holding cannot produce a false green). After a successful primary run, drained stamps are deleted and the library's applied sequence advances.
 
-When a batch drains, Tia resolves which test suites exercise the pending method IDs using the **current** test-to-source mapping (not the mapping from stamp time), then adds those tests to the run set. After the test run completes successfully, the drained pending rows are deleted and the library's last-seen version/hash is updated.
+Because the identity is recorded at publish, no version-convention configuration is needed — release flows, snapshot redeploys under an unchanged version string, and version bumps that land between a commit and a Tia run are all handled by the ledger's ordering.
 
-**Local changes mode (`checkLocalChanges=true`):** Library diff partitioning is bypassed entirely — all changes (including library changes) are treated as source-project changes and impacted tests run immediately. No pending rows are read or written. This is the expected behavior for local development where you want instant feedback.
+**Local development:** local (unpublished) library edits are picked up directly in `checkLocalChanges=true` mode — they feed normal source selection with no DB writes, so you get instant feedback before committing. Published changes your local classpath contains are drained in local runs too (read-only). For local work, prefer a reactor build from the repo root so the app resolves the library from the reactor rather than a possibly stale local repository snapshot.
 
-**Library removal:** If a library is removed from the `sourceLibs` configuration, Tia deletes the tracked library row and all its pending batches are automatically cascade-deleted.
+**Ownership gating:** only builds that own mapping-DB writes (`updateDBMapping=true`, typically the primary CI build) write the ledger and stamps; on a developer machine the publish task is a logged no-op.
 
-**Primary build requirement:** The Tia run that persists mapping-DB updates (typically the primary CI run for your branch) must operate on a clean working tree. Tia resolves each tracked library's version from the source project's current on-disk build file (e.g. `pom.xml`, `build.gradle`). An uncommitted version bump is indistinguishable from a committed one at drain time, so running the persisting build with local build-file changes can cause a pending batch to drain against a version not yet in VCS — leading to incorrect test selection on subsequent runs. For local development, use `checkLocalChanges=true` (see above); the drain is bypassed in that mode.
+**Library removal:** if a library is removed from the `sourceLibs` configuration, Tia deletes the tracked library row and its publish ledger and pending stamps are automatically cascade-deleted.
 
-**Release cadence — run Tia on every release:** The stamp/drain model assumes Tia observes every released library version. Multiple commits within the same release cycle are safely aggregated into a single pending batch, but a diff range that spans two releases cannot be correctly classified — the stamper reads only the library's current build-file state, not the commit history, so intermediate releases are invisible to it. In practice this means Tia must run at least once against every released state of each tracked library (typically every primary CI run is sufficient).
-
-**Semantic versioning required for libraries:** Tia's version comparison is numeric-per-segment with lexicographic fallback. Version strings like `1.2.3` or `1.2.3-SNAPSHOT` compare correctly; pre-release qualifiers such as `1.2.0-rc1`, `1.2.0-M1`, or `1.2.0-alpha` will mis-order relative to the base version. Tracked libraries should use plain semantic versioning.
-
-**Library version policy (`libraryVersionPolicy`):** Tia supports two release conventions used in the library's build file, configured globally for all tracked libraries. The default is `BUMP_AFTER_RELEASE`:
-
-- `BUMP_AFTER_RELEASE` *(default)* — the build-file version is the *next* version to be released. Example (Maven release plugin convention): dev on `1.6.0-SNAPSHOT` → release cuts `1.6.0` → bump to `1.7.0-SNAPSHOT`. The declared version always points forward.
-- `BUMP_AT_RELEASE` — the build-file version stays at the *last released* version during dev; the bump happens atomically with each release. Example: released `1.0` → dev commits continue declaring `1.0` → release cuts `1.1` (bump + tag in the same commit) → dev continues on `1.1`. The declared version always points backward.
-
-Under `BUMP_AT_RELEASE`, changes stamped while the build-file version equals the last observed released version are tagged as destined for the *next, unknown release* and held by the drainer until the library's build-file version advances. Under `BUMP_AFTER_RELEASE` this holding behaviour is not needed and the logic stays as described in the stamp/drain rules above.
-
-See [`WIKI.md`](WIKI.md) for a full explanation of the model, including worked examples under both policies.
+See the [library publish-time stamping](wiki/library-publish-time-stamping.md) wiki chapter for the full model, the end-to-end sequence, and the edge cases.
 
 ## Usage
 
@@ -442,17 +454,17 @@ gradle tia-status
 ```
 
 ### Libraries — tracked libraries and their pending changes
-Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last source-project version, last released version (HWM, when tracked), and the library's pending impacted-method batches.
+Lists every tracked library (see library impact analysis) with its recorded state - the same details as the `tia-libraries.html` report page, plus the per-batch pending detail: project dir, source dirs, last applied publish seq, mapping baseline commit, and the library's pending impacted-method batches.
 Example output:
 ```
 Tracked libraries:
 	com.example:libA
 		Project dir: /abs/path/to/libA
 		Source dirs: /abs/path/to/libA/src/main/java
-		Last source-project version: 1.0.0
-		Last released version (HWM): 1.0.0
+		Last applied publish seq: 2
+		Mapping baseline commit: 993f44ec47f4957ff6b8ae5ebdcbce2cdf1c3a2c
 		Pending batches: 1
-			@ 1.1.0 - 3 methods pending
+			seq 3 @ 1.1.0 - 3 methods pending
 ```
 
 **Maven, Junit5 and Git**
@@ -480,6 +492,46 @@ mvn tia-junit4-perforce:libraries
 gradle tia-libraries
 ```
 
+### Library publishes — the publish ledger for one library
+Prints a tracked library's publish ledger as a table: one row per published build with its sequence, version, jar hash, commit, publish time, and how many of the build's stamped methods still await their drain. The library is selected with a `groupId:artifactId` parameter.
+Example output:
+```
+Publishes for library com.example:libA:
+Seq | Version        | Jar hash        | Commit          | Published at         | Methods pending
+----+----------------+-----------------+-----------------+----------------------+----------------
+1   | 1.0.0-SNAPSHOT | 3f9358826797... | 993f44ec47f4... | 2026-07-01T10:14:02Z | -
+2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3
+```
+
+**Maven (per flavor plugin, e.g. Junit5 and Git)**
+```
+mvn tia-junit5-git:library-publishes -DtiaLibrary=com.example:libA
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-library-publishes --library=com.example:libA
+```
+
+### Library pending methods — the pending impacted methods for one library
+Prints one table row per pending impacted method for a tracked library: the publish it shipped in (sequence + version) and the method's tracked name and line range. The library is selected with a `groupId:artifactId` parameter.
+Example output:
+```
+Pending impacted methods for library com.example:libA:
+Seq | Version | Method id  | Method                                            | Lines
+----+---------+------------+---------------------------------------------------+------
+2   | 1.1.0   | -495364344 | org/example/lib/TireService.getRecommendedPressure.(Ljava/lang/String;)I | 14-23
+```
+
+**Maven (per flavor plugin, e.g. Junit5 and Git)**
+```
+mvn tia-junit5-git:library-pending-methods -DtiaLibrary=com.example:libA
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-library-pending-methods --library=com.example:libA
+```
 
 ### Display the selected tests based on the current state of the workspace
 This will show what tests Tia will select to run based on the current state of the workspace and how Tia is configured.

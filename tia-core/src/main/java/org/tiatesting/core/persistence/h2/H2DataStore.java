@@ -1952,7 +1952,7 @@ public class H2DataStore implements DataStore {
     /**
      * Build the DDL for the {@code tia_library_publish} table - the publish ledger, one row per
      * published build of a tracked library, ordered per library by {@code publish_seq}.
-     * See {@code DESIGN-publish-time-stamping.md} section 2.1.
+     * See the publish-ledger section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the publish ledger
      */

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * {@code (groupArtifact, publishSeq)}, each drained library's {@code last_applied_seq} advances
  * to the resolved build's sequence and its {@code mapping_baseline_commit} to the run's sealed
  * commit, and an all-tests run advances every tracked library's baseline.
- * See {@code DESIGN-publish-time-stamping.md} sections 2.2 and 4.
+ * See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class TestRunnerServiceDrainCleanupTest {
 

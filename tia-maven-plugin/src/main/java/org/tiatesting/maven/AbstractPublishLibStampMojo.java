@@ -14,7 +14,7 @@ import org.tiatesting.core.vcs.VCSReader;
  * install phase on the way through). Configured on the <em>library</em> module's build - the
  * consumer's Tia run only drains what this mojo stamps. Concrete subclasses live in each
  * {@code *-maven-plugin} module and only need to supply a {@link VCSReader} via
- * {@link #getVCSReader()}. See the library stamp/drain chapter in {@code WIKI.md}.
+ * {@link #getVCSReader()}. See the library publish-time stamping chapter in {@code WIKI.md}.
  *
  * <p>Only a build that owns mapping-DB writes may stamp: when {@code tiaUpdateDBMapping} is
  * false (a developer machine against a shared DB) the mojo is a no-op - the local development
