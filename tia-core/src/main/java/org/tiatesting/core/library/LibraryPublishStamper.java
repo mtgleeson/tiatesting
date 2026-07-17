@@ -21,7 +21,7 @@ import java.util.*;
  * the publish ledger and stamps the source methods impacted since the library's mapping baseline -
  * all at the one moment the version and jar content are unambiguous facts. The consumer's drain
  * later resolves the artifact it holds to a ledger row and runs the tests covering every stamp at
- * or below that row's sequence. See {@code DESIGN-publish-time-stamping.md} section 3.
+ * or below that row's sequence. See the publish-stamp-task section of the library publish-time stamping chapter in {@code WIKI.md}.
  *
  * <p>The impacted-method analysis diffs the library's source dirs from the library's
  * {@code mapping_baseline_commit} to HEAD - not from the previous publish - so the diff's

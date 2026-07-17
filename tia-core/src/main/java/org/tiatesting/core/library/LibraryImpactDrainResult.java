@@ -8,7 +8,7 @@ import java.util.*;
  * Carried from the selector to the post-test-run persistence step (serialized across the Maven
  * plugin-to-fork boundary) so that drained stamp rows can be deleted and each drained library's
  * {@code tia_library.last_applied_seq} / {@code mapping_baseline_commit} advanced after the tests
- * finish. See {@code DESIGN-publish-time-stamping.md} section 2.2.
+ * finish. See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public class LibraryImpactDrainResult implements Serializable {
     private static final long serialVersionUID = 1L;

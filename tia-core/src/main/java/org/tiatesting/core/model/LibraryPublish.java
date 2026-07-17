@@ -9,7 +9,7 @@ import java.util.Objects;
  * assigned at publish time. The ledger gives published builds the total order that neither version
  * strings (shared across SNAPSHOT builds) nor jar hashes (opaque) can provide; the drain resolves
  * the artifact the consumer actually holds to its ledger row and drains every pending stamp at or
- * below that row's sequence. See {@code DESIGN-publish-time-stamping.md}.
+ * below that row's sequence. See the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public class LibraryPublish implements Serializable {
     private static final long serialVersionUID = 1L;

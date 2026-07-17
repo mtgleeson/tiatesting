@@ -330,7 +330,7 @@ public class TestRunnerService {
      * {@code last_applied_seq} to the resolved build's sequence and its
      * {@code mapping_baseline_commit} to this run's sealed commit - the drain ran the library's
      * covering suites with coverage, so their method line numbers were just re-captured at this
-     * commit. See {@code DESIGN-publish-time-stamping.md} sections 2.2 and 4.
+     * commit. See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param drainResult the drain result from test selection, or {@code null} if no drain occurred.
      * @param commitValue the commit this run seals - the new mapping baseline for drained libraries.
@@ -391,7 +391,7 @@ public class TestRunnerService {
      * Advance every tracked library's {@code mapping_baseline_commit} to this run's sealed
      * commit after an all-tests run: every suite ran with coverage, so every library's tracked
      * method line numbers were just re-captured at this commit. A no-op when no libraries are
-     * tracked. See {@code DESIGN-publish-time-stamping.md} section 4.
+     * tracked. See the mapping-baseline section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param commitValue the commit this run seals.
      */

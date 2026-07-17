@@ -206,7 +206,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * {@code mvn install}, where a local consumer build resolves from) by name via
      * {@code configureEach}, so the hook attaches whether the {@code maven-publish} plugin is
      * applied before or after Tia and is a silent no-op on projects that never publish.
-     * See the library stamp/drain chapter in {@code WIKI.md}.
+     * See the library publish-time stamping chapter in {@code WIKI.md}.
      */
     private void hookPublishStampTasks() {
         project.getTasks().configureEach(task -> {

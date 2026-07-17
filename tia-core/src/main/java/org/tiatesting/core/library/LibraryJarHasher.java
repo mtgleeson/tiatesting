@@ -13,7 +13,7 @@ import java.security.NoSuchAlgorithmException;
  * Content-hashes library artifacts for the publish ledger and the drain lookup. The producer
  * hashes the jar it is publishing; the consumer hashes the jar it resolved and matches it against
  * the ledger to identify the exact published build (version strings are shared across SNAPSHOT
- * builds and identify nothing). See {@code DESIGN-publish-time-stamping.md} section 2.
+ * builds and identify nothing). See the ledger and drain sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public final class LibraryJarHasher {
 
