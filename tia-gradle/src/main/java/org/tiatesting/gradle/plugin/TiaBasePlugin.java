@@ -2,7 +2,10 @@ package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.bundling.AbstractArchiveTask;
+import org.tiatesting.core.library.LibraryPublishStamper;
 import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
@@ -52,6 +55,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createHtmlReportTask();
         createSelectTestsTask();
         createHistoryTask();
+        hookPublishStampTasks();
     }
 
     public void createStatusTask() {
@@ -166,6 +170,76 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         } else {
             return getCheckLocalChanges();
         }
+    }
+
+    /**
+     * Hook the Tia publish stamp onto this project's Maven publish tasks so a library module
+     * publishing an artifact records the build in the publish ledger and stamps the source
+     * methods impacted since its mapping baseline. Matches the aggregate {@code publish} task
+     * (remote repositories) and {@code publishToMavenLocal} (the local {@code ~/.m2} analog of
+     * {@code mvn install}, where a local consumer build resolves from) by name via
+     * {@code configureEach}, so the hook attaches whether the {@code maven-publish} plugin is
+     * applied before or after Tia and is a silent no-op on projects that never publish.
+     * See the library stamp/drain chapter in {@code WIKI.md}.
+     */
+    private void hookPublishStampTasks() {
+        project.getTasks().configureEach(task -> {
+            if ("publish".equals(task.getName()) || "publishToMavenLocal".equals(task.getName())) {
+                task.doLast(t -> stampPublish());
+            }
+        });
+    }
+
+    /**
+     * Record this project's publish in the Tia publish ledger and stamp its impacted methods.
+     * No-ops when Tia is disabled or this build does not own mapping-DB writes
+     * ({@code updateDBMapping=false}, e.g. a developer machine against a shared DB - the local
+     * development flow is covered app-side without persisted stamps). The stamper itself skips,
+     * with a warning, when this project is not a tracked library in the Tia DB.
+     */
+    private void stampPublish() {
+        if (!Boolean.TRUE.equals(getEnabled())) {
+            LOGGER.debug("Tia is disabled - skipping publish stamp.");
+            return;
+        }
+        if (!Boolean.TRUE.equals(getUpdateDBMapping())) {
+            LOGGER.info("Tia publish stamp skipped: this build does not own mapping-DB writes "
+                    + "(updateDBMapping=false).");
+            return;
+        }
+
+        String groupArtifact = project.getGroup() + ":" + project.getName();
+        String publishedVersion = String.valueOf(project.getVersion());
+        String jarFilePath = resolveBuiltArchivePath();
+
+        VCSReader vcsReader = getVCSReader();
+        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(vcsReader.getBranchName()))) {
+            LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
+                    .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath);
+            LOGGER.info("Tia publish stamp for {} {}: {} (seq {}, {} methods).",
+                    groupArtifact, publishedVersion, result.getOutcome(), result.getPublishSeq(),
+                    result.getStampedMethodIds().size());
+        }
+    }
+
+    /**
+     * Resolve the file path of the archive this project's {@code jar} task produced, for
+     * content-hashing into the ledger row. When no built archive is available the publish is
+     * still recorded, with a null hash - the drain then identifies the build by exact version
+     * for releases.
+     *
+     * @return the built jar's absolute path, or null when the jar task or its output is absent.
+     */
+    private String resolveBuiltArchivePath() {
+        Task jarTask = project.getTasks().findByName("jar");
+        if (jarTask instanceof AbstractArchiveTask) {
+            File archive = ((AbstractArchiveTask) jarTask).getArchiveFile().get().getAsFile();
+            if (archive.exists()) {
+                return archive.getAbsolutePath();
+            }
+        }
+        LOGGER.warn("No built jar archive found - the publish will be recorded without a jar hash.");
+        return null;
     }
 
     public abstract VCSReader getVCSReader();
