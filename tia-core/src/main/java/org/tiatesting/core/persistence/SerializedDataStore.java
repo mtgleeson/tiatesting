@@ -225,6 +225,17 @@ public class SerializedDataStore implements DataStore {
     }
 
     @Override
+    public List<LibraryPublish> readAllLibraryPublishes() {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(Set<Integer> methodIds) {
+        // targeted method-id reads are only supported in the H2 data store
+        return new HashMap<>();
+    }
+
+    @Override
     public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
         // the library publish ledger is only supported in the H2 data store
         return 0;

@@ -55,7 +55,33 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createHtmlReportTask();
         createSelectTestsTask();
         createHistoryTask();
+        createLibraryPublishesTask();
+        createLibraryPendingMethodsTask();
         hookPublishStampTasks();
+    }
+
+    /**
+     * Register the {@code tia-library-publishes} task - prints a tracked library's publish
+     * ledger as a table. The library is selected with the {@code --library=groupId:artifactId}
+     * option; mirrors {@link #createHistoryTask()} in shape.
+     */
+    public void createLibraryPublishesTask() {
+        project.getTasks().register("tia-library-publishes", TiaLibraryPublishesTask.class, task -> {
+            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setConnectionSettingsFactory(this::buildH2ConnectionSettings);
+        });
+    }
+
+    /**
+     * Register the {@code tia-library-pending-methods} task - prints a tracked library's pending
+     * impacted methods as a table. The library is selected with the
+     * {@code --library=groupId:artifactId} option; mirrors {@link #createHistoryTask()} in shape.
+     */
+    public void createLibraryPendingMethodsTask() {
+        project.getTasks().register("tia-library-pending-methods", TiaLibraryPendingMethodsTask.class, task -> {
+            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setConnectionSettingsFactory(this::buildH2ConnectionSettings);
+        });
     }
 
     public void createStatusTask() {

@@ -325,6 +325,14 @@ class TestRunnerServiceSealOrderTest {
             return delegate.readLibraryPublishes(groupArtifact);
         }
         @Override
+        public List<LibraryPublish> readAllLibraryPublishes() {
+            return delegate.readAllLibraryPublishes();
+        }
+        @Override
+        public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(Set<Integer> methodIds) {
+            return delegate.getMethodsTrackedForIds(methodIds);
+        }
+        @Override
         public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
             return delegate.persistLibraryPublish(publish, impactedMethodIds);
         }

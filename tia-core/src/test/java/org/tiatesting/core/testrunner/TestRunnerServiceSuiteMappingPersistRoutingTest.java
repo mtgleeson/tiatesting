@@ -200,6 +200,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public void persistTrackedLibrary(TrackedLibrary trackedLibrary) { delegate.persistTrackedLibrary(trackedLibrary); }
         @Override public void deleteTrackedLibrary(String groupArtifact) { delegate.deleteTrackedLibrary(groupArtifact); }
         @Override public List<LibraryPublish> readLibraryPublishes(String groupArtifact) { return delegate.readLibraryPublishes(groupArtifact); }
+        @Override public List<LibraryPublish> readAllLibraryPublishes() { return delegate.readAllLibraryPublishes(); }
+        @Override public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(Set<Integer> methodIds) { return delegate.getMethodsTrackedForIds(methodIds); }
         @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) { return delegate.persistLibraryPublish(publish, impactedMethodIds); }
         @Override public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) { return delegate.lookupLibraryPublish(groupArtifact, jarHash, version); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
