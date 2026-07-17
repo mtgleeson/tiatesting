@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * task stamps ({@link LibraryPublishStamper}), the consumer's drain selects
  * ({@link PendingLibraryImpactedMethodsDrainer}) and the post-test-run persist cleans up
  * ({@link TestRunnerService}). Each test walks publish -> resolve -> drain -> cleanup against a
- * real H2 datastore. See {@code DESIGN-publish-time-stamping.md}.
+ * real H2 datastore. See the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class LibraryImpactEndToEndTest {
 

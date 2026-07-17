@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * leapfrog (drain everything at or below the resolved build), release-version fallback lookup,
  * stale-resolve hold, unknown-build hold, downgrade guard, snapshot version strings never
  * identifying a build, and the no-pending fast path that skips library resolution entirely.
- * See {@code DESIGN-publish-time-stamping.md} section 2.2.
+ * See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class PendingLibraryImpactedMethodsDrainerTest {
 

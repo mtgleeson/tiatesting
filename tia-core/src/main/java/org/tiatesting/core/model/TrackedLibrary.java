@@ -8,7 +8,7 @@ import java.util.Objects;
  * Each row captures the library's identity (group:artifact), its source directory layout, and
  * the consumer-side ledger state: the mapping baseline commit the publish-time stamper diffs
  * from, and the last applied publish sequence used for downgrade warnings and reporting.
- * See {@code DESIGN-publish-time-stamping.md}.
+ * See the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public class TrackedLibrary implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -27,7 +27,7 @@ public class TrackedLibrary implements Serializable {
      * all-tests run, or a primary run that drained this library's stamps and so re-covered its
      * suites). The publish-time stamp task diffs from this commit so the diff's original-side
      * line coordinates exactly match the mapping's ranges. Null until first captured.
-     * See {@code DESIGN-publish-time-stamping.md} section 4.
+     * See the mapping-baseline section of the library publish-time stamping chapter in {@code WIKI.md}.
      */
     private String mappingBaselineCommit;
 
@@ -36,7 +36,7 @@ public class TrackedLibrary implements Serializable {
      * impacted tests the consumer has run. Deliberately not part of the drain predicate (the
      * pending-stamp set is self-describing via delete-on-drain); used only for the downgrade /
      * stale-resolve warning and reporting. Null until the first drain.
-     * See {@code DESIGN-publish-time-stamping.md} section 2.2.
+     * See the drain-rule section of the library publish-time stamping chapter in {@code WIKI.md}.
      */
     private Long lastAppliedSeq;
 

@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       AND drains persisted stamps for published changes the local classpath contains, all
  *       with zero writes.</li>
  * </ul>
- * See the library stamp/drain chapter in {@code WIKI.md}.
+ * See the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class TestSelectorLibraryPreviewTest {
 

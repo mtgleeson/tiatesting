@@ -751,7 +751,7 @@ public class TestSelector {
      * a library change is not a source-project change - and, under publish-time stamping, the app
      * run does not stamp them either: the library's own publish records the impacted methods, and
      * the drain picks them up once the app resolves a build that contains them.
-     * See {@code DESIGN-publish-time-stamping.md} section 3.
+     * See the publish-stamp-task section of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param allModifiedSourceDiffs all modified source-file diff contexts for this run
      * @return the source-project diffs (those not belonging to any tracked library).
