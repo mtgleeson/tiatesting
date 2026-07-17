@@ -360,7 +360,12 @@ libraries and their pending changes.
 
 Stage 7 - docs and cleanup. Rewrite the WIKI stamp/drain chapter around this design (fold this
 file in), update README library-tracking sections, remove policy configuration from docs and
-sample configs, drop the now-dead tia_library columns from the schema DDL.
+sample configs, drop the now-dead tia_library columns from the schema DDL. Re-point every
+javadoc/comment reference to this design doc (stages 1-4 used "See DESIGN-publish-time-stamping.md
+section N") at the new WIKI chapter sections, then delete this file. If WIKI.md has grown too
+large as a single document, split it into per-chapter subpages (e.g. a wiki/ directory, one md
+file per chapter) with WIKI.md remaining as the index: title + one-line summary + relative link
+per chapter, and prev/next links in each subpage.
 
 ## 9. Out of scope
 

@@ -13,6 +13,7 @@ This file captures project-specific conventions Claude should follow when workin
 - Use `@param` for each parameter and `@return` when the method returns a value.
 - The javadoc should explain the method's purpose and summarize what it does, not just restate the signature.
 - This is the project default. The "no comments" rule from broader guidance does not apply here.
+- Do not reference planning/design markdown files (e.g. `DESIGN-*.md`) in javadocs or code comments; reference the relevant `WIKI.md` chapter instead. Design docs are transient working documents; the WIKI is the durable reference. When a design lands and its WIKI chapter is written, re-point any interim references at the WIKI.
 
 ## Staged delivery
 
