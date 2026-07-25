@@ -155,9 +155,9 @@ The producer side is a goal/task on the **library** module's build, firing on ev
 
 The task reads the module's own coordinate and version from its build, hashes the built artifact
 (a publish without a resolvable jar is still recorded, with a null hash - the drain then
-identifies the build by exact version for releases), diffs the library's source dirs from the
-mapping baseline to HEAD, intersects the hunks with the tracked method line ranges, and persists
-ledger + stamp atomically.
+identifies the build by exact version for releases), computes the impacted methods with the
+two-diff approach described in [Two diffs: identify, then filter](#two-diffs-identify-then-filter),
+and persists ledger + stamp atomically.
 
 Behaviours worth knowing:
 
@@ -183,13 +183,64 @@ previous publish, which would compound line drift and risk underselection).
 
 The baseline advances only when line numbers actually refresh: on an all-tests run (every suite
 re-covered), and on a primary run that drained the library's stamps (the drain ran its covering
-suites with coverage). Stamps are therefore cumulative since the baseline; successive publishes
-overlap, and the drain's union-by-method semantics make the overlap harmless - a method touched in
-five publishes runs its tests once.
+suites with coverage). Between advances the baseline diff is cumulative - it re-reports every
+method changed since the baseline on every publish - so a second diff filters that set down to what
+is genuinely new for each publish, as the next section explains.
 
 Known parity limitation: a brand-new library method has no coverage mapping until the consumer
 re-covers it, so no stamp can select tests for it - the drain run that picks up the changed
 methods re-covers and registers the new ones.
+
+### Two diffs: identify, then filter
+
+The cumulative baseline diff has a cost: a change stays in it until the consumer drains and the
+baseline advances, so every publish in between re-reports the same methods. When those publishes
+straddle the consumer's adoption - a common case, since a library is often released and
+version-bumped several times before the app moves - the later re-stamps survive the drain and
+re-run already-covered tests. The stamp is therefore computed from **two diffs with distinct
+jobs**:
+
+- **Diff 1 - identify (always `mapping_baseline_commit .. HEAD`).** Its original side sits on the
+  mapping's commit, so its hunks line up with the mapping's stored method line ranges and the
+  intersection yields *exact method ids*. It runs on every publish, is always method-precise, and
+  is cumulative.
+- **Diff 2 - filter (`previous publish commit .. HEAD`).** Used only to answer, per file, "did this
+  file change at all since the last publish?" Its hunks are **never** mapped to methods: the
+  previous-publish coordinates do not align with the baseline-based mapping ranges (an earlier edit
+  may have shifted every line below it), so it can only be trusted at file granularity.
+
+The recorded stamp is **the method ids from Diff 1, keeping only those whose file also appears in
+Diff 2**. Diff 2 is purely a filter over the precise list Diff 1 produced - it never contributes a
+method of its own, and the stored data is always method ids, never file names.
+
+Worked example. `Calculator.java` has methods `add()` and `subtract()`; the consumer does not run
+across this sequence, so the baseline stays put:
+
+| Publish       | Source event                    | Diff 1 (from baseline) | Diff 2 (from prev publish)      | Stamp |
+|---------------|---------------------------------|------------------------|---------------------------------|-------|
+| 1.7-SNAPSHOT  | edit `add()`                    | `{add}`                | prev = baseline -> filter skipped | `{add}` |
+| 1.7 (release) | version-only bump, same source  | `{add}`                | no source file changed          | `{}`  |
+| 1.8-SNAPSHOT  | version-only bump, same source  | `{add}`                | no source file changed          | `{}`  |
+
+The change is stamped once, on the publish that introduced it. A consumer that adopts 1.7 drains
+that one stamp and runs `add`'s tests; moving to 1.8-SNAPSHOT later finds an empty stamp and runs
+nothing. Under a cumulative-only model all three publishes would stamp `{add}`, and the
+1.8-SNAPSHOT stamp would linger past the 1.7 drain to re-run those tests for nothing.
+
+Two properties fall out of the file-granular filter:
+
+- **It never misses.** A method is always stamped at the publish whose Diff 2 touches its file -
+  that is the publish that actually edits it. The filter only ever *removes* a method already
+  stamped by an earlier publish whose file has since been quiet.
+- **It leaves a bounded redundancy.** If two different methods in the *same* file change across
+  publishes that straddle a drain, the earlier method rides along when the later one's file
+  re-appears in Diff 2 (the filter cannot sub-select methods within a file). The cost is one extra
+  run of already-green tests, never a skipped test. Method-precise dedup would require computing
+  method boundaries at HEAD (a mapping run at publish time), not worth it for that residual.
+
+The first publish in each baseline window - the seed, and the first publish after a drain advances
+the baseline - has its previous publish equal to the baseline, so Diff 2 is skipped and the publish
+stamps the full precise Diff 1.
 
 ### Local development flow
 

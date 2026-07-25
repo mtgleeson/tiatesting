@@ -23,12 +23,28 @@ import java.util.*;
  * later resolves the artifact it holds to a ledger row and runs the tests covering every stamp at
  * or below that row's sequence. See the publish-stamp-task section of the library publish-time stamping chapter in {@code WIKI.md}.
  *
- * <p>The impacted-method analysis diffs the library's source dirs from the library's
- * {@code mapping_baseline_commit} to HEAD - not from the previous publish - so the diff's
- * original-side line coordinates exactly match the tracked method ranges in the mapping and the
- * intersection is exact. Stamps are therefore cumulative since the baseline; the drain's
- * union-by-method semantics make the overlap between successive publishes harmless
- * (design section 4).
+ * <p>The impacted-method analysis uses two diffs with distinct jobs. Diff 1 identifies the
+ * methods: it diffs the library's source dirs from the library's {@code mapping_baseline_commit}
+ * to HEAD - not from the previous publish - so the diff's original-side line coordinates exactly
+ * match the tracked method ranges in the mapping and the intersection yields exact method ids. It
+ * runs on every publish and is always method-precise (it is cumulative: it re-reports every method
+ * that differs from the baseline). Diff 2 is a dedup filter: it diffs from the previous publish's
+ * commit to HEAD purely to answer, per file, "did this file change at all since the last publish?"
+ * Its hunks are never mapped to methods - the previous-publish coordinates do not align with the
+ * baseline-based mapping ranges, so it can only be trusted at file level.
+ *
+ * <p>The stamp recorded is the method ids from Diff 1 restricted to files that changed since the
+ * previous publish (Diff 2). A publish that introduces no new source change (a version-only
+ * release, or a re-publish of the same commit) therefore records an empty stamp rather than
+ * re-stamping methods already pending from an earlier publish - which would otherwise re-run
+ * already-covered tests once a consumer resolves that later build. The filter never drops a
+ * genuinely new change (a method is always stamped at the publish whose diff touches its file);
+ * it only over-retains an already-stamped method that shares a file with a newly-changed one,
+ * costing at worst one extra run of already-green tests. The first publish in each baseline
+ * window (the seed, and the first publish after a consumer drain advances the baseline) has its
+ * previous publish equal to the baseline, so the filter is a no-op and that publish is fully
+ * precise. See the publish-stamp-task and mapping-baseline sections of the library publish-time
+ * stamping chapter in {@code WIKI.md}.
  */
 public class LibraryPublishStamper {
 
@@ -84,7 +100,9 @@ public class LibraryPublishStamper {
             return new PublishStampResult(PublishStampResult.Outcome.SEEDED, seq, Collections.emptySet());
         }
 
-        Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked);
+        String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
+        Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
+                previousPublishCommit);
         long seq = dataStore.persistLibraryPublish(publish, impactedMethods);
         log.info("Stamped publish of library '{}' version '{}' at seq {} with {} impacted methods.",
                 groupArtifact, publishedVersion, seq, impactedMethods.size());
@@ -92,18 +110,42 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Compute the tracked source methods impacted by the library's changes between its mapping
-     * baseline commit and HEAD. Mirrors the consumer-side flow: diff the library's source dirs,
-     * keep the modified files that are tracked in the mapping, load their content and intersect
-     * the change hunks with the tracked method line ranges.
+     * Resolve the commit of the library's most recent publish - the "from" side of the dedup
+     * filter's Diff 2. That is the {@code commitValue} of the highest-sequence ledger row for the
+     * library; when the ledger is somehow empty (it always holds at least the seed row by the time
+     * this runs) it falls back to the mapping baseline, which makes the filter a no-op.
+     *
+     * @param dataStore the data store to read the publish ledger from.
+     * @param groupArtifact the {@code groupId:artifactId} of the library being published.
+     * @param tracked the tracked library, used for the baseline fallback.
+     * @return the previous publish's commit, or the mapping baseline when no publish exists yet.
+     */
+    private String resolvePreviousPublishCommit(DataStore dataStore, String groupArtifact, TrackedLibrary tracked) {
+        List<LibraryPublish> ledger = dataStore.readLibraryPublishes(groupArtifact);
+        if (ledger.isEmpty()) {
+            return tracked.getMappingBaselineCommit();
+        }
+        return ledger.get(ledger.size() - 1).getCommitValue();
+    }
+
+    /**
+     * Compute the tracked source methods to stamp for this publish. Runs two diffs (see the
+     * publish-stamp-task section of the library publish-time stamping chapter in {@code WIKI.md}):
+     * Diff 1, from the mapping baseline to HEAD, identifies the impacted methods precisely (its
+     * coordinates align with the mapping ranges); Diff 2, from the previous publish's commit to
+     * HEAD, is a file-level filter that keeps only the impacted methods whose file actually changed
+     * since the previous publish. The result is method-granular but deduped, so a version-only or
+     * same-commit re-publish stamps nothing.
      *
      * @param dataStore the data store for the changed-files-to-tracked-methods read.
      * @param vcsReader the VCS reader used to diff and load file content.
      * @param tracked the tracked library whose baseline and source dirs drive the diff.
-     * @return the impacted tracked method ids; empty when nothing changed or nothing is tracked.
+     * @param previousPublishCommit the commit of the previous publish, driving the Diff 2 filter.
+     * @return the impacted tracked method ids; empty when nothing changed since the previous
+     *         publish or nothing is tracked.
      */
     private Set<Integer> findImpactedMethodsSinceBaseline(DataStore dataStore, VCSReader vcsReader,
-                                                          TrackedLibrary tracked) {
+                                                          TrackedLibrary tracked, String previousPublishCommit) {
         List<String> sourceDirs = resolveLibrarySourceDirs(tracked);
         if (sourceDirs.isEmpty()) {
             log.warn("Library '{}' has no source dirs or project dir recorded - cannot diff, stamping nothing.",
@@ -121,6 +163,12 @@ public class LibraryPublishStamper {
             return Collections.emptySet();
         }
 
+        modified = restrictToFilesChangedSincePreviousPublish(vcsReader, tracked, previousPublishCommit,
+                modified, sourceDirs);
+        if (modified.isEmpty()) {
+            return Collections.emptySet();
+        }
+
         Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile =
                 loadMethodsTrackedForDiffs(dataStore, modified, sourceDirs);
         List<SourceFileDiffContext> trackedDiffs = filterToTrackedFiles(modified, methodsTrackedByFile, sourceDirs);
@@ -130,6 +178,52 @@ public class LibraryPublishStamper {
 
         vcsReader.loadContentForDiffs(trackedDiffs, baseline, false);
         return fileImpactAnalyzer.getMethodsForFilesChanged(trackedDiffs, methodsTrackedByFile, sourceDirs);
+    }
+
+    /**
+     * Diff 2, the dedup filter: keep only the baseline-diff modified files that also changed since
+     * the previous publish's commit. This is deliberately file-granular - the previous-publish-to-HEAD
+     * diff's line coordinates do not align with the baseline-based mapping ranges, so it cannot be
+     * used to pick out individual methods, only whole files. It never drops a genuinely new change
+     * (a file is always in this diff at the publish that edits it); it only removes files that were
+     * already stamped by an earlier publish and untouched since. When the previous publish is the
+     * baseline itself (the first publish in a baseline window), the filter is skipped entirely, so
+     * that publish stamps the full precise baseline diff.
+     *
+     * @param vcsReader the VCS reader used to run the since-previous-publish diff.
+     * @param tracked the tracked library (used for its group:artifact in logging).
+     * @param previousPublishCommit the "from" commit of the filter diff.
+     * @param baselineModified the modified files from the baseline diff (Diff 1).
+     * @param sourceDirs the library source dirs to restrict the diff to.
+     * @return the subset of {@code baselineModified} whose files also changed since the previous
+     *         publish; the input unchanged when the previous publish equals the baseline.
+     */
+    private List<SourceFileDiffContext> restrictToFilesChangedSincePreviousPublish(
+            VCSReader vcsReader, TrackedLibrary tracked, String previousPublishCommit,
+            List<SourceFileDiffContext> baselineModified, List<String> sourceDirs) {
+        String baseline = tracked.getMappingBaselineCommit();
+        if (previousPublishCommit == null || previousPublishCommit.equals(baseline)) {
+            return baselineModified;
+        }
+
+        Set<SourceFileDiffContext> sincePrevious = vcsReader.getDiffFiles(previousPublishCommit, sourceDirs,
+                Collections.emptyList(), false);
+        Set<String> pathsChangedSincePrevious = new HashSet<>();
+        for (SourceFileDiffContext diff : sincePrevious) {
+            pathsChangedSincePrevious.add(diff.getNewFilePath());
+        }
+
+        List<SourceFileDiffContext> kept = new ArrayList<>();
+        for (SourceFileDiffContext diff : baselineModified) {
+            if (pathsChangedSincePrevious.contains(diff.getNewFilePath())) {
+                kept.add(diff);
+            } else {
+                log.debug("Library '{}' file {} is impacted since the mapping baseline but unchanged since the "
+                                + "previous publish ({}) - already stamped, not re-stamping.",
+                        tracked.getGroupArtifact(), diff.getNewFilePath(), previousPublishCommit);
+            }
+        }
+        return kept;
     }
 
     /**
