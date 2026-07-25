@@ -25,10 +25,12 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Stage 2 coverage for {@link LibraryPublishStamper}: first-publish baseline seeding, stamping the
- * methods impacted since the mapping baseline (with the ledger row and stamp written together),
- * ledger-only empty-diff publishes, the untracked-library skip, and cumulative-since-baseline
- * stamps across successive publishes. See the publish-stamp-task and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
+ * Coverage for {@link LibraryPublishStamper}: first-publish baseline seeding, stamping the methods
+ * impacted since the mapping baseline (with the ledger row and stamp written together), ledger-only
+ * empty-diff publishes, the untracked-library skip, cumulative-since-baseline stamps across
+ * successive publishes, and the since-previous-publish dedup filter (a version-only re-publish
+ * stamps nothing; only methods in files changed since the previous publish are stamped). See the
+ * publish-stamp-task and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
 class LibraryPublishStamperTest {
 
@@ -207,6 +209,80 @@ class LibraryPublishStamperTest {
     }
 
     /**
+     * A version-only re-publish records the ledger row but an empty stamp. Diff 1 (baseline..HEAD)
+     * still reports the method, but Diff 2 (previousPublish..HEAD) reports no changed source file,
+     * so the dedup filter removes it - the change is already pending from the earlier publish and
+     * re-stamping it would make a consumer that resolves this later build re-run covered tests.
+     */
+    @Test
+    void versionOnlyRepublishRecordsLedgerRowWithEmptyStamp() {
+        // given a tracked library with a seeded baseline and a first publish that stamped the change
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
+        lib.setMappingBaselineCommit("baseline-1");
+        dataStore.persistTrackedLibrary(lib);
+        PublishStampResult first = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)), LIB, "1.7-SNAPSHOT", null);
+        assertEquals(Collections.singleton(METHOD_LIB), first.getStampedMethodIds());
+
+        // when a version-only publish follows: Lib.java still differs from the baseline (Diff 1),
+        // but nothing changed since the previous publish head-2 (Diff 2 is empty)
+        Map<String, Set<SourceFileDiffContext>> byBase = new HashMap<>();
+        byBase.put("baseline-1", setOf(diffFor(LIB_FILE_KEY)));
+        byBase.put("head-2", Collections.emptySet());
+        PublishStampResult second = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-3", setOf(diffFor(LIB_FILE_KEY)), byBase), LIB, "1.7", null);
+
+        // then the ledger row is written but the stamp is empty, and only the first publish is pending
+        assertEquals(PublishStampResult.Outcome.STAMPED, second.getOutcome());
+        assertEquals(2L, second.getPublishSeq());
+        assertTrue(second.getStampedMethodIds().isEmpty());
+        assertEquals(2, dataStore.readLibraryPublishes(LIB).size());
+        List<PendingLibraryImpactedMethod> pending = dataStore.readPendingLibraryImpactedMethods(LIB);
+        assertEquals(1, pending.size());
+        assertEquals(Long.valueOf(1L), pending.get(0).getPublishSeq());
+        assertEquals(Collections.singleton(METHOD_LIB), pending.get(0).getSourceMethodIds());
+    }
+
+    /**
+     * The dedup filter stays method-precise across files: a publish whose only change since the
+     * previous publish is in Other.java stamps just that file's method, even though the cumulative
+     * baseline diff (Diff 1) still reports Lib.java's already-pending method. Lib.java is dropped
+     * because it did not change since the previous publish.
+     */
+    @Test
+    void publishStampsOnlyMethodsInFilesChangedSincePreviousPublish() {
+        // given a tracked library with a seeded baseline and a first publish that stamped Lib.java
+        TrackedLibrary lib = new TrackedLibrary(LIB, "/projects/lib", LIB_SRC_DIR);
+        lib.setMappingBaselineCommit("baseline-1");
+        dataStore.persistTrackedLibrary(lib);
+        stamper.stampPublish(dataStore, new StubVCSReader("head-2", diffFor(LIB_FILE_KEY)),
+                LIB, "1.0.1-SNAPSHOT", null);
+
+        // when the second publish's cumulative baseline diff spans both files but only Other.java
+        // changed since the previous publish head-2
+        Map<String, Set<SourceFileDiffContext>> byBase = new HashMap<>();
+        byBase.put("baseline-1", setOf(diffFor(LIB_FILE_KEY), diffFor(OTHER_FILE_KEY)));
+        byBase.put("head-2", setOf(diffFor(OTHER_FILE_KEY)));
+        PublishStampResult second = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-3", setOf(diffFor(LIB_FILE_KEY), diffFor(OTHER_FILE_KEY)), byBase),
+                LIB, "1.0.2-SNAPSHOT", null);
+
+        // then only Other.java's method is stamped for the second publish
+        assertEquals(Collections.singleton(METHOD_OTHER), second.getStampedMethodIds());
+        assertEquals(2L, second.getPublishSeq());
+    }
+
+    /**
+     * Build a mutable set of the given diff contexts.
+     *
+     * @param diffs the diff contexts to collect.
+     * @return a new {@link HashSet} holding them.
+     */
+    private static Set<SourceFileDiffContext> setOf(SourceFileDiffContext... diffs) {
+        return new HashSet<>(Arrays.asList(diffs));
+    }
+
+    /**
      * Seed a mapping where the library files {@code Lib.java} and {@code Other.java} each have one
      * tracked method spanning lines 2-8, covered by a test suite apiece.
      */
@@ -248,17 +324,27 @@ class LibraryPublishStamperTest {
     }
 
     /**
-     * Stub reader returning a fixed diff set and, on content load, supplying original/changed
-     * content that differs on line 5 - inside the seeded methods' 2-8 range - so method-impact
-     * analysis yields the tracked method for each diffed file.
+     * Stub reader returning a diff set per requested base commit and, on content load, supplying
+     * original/changed content that differs on line 5 - inside the seeded methods' 2-8 range - so
+     * method-impact analysis yields the tracked method for each diffed file. The varargs
+     * constructor returns the same diffs for any base (Diff 1 and Diff 2 see the same change); the
+     * map constructor lets a test return different diffs for the baseline (Diff 1) than for the
+     * previous-publish commit (Diff 2), which is how the dedup filter is exercised.
      */
     private static final class StubVCSReader implements VCSReader {
         private final String headCommit;
-        private final Set<SourceFileDiffContext> diffs;
+        private final Set<SourceFileDiffContext> defaultDiffs;
+        private final Map<String, Set<SourceFileDiffContext>> diffsByBase;
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
+            this(headCommit, new HashSet<>(Arrays.asList(diffs)), Collections.emptyMap());
+        }
+
+        StubVCSReader(String headCommit, Set<SourceFileDiffContext> defaultDiffs,
+                      Map<String, Set<SourceFileDiffContext>> diffsByBase) {
             this.headCommit = headCommit;
-            this.diffs = new HashSet<>(Arrays.asList(diffs));
+            this.defaultDiffs = defaultDiffs;
+            this.diffsByBase = diffsByBase;
         }
 
         @Override public String getBranchName() { return "test"; }
@@ -267,7 +353,7 @@ class LibraryPublishStamperTest {
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                        List<String> testFilesDirs, boolean checkLocalChanges) {
-            return diffs;
+            return diffsByBase.getOrDefault(baseChangeNum, defaultDiffs);
         }
 
         @Override
