@@ -24,7 +24,7 @@ public class IgnoreTestInstrumentor {
 
         new AgentBuilder.Default()
                 .type(ElementMatchers.namedOneOf(ignoredTests.toArray(new String[ignoredTests.size()])))
-                .transform((builder, typeDescription, agr3, arg4) -> builder.annotateType(ignoreDescription))
+                .transform((builder, typeDescription, arg3, arg4, arg5) -> builder.annotateType(ignoreDescription))
                 .installOn(instrumentation);
     }
 }
