@@ -12,7 +12,7 @@ import java.util.function.Function;
  * <ul>
  *   <li><b>Embedded</b> (no {@code dbUrl}): the {@code dbFilePath} directory plus the branch
  *       suffix produce a {@code jdbc:h2:<path>/tiadb-<suffix>} URL, with the historical
- *       {@code sa}/{@code 1234} credentials.</li>
+ *       {@code tia}/{@code 1234} credentials.</li>
  *   <li><b>Server</b> ({@code dbUrl} present): the supplied URL is used as given (Tia does not
  *       append any embedded-only engine options), except that an optional
  *       {@value #BRANCH_PLACEHOLDER} token is expanded to {@code tiadb-<branch>} for per-branch
@@ -66,7 +66,7 @@ public class H2ConnectionSettings {
 
     /**
      * Build embedded-mode settings backed by a file-on-disk H2 database, using the historical
-     * {@code sa}/{@code 1234} credentials.
+     * {@code tia}/{@code 1234} credentials.
      *
      * @param dbFilePath   the directory that holds (or will hold) the H2 database file
      * @param branchSuffix the VCS branch name, appended as {@code tiadb-<suffix>} to give each
@@ -84,7 +84,7 @@ public class H2ConnectionSettings {
      *
      * <p>Credentials resolve in precedence order: the explicitly configured value, then the
      * {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} environment variable, then a default
-     * ({@code sa} for the user, an empty password). The environment-variable fallback lets a
+     * ({@code tia} for the user, an empty password). The environment-variable fallback lets a
      * build keep the password out of its checked-in Gradle/Maven config entirely - CI sets the
      * secret in the environment and leaves {@code dbPassword} unset.
      *
