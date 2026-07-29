@@ -41,7 +41,7 @@ Why Tia doesn't append it automatically: the server-mode contract is that the UR
 
 ### Credential resolution and keeping secrets out of config
 
-Server mode needs a username and password, and the obvious place to put them - the `tia { dbPassword = '...' }` block or the POM `<tiaDBPassword>` - is checked into source control. To avoid committing a secret, `H2ConnectionSettings.server(...)` resolves each credential by precedence: the explicitly configured value, then a `TIA_DB_USER` / `TIA_DB_PASSWORD` environment variable, then a default (`sa` / empty). So a build can leave `dbPassword` unset and have CI inject `TIA_DB_PASSWORD` into the environment, keeping the repo credential-free.
+Server mode needs a username and password, and the obvious place to put them - the `tia { dbPassword = '...' }` block or the POM `<tiaDBPassword>` - is checked into source control. To avoid committing a secret, `H2ConnectionSettings.server(...)` resolves each credential by precedence: the explicitly configured value, then a `TIA_DB_USER` / `TIA_DB_PASSWORD` environment variable, then a default (`tia` / empty). So a build can leave `dbPassword` unset and have CI inject `TIA_DB_PASSWORD` into the environment, keeping the repo credential-free.
 
 The fallback lives in the single `server(...)` factory, so it applies uniformly to every entry point (`fromConfig`, `fromSystemProperties`, and the Maven/Gradle builders that delegate to them). The environment lookup is passed in via a package-private overload (`server(url, user, password, branchSuffix, env)`) so the precedence logic is unit-tested without mutating the real process environment. This is intentionally a *fallback*, not a replacement for the build tools' own indirection (Maven `${env.X}` / encrypted settings.xml, Gradle `~/.gradle/gradle.properties`): those still work and compose, since they resolve before Tia ever sees the value. Tia never logs the password - only the JDBC URL - so the one remaining footgun is embedding credentials inside `dbUrl` itself.
 
@@ -97,7 +97,7 @@ tia {
 
 (`DB_CLOSE_DELAY=-1` keeps the database open between Tia's per-operation connections - see the dedicated subsection above.)
 
-With no credentials configured, Tia falls back through `TIA_DB_USER` / `TIA_DB_PASSWORD` to `sa` / empty (see the credential-resolution subsection above), which matches the `sa`/empty account H2 creates for a brand-new database. To rehearse the env-var fallback, `export TIA_DB_PASSWORD=...` before the build and leave `dbPassword` unset; note that H2 fixes the account on first creation, so whatever password first connects becomes the database's password.
+With no credentials configured, Tia falls back through `TIA_DB_USER` / `TIA_DB_PASSWORD` to `tia` / empty (see the credential-resolution subsection above), which matches the `tia`/empty account H2 creates for a brand-new database. To rehearse the env-var fallback, `export TIA_DB_PASSWORD=...` before the build and leave `dbPassword` unset; note that H2 fixes the account on first creation, so whatever password first connects becomes the database's password.
 
 **3. Inspect the data while testing.** Run H2's web console against the same server to watch Tia's tables populate:
 
@@ -105,7 +105,7 @@ With no credentials configured, Tia falls back through `TIA_DB_USER` / `TIA_DB_P
 java -cp "$H2_JAR" org.h2.tools.Server -web -webPort 8082
 ```
 
-Open `http://localhost:8082`, connect with JDBC URL `jdbc:h2:tcp://localhost:9092/tiadb` and user `sa`, and Tia's schema appears after the first run.
+Open `http://localhost:8082`, connect with JDBC URL `jdbc:h2:tcp://localhost:9092/tiadb` and user `tia`, and Tia's schema appears after the first run.
 
 **4. Run a build.** From the project under test, run the normal Tia-enabled test task (`./gradlew test` / `mvn test`). The first run creates the schema; subsequent runs do selective testing against the shared server database. Remember the single-writer model from the concurrency subsection: exactly one build should run with `tiaUpdateDBMapping=true`, the rest as statistics-only readers.
 
