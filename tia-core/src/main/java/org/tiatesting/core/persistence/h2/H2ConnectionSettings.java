@@ -23,7 +23,7 @@ import java.util.function.Function;
  */
 public class H2ConnectionSettings {
 
-    private static final String EMBEDDED_DEFAULT_USER = "sa";
+    private static final String EMBEDDED_DEFAULT_USER = "tia";
     private static final String EMBEDDED_DEFAULT_PASSWORD = "1234";
 
     /** System property holding the embedded-mode database directory. */
