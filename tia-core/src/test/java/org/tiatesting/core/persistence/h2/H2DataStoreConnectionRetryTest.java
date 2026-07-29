@@ -60,7 +60,7 @@ class H2DataStoreConnectionRetryTest {
     }
 
     private static H2ConnectionSettings serverSettings() {
-        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb-test", "sa", "", "test");
+        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb-test", "tia", "", "test");
     }
 
     @Test

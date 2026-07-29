@@ -90,7 +90,7 @@ public final class GenerateLargeTiaDb {
         long pageSizeByte = 1024 * 4 * 100;
         String url = "jdbc:h2:" + outDb + "/tiadb-" + branch
                 + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE=" + cacheSizeKB;
-        return DriverManager.getConnection(url, "sa", "1234");
+        return DriverManager.getConnection(url, "tia", "1234");
     }
 
     private static void insertCoreRow(Connection connection, Args args) throws Exception {

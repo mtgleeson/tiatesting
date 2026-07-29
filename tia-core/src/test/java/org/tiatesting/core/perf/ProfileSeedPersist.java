@@ -50,7 +50,7 @@ public final class ProfileSeedPersist {
         File dir = serverUrl == null ? File.createTempFile("tia-seed-persist-", "") : null;
         if (dir != null) { dir.delete(); dir.mkdirs(); }
         H2ConnectionSettings settings = serverUrl != null
-                ? H2ConnectionSettings.server(serverUrl, "sa", "", "perf")
+                ? H2ConnectionSettings.server(serverUrl, "tia", "", "perf")
                 : H2ConnectionSettings.embedded(dir.getAbsolutePath(), "perf");
         H2DataStore dataStore = new H2DataStore(settings);
         dataStore.getTiaData(true); // bootstrap schema
