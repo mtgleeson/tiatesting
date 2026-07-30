@@ -28,6 +28,9 @@ wiki can also be read front to back.
   and the failure-mode taxonomy that keeps crashes self-correcting.
 - [Embedded vs server-mode H2 connections](wiki/h2-connection-modes.md) - connection resolution,
   the embedded engine options and the shared-server considerations.
+- [Pluggable datastore (H2, Postgres, and the seam for more)](wiki/pluggable-datastore.md) - the
+  `SqlDialect` / `ConnectionProvider` / `DataStoreFactory` architecture, URL-scheme dialect
+  inference, and the two-classpath driver model.
 - [Static test selection](wiki/static-test-selection.md) - user-declared change-to-suite rules
   layered on top of dynamic selection.
 - [Setting up a machine to run the release tasks (GPG signing)](wiki/release-signing-setup.md) -

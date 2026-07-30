@@ -15,6 +15,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Using a shared H2 server](#using-a-shared-h2-server)
+- [Using a different database](#using-a-different-database)
 - [Supported Build Automation Tools, VCS and Test Runners](#supported-build-automation-tools-vcs-and-test-runners)
 - [Credits](#credits)
 - [Additional resources and solutions](#additional-resources-and-solutions)
@@ -720,9 +721,10 @@ gradle tia-text-report
 |tiaSourceProjectDir|sourceProjectDir|<string>|The file path to the root of the source project whose resolved dependencies are used to resolve `sourceLibs` to JAR files. Only needed when the project running the tests is different from the source project being tracked. For Gradle this can be the current project, a sibling subproject, or an external Gradle build.| current project                                                                               |false|
 |tiaTestFilesDirs|testFilesDirs|<string>|Comma seperated list of paths to the folders containing the source code of the test files for the project being analysed.|                                                                                               |true|
 |tiaDBFilePath|dbFilePath|<string>|The file path for the saved DB containing the previous analysis of the project. Used for the default embedded H2 mode. Ignored when `tiaDBUrl` / `dbUrl` is set.|                                                                                               |true (embedded mode)|
-|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1`. When set, Tia connects to that server instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used as given, except that an optional `{branch}` token is replaced with `tiadb-<branch>` for per-branch databases (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`); only the token is replaced, so a prefix/suffix is preserved (`.../{branch}-myproject` → `.../tiadb-main-myproject`). A URL without the token is used verbatim. Include `;DB_CLOSE_DELAY=-1` - see [Using a shared H2 server](#using-a-shared-h2-server).|                                                                                               |false|
-|tiaDBUser|dbUser|<string>|Database username for server-mode H2 (`tiaDBUrl`).|tia|false|
-|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 (`tiaDBUrl`).| (empty)                                                                                       |false|
+|tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1`, or a JDBC URL for another supported vendor, e.g. `jdbc:postgresql://pghost:5432/tiadb`. When set, Tia connects to that URL instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used as given, except that an optional `{branch}` token is replaced with `tiadb-<branch>` for per-branch databases (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`); only the token is replaced, so a prefix/suffix is preserved (`.../{branch}-myproject` → `.../tiadb-main-myproject`). A URL without the token is used verbatim. For H2 server mode, include `;DB_CLOSE_DELAY=-1` - see [Using a shared H2 server](#using-a-shared-h2-server). For a non-H2 vendor, see [Using a different database](#using-a-different-database).|                                                                                               |false|
+|tiaDBDialect|dbDialect|`h2`, `postgres`|Explicit SQL dialect override. Only needed when the dialect can't be (or shouldn't be) inferred from `tiaDBUrl` / `dbUrl`'s scheme. See [Using a different database](#using-a-different-database).| inferred from `tiaDBUrl` / `dbUrl` (defaults to `h2` when that is also unset)                 |false|
+|tiaDBUser|dbUser|<string>|Database username for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).|tia|false|
+|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).| (empty)                                                                                       |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
 |tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
@@ -855,6 +857,116 @@ Things to know when using server mode:
 - **The URL is used as given, with one optional substitution.** Unlike embedded mode, Tia does not automatically append a `tiadb-<branch>` suffix. If you want per-branch databases, put a `{branch}` token where the database name belongs (e.g. `jdbc:h2:tcp://h2host:9092/{branch}`) and Tia replaces that token with `tiadb-<branch>` (path separators in the branch name are replaced with `-`). Only the token is replaced, so you can add a prefix or suffix around it - `jdbc:h2:tcp://h2host:9092/{branch}-myproject` becomes `.../tiadb-main-myproject`. A URL without the token is used verbatim, so a fully-specified URL still takes precedence.
 - **Keep a single mapping writer.** As with embedded mode, only the primary build should set `tiaUpdateDBMapping=true`. All other clients should run with `tiaUpdateDBMapping=false` (mapping is owned by one writer). The other clients only update statistics.
 - **Statistics are best-effort under concurrency.** Statistics counters (run counts, averages) are read-modify-write and are not locked across clients, so when multiple clients update statistics against the same database at the same time, some statistic increments can be lost. Tia treats statistics as advisory; the mapping (owned by the single writer) is unaffected. (See also the multi-fork persistence note in the [Wiki](WIKI.md).)
+
+## Using a different database
+
+Tia's datastore is pluggable across JDBC SQL vendors. Which vendor Tia connects to is inferred from the JDBC URL scheme in `tiaDBUrl` / `dbUrl`:
+
+- unset -> embedded H2 (the default), stored at `tiaDBFilePath` / `dbFilePath`.
+- `jdbc:h2:...` -> H2 (embedded or server mode - see [Using a shared H2 server](#using-a-shared-h2-server) above).
+- `jdbc:postgresql://host:port/db` -> Postgres.
+
+If you need to be explicit (or the URL scheme alone isn't enough), set `tiaDBDialect` / `dbDialect` to `h2` or `postgres` to override the inference.
+
+### Postgres example
+
+Maven - in the `tia-*-maven-plugin` `<configuration>` (or as `${tiaDBUrl}` etc. properties):
+```xml
+<tiaDBUrl>jdbc:postgresql://pghost:5432/tiadb</tiaDBUrl>
+<tiaDBUser>tia</tiaDBUser>
+<tiaDBPassword>secret</tiaDBPassword>
+```
+
+Gradle:
+```groovy
+tia {
+    dbUrl = 'jdbc:postgresql://pghost:5432/tiadb'
+    dbUser = 'tia'
+    dbPassword = 'secret'
+}
+```
+
+`tiaDBDialect` / `dbDialect` can be left unset here - the `jdbc:postgresql:` scheme is enough for Tia to infer `postgres`.
+
+**Note:** unlike H2 server mode, Tia does not fall back to a `TIA_DB_USER` / `TIA_DB_PASSWORD` environment variable for non-H2 vendors - that fallback is specific to `H2ConnectionSettings`. To keep a non-H2 password out of checked-in config, use the build tool's own indirection instead: Maven `${env.TIA_DB_PASSWORD}` or an encrypted `~/.m2/settings.xml` property, or Gradle `~/.gradle/gradle.properties` / a `-P` property (see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) above).
+
+### Declaring the JDBC driver in two places
+
+Tia only bundles the H2 driver. For any other vendor (currently Postgres) you must add that vendor's JDBC driver as a dependency in **two** places, because Tia runs on two different classpaths:
+
+1. **A test-scope dependency in your project.** The forked test JVM is where Tia's test-runner listener persists the mapping and stats at the end of a test run, so the driver needs to be on that JVM's classpath.
+2. **A dependency of the Tia plugin itself.** Everything else - `select-tests`, reports, `reconcile`, and any other Tia goal/task you run from the build tool - runs on the build tool's own classpath (the Maven plugin's classpath, or the Gradle plugin's classpath), which is separate from your project's dependencies. Maven: add the driver as a `<dependency>` inside the Tia `<plugin>` block. Gradle: add the driver as a `classpath` dependency alongside the Tia plugin.
+
+If either place is missing the driver, Tia throws an actionable error naming the vendor and both locations rather than failing with an opaque `No suitable driver found` from deep inside `DriverManager`.
+
+Maven - `pom.xml`:
+```xml
+<dependencies>
+    <!-- 1. Test-scope: for the forked test JVM, which persists the mapping/stats. -->
+    <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>42.7.4</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-junit5-git-maven-plugin</artifactId>
+            <version>0.1.18</version>
+            <!-- 2. Plugin dependency: for the build-tool side (select-tests, reports, reconcile). -->
+            <dependencies>
+                <dependency>
+                    <groupId>org.postgresql</groupId>
+                    <artifactId>postgresql</artifactId>
+                    <version>42.7.4</version>
+                </dependency>
+            </dependencies>
+            <executions>
+                <execution>
+                    <id>pre-test</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <phase>test-compile</phase>
+                </execution>
+            </executions>
+            <configuration>
+                <tiaDBUrl>jdbc:postgresql://pghost:5432/tiadb</tiaDBUrl>
+                <tiaDBUser>tia</tiaDBUser>
+                <tiaDBPassword>secret</tiaDBPassword>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+
+Gradle - `build.gradle`:
+```groovy
+buildscript {
+    dependencies {
+        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.18'
+        // 2. Plugin classpath dependency: for the build-tool side (select-tests, reports, reconcile).
+        classpath 'org.postgresql:postgresql:42.7.4'
+    }
+}
+
+dependencies {
+    // 1. Test-scope: for the forked test JVM, which persists the mapping/stats.
+    testImplementation 'org.postgresql:postgresql:42.7.4'
+}
+
+tia {
+    dbUrl = 'jdbc:postgresql://pghost:5432/tiadb'
+    dbUser = 'tia'
+    dbPassword = 'secret'
+}
+```
+
+See the [pluggable datastore](wiki/pluggable-datastore.md) Wiki chapter for the architecture behind this (the `SqlDialect` / `ConnectionProvider` split, the registry, and why the two-classpath model exists) and for what a further vendor (e.g. MySQL) would need to add.
 
 ## Supported Build Automation Tools, VCS and Test Runners
 ### Maven 3.8.1+
