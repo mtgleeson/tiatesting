@@ -5,7 +5,9 @@ import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.model.*;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
@@ -31,7 +33,7 @@ class LibraryImpactEndToEndTest {
     private static final String LIB_FILE_KEY = "com/example/Service.java";
     private static final int METHOD_ID = 10;
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -39,7 +41,7 @@ class LibraryImpactEndToEndTest {
         tempDir = File.createTempFile("tia-e2e-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaData(true);

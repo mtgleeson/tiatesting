@@ -8,7 +8,9 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
@@ -32,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class TestSelectorStaticTestSelectionTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -40,7 +42,7 @@ class TestSelectorStaticTestSelectionTest {
         tempDir = File.createTempFile("tia-static-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
     }
 

@@ -236,7 +236,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Resolve the H2 connection settings for this mojo. Picks server mode when {@link #tiaDBUrl}
      * is set, otherwise embedded mode keyed on the supplied branch name. Centralising this here
-     * keeps every mojo's {@link org.tiatesting.core.persistence.h2.H2DataStore} construction
+     * keeps every mojo's {@link org.tiatesting.core.persistence.JdbcDataStore} construction
      * consistent.
      *
      * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix

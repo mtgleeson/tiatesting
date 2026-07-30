@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,14 +20,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests the persistence of the per-suite {@code developerDisabled} flag in {@link H2DataStore}:
+ * Tests the persistence of the per-suite {@code developerDisabled} flag in {@link JdbcDataStore}:
  * a round-trip through {@code persistTestSuites} / {@code getTestSuitesTracked}, and the
  * migration that adds the {@code developer_disabled} column to a DB created without it (old rows
  * read back as {@code false}). Uses a temp-directory embedded H2 database per test.
  */
-class H2DataStoreDeveloperDisabledTest {
+class JdbcDataStoreDeveloperDisabledTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private H2ConnectionSettings settings;
     private File tempDir;
 
@@ -33,7 +37,7 @@ class H2DataStoreDeveloperDisabledTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
-        dataStore = new H2DataStore(settings);
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
     }
 
     @AfterEach
@@ -87,14 +91,14 @@ class H2DataStoreDeveloperDisabledTest {
         suites.put(suite.getName(), suite);
         dataStore.persistTestSuites(suites);
 
-        try (Connection connection = DriverManager.getConnection(dataStore.getJdbcUrl(),
+        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("ALTER TABLE tia_test_suite DROP COLUMN developer_disabled");
         }
 
         // when - a fresh datastore re-runs ensureSchema (via getTiaData), which must re-add the column
-        H2DataStore migrated = new H2DataStore(settings);
+        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
         Map<String, TestSuiteTracker> loaded = migrated.getTiaData(true).getTestSuitesTracked();
         migrated.close();
 

@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,18 +28,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for the targeted select-tests queries in {@link H2DataStore}:
+ * Tests for the targeted select-tests queries in {@link JdbcDataStore}:
  * {@code getMethodsTrackedForFiles} (the changed-files-to-tracked-methods lookup: changed files to candidate methods) and
  * {@code getTestSuitesForMethods} (the methods-to-covering-suites lookup: impacted methods to covering suites).
  * Uses a temp-directory embedded H2 database per test, seeded through the public persist API.
  */
-class H2DataStoreTargetedQueriesTest {
+class JdbcDataStoreTargetedQueriesTest {
 
     private static final String FOO_FILE = "com/example/Foo.java";
     private static final String BAR_FILE = "com/example/Bar.java";
     private static final String BAZ_FILE = "com/example/Baz.java";
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private H2ConnectionSettings settings;
     private File tempDir;
 
@@ -45,7 +49,7 @@ class H2DataStoreTargetedQueriesTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
-        dataStore = new H2DataStore(settings);
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
     }
 
     @AfterEach
@@ -235,7 +239,7 @@ class H2DataStoreTargetedQueriesTest {
 
         // when - query H2's metadata for the two indexes backing the targeted queries
         Set<String> indexNames = new HashSet<>();
-        try (Connection connection = DriverManager.getConnection(dataStore.getJdbcUrl(),
+        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.INDEXES WHERE INDEX_NAME IN (?, ?)")) {

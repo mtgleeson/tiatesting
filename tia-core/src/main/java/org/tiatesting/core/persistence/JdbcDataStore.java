@@ -1,7 +1,6 @@
-package org.tiatesting.core.persistence.h2;
+package org.tiatesting.core.persistence;
 
 
-import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -13,14 +12,13 @@ import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
-import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.TiaPersistenceException;
+import org.tiatesting.core.persistence.connection.ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.SqlDialect;
 
-import javax.sql.DataSource;
 import java.sql.*;
 import java.util.*;
 
-public class H2DataStore implements DataStore {
+public class JdbcDataStore implements DataStore {
     private static final String COL_COMMIT_VALUE = "commit_value";
     private static final String COL_LAST_UPDATED = "last_updated";
     private static final String COL_NUM_RUNS = "num_runs";
@@ -105,48 +103,25 @@ public class H2DataStore implements DataStore {
     // statement well under H2's parameter limits and bounds per-statement parse cost;
     // larger inputs are split into multiple queries and merged client-side.
     private static final int IN_CLAUSE_CHUNK_SIZE = 1000;
-    // Server-mode connection retry: an initial attempt plus retries before giving up. Server-mode
-    // connections cross a real network/server boundary, so a single transient abort (e.g. the first
-    // connection after the server has sat idle) should not fail the whole task.
-    static final int CONNECTION_MAX_ATTEMPTS = 3;
-    // Base backoff between server-mode connection retries, multiplied by the attempt number for a
-    // simple linear backoff (250ms, then 500ms, ...).
-    static final long CONNECTION_RETRY_BACKOFF_MS = 250L;
-    private final Logger log = LoggerFactory.getLogger(H2DataStore.class);
-    private final H2ConnectionSettings settings;
-    private final String jdbcURL;
-    private final String username;
-    private final String password;
+    private final Logger log = LoggerFactory.getLogger(JdbcDataStore.class);
+    private final SqlDialect dialect;
+    private final ConnectionProvider connectionProvider;
     // Memoizes ensureSchema: once the DB is known to exist with migrations applied, later
     // calls on this instance skip the existence-check and DDL round trips.
     private boolean schemaEnsured;
 
     /**
-     * Construct a datastore from resolved connection settings. The settings determine whether
-     * Tia connects to an embedded file-on-disk H2 or a remote server-mode H2; see
-     * {@link H2ConnectionSettings}.
+     * Construct a datastore over a vendor-neutral SQL dialect and connection provider. The dialect
+     * supplies the vendor-varying SQL (upserts, identity DDL, table-existence lookup) and the
+     * provider owns connection acquisition and lifecycle (URL building, server-mode retry, and the
+     * close/shutdown behaviour). See the pluggable-datastore WIKI chapter.
      *
-     * @param settings the resolved embedded- or server-mode connection settings
+     * @param dialect the SQL dialect that renders vendor-specific statements
+     * @param connectionProvider the connection provider that opens and closes connections
      */
-    public H2DataStore(H2ConnectionSettings settings){
-        this.settings = settings;
-        this.username = settings.getUsername();
-        this.password = settings.getPassword();
-        this.jdbcURL = buildJdbcUrl();
-
-        log.info("Using H2 as the Tia datastore in {} mode with the connection: {}",
-                settings.isServerMode() ? "server" : "embedded", this.jdbcURL);
-    }
-
-    /**
-     * Expose the resolved JDBC URL this datastore connects with. Package-private: it lets tests
-     * assert that embedded mode composes the engine-option URL while server mode uses the
-     * user-supplied URL verbatim.
-     *
-     * @return the JDBC URL in use for this datastore
-     */
-    String getJdbcUrl() {
-        return jdbcURL;
+    public JdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider){
+        this.dialect = dialect;
+        this.connectionProvider = connectionProvider;
     }
 
     @Override
@@ -618,13 +593,10 @@ public class H2DataStore implements DataStore {
 
         try {
             ensureLibraryTableExists(connection);
-            String sql = "MERGE INTO " + TABLE_TIA_LIBRARY + " ("
-                    + COL_GROUP_ARTIFACT + ", "
-                    + COL_PROJECT_DIR + ", "
-                    + COL_SOURCE_DIRS_CSV + ", "
-                    + COL_MAPPING_BASELINE_COMMIT + ", "
-                    + COL_LAST_APPLIED_SEQ + ") "
-                    + "KEY (" + COL_GROUP_ARTIFACT + ") VALUES (?, ?, ?, ?, ?)";
+            String sql = dialect.upsert(TABLE_TIA_LIBRARY,
+                    Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
+                            COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
+                    Collections.singletonList(COL_GROUP_ARTIFACT));
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, trackedLibrary.getGroupArtifact());
@@ -733,12 +705,10 @@ public class H2DataStore implements DataStore {
             ensurePendingLibraryImpactedMethodTableExists(connection);
 
             if (!pending.getSourceMethodIds().isEmpty()) {
-                String insertSql = "MERGE INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
-                        + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_PUBLISH_SEQ + ", "
-                        + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?)";
+                String insertSql = dialect.upsert(TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD,
+                        Arrays.asList(COL_GROUP_ARTIFACT, COL_STAMP_VERSION, COL_PUBLISH_SEQ,
+                                COL_TIA_SOURCE_METHOD_ID),
+                        Arrays.asList(COL_GROUP_ARTIFACT, COL_PUBLISH_SEQ, COL_TIA_SOURCE_METHOD_ID));
                 PreparedStatement insertPs = connection.prepareStatement(insertSql);
 
                 for (Integer methodId : pending.getSourceMethodIds()) {
@@ -1053,19 +1023,12 @@ public class H2DataStore implements DataStore {
 
         try {
             ensureTestRunHistoryTableExists(connection);
-            String sql = "MERGE INTO " + TABLE_TIA_TEST_RUN_HISTORY + " ("
-                    + COL_ID + ", "
-                    + COL_RUN_TIMESTAMP + ", "
-                    + COL_BRANCH + ", "
-                    + COL_COMMIT_VALUE + ", "
-                    + COL_NUM_SUITES_RAN + ", "
-                    + COL_NUM_SUITES_IGNORED + ", "
-                    + COL_NUM_SUITES_FAILED + ", "
-                    + COL_DURATION_MS + ", "
-                    + COL_UPDATED_DB_MAPPING + ", "
-                    + COL_TIME_SAVINGS + ", "
-                    + COL_SAVINGS_PERCENT + ") "
-                    + "KEY (" + COL_ID + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
+                    Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
+                            COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
+                            COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
+                            COL_SAVINGS_PERCENT),
+                    Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
             ps.setString(1, entry.getId());
@@ -1236,7 +1199,17 @@ public class H2DataStore implements DataStore {
             return;
         }
 
-        Statement statement = connection.createStatement();
+        // developer_disabled is mapping metadata, maintained on mapping-update runs only.
+        // Stats-only runs (includeClassMappings=false) leave the column out of the upsert so
+        // the stored flag is untouched. The column set is constant for the whole call, so the
+        // upsert statement is prepared once and reused (re-bound) per suite.
+        List<String> suiteColumns = new ArrayList<>(Arrays.asList(COL_NAME, COL_NUM_RUNS,
+                COL_AVG_RUN_TIME, COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS));
+        if (includeClassMappings){
+            suiteColumns.add(COL_DEVELOPER_DISABLED);
+        }
+        String mergeSql = dialect.upsert(TABLE_TIA_TEST_SUITE, suiteColumns,
+                Collections.singletonList(COL_NAME));
 
         // The class/edge inserts reuse two full-chunk multi-row prepared statements for the whole
         // persist, and assign tia_source_class ids application-side from MAX(id)+1 so rows can be
@@ -1250,35 +1223,26 @@ public class H2DataStore implements DataStore {
             edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
 
+        PreparedStatement suitePs = connection.prepareStatement(mergeSql, Statement.RETURN_GENERATED_KEYS);
         try {
             for (TestSuiteTracker testSuite : testSuites){
-                // developer_disabled is mapping metadata, maintained on mapping-update runs only.
-                // Stats-only runs (includeClassMappings=false) leave the column out of the MERGE so
-                // the stored flag is untouched.
-                String disabledColumn = includeClassMappings ? ", " + COL_DEVELOPER_DISABLED : "";
-                String disabledValue = includeClassMappings ? ", " + testSuite.isDeveloperDisabled() : "";
+                suitePs.setString(1, testSuite.getName());
+                suitePs.setLong(2, testSuite.getTestStats().getNumRuns());
+                suitePs.setLong(3, testSuite.getTestStats().getAvgRunTime());
+                suitePs.setLong(4, testSuite.getTestStats().getNumSuccessRuns());
+                suitePs.setLong(5, testSuite.getTestStats().getNumFailRuns());
+                if (includeClassMappings){
+                    suitePs.setBoolean(6, testSuite.isDeveloperDisabled());
+                }
 
-                String mergeSql = "MERGE INTO " + TABLE_TIA_TEST_SUITE + " (" +
-                        COL_NAME + ", " +
-                        COL_NUM_RUNS + ", " +
-                        COL_AVG_RUN_TIME + ", " +
-                        COL_NUM_SUCCESS_RUNS + ", " +
-                        COL_NUM_FAIL_RUNS + disabledColumn + ") " +
-                        "KEY (" + COL_NAME + ") VALUES ('" +
-                        testSuite.getName() + "', " +
-                        testSuite.getTestStats().getNumRuns() + ", " +
-                        testSuite.getTestStats().getAvgRunTime() + ", " +
-                        testSuite.getTestStats().getNumSuccessRuns() + ", " +
-                        testSuite.getTestStats().getNumFailRuns() + disabledValue + ")";
-
-                statement.executeUpdate(mergeSql, Statement.RETURN_GENERATED_KEYS);
+                suitePs.executeUpdate();
 
                 // only update the source classes mapping for the test suite if the caller is the
                 // full-mapping path AND mapping data exists for this test run. Stats-only runs
                 // (includeClassMappings=false) skip this entirely so tia_source_class /
                 // tia_source_class_method remain untouched.
                 if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
-                    ResultSet rs = statement.getGeneratedKeys();
+                    ResultSet rs = suitePs.getGeneratedKeys();
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
                             testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
@@ -1289,6 +1253,7 @@ public class H2DataStore implements DataStore {
                 restartSourceClassIdentity(connection, nextSourceClassId[0]);
             }
         } finally {
+            suitePs.close();
             if (classChunkPs != null){ classChunkPs.close(); }
             if (edgeChunkPs != null){ edgeChunkPs.close(); }
         }
@@ -1821,7 +1786,7 @@ public class H2DataStore implements DataStore {
                 COL_LINE_NUMBER_END + " INT)";
 
         String createTestSuiteTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + " " +
-                "(" + COL_ID + " BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
                 COL_NAME + " VARCHAR(500), " +
                 COL_SOURCE_FILENAME + " VARCHAR(500), " +
                 COL_NUM_RUNS + " BIGINT, " +
@@ -1834,7 +1799,7 @@ public class H2DataStore implements DataStore {
                 TABLE_TIA_TEST_SUITE + " (" + COL_SOURCE_FILENAME + ")";
 
         String createSourceClassTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS + " " +
-                "(" + COL_ID + " BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
                 COL_TIA_TEST_SUITE_ID + " BIGINT, " +
                 COL_SOURCE_FILENAME + " VARCHAR(500))";
 
@@ -1891,11 +1856,16 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Check whether a table exists in the H2 database.
+     * Check whether a table exists, delegating to the dialect so vendor identifier case-folding is
+     * handled correctly (H2 folds unquoted names to upper case; other vendors differ).
+     *
+     * @param connection the open connection to query metadata on
+     * @param tableName the unquoted table name as written in the DDL
+     * @return true if the table exists
+     * @throws SQLException if metadata access fails
      */
     private boolean checkTableExists(Connection connection, String tableName) throws SQLException {
-        ResultSet rset = connection.getMetaData().getTables(null, null, tableName.toUpperCase(), new String[]{"TABLE"});
-        return rset.next();
+        return dialect.tableExists(connection, tableName);
     }
 
     /**
@@ -2152,7 +2122,7 @@ public class H2DataStore implements DataStore {
 
         boolean dbExisted = checkTiaDBExists(connection);
         if (!dbExisted) {
-            log.debug("The Tia DB doesn't currently exist at {}", jdbcURL);
+            log.debug("The Tia DB doesn't currently exist at {}", connectionProvider.jdbcUrl());
             createTiaDB();
         }
         ensureSourceClassTestSuiteIndexExists(connection);
@@ -2166,227 +2136,34 @@ public class H2DataStore implements DataStore {
     }
 
     /**
-     * Close the embedded H2 database, flushing pending writes to disk and releasing the underlying
-     * {@code .mv.db} file lock. Required when running inside a Maven plugin's JVM that will later
-     * fork a surefire/test JVM: without an explicit close, {@code DB_CLOSE_DELAY=-1} keeps the
-     * database open in the Maven JVM and the forked test JVM cannot open the same file —
-     * H2 reports {@code "Database may be already in use"}.
-     *
-     * <p>Issues a graceful {@code SHUTDOWN} (deliberately <em>not</em> {@code SHUTDOWN IMMEDIATELY})
-     * via a short-lived connection. The graceful form writes the MVStore's buffered pages to the
-     * file before closing; {@code IMMEDIATELY} skips that flush and would drop any committed change
-     * the MVStore's delayed writer has not yet persisted. That loss is silent and small-write
-     * biased: a tracked-library reconcile performed in the plugin JVM is a tiny write that has not
-     * reached disk when the plugin's {@code close()} runs, so under {@code IMMEDIATELY} the forked
-     * test JVM finds no schema, recreates an empty DB, and the tracked library disappears (reconcile
-     * does not run on the persist path). Plain {@code SHUTDOWN} does not compact or defrag, so the
-     * only added cost over {@code IMMEDIATELY} is flushing pages that had to be written anyway - a
-     * read-only run has no dirty pages and pays nothing. Failures during close are swallowed
-     * (logged at debug) so cleanup errors never mask the real exception a calling {@code try}/{@code
-     * finally} block is unwinding.
-     *
-     * <p>This is an <b>embedded-mode-only</b> concern. In server mode the database engine lives
-     * in the remote server process and is shared by every connected client, so issuing
-     * {@code SHUTDOWN} would tear down the whole server database for all of them. Server-mode
-     * {@code close()} is therefore a no-op - individual connections are already closed by each
-     * operation's {@code finally} block.
+     * Release any process-level resources the datastore holds open, by delegating to the
+     * {@link ConnectionProvider}'s lifecycle. For embedded H2 the provider issues a graceful
+     * {@code SHUTDOWN} that flushes the MVStore write buffer to disk and releases the
+     * {@code .mv.db} file lock, so a forked test JVM can open the same file; for server mode it is
+     * a no-op (the shared server database must not be torn down for other clients). See the
+     * connection-lifecycle handling in {@link ConnectionProvider} and the pluggable-datastore
+     * WIKI chapter.
      */
     @Override
     public void close() {
-        if (settings.isServerMode()){
-            // Never SHUTDOWN a shared server DB - it would kill the database for every other
-            // connected client. Per-operation connections are already closed by their callers.
-            return;
-        }
-
-        // Graceful SHUTDOWN flushes the MVStore write buffer to disk, then closes and releases the
-        // file lock. The final connection/statement close() in this try-with-resources may throw
-        // because the database is already shut down; that's expected and the outer catch swallows
-        // it. Failures during close are logged at debug so cleanup errors never mask the real
-        // exception a calling try/finally is unwinding.
-        try (Connection connection = getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("SHUTDOWN");
-        } catch (Throwable t) {
-            log.debug("H2DataStore.close ignoring shutdown exception for {}: {}", jdbcURL, t.toString());
-        }
+        connectionProvider.close();
     }
 
     /**
-     * Acquire a connection to the H2 database. In server mode the acquisition is retried a few
-     * times with a short backoff, because the connection crosses a real network/server boundary
-     * where a single transient abort (a reset socket, or a server still warming up after sitting
-     * idle) is expected and should not fail the whole task - until now the only workaround was to
-     * re-run the command by hand. In embedded mode a failure is deterministic (bad path, locked
-     * file), so it is surfaced immediately without retry.
+     * Acquire a connection via the injected {@link ConnectionProvider}. The provider owns the
+     * vendor-specific acquisition (URL, credentials, and the server-mode retry). Its {@code get()}
+     * throws a checked {@link SQLException}; that is wrapped in the unchecked
+     * {@link TiaPersistenceException} here so every caller in this class keeps its previous
+     * unchecked-failure behaviour.
      *
-     * @return an open connection to the configured H2 database
-     * @throws TiaPersistenceException if the connection cannot be established (after exhausting the
-     *         server-mode retries, or on the first embedded-mode failure)
+     * @return an open connection to the configured database
+     * @throws TiaPersistenceException wrapping any {@link SQLException} the provider raises
      */
     Connection getConnection(){
-        if (settings.isServerMode()){
-            return acquireServerConnectionWithRetry();
-        }
         try {
-            return acquireConnection();
+            return connectionProvider.get();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
-    }
-
-    /**
-     * Acquire a server-mode connection, retrying transient failures with a linear backoff up to
-     * {@link #CONNECTION_MAX_ATTEMPTS} total attempts. Each failed attempt is logged at WARN with
-     * the underlying message; if every attempt fails the last failure is wrapped and rethrown.
-     *
-     * @return an open connection
-     * @throws TiaPersistenceException wrapping the last {@link SQLException} when all attempts fail
-     */
-    private Connection acquireServerConnectionWithRetry(){
-        SQLException lastFailure = null;
-        for (int attempt = 1; attempt <= CONNECTION_MAX_ATTEMPTS; attempt++){
-            try {
-                return acquireConnection();
-            } catch (SQLException e) {
-                lastFailure = e;
-                if (attempt < CONNECTION_MAX_ATTEMPTS){
-                    long backoffMs = CONNECTION_RETRY_BACKOFF_MS * attempt;
-                    log.warn("H2 server connection attempt {} of {} to {} failed: {}. Retrying in {}ms.",
-                            attempt, CONNECTION_MAX_ATTEMPTS, jdbcURL, e.getMessage(), backoffMs);
-                    backoffBeforeRetry(backoffMs);
-                }
-            }
-        }
-
-        log.error("H2 server connection to {} failed after {} attempts.", jdbcURL, CONNECTION_MAX_ATTEMPTS);
-        throw new TiaPersistenceException(lastFailure);
-    }
-
-    /**
-     * Open a single raw connection to the configured H2 database with no retry. Package-private so
-     * a test can override it to simulate transient connection failures.
-     *
-     * @return a newly opened connection
-     * @throws SQLException if the connection cannot be opened
-     */
-    Connection acquireConnection() throws SQLException {
-        DataSource dataSource = this.establishDataSource();
-        Connection connection = dataSource.getConnection();
-        log.debug("Connected to the H2 database {}", jdbcURL);
-        return connection;
-    }
-
-    /**
-     * Wait for the given backoff before the next server-mode connection retry. Package-private so a
-     * test can override it to avoid real delays. Restores the interrupt flag and aborts the retry
-     * loop (by throwing) if the thread is interrupted while waiting.
-     *
-     * @param backoffMs the number of milliseconds to wait before retrying
-     */
-    void backoffBeforeRetry(long backoffMs){
-        try {
-            Thread.sleep(backoffMs);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new TiaPersistenceException(ie);
-        }
-    }
-
-    private DataSource establishDataSource() {
-        JdbcDataSource ds = Objects.requireNonNull( new JdbcDataSource() );
-        ds.setURL( jdbcURL );
-        ds.setUser( username );
-        ds.setPassword( password );
-        ds.setDescription( "Tia database" );
-        return ds;
-    }
-
-    /**
-     * Build the embedded-mode H2 JDBC URL for this datastore.
-     *
-     * <p>The {@code DB_CLOSE_DELAY=-1} flag keeps the underlying database open for the lifetime
-     * of the JVM, instead of H2's embedded-mode default of closing the entire database whenever
-     * the last open connection is closed. Closing the database forces an {@code MVStore.commit()}
-     * which flushes dirty pages — including the temp-result pages H2 writes to spill {@code ORDER
-     * BY} sorts that aren't covered by an index. With this flag, individual {@code Connection
-     * .close()} calls become near-free and the per-method open/close pattern in this class no
-     * longer triggers a full flush per call.
-     *
-     * <p>{@code DB_CLOSE_ON_EXIT=FALSE} is the necessary companion: it stops H2 from registering
-     * its JVM shutdown hook to close the database on exit. The shutdown hook is unsafe inside
-     * Maven plugins because Plexus tears down the plugin's {@code ClassRealm} before the hook
-     * fires, so the hook's call to {@code DbException.get(...)} fails with a
-     * {@code NoClassDefFoundError: org/h2/api/ErrorCode}. A committed transaction is immediately
-     * durable <em>within this JVM</em> (later reads on any connection see it), but MVStore's delayed
-     * writer means the change may not have reached the {@code .mv.db} file yet. Cross-JVM durability
-     * therefore relies on {@link #close()} issuing a graceful {@code SHUTDOWN}, which flushes those
-     * buffered pages to disk before releasing the file lock - so the plugin JVM must close the
-     * datastore before a forked test JVM opens the same file.
-     *
-     * <p>In <b>server mode</b> the user-supplied URL is used as given. The embedded-only
-     * options above are deliberately omitted: {@code PAGE_SIZE} / {@code CACHE_SIZE} /
-     * {@code DB_CLOSE_DELAY} / {@code DB_CLOSE_ON_EXIT} configure the database engine instance,
-     * which in server mode lives in the remote server process and is configured when that server
-     * is started - not by the connecting client. The one transformation applied is expanding an
-     * optional {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token to {@code tiadb-<branch>}
-     * (see {@link #applyServerDbNamePlaceholder(String)}); a URL without the token is used verbatim
-     * and per-branch isolation is then the user's responsibility.
-     *
-     * @return the H2 JDBC URL: the server URL (with any {@value H2ConnectionSettings#BRANCH_PLACEHOLDER}
-     *         token expanded) in server mode, or the composed embedded-mode URL (with engine
-     *         options) otherwise
-     */
-    private String buildJdbcUrl(){
-        if (settings.isServerMode()){
-            return applyServerDbNamePlaceholder(settings.getDbUrl());
-        }
-
-        long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2; // use half of the available memory
-        long pageSizeByte = 1024 * 4 * 100; //4KB is the default, set it to 10 times the size
-        // Sanitize the branch the same way server mode does: the branch name is now the short VCS
-        // name (e.g. feature/foo), so a path separator must not leak into the on-disk file name.
-        return "jdbc:h2:" + settings.getDbFilePath() + "/tiadb-" + sanitizeBranchForDbName(settings.getBranchSuffix())
-                + ";PAGE_SIZE=" + pageSizeByte
-                + ";CACHE_SIZE=" + cacheSizeKB
-                + ";DB_CLOSE_DELAY=-1"
-                + ";DB_CLOSE_ON_EXIT=FALSE";
-    }
-
-    /**
-     * Expand the optional {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token in a server-mode
-     * URL to {@code tiadb-<branch>}, giving the user a per-branch database without hand-editing the
-     * URL on every branch switch (mirrors embedded mode's {@code tiadb-<branch>} file suffix). Only
-     * the token itself is replaced, so any prefix or suffix the user writes around it is preserved -
-     * e.g. {@code .../{branch}-myproject} becomes {@code .../tiadb-main-myproject}. When the URL does
-     * not contain the token it is returned unchanged, so a fully-specified URL keeps taking
-     * precedence.
-     *
-     * @param dbUrl the configured server-mode JDBC URL
-     * @return the URL with any {@value H2ConnectionSettings#BRANCH_PLACEHOLDER} token replaced by
-     *         {@code tiadb-<sanitized-branch>}, or {@code dbUrl} unchanged when the token is absent
-     */
-    private String applyServerDbNamePlaceholder(final String dbUrl){
-        if (dbUrl == null || !dbUrl.contains(H2ConnectionSettings.BRANCH_PLACEHOLDER)){
-            return dbUrl;
-        }
-        String dbName = "tiadb-" + sanitizeBranchForDbName(settings.getBranchSuffix());
-        return dbUrl.replace(H2ConnectionSettings.BRANCH_PLACEHOLDER, dbName);
-    }
-
-    /**
-     * Sanitize a branch name for use as the database-name portion of a JDBC URL. Path separators
-     * ({@code /} and {@code \}) are replaced with {@code -} because a branch like {@code feature/foo}
-     * would otherwise be interpreted as a nested path in the H2 database name. A {@code null} or
-     * blank branch yields an empty string, leaving the {@code tiadb-} prefix on its own.
-     *
-     * @param branch the raw VCS branch name
-     * @return the branch with path separators replaced by {@code -}, or an empty string when blank
-     */
-    private String sanitizeBranchForDbName(final String branch){
-        if (branch == null || branch.trim().isEmpty()){
-            return "";
-        }
-        return branch.replace('/', '-').replace('\\', '-');
     }
 }

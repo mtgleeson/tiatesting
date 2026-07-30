@@ -5,7 +5,9 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.Collections;
@@ -20,7 +22,7 @@ import java.util.Set;
  *
  * <p>Phases reported separately:
  * <ol>
- *     <li>{@code H2DataStore} construction (cheap; just opens the URL)</li>
+ *     <li>{@code JdbcDataStore} construction (cheap; just opens the URL)</li>
  *     <li>(optional, {@code fullLoad=true}) {@code dataStore.getTiaData(true)} - the legacy
  *         bulk load of suites + classes + methods + libraries. Kept as the baseline number;
  *         the targeted select path below no longer performs it.</li>
@@ -94,9 +96,9 @@ public final class ProfileSelectTests {
         H2ConnectionSettings settings = args.url == null
                 ? H2ConnectionSettings.embedded(args.outDb, args.branch)
                 : H2ConnectionSettings.server(args.url, args.user, args.password, args.branch);
-        H2DataStore dataStore = new H2DataStore(settings);
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
         long tConstruct = System.nanoTime();
-        printPhase("Phase 1 - H2DataStore construction", t0, tConstruct);
+        printPhase("Phase 1 - JdbcDataStore construction", t0, tConstruct);
 
         // Phase 2 (optional) - the legacy bulk load, kept as the before-number. The targeted
         // select path no longer performs this; skip it with fullLoad=false to time the new

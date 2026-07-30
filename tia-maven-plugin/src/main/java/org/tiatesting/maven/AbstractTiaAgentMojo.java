@@ -15,7 +15,9 @@ import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
 import java.io.File;
@@ -94,9 +96,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         VCSReader gitReader = getVCSReader();
         // try-with-resources: release the H2 MVStore file lock before surefire forks the test
         // JVM. With DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest
-        // of the build, and the test JVM's H2DataStore would fail with "Database may be
+        // of the build, and the test JVM's JdbcDataStore would fail with "Database may be
         // already in use".
-        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(gitReader.getBranchName()))) {
+        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(gitReader.getBranchName())))) {
             long startQueryTime = System.currentTimeMillis();
 
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;

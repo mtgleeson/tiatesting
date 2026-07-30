@@ -7,8 +7,12 @@ import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.ConnectionProvider;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
 
 import java.io.File;
 import java.time.Instant;
@@ -32,7 +36,7 @@ class TestRunnerServiceHistorySavingsTest {
     // Large baseline so any real wall-clock duration leaves a positive saving.
     private static final long BASELINE_MS = 10_000_000L;
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private TestRunnerService service;
     private File tempDir;
 
@@ -41,7 +45,7 @@ class TestRunnerServiceHistorySavingsTest {
         tempDir = File.createTempFile("tia-runner-savings-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
         service = new TestRunnerService(dataStore);
 
@@ -113,9 +117,9 @@ class TestRunnerServiceHistorySavingsTest {
         File slowDir = File.createTempFile("tia-runner-savings-slow-", "");
         slowDir.delete();
         slowDir.mkdirs();
-        long smallBaseline = 200L; // ms; less than SlowPersistH2DataStore.PERSIST_DELAY_MS
-        SlowPersistH2DataStore slowStore = new SlowPersistH2DataStore(
-                H2ConnectionSettings.embedded(slowDir.getAbsolutePath(), "test"));
+        long smallBaseline = 200L; // ms; less than SlowPersistJdbcDataStore.PERSIST_DELAY_MS
+        SlowPersistJdbcDataStore slowStore = new SlowPersistJdbcDataStore(
+                new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath(), "test")));
         try {
             slowStore.getTiaData(true);
             TiaData tiaData = slowStore.getTiaData(true);
@@ -133,7 +137,7 @@ class TestRunnerServiceHistorySavingsTest {
             // then - the recorded duration excludes the persist delay, so savings stays positive
             assertEquals(1, history.size());
             TestRunHistoryEntry row = history.get(0);
-            assertTrue(row.getDurationMs() < SlowPersistH2DataStore.PERSIST_DELAY_MS,
+            assertTrue(row.getDurationMs() < SlowPersistJdbcDataStore.PERSIST_DELAY_MS,
                     "duration must exclude Tia's persist overhead");
             assertTrue(row.getTimeSavingsMs() > 0, "partial run should record a positive saving");
             assertEquals(smallBaseline - row.getDurationMs(), row.getTimeSavingsMs());
@@ -170,11 +174,11 @@ class TestRunnerServiceHistorySavingsTest {
      * {@code getTiaCore} after it has captured the run duration, so this delay must not appear in
      * the recorded duration or savings.
      */
-    private static class SlowPersistH2DataStore extends H2DataStore {
+    private static class SlowPersistJdbcDataStore extends JdbcDataStore {
         static final long PERSIST_DELAY_MS = 600L;
 
-        SlowPersistH2DataStore(H2ConnectionSettings settings) {
-            super(settings);
+        SlowPersistJdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider) {
+            super(dialect, connectionProvider);
         }
 
         @Override

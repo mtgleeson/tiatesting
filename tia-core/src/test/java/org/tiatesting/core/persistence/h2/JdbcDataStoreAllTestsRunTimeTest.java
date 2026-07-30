@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,14 +19,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Tests persistence of the Tia-level all-tests-run stats ({@code all_tests_run_time} /
- * {@code num_all_tests_runs}) on the {@code tia_core} table in {@link H2DataStore}: a round-trip
+ * {@code num_all_tests_runs}) on the {@code tia_core} table in {@link JdbcDataStore}: a round-trip
  * through {@code persistCoreData} / {@code getTiaCore}, and the migration that adds the columns to
  * a DB created without them (old rows read back as 0). Uses a temp-directory embedded H2 database
  * per test.
  */
-class H2DataStoreAllTestsRunTimeTest {
+class JdbcDataStoreAllTestsRunTimeTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private H2ConnectionSettings settings;
     private File tempDir;
 
@@ -32,7 +36,7 @@ class H2DataStoreAllTestsRunTimeTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
-        dataStore = new H2DataStore(settings);
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
     }
 
     @AfterEach
@@ -90,7 +94,7 @@ class H2DataStoreAllTestsRunTimeTest {
         dataStore.getTiaData(true);
         dataStore.persistCoreData(coreData(999L, 5L));
 
-        try (Connection connection = DriverManager.getConnection(dataStore.getJdbcUrl(),
+        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN all_tests_run_time");
@@ -98,7 +102,7 @@ class H2DataStoreAllTestsRunTimeTest {
         }
 
         // when - a fresh datastore re-runs ensureSchema (via getTiaCore), which must re-add them
-        H2DataStore migrated = new H2DataStore(settings);
+        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
         TiaData loaded = migrated.getTiaCore();
         migrated.close();
 

@@ -13,7 +13,9 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.time.Instant;
@@ -47,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class TestRunnerServiceSuiteMappingPersistRoutingTest {
 
-    private H2DataStore underlying;
+    private JdbcDataStore underlying;
     private CountingDataStore spy;
     private TestRunnerService service;
     private File tempDir;
@@ -57,7 +59,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         tempDir = File.createTempFile("tia-runner-routing-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        underlying = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        underlying = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         underlying.getTiaData(true);
 
         TiaData tiaData = underlying.getTiaData(true);

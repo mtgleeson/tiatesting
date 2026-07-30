@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,12 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Round-trip and migration tests for the {@code tia_core.branch} column in {@link H2DataStore}.
+ * Round-trip and migration tests for the {@code tia_core.branch} column in {@link JdbcDataStore}.
  * Uses a temp-directory embedded H2 database per test for isolation.
  */
-class H2DataStoreCoreBranchTest {
+class JdbcDataStoreCoreBranchTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -25,7 +29,7 @@ class H2DataStoreCoreBranchTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         // force schema creation
         dataStore.getTiaData(true);
     }

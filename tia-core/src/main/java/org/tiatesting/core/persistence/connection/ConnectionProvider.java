@@ -17,4 +17,12 @@ public interface ConnectionProvider {
      * @return the JDBC URL
      */
     String jdbcUrl();
+
+    /**
+     * Release any process-level resources this provider holds open (for example an embedded
+     * database file lock), issuing any vendor-specific shutdown needed before a different process
+     * can open the same database. Called from {@code JdbcDataStore.close()}. The default is a no-op
+     * so networked providers (which hold no process-level lock) need not override it.
+     */
+    default void close() { }
 }

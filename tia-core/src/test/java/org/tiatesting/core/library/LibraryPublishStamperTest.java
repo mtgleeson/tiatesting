@@ -14,7 +14,9 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -41,7 +43,7 @@ class LibraryPublishStamperTest {
     private static final int METHOD_LIB = 4242;
     private static final int METHOD_OTHER = 4343;
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
     private LibraryPublishStamper stamper;
 
@@ -50,7 +52,7 @@ class LibraryPublishStamperTest {
         tempDir = File.createTempFile("tia-stamper-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
         stamper = new LibraryPublishStamper();
         seedMappingWithLibraryMethods();

@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,13 +27,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies the batched mapping-insert path in {@link H2DataStore}: classes and edges round-trip
+ * Verifies the batched mapping-insert path in {@link JdbcDataStore}: classes and edges round-trip
  * correctly, {@code tia_source_class} ids are assigned application-side from {@code MAX(id)+1}, the
  * identity sequence is reseated afterward, and a re-persist of one suite updates only that suite.
  */
-class H2DataStoreBatchedPersistTest {
+class JdbcDataStoreBatchedPersistTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private H2ConnectionSettings settings;
     private File tempDir;
 
@@ -39,7 +43,7 @@ class H2DataStoreBatchedPersistTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
-        dataStore = new H2DataStore(settings);
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
         dataStore.getTiaData(true);
     }
 
@@ -107,7 +111,7 @@ class H2DataStoreBatchedPersistTest {
         dataStore.persistTestSuites(suites);
 
         // then - ids are 1..2, and a subsequent auto-increment insert gets id 3 (identity reseated)
-        try (Connection c = DriverManager.getConnection(dataStore.getJdbcUrl(),
+        try (Connection c = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              Statement st = c.createStatement()) {
             ResultSet rs = st.executeQuery("SELECT MIN(id), MAX(id), COUNT(*) FROM tia_source_class");
