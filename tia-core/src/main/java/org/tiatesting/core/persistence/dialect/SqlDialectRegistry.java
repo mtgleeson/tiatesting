@@ -2,7 +2,9 @@ package org.tiatesting.core.persistence.dialect;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Resolves the {@link SqlDialect} Tia should use for a given JDBC URL, or an explicit override id.
@@ -19,7 +21,33 @@ public final class SqlDialectRegistry {
      */
     private static final List<String> SUPPORTED_IDS = Collections.unmodifiableList(Arrays.asList("h2", "postgres"));
 
+    /**
+     * The fully-qualified JDBC driver class each non-H2 dialect id needs on the classpath.
+     * H2's driver is bundled with Tia so it is deliberately absent here; every other dialect is a
+     * separate two-classpath dependency (test-scope + Tia plugin, see the pluggable-datastore WIKI
+     * chapter) that a caller may have forgotten to add. Kept next to {@link #SUPPORTED_IDS} so a
+     * future dialect (e.g. MySQL) adds one line to each.
+     */
+    private static final Map<String, String> DRIVER_CLASS_NAMES;
+
+    static {
+        Map<String, String> driverClassNames = new LinkedHashMap<>();
+        driverClassNames.put("postgres", "org.postgresql.Driver");
+        DRIVER_CLASS_NAMES = Collections.unmodifiableMap(driverClassNames);
+    }
+
     private SqlDialectRegistry() {
+    }
+
+    /**
+     * Look up the fully-qualified JDBC driver class name a non-H2 dialect needs on the classpath.
+     *
+     * @param dialectId the dialect id, e.g. {@code "postgres"}
+     * @return the driver class name, or {@code null} if {@code dialectId} has no registered driver
+     *         (e.g. {@code "h2"}, whose driver is bundled with Tia)
+     */
+    public static String driverClassName(final String dialectId) {
+        return DRIVER_CLASS_NAMES.get(dialectId);
     }
 
     /**
