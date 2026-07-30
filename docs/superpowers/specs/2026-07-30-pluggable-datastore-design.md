@@ -105,6 +105,14 @@ throws a clear, actionable error naming the vendor and the classpath to add it t
 `ClassNotFoundException`. This dual requirement is the one genuinely new thing users must learn and
 is documented explicitly in the README and WIKI.
 
+**Decision (v1): explicit two-place declaration.** The driver is declared in both the test
+dependencies and the plugin block. A single-declaration alternative - declaring the driver only as a
+test-scope dependency and having Tia resolve that jar and load it build-side via a `URLClassLoader`
+(reusing the `tiaSourceLibs`/`LibraryJarResolver` project-dependency resolution, with a `DriverShim`
+to work around `DriverManager` not seeing child-classloader drivers) - is deliberately deferred. It
+trades the explicit two-place declaration for classloader/`DriverManager` fragility on a reliability-
+critical path, which is not worth it for v1. It remains a documented future enhancement.
+
 ## Schema / DDL
 
 The existing on-demand `CREATE TABLE IF NOT EXISTS` idiom is retained; each dialect supplies its
