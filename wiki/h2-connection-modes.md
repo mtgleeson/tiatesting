@@ -114,4 +114,4 @@ Open `http://localhost:8082`, connect with JDBC URL `jdbc:h2:tcp://localhost:909
 
 ---
 
-Prev: [Persist flow and crash safety](persist-flow-and-crash-safety.md) | [Back to the Wiki index](../WIKI.md) | Next: [Static test selection](static-test-selection.md)
+Prev: [Persist flow and crash safety](persist-flow-and-crash-safety.md) | [Back to the Wiki index](../WIKI.md) | Next: [Pluggable datastore (H2, Postgres, and the seam for more)](pluggable-datastore.md)

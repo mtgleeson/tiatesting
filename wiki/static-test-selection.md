@@ -74,4 +74,4 @@ Both shifts are additive — no part of the current design needs to change to en
 
 ---
 
-Prev: [Embedded vs server-mode H2 connections](h2-connection-modes.md) | [Back to the Wiki index](../WIKI.md) | Next: [Setting up a machine to run the release tasks (GPG signing)](release-signing-setup.md)
+Prev: [Pluggable datastore (H2, Postgres, and the seam for more)](pluggable-datastore.md) | [Back to the Wiki index](../WIKI.md) | Next: [Setting up a machine to run the release tasks (GPG signing)](release-signing-setup.md)
