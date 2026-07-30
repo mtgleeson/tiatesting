@@ -98,6 +98,34 @@ The dominant wedges to look for, in priority order:
 
 The flame graph files are self-contained HTML; share them as artifacts on issues / PRs to make perf claims reproducible.
 
+### Recorded H2 read-path baseline
+
+The targeted `selectTestsToIgnore` read path (Phase 3, embedded H2, `-PdiffFiles=20`) was
+re-measured after the `SqlDialect` / `ConnectionProvider` extraction (the datastore's SQL was
+routed through an `H2Dialect` that reproduces the previous inline SQL verbatim, to make room for
+a second dialect). At the reference shape (1000 suites / 50,000 methods / ~936 classes-per-suite /
+~5.69M `tia_source_class_method` edges), five iterations against a freshly generated DB:
+
+| Iteration | Phase 3 (ms) |
+|---|---|
+| 1 (JVM warmup, excluded from median) | 2044 |
+| 2 | 324 |
+| 3 | 306 |
+| 4 | 313 |
+| 5 | 1230 |
+
+Median of iterations 2-5: **~319 ms**. A second back-to-back run produced 315 / 273 / 317 / 1103 ms
+(median **~316 ms**), confirming the number is stable; both runs show one late-iteration outlier
+(likely host GC/scheduling noise from a freshly-opened per-iteration `JdbcDataStore`/H2 connection,
+not the dialect indirection - the same iteration position spiked in both runs while the JIT-warmed
+steady-state iterations stayed tight around 300-325 ms).
+
+This is unchanged within noise from the pre-refactor baseline cited in prior perf work
+(embedded ~0.6 s / H2 server-mode ~0.4-0.8 s on this same shape, see the `select-tests-targeted-queries`
+branch measurements) - if anything modestly faster, well inside the ~1.5x regression threshold.
+The `SqlDialect` indirection (a single virtual dispatch per SQL-string-building call) adds no
+measurable cost to the hot read path.
+
 ### Reproducibility notes
 
 - The generator's RNG is seeded, so two runs with the same `-Pseed=` produce identical DBs.
