@@ -6,9 +6,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests {@link SqlDialectRegistry}: the null/blank-url and {@code jdbc:h2}-prefixed URLs resolve
- * to {@link H2Dialect}, an explicit {@code "h2"} override resolves to {@link H2Dialect} even when
- * the URL disagrees, and both the unknown-override and unsupported-URL paths throw with the
- * supported dialect id named in the message.
+ * to {@link H2Dialect}, {@code jdbc:postgresql}-prefixed URLs and an explicit {@code "postgres"}
+ * override resolve to {@link PostgresDialect}, an explicit {@code "h2"} override resolves to
+ * {@link H2Dialect} even when the URL disagrees, and both the unknown-override and
+ * unsupported-URL paths throw with the supported dialect ids named in the message.
  */
 class SqlDialectRegistryTest {
 
@@ -53,12 +54,37 @@ class SqlDialectRegistryTest {
     }
 
     @Test
+    void postgresPrefixedUrlResolvesToPostgres() {
+        // given / when
+        SqlDialect dialect = SqlDialectRegistry.forUrl("jdbc:postgresql://host:5432/tiadb", null);
+        // then
+        assertTrue(dialect instanceof PostgresDialect);
+    }
+
+    @Test
+    void explicitPostgresOverrideResolvesToPostgresRegardlessOfUrl() {
+        // given / when
+        SqlDialect dialect = SqlDialectRegistry.forUrl("jdbc:h2:tcp://host:9092/tiadb", "postgres");
+        // then
+        assertTrue(dialect instanceof PostgresDialect);
+    }
+
+    @Test
+    void explicitPostgresOverrideIsCaseInsensitive() {
+        // given / when
+        SqlDialect dialect = SqlDialectRegistry.forUrl(null, "POSTGRES");
+        // then
+        assertTrue(dialect instanceof PostgresDialect);
+    }
+
+    @Test
     void unknownOverrideThrowsWithSupportedList() {
         // given / when / then
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> SqlDialectRegistry.forUrl(null, "postgres"));
-        assertTrue(ex.getMessage().contains("postgres"));
+                () -> SqlDialectRegistry.forUrl(null, "oracle"));
+        assertTrue(ex.getMessage().contains("oracle"));
         assertTrue(ex.getMessage().toLowerCase().contains("h2"));
+        assertTrue(ex.getMessage().toLowerCase().contains("postgres"));
     }
 
     @Test
@@ -68,5 +94,6 @@ class SqlDialectRegistryTest {
                 () -> SqlDialectRegistry.forUrl("jdbc:oracle:thin:@x", null));
         assertTrue(ex.getMessage().contains("jdbc:oracle:thin:@x"));
         assertTrue(ex.getMessage().toLowerCase().contains("h2"));
+        assertTrue(ex.getMessage().toLowerCase().contains("postgres"));
     }
 }
