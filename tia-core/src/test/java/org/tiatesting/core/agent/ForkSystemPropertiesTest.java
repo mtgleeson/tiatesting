@@ -2,6 +2,7 @@ package org.tiatesting.core.agent;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.persistence.DataStoreFactory;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -29,6 +30,7 @@ class ForkSystemPropertiesTest {
         System.clearProperty(KEY_PLAIN);
         System.clearProperty(KEY_CSV);
         System.clearProperty(KEY_PRESET);
+        System.clearProperty(DataStoreFactory.PROP_DB_DIALECT);
     }
 
     private File newTempFile() throws Exception {
@@ -96,5 +98,39 @@ class ForkSystemPropertiesTest {
 
         // then
         assertEquals(0, result.size());
+    }
+
+    @Test
+    void tiaDBDialectIsForwardedWhenSetAndOmittedWhenNull() throws Exception {
+        // given - mirrors how the Maven/Gradle plugins bundle tiaDBUrl alongside tiaDBDialect
+        // into the fork properties map: forwarded when configured, absent (falls back to
+        // dialect inference) when not.
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put(DataStoreFactory.PROP_DB_DIALECT, "postgres");
+        File file = newTempFile();
+
+        // when
+        ForkSystemProperties.write(props, file);
+        ForkSystemProperties.applyToSystemProperties(file.getAbsolutePath());
+
+        // then
+        assertEquals("postgres", System.getProperty(DataStoreFactory.PROP_DB_DIALECT));
+    }
+
+    @Test
+    void tiaDBDialectIsOmittedWhenUnset() throws Exception {
+        // given - an unconfigured tiaDBDialect must not appear in the written file, so the
+        // fork falls back to dialect inference from tiaDBUrl rather than seeing a literal "null".
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put(DataStoreFactory.PROP_DB_DIALECT, null);
+        File file = newTempFile();
+
+        // when
+        ForkSystemProperties.write(props, file);
+        Properties loaded = ForkSystemProperties.applyToSystemProperties(file.getAbsolutePath());
+
+        // then
+        assertFalse(loaded.containsKey(DataStoreFactory.PROP_DB_DIALECT));
+        assertNull(System.getProperty(DataStoreFactory.PROP_DB_DIALECT));
     }
 }

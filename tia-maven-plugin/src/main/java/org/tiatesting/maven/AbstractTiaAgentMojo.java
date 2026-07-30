@@ -230,6 +230,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());
         props.put("tiaDBFilePath", getTiaDBFilePath());
         props.put("tiaDBUrl", getTiaDBUrl());
+        props.put("tiaDBDialect", getTiaDBDialect());
         props.put("tiaDBUser", getTiaDBUser());
         props.put("tiaDBPassword", getTiaDBPassword());
 
