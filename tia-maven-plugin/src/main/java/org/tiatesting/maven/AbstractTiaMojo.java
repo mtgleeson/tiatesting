@@ -7,7 +7,8 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
-import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
@@ -234,17 +235,17 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * Resolve the H2 connection settings for this mojo. Picks server mode when {@link #tiaDBUrl}
-     * is set, otherwise embedded mode keyed on the supplied branch name. Centralising this here
-     * keeps every mojo's {@link org.tiatesting.core.persistence.JdbcDataStore} construction
-     * consistent.
+     * Build the {@link DataStore} for this mojo, resolving the SQL dialect from the mojo's
+     * configured connection parameters via {@link DataStoreFactory}. Centralising this here keeps
+     * every mojo's datastore construction consistent, and is the single place a mojo needs to
+     * touch when a new dialect's configuration surface is added.
      *
      * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
-     * @return the resolved embedded- or server-mode connection settings
+     * @return the constructed datastore for the resolved dialect
      */
-    protected H2ConnectionSettings buildH2ConnectionSettings(final String branchSuffix){
-        return H2ConnectionSettings.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), branchSuffix);
+    protected DataStore buildDataStore(final String branchSuffix){
+        return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
+                getTiaDBUser(), getTiaDBPassword(), null, branchSuffix);
     }
 
     public String getTiaSourceFilesDirs() {

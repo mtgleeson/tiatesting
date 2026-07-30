@@ -3,9 +3,6 @@ package org.tiatesting.maven;
 import org.apache.maven.artifact.Artifact;
 import org.tiatesting.core.library.LibraryPublishStamper;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.JdbcDataStore;
-import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
-import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.vcs.VCSReader;
 
 /**
@@ -46,7 +43,7 @@ public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
         String jarFilePath = resolveBuiltArtifactPath();
 
         final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(vcsReader.getBranchName())))) {
+        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                     .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath);
             getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion

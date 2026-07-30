@@ -4,9 +4,6 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.JdbcDataStore;
-import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
-import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -43,7 +40,7 @@ public abstract class AbstractHistoryMojo extends AbstractTiaMojo {
                     "tiaHistoryLast must be a positive integer; received " + tiaHistoryLast);
         }
         final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(vcsReader.getBranchName())))) {
+        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, tiaHistoryLast, System.lineSeparator()));
