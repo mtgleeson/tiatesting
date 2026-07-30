@@ -2,6 +2,7 @@ package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.connection.JdbcConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.persistence.dialect.SqlDialectRegistry;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -9,9 +10,10 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 /**
  * Builds a {@link DataStore} for the configured (or inferred) SQL dialect, so build-tool plugins
  * and test-runner listeners construct a datastore through one place instead of hard-coding
- * {@code new JdbcDataStore(new H2Dialect(), ...)} at every call site. H2-only for now; a future
- * dialect (e.g. Postgres, see the pluggable-datastore WIKI chapter) is added here as a new branch
- * alongside the H2 one, once {@link SqlDialectRegistry} resolves it.
+ * {@code new JdbcDataStore(new H2Dialect(), ...)} at every call site. H2 gets its own
+ * {@link H2ConnectionProvider} branch for its embedded/server-mode handling; every other resolved
+ * dialect (e.g. Postgres, see the pluggable-datastore WIKI chapter) shares a plain
+ * {@link JdbcConnectionProvider} built from {@code dbUrl}/{@code user}/{@code password}.
  */
 public final class DataStoreFactory {
 
@@ -48,9 +50,8 @@ public final class DataStoreFactory {
             return new JdbcDataStore(dialect, connectionProvider);
         }
 
-        // Unreachable while SqlDialectRegistry only resolves "h2"; a future dialect adds its own
-        // branch here alongside its ConnectionProvider construction.
-        throw new IllegalArgumentException("No connection provider wired for dialect '" + dialect.id() + "'.");
+        ConnectionProvider connectionProvider = new JdbcConnectionProvider(dbUrl, user, password);
+        return new JdbcDataStore(dialect, connectionProvider);
     }
 
     /**

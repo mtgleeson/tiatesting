@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * Resolves the {@link SqlDialect} Tia should use for a given JDBC URL, or an explicit override id.
- * H2-only for now (see the pluggable-datastore WIKI chapter); a future dialect (e.g. Postgres) is
+ * Supports H2 and Postgres (see the pluggable-datastore WIKI chapter); a further future dialect is
  * added by extending {@link #SUPPORTED_IDS} and the two lookup branches below, so both the
  * override path and the URL-sniffing path stay in sync with what is actually supported.
  */
@@ -17,7 +17,7 @@ public final class SqlDialectRegistry {
      * messages. Single source of truth for "what dialects does Tia support" - keep it in sync
      * with the lookups in {@link #forUrl(String, String)}.
      */
-    private static final List<String> SUPPORTED_IDS = Collections.unmodifiableList(Arrays.asList("h2"));
+    private static final List<String> SUPPORTED_IDS = Collections.unmodifiableList(Arrays.asList("h2", "postgres"));
 
     private SqlDialectRegistry() {
     }
@@ -40,6 +40,9 @@ public final class SqlDialectRegistry {
         if (jdbcUrl == null || jdbcUrl.trim().isEmpty() || jdbcUrl.trim().startsWith("jdbc:h2")) {
             return new H2Dialect();
         }
+        if (jdbcUrl.trim().startsWith("jdbc:postgresql")) {
+            return new PostgresDialect();
+        }
         throw new IllegalArgumentException("Unsupported JDBC URL '" + jdbcUrl
                 + "'. Supported dialects: " + SUPPORTED_IDS);
     }
@@ -54,6 +57,9 @@ public final class SqlDialectRegistry {
     private static SqlDialect forId(final String id) {
         if ("h2".equalsIgnoreCase(id)) {
             return new H2Dialect();
+        }
+        if ("postgres".equalsIgnoreCase(id)) {
+            return new PostgresDialect();
         }
         throw new IllegalArgumentException("Unsupported Tia dialect '" + id
                 + "'. Supported dialects: " + SUPPORTED_IDS);
