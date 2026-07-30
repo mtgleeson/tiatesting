@@ -66,6 +66,9 @@ public class TiaSpockGitGradlePluginTestExtension {
                     if (tiaTaskExtension.getDbPassword() != null){
                         testTask.systemProperty("tiaDBPassword", tiaTaskExtension.getDbPassword());
                     }
+                    if (tiaTaskExtension.getDbDialect() != null){
+                        testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
+                    }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
 
                     LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
@@ -155,6 +158,10 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getDbPassword() == null){
             tiaTaskExt.setDbPassword(tiaProjectExt.getDbPassword());
+        }
+
+        if (tiaTaskExt.getDbDialect() == null){
+            tiaTaskExt.setDbDialect(tiaProjectExt.getDbDialect());
         }
 
         if (tiaTaskExt.getCheckLocalChanges() == null){

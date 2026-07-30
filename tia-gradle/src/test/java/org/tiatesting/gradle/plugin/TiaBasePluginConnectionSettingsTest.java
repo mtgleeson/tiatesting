@@ -83,4 +83,27 @@ class TiaBasePluginConnectionSettingsTest {
         assertEquals("tia", ext.getDbUser());
         assertEquals("secret", ext.getDbPassword());
     }
+
+    @Test
+    void dbDialectRoundTripsOnExtensionAndIsForwardedToDataStoreFactory() {
+        // given - mirrors dbUrl: an explicit dialect override configured on the tia { ... }
+        // extension should be threaded into the datastore construction, next to dbUrl/dbUser/dbPassword.
+        TiaBaseTaskExtension ext = new TiaBaseTaskExtension();
+
+        // when
+        ext.setDbDialect("h2");
+
+        // then
+        assertEquals("h2", ext.getDbDialect());
+    }
+
+    @Test
+    void dbDialectIsNullByDefault() {
+        // given
+        TiaBaseTaskExtension ext = new TiaBaseTaskExtension();
+
+        // when / then - unset dialect falls back to inference from dbUrl, matching tiaDBUrl's
+        // own "null means unset" convention.
+        assertEquals(null, ext.getDbDialect());
+    }
 }

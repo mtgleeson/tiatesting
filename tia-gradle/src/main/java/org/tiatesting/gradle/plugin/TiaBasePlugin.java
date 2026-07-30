@@ -303,6 +303,14 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
+     * @return the configured SQL dialect override from the {@code tia { ... }} extension, or
+     *         {@code null} to infer the dialect from {@link #getDbUrl()}
+     */
+    public String getDbDialect() {
+        return tiaTaskExtension.getDbDialect();
+    }
+
+    /**
      * Resolve the H2 connection settings for the daemon-side Tia tasks. Picks server mode when
      * {@code dbUrl} is configured, otherwise embedded mode using {@link #resolveDbFilePath()}
      * (which resolves a relative {@code dbFilePath} against the project dir, not the daemon cwd).
@@ -326,7 +334,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public DataStore buildDataStore(String branchSuffix) {
         return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), null, branchSuffix);
+                getDbPassword(), getDbDialect(), branchSuffix);
     }
 
     /**

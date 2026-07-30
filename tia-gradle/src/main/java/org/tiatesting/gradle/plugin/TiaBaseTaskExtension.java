@@ -20,6 +20,7 @@ public class TiaBaseTaskExtension {
     private String dbUrl;
     private String dbUser;
     private String dbPassword;
+    private String dbDialect;
     private Boolean enabled;
     private Boolean updateDBMapping;
     private Boolean updateDBStats;
@@ -141,6 +142,23 @@ public class TiaBaseTaskExtension {
      */
     public void setDbPassword(String dbPassword) {
         this.dbPassword = dbPassword;
+    }
+
+    /**
+     * @return the explicit SQL dialect id override (e.g. {@code "h2"}), or {@code null} to infer
+     *         the dialect from {@link #getDbUrl()}
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getDbDialect() {
+        return dbDialect;
+    }
+
+    /**
+     * @param dbDialect the explicit SQL dialect id override; {@code null} to infer from {@link #getDbUrl()}
+     */
+    public void setDbDialect(String dbDialect) {
+        this.dbDialect = dbDialect;
     }
 
     @Input

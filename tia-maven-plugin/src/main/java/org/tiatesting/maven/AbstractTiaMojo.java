@@ -55,6 +55,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaDBUrl;
 
     /**
+     * Explicit SQL dialect id override (e.g. {@code "h2"}), or unset to infer the dialect from
+     * {@link #tiaDBUrl}. See {@link DataStoreFactory#fromConfig}.
+     */
+    @Parameter(property = "tiaDBDialect")
+    String tiaDBDialect;
+
+    /**
      * Database username for server-mode H2 ({@link #tiaDBUrl}). Defaults to {@code sa} when unset.
      */
     @Parameter(property = "tiaDBUser")
@@ -221,6 +228,14 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
+     * @return the configured SQL dialect override, or {@code null} to infer the dialect from
+     *         {@link #getTiaDBUrl()}
+     */
+    public String getTiaDBDialect(){
+        return tiaDBDialect;
+    }
+
+    /**
      * @return the configured server-mode H2 username, or {@code null} to use the default
      */
     public String getTiaDBUser(){
@@ -245,7 +260,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     protected DataStore buildDataStore(final String branchSuffix){
         return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), null, branchSuffix);
+                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branchSuffix);
     }
 
     public String getTiaSourceFilesDirs() {
