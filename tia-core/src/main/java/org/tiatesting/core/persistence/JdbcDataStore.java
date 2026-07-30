@@ -1795,8 +1795,13 @@ public class JdbcDataStore implements DataStore {
                 COL_NUM_FAIL_RUNS + " BIGINT, " +
                 COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE)";
 
-        String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX " + COL_SOURCE_FILENAME + "_idx ON " +
-                TABLE_TIA_TEST_SUITE + " (" + COL_SOURCE_FILENAME + ")";
+        // Unique index on tia_test_suite.name. This is the conflict target for the suite upsert
+        // (H2 MERGE ... KEY(name) / Postgres INSERT ... ON CONFLICT (name)). Postgres requires the
+        // ON CONFLICT target to be backed by a real unique constraint or index, so the constraint
+        // MUST sit on name. It was historically (mistakenly) created on the vestigial, never-written
+        // source_filename column; H2's lenient MERGE KEY masked that, Postgres's ON CONFLICT did not.
+        String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX " + TABLE_TIA_TEST_SUITE + "_" + COL_NAME + "_idx ON " +
+                TABLE_TIA_TEST_SUITE + " (" + COL_NAME + ")";
 
         String createSourceClassTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS + " " +
                 "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
@@ -2032,9 +2037,8 @@ public class JdbcDataStore implements DataStore {
      * DDL for the index on {@code tia_source_class.source_filename}. Backs the targeted
      * select-tests query that resolves changed source files to their tracked methods
      * (the changed-files-to-tracked-methods lookup) - without it the filename {@code IN} predicate scans every source-class row.
-     * Named with the {@code idx_} prefix because {@code source_filename_idx} is already taken
-     * by the unique index on {@code tia_test_suite.source_filename} and H2 index names are
-     * schema-global.
+     * Named with the {@code idx_} prefix to keep it distinct from the other schema-global H2 index
+     * names ({@code source_filename} is also a column on {@code tia_source_class}).
      *
      * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the filename index
      */
