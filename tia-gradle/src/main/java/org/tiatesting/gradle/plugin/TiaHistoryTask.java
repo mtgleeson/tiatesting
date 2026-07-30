@@ -7,10 +7,6 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.JdbcDataStore;
-import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
-import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -31,7 +27,7 @@ public class TiaHistoryTask extends DefaultTask {
 
     private String last = "20";
     private Supplier<VCSReader> vcsReaderSupplier;
-    private Function<String, H2ConnectionSettings> connectionSettingsFactory;
+    private Function<String, DataStore> dataStoreFactory;
 
     /**
      * Setter used by Gradle when the user passes {@code --last=N} on the command line.
@@ -62,15 +58,15 @@ public class TiaHistoryTask extends DefaultTask {
     }
 
     /**
-     * Inject the connection-settings factory; called from {@code TiaBasePlugin.createHistoryTask}
-     * at task registration so the settings (which depend on the consumer's {@code tia { ... }}
-     * extension and the run's branch) resolve at execution time rather than apply time. The
-     * factory takes the branch name and returns embedded- or server-mode connection settings.
+     * Inject the datastore factory; called from {@code TiaBasePlugin.createHistoryTask} at task
+     * registration so the datastore (which depends on the consumer's {@code tia { ... }}
+     * extension and the run's branch) is built at execution time rather than apply time. The
+     * factory takes the branch name and returns a constructed {@link DataStore}.
      *
-     * @param connectionSettingsFactory factory mapping a branch name to {@link H2ConnectionSettings}
+     * @param dataStoreFactory factory mapping a branch name to a constructed {@link DataStore}
      */
-    public void setConnectionSettingsFactory(Function<String, H2ConnectionSettings> connectionSettingsFactory) {
-        this.connectionSettingsFactory = connectionSettingsFactory;
+    public void setDataStoreFactory(Function<String, DataStore> dataStoreFactory) {
+        this.dataStoreFactory = dataStoreFactory;
     }
 
     /**
@@ -89,7 +85,7 @@ public class TiaHistoryTask extends DefaultTask {
             throw new GradleException("--last must be a positive integer; received " + limit);
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(connectionSettingsFactory.apply(vcsReader.getBranchName())))) {
+        try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName())) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, limit, System.lineSeparator()));

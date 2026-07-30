@@ -6,10 +6,6 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.JdbcDataStore;
-import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
-import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.LibraryPendingMethodsReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -30,7 +26,7 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
 
     private String library;
     private Supplier<VCSReader> vcsReaderSupplier;
-    private Function<String, H2ConnectionSettings> connectionSettingsFactory;
+    private Function<String, DataStore> dataStoreFactory;
 
     /**
      * Setter used by Gradle when the user passes {@code --library=groupId:artifactId} on the
@@ -63,13 +59,13 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
     }
 
     /**
-     * Inject the connection-settings factory; called from {@code TiaBasePlugin} at task
-     * registration so the settings resolve at execution time rather than apply time.
+     * Inject the datastore factory; called from {@code TiaBasePlugin} at task registration so the
+     * datastore is built at execution time rather than apply time.
      *
-     * @param connectionSettingsFactory factory mapping a branch name to {@link H2ConnectionSettings}
+     * @param dataStoreFactory factory mapping a branch name to a constructed {@link DataStore}
      */
-    public void setConnectionSettingsFactory(Function<String, H2ConnectionSettings> connectionSettingsFactory) {
-        this.connectionSettingsFactory = connectionSettingsFactory;
+    public void setDataStoreFactory(Function<String, DataStore> dataStoreFactory) {
+        this.dataStoreFactory = dataStoreFactory;
     }
 
     /**
@@ -79,7 +75,7 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
     @TaskAction
     public void run() {
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(connectionSettingsFactory.apply(vcsReader.getBranchName())))) {
+        try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName())) {
             LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();
             System.out.println(reportGenerator.generateLibraryPendingMethodsReport(dataStore, library));
         }
