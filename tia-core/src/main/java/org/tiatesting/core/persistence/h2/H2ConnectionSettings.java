@@ -1,9 +1,11 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+
 import java.util.function.Function;
 
 /**
- * Immutable connection settings for {@link H2DataStore}. Centralises the single decision of
+ * Immutable connection settings for {@link JdbcDataStore}. Centralises the single decision of
  * whether Tia talks to an embedded (file-on-disk) H2 database or a remote H2 running in server
  * (TCP) mode, so the choice is resolved in one place rather than duplicated across every
  * build-tool plugin and test-runner listener that constructs a datastore.
@@ -42,7 +44,7 @@ public class H2ConnectionSettings {
 
     /**
      * Placeholder token a user may embed anywhere in the server-mode {@code dbUrl}. When present,
-     * {@link H2DataStore} substitutes only the token with {@code tiadb-<branch>}, leaving the rest
+     * {@link JdbcDataStore} substitutes only the token with {@code tiadb-<branch>}, leaving the rest
      * of the URL untouched. Because only the token is replaced, the user can wrap it with a prefix
      * or suffix - e.g. {@code .../{branch}-myproject} becomes {@code .../tiadb-main-myproject}.
      * A URL without the token is used verbatim.
@@ -88,7 +90,7 @@ public class H2ConnectionSettings {
      * build keep the password out of its checked-in Gradle/Maven config entirely - CI sets the
      * secret in the environment and leaves {@code dbPassword} unset.
      *
-     * <p>The {@code branchSuffix} is retained so {@link H2DataStore} can substitute a
+     * <p>The {@code branchSuffix} is retained so {@link JdbcDataStore} can substitute a
      * {@value #BRANCH_PLACEHOLDER} token in the URL with {@code tiadb-<branch>}; a URL without
      * the token ignores the branch and is used verbatim.
      *

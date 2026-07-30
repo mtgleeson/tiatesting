@@ -5,7 +5,9 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
@@ -25,7 +27,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     public void execute() {
         System.out.println("Displaying the tests selected by Tia:");
         final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(vcsReader.getBranchName()))) {
+        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(vcsReader.getBranchName())))) {
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;

@@ -14,7 +14,9 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.time.Instant;
@@ -36,13 +38,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * at its prior setting, so the next Tia run will diff against the older commit and re-do the
  * impacted work rather than under-select.
  *
- * <p>Tests wrap an {@link H2DataStore} in a recording decorator. Failure-case tests throw from
+ * <p>Tests wrap an {@link JdbcDataStore} in a recording decorator. Failure-case tests throw from
  * a specific {@code persistX} method and assert the stored commit value didn't move. The
  * happy-path test asserts that {@code persistCoreData} is invoked after every mapping write.
  */
 class TestRunnerServiceSealOrderTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -50,7 +52,7 @@ class TestRunnerServiceSealOrderTest {
         tempDir = File.createTempFile("tia-seal-order-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
 
         // Seed a known prior commit value so we can assert it survives mid-persist crashes.

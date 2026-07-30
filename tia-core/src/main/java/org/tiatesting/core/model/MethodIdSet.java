@@ -16,7 +16,7 @@ import java.util.NoSuchElementException;
  * payload (~6 method IDs per source class, ~940K classes per large project) this is roughly
  * one order of magnitude smaller in heap than {@code HashSet<Integer>} and removes the per-add
  * {@code Integer.valueOf} allocation that dominated GC overhead in profiling of
- * {@code H2DataStore.getTestSuitesData}.
+ * {@code JdbcDataStore.getTestSuitesData}.
  *
  * <p>Two add paths are exposed:
  * <ul>

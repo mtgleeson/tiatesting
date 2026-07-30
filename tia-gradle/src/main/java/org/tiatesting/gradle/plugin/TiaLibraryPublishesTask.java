@@ -7,7 +7,9 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.LibraryPublishesReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -75,7 +77,7 @@ public class TiaLibraryPublishesTask extends DefaultTask {
     @TaskAction
     public void run() {
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = new H2DataStore(connectionSettingsFactory.apply(vcsReader.getBranchName()))) {
+        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(connectionSettingsFactory.apply(vcsReader.getBranchName())))) {
             LibraryPublishesReportGenerator reportGenerator = new LibraryPublishesReportGenerator();
             System.out.println(reportGenerator.generateLibraryPublishesReport(dataStore, library));
         }

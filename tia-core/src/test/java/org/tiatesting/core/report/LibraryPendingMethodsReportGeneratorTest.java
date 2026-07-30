@@ -8,7 +8,9 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.time.Instant;
@@ -28,7 +30,7 @@ class LibraryPendingMethodsReportGeneratorTest {
 
     private static final String LIB = "com.example:mylib";
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
     private LibraryPendingMethodsReportGenerator generator;
 
@@ -37,7 +39,7 @@ class LibraryPendingMethodsReportGeneratorTest {
         tempDir = File.createTempFile("tia-lib-pending-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
         generator = new LibraryPendingMethodsReportGenerator();
     }

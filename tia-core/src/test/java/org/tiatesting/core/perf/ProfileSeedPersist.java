@@ -6,7 +6,9 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -52,7 +54,7 @@ public final class ProfileSeedPersist {
         H2ConnectionSettings settings = serverUrl != null
                 ? H2ConnectionSettings.server(serverUrl, "sa", "", "perf")
                 : H2ConnectionSettings.embedded(dir.getAbsolutePath(), "perf");
-        H2DataStore dataStore = new H2DataStore(settings);
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
         dataStore.getTiaData(true); // bootstrap schema
 
         // Bounded pool of distinct methods (shared across classes), so the edge count can be huge

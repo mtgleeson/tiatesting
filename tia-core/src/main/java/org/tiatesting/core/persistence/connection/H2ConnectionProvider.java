@@ -9,6 +9,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Objects;
 
 /**
@@ -77,6 +78,52 @@ public class H2ConnectionProvider implements ConnectionProvider {
     @Override
     public String jdbcUrl() {
         return jdbcURL;
+    }
+
+    /**
+     * Close the embedded H2 database, flushing pending writes to disk and releasing the underlying
+     * {@code .mv.db} file lock. Required when running inside a Maven plugin's JVM that will later
+     * fork a surefire/test JVM: without an explicit close, {@code DB_CLOSE_DELAY=-1} keeps the
+     * database open in the plugin JVM and the forked test JVM cannot open the same file - H2 reports
+     * {@code "Database may be already in use"}.
+     *
+     * <p>Issues a graceful {@code SHUTDOWN} (deliberately <em>not</em> {@code SHUTDOWN IMMEDIATELY})
+     * via a short-lived connection. The graceful form writes the MVStore's buffered pages to the
+     * file before closing; {@code IMMEDIATELY} skips that flush and would drop any committed change
+     * the MVStore's delayed writer has not yet persisted. That loss is silent and small-write
+     * biased: a tracked-library reconcile performed in the plugin JVM is a tiny write that has not
+     * reached disk when {@code close()} runs, so under {@code IMMEDIATELY} the forked test JVM finds
+     * no schema, recreates an empty DB, and the tracked library disappears. Plain {@code SHUTDOWN}
+     * does not compact or defrag, so the only added cost over {@code IMMEDIATELY} is flushing pages
+     * that had to be written anyway - a read-only run has no dirty pages and pays nothing. Failures
+     * during close are swallowed (logged at debug) so cleanup errors never mask the real exception a
+     * calling {@code try}/{@code finally} block is unwinding.
+     *
+     * <p>This is an <b>embedded-mode-only</b> concern. In server mode the database engine lives in
+     * the remote server process and is shared by every connected client, so issuing {@code SHUTDOWN}
+     * would tear down the whole server database for all of them. Server-mode {@code close()} is
+     * therefore a no-op - individual connections are already closed by each operation's
+     * {@code finally} block.
+     */
+    @Override
+    public void close() {
+        if (settings.isServerMode()) {
+            // Never SHUTDOWN a shared server DB - it would kill the database for every other
+            // connected client. Per-operation connections are already closed by their callers.
+            return;
+        }
+
+        // Graceful SHUTDOWN flushes the MVStore write buffer to disk, then closes and releases the
+        // file lock. The final connection/statement close() in this try-with-resources may throw
+        // because the database is already shut down; that's expected and the outer catch swallows
+        // it. Failures during close are logged at debug so cleanup errors never mask the real
+        // exception a calling try/finally is unwinding.
+        try (Connection connection = get();
+             Statement statement = connection.createStatement()) {
+            statement.execute("SHUTDOWN");
+        } catch (Throwable t) {
+            log.debug("H2ConnectionProvider.close ignoring shutdown exception for {}: {}", jdbcURL, t.toString());
+        }
     }
 
     /**

@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -10,14 +14,14 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the pending library impacted methods CRUD operations in {@link H2DataStore} under the
+ * Tests for the pending library impacted methods CRUD operations in {@link JdbcDataStore} under the
  * publish-seq keying: batches are keyed {@code (groupArtifact, publishSeq)}, persists merge by
  * method id within a sequence, and deletion is per publish sequence.
  * Uses an in-memory-like temp directory H2 database per test to ensure isolation.
  */
-class H2DataStorePendingLibraryMethodsTest {
+class JdbcDataStorePendingLibraryMethodsTest {
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -25,7 +29,7 @@ class H2DataStorePendingLibraryMethodsTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
 
         TrackedLibrary lib = new TrackedLibrary("com.example:mylib", "/projects/mylib", null);
@@ -154,7 +158,7 @@ class H2DataStorePendingLibraryMethodsTest {
     @Test
     void readReturnsEmptyListWhenTableDoesNotExist() {
         // given a fresh datastore whose DB has not been bootstrapped
-        H2DataStore freshStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "fresh"));
+        JdbcDataStore freshStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "fresh")));
 
         // then the pending read returns empty
         List<PendingLibraryImpactedMethod> result = freshStore.readPendingLibraryImpactedMethods("com.example:mylib");

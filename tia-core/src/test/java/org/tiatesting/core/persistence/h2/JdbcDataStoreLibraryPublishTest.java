@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,11 +26,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * assignment, round trips, the hash-then-version lookup precedence with highest-seq wins, and
  * the cascade delete from {@code tia_library}. See the library publish-time stamping chapter in {@code WIKI.md}.
  */
-class H2DataStoreLibraryPublishTest {
+class JdbcDataStoreLibraryPublishTest {
 
     private static final String LIB = "com.example:lib";
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
 
     @BeforeEach
@@ -34,7 +38,7 @@ class H2DataStoreLibraryPublishTest {
         tempDir = File.createTempFile("tia-ledger-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
     }
 

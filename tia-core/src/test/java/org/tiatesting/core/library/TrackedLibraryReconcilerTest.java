@@ -6,7 +6,9 @@ import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.util.*;
@@ -23,7 +25,7 @@ class TrackedLibraryReconcilerTest {
 
     private static final String LIB = "com.example:lib";
 
-    private H2DataStore dataStore;
+    private JdbcDataStore dataStore;
     private File tempDir;
     private TrackedLibraryReconciler reconciler;
 
@@ -32,7 +34,7 @@ class TrackedLibraryReconcilerTest {
         tempDir = File.createTempFile("tia-reconciler-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
         dataStore.getTiaData(true);
         reconciler = new TrackedLibraryReconciler();
     }

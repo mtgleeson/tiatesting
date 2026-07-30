@@ -8,7 +8,9 @@ import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -87,7 +89,7 @@ public class TiaHistoryTask extends DefaultTask {
             throw new GradleException("--last must be a positive integer; received " + limit);
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = new H2DataStore(connectionSettingsFactory.apply(vcsReader.getBranchName()))) {
+        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(connectionSettingsFactory.apply(vcsReader.getBranchName())))) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, limit, System.lineSeparator()));

@@ -20,7 +20,9 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
@@ -86,7 +88,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public void createStatusTask() {
         project.task("tia-status").doLast(task -> {
-            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+            try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(getVCSReader().getBranchName())))) {
                 StatusReportGenerator reportGenerator = new StatusReportGenerator();
                 System.out.println(reportGenerator.generateSummaryReport(dataStore));
             }
@@ -100,7 +102,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createLibrariesTask() {
         project.task("tia-libraries").doLast(task -> {
-            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+            try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(getVCSReader().getBranchName())))) {
                 LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
                 System.out.println(reportGenerator.generateLibrariesReport(dataStore));
             }
@@ -110,7 +112,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+            try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(getVCSReader().getBranchName())))) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -123,7 +125,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+            try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(getVCSReader().getBranchName())))) {
                 TiaData tiaData = dataStore.getTiaData(true);
                 File reportOutputDir = getReportOutputDir();
                 ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
@@ -142,7 +144,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
-            try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(getVCSReader().getBranchName()))) {
+            try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(getVCSReader().getBranchName())))) {
                 List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
                 StringUtil.sanitizeInputArray(sourceFilesDirs);
                 List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -239,7 +241,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         String jarFilePath = resolveBuiltArchivePath();
 
         VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = new H2DataStore(buildH2ConnectionSettings(vcsReader.getBranchName()))) {
+        try (DataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(buildH2ConnectionSettings(vcsReader.getBranchName())))) {
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                     .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath);
             LOGGER.info("Tia publish stamp for {} {}: {} (seq {}, {} methods).",
@@ -317,7 +319,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     /**
      * Daemon-side tasks ({@code tia-select-tests}, {@code tia-status}, {@code tia-text-report},
-     * {@code tia-html-report}) construct H2DataStore directly in the Gradle daemon. The daemon's
+     * {@code tia-html-report}) construct JdbcDataStore directly in the Gradle daemon. The daemon's
      * {@code user.dir} is set when the daemon process first starts and does not change between
      * builds, so a relative path like {@code "."} in {@code dbFilePath} resolves against the
      * daemon's cwd - not the project dir. The forked test JVM doesn't hit this because it gets a

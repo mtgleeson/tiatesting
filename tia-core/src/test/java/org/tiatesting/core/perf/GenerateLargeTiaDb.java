@@ -1,7 +1,9 @@
 package org.tiatesting.core.perf;
 
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.persistence.h2.H2DataStore;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.sql.Connection;
@@ -39,7 +41,7 @@ import java.util.Set;
  *
  * <p>The generator opens a raw H2 JDBC connection (no Tia connection-pool indirection)
  * and uses batched {@link PreparedStatement}s with autocommit off to populate the tables
- * directly. Schema creation is delegated to {@link H2DataStore} so the layout always
+ * directly. Schema creation is delegated to {@link JdbcDataStore} so the layout always
  * matches what Tia produces in normal operation.
  */
 public final class GenerateLargeTiaDb {
@@ -59,7 +61,7 @@ public final class GenerateLargeTiaDb {
         // Schema creation is triggered the first time getTiaData() is invoked on a missing DB
         // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
-        H2DataStore bootstrap = new H2DataStore(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch));
+        JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch)));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 
@@ -85,7 +87,7 @@ public final class GenerateLargeTiaDb {
 
     private static Connection openConnection(String outDb, String branch) throws Exception {
         Class.forName("org.h2.Driver");
-        // Mirror H2DataStore.buildJdbcUrl: <dir>/tiadb-<branch>, with the same page/cache tuning.
+        // Mirror JdbcDataStore.buildJdbcUrl: <dir>/tiadb-<branch>, with the same page/cache tuning.
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2;
         long pageSizeByte = 1024 * 4 * 100;
         String url = "jdbc:h2:" + outDb + "/tiadb-" + branch

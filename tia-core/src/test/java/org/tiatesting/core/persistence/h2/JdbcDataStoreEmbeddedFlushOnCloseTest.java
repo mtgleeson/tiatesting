@@ -1,5 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * fresh datastore on the same file must still see the row - i.e. {@code close()} must flush before
  * releasing the lock.
  */
-class H2DataStoreEmbeddedFlushOnCloseTest {
+class JdbcDataStoreEmbeddedFlushOnCloseTest {
 
     private File tempDir;
 
@@ -51,7 +55,7 @@ class H2DataStoreEmbeddedFlushOnCloseTest {
     @Test
     void trackedLibraryWrittenThenClosedSurvivesReopenByFreshDatastore() {
         // given a fresh embedded datastore that creates the schema, writes a tracked library, closes
-        H2DataStore first = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master"));
+        JdbcDataStore first = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master")));
         first.getTiaData(true);
         TrackedLibrary lib = new TrackedLibrary("org.example:lib", "/projects/lib", null);
         lib.setMappingBaselineCommit("baseline-abc");
@@ -60,7 +64,7 @@ class H2DataStoreEmbeddedFlushOnCloseTest {
         first.close();
 
         // when a fresh datastore opens the same on-disk DB (as the forked test JVM would)
-        H2DataStore second = new H2DataStore(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master"));
+        JdbcDataStore second = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master")));
         try {
             Map<String, TrackedLibrary> tracked = second.readTrackedLibraries();
 

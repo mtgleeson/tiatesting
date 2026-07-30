@@ -1,6 +1,9 @@
 package org.tiatesting.core.persistence.h2;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 
@@ -10,11 +13,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests how {@link H2DataStore} resolves its JDBC URL and shutdown behaviour per connection
- * mode: embedded composes an engine-option URL and shuts the database down on close, while
- * server mode uses the supplied URL verbatim and never issues a shutdown.
+ * Tests how the H2 connection stack resolves its JDBC URL and shutdown behaviour per connection
+ * mode: embedded composes an engine-option URL (built by {@link H2ConnectionProvider}) and shuts
+ * the database down on {@link JdbcDataStore#close()}, while server mode uses the supplied URL
+ * verbatim and never issues a shutdown. Since the URL building and the shutdown lifecycle moved
+ * out of the datastore into the connection provider, the URL assertions exercise
+ * {@link H2ConnectionProvider#jdbcUrl()} directly and the shutdown assertions go through
+ * {@link JdbcDataStore#close()}, which delegates to the provider.
  */
-class H2DataStoreConnectionModeTest {
+class JdbcDataStoreConnectionModeTest {
 
     @Test
     void embeddedModeComposesUrlWithEngineOptionsAndBranchSuffix() {
@@ -22,10 +29,9 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.embedded("/var/tia", "main");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
-        String url = dataStore.getJdbcUrl();
         assertTrue(url.startsWith("jdbc:h2:/var/tia/tiadb-main"), url);
         assertTrue(url.contains(";PAGE_SIZE="), url);
         assertTrue(url.contains(";CACHE_SIZE="), url);
@@ -41,11 +47,10 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.embedded("/var/tia", "feature/foo");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
-        assertTrue(dataStore.getJdbcUrl().startsWith("jdbc:h2:/var/tia/tiadb-feature-foo"),
-                dataStore.getJdbcUrl());
+        assertTrue(url.startsWith("jdbc:h2:/var/tia/tiadb-feature-foo"), url);
     }
 
     @Test
@@ -55,11 +60,10 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
         // no {branch} token, so the URL is used exactly as supplied - the branch is ignored
-        String url = dataStore.getJdbcUrl();
         assertEquals(serverUrl, url);
         assertFalse(url.contains("PAGE_SIZE"), url);
         assertFalse(url.contains("DB_CLOSE_DELAY"), url);
@@ -73,10 +77,9 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
-        String url = dataStore.getJdbcUrl();
         assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main", url);
         assertFalse(url.contains(H2ConnectionSettings.BRANCH_PLACEHOLDER), url);
     }
@@ -89,10 +92,10 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "main");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
-        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main-myproject", dataStore.getJdbcUrl());
+        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-main-myproject", url);
     }
 
     @Test
@@ -103,10 +106,10 @@ class H2DataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(serverUrl, "tia", "secret", "feature/foo");
 
         // when
-        H2DataStore dataStore = new H2DataStore(settings);
+        String url = new H2ConnectionProvider(settings).jdbcUrl();
 
         // then
-        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-feature-foo", dataStore.getJdbcUrl());
+        assertEquals("jdbc:h2:tcp://h2host:9092/tiadb-feature-foo", url);
     }
 
     @Test
@@ -116,7 +119,7 @@ class H2DataStoreConnectionModeTest {
         // would attempt (and fail) a network connect. A no-op close returns without touching it.
         H2ConnectionSettings settings = H2ConnectionSettings.server(
                 "jdbc:h2:tcp://127.0.0.1:1/tiadb", "tia", "secret", "main");
-        H2DataStore dataStore = new H2DataStore(settings);
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
 
         // when / then
         assertDoesNotThrow(dataStore::close);
@@ -129,8 +132,8 @@ class H2DataStoreConnectionModeTest {
         tempDir.delete();
         tempDir.mkdirs();
         try {
-            H2DataStore dataStore = new H2DataStore(
-                    H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test"));
+            JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
             dataStore.getTiaData(true); // force schema creation / open the DB
 
             // when / then
