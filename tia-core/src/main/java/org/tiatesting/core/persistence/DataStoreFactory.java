@@ -39,6 +39,8 @@ public final class DataStoreFactory {
      * @return the constructed {@link DataStore} for the resolved dialect
      * @throws IllegalArgumentException if the dialect cannot be resolved (see
      *         {@link SqlDialectRegistry#forUrl(String, String)})
+     * @throws IllegalStateException if the resolved dialect is not H2 and its JDBC driver is not on
+     *         the classpath (see {@link #missingDriverMessage(String)})
      */
     public static DataStore fromConfig(final String dbFilePath, final String dbUrl, final String user,
                                        final String password, final String dialectOverride, final String branch) {
@@ -50,8 +52,46 @@ public final class DataStoreFactory {
             return new JdbcDataStore(dialect, connectionProvider);
         }
 
+        requireDriverPresent(dialect.id());
         ConnectionProvider connectionProvider = new JdbcConnectionProvider(dbUrl, user, password);
         return new JdbcDataStore(dialect, connectionProvider);
+    }
+
+    /**
+     * Guard against opening a non-H2 connection when its JDBC driver was never added to the
+     * classpath, which otherwise surfaces as an opaque {@code No suitable driver found} SQLException
+     * from deep inside {@link java.sql.DriverManager}. H2 is bundled with Tia so it never reaches
+     * this check (see {@link #fromConfig}); every other dialect is resolved to a driver class via
+     * {@link SqlDialectRegistry#driverClassName(String)} and probed with {@link Class#forName}.
+     *
+     * @param dialectId the resolved dialect id, e.g. {@code "postgres"}
+     * @throws IllegalStateException if the dialect's driver class is not on the classpath
+     */
+    private static void requireDriverPresent(final String dialectId) {
+        String driverClassName = SqlDialectRegistry.driverClassName(dialectId);
+        if (driverClassName == null) {
+            return;
+        }
+        try {
+            Class.forName(driverClassName);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(missingDriverMessage(dialectId));
+        }
+    }
+
+    /**
+     * Build the actionable error message shown when a non-H2 dialect's JDBC driver is missing from
+     * the classpath. Names the vendor and points at the two-classpath model a pluggable dialect
+     * needs: a test-scope dependency in the project under test, and a dependency of the Tia
+     * build-tool plugin itself (see the pluggable-datastore WIKI chapter).
+     *
+     * @param dialectId the dialect id whose driver could not be found, e.g. {@code "postgres"}
+     * @return the actionable, user-facing error message
+     */
+    static String missingDriverMessage(final String dialectId) {
+        return "Tia could not find the " + dialectId + " JDBC driver on the classpath. Add the driver "
+                + "as a test-scope dependency in your project AND as a dependency of the Tia plugin "
+                + "(see the pluggable-datastore WIKI chapter).";
     }
 
     /**
