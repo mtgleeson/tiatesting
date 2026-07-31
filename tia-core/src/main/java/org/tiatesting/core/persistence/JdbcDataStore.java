@@ -1282,7 +1282,7 @@ public class JdbcDataStore implements DataStore {
      * {@code nextId}. Required after inserting rows with explicit ids, so any later insert that
      * relies on auto-increment cannot collide with an application-assigned id.
      *
-     * @param connection the H2 connection
+     * @param connection the connection
      * @param nextId the value the identity should next produce
      * @throws SQLException if the DDL fails
      */
@@ -1800,7 +1800,7 @@ public class JdbcDataStore implements DataStore {
         // ON CONFLICT target to be backed by a real unique constraint or index, so the constraint
         // MUST sit on name. It was historically (mistakenly) created on the vestigial, never-written
         // source_filename column; H2's lenient MERGE KEY masked that, Postgres's ON CONFLICT did not.
-        String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX " + TABLE_TIA_TEST_SUITE + "_" + COL_NAME + "_idx ON " +
+        String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + "_" + COL_NAME + "_idx ON " +
                 TABLE_TIA_TEST_SUITE + " (" + COL_NAME + ")";
 
         String createSourceClassTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS + " " +
@@ -2081,7 +2081,7 @@ public class JdbcDataStore implements DataStore {
      * already-populated DB created before the flag was added. Idempotent via
      * {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to {@code FALSE}.
      *
-     * @param connection the H2 connection to issue the DDL on
+     * @param connection the connection to issue the DDL on
      * @throws SQLException if the DDL statement fails
      */
     private void ensureTestSuiteDeveloperDisabledColumnExists(Connection connection) throws SQLException {
@@ -2095,7 +2095,7 @@ public class JdbcDataStore implements DataStore {
      * columns exist on an already-populated DB created before the all-tests-run stats were added.
      * Idempotent via {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to 0.
      *
-     * @param connection the H2 connection to issue the DDL on
+     * @param connection the connection to issue the DDL on
      * @throws SQLException if either DDL statement fails
      */
     private void ensureTiaCoreAllTestsStatsColumnsExist(Connection connection) throws SQLException {
@@ -2114,7 +2114,7 @@ public class JdbcDataStore implements DataStore {
      * on the other having run first. Memoized per datastore instance: the schema can't
      * un-migrate within a JVM, so repeat calls skip the DDL round trips.
      *
-     * @param connection the H2 connection to check and migrate on
+     * @param connection the connection to check and migrate on
      * @return {@code true} if the Tia DB already existed before this call (or an earlier call
      *         on this instance bootstrapped it), {@code false} if it was just created empty
      * @throws SQLException if the existence check or any migration DDL fails
