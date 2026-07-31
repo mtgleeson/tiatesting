@@ -50,29 +50,30 @@ objects clearly. Example: branch `feature/Foo-Bar` -> schema `tia_feature_foo_ba
 uppercase, leading digit, over-length, empty).
 
 ### Selecting and creating the schema
-Two mechanisms, chosen to add near-zero per-connection overhead on the hot read path:
+Two operations on connection acquisition, kept cheap on the hot read path:
 
-1. **Selection is via a connection/URL parameter**, so every connection lands in the branch schema
-   with no extra `SET` statement per operation:
-   - Postgres: `...?currentSchema=<schema>` on the JDBC URL.
-   - H2: `;SCHEMA=<schema>` on the JDBC URL.
-   The `ConnectionProvider` composes this from the derived schema name.
-2. **Creation happens once, memoised**, folded into the existing schema-bootstrap path
-   (`ensureSchema`, guarded by the existing `schemaEnsured` flag). On the first connection Tia runs
-   `CREATE SCHEMA IF NOT EXISTS <schema>` (which is not schema-qualified, so it works regardless of
-   search path) *before* the existing `CREATE TABLE IF NOT EXISTS` DDL; the tables then resolve into
-   the branch schema via the connection's search path. Subsequent connections skip it.
+1. **Creation happens once, memoised.** On the first connection Tia runs
+   `CREATE SCHEMA IF NOT EXISTS <schema>` (not schema-qualified, so it works regardless of the
+   current schema), guarded by a memo flag like the existing `schemaEnsured`. Subsequent connections
+   skip it.
+2. **Selection happens per connection, via `SET`** after acquiring the connection - Postgres
+   `SET search_path TO <schema>`, H2 `SET SCHEMA <schema>`. (A URL parameter such as
+   `?currentSchema=` / `;SCHEMA=` was considered but rejected: H2 errors at connect time if the named
+   schema does not yet exist, so it cannot be used on the first run; `SET` after a memoised
+   `CREATE SCHEMA` works uniformly.) The `SET` is a single lightweight statement, and the read path
+   opens only a handful of connections, so the added cost is within noise (confirmed by the perf
+   stage).
 
-The `CREATE SCHEMA` SQL is vendor-varying and comes from `SqlDialect` (a new
-`createSchemaIfNotExistsSql(schema)` method), keeping schema SQL in the dialect abstraction alongside
-`upsert`/`identityColumnDefinition`/`tableExists`. The URL-parameter format is owned by each
-`ConnectionProvider`.
+Both statements are vendor-varying and come from `SqlDialect`: `createSchemaIfNotExistsSql(schema)`
+and `selectSchemaSql(schema)`, keeping schema SQL in the dialect abstraction alongside
+`upsert`/`identityColumnDefinition`/`tableExists`. Identifiers are quoted (`"<schema>"`) for
+deterministic exact-case behaviour, and the schema name is already lowercase-sanitised. Both live in
+`JdbcDataStore.getConnection()`: memoised create, then select, on every acquired connection.
 
 ### Threading the branch through
 `DataStoreFactory` already receives the `branch`. It derives the schema name via `BranchSchema` and
-injects it into the `ConnectionProvider` (for the URL parameter) and makes it available to
-`JdbcDataStore` (for the one-time `CREATE SCHEMA`). H2 and Postgres share this path; only the dialect
-SQL and URL-parameter syntax differ.
+injects it into `JdbcDataStore`, which creates the schema once (memoised) and SET-selects it on every
+acquired connection. H2 and Postgres share this path; only the dialect SQL differs.
 
 ### H2 changes
 - H2 stops using a database per branch. The embedded database is a single fixed file
@@ -109,16 +110,13 @@ SQL and URL-parameter syntax differ.
   different mapping under branch B's schema against the same database, and assert each branch reads
   back only its own data (no clobbering) - the property the whole change exists to provide.
 - **Schema naming**: unit tests for `BranchSchema.schemaName` edge cases.
-- **Dialect**: unit tests for each dialect's `createSchemaIfNotExistsSql` and URL-parameter form.
+- **Dialect**: unit tests for each dialect's `createSchemaIfNotExistsSql` and `selectSchemaSql`.
 - The H2/Postgres selection-equivalence test continues to pass under the new model.
 
 ## Delivery stages
 
-1. `BranchSchema` schema-name derivation + `SqlDialect.createSchemaIfNotExistsSql` (H2 + Postgres) +
-   the per-dialect URL-parameter form, with unit tests. No wiring yet.
-2. Wire the schema end to end: `ConnectionProvider` adds the schema URL parameter; `JdbcDataStore`
-   creates the schema once in the bootstrap before the table DDL; `DataStoreFactory` derives the
-   schema from the branch and injects it. Both backends now isolate by schema. Existing suites green.
+1. `BranchSchema` schema-name derivation + `SqlDialect.createSchemaIfNotExistsSql` + `selectSchemaSql` (H2 + Postgres), with unit tests. No wiring yet.
+2. Wire the schema end to end: `JdbcDataStore.getConnection` creates the schema once (memoised) then SET-selects it per connection; `DataStoreFactory` derives the schema from the branch and injects it into the datastore. Both backends now isolate by schema. Existing suites green.
 3. Remove the `{branch}` token substitution and per-branch database naming from `H2ConnectionProvider`
    (single fixed H2 database), and drop the token from config handling. Update H2 tests that assert
    the old naming.
@@ -134,7 +132,8 @@ SQL and URL-parameter syntax differ.
 - The change reopens H2's stable connection/branch path (the pluggable-datastore work deliberately
   left it unchanged). The H2 suite + perf harness are the safety nets; stage 3 is the point of
   highest H2 risk and is isolated so it can be reviewed as such.
-- Per-connection overhead is kept near zero by selecting the schema via the URL parameter rather than
-  a per-operation `SET`; only the one-time `CREATE SCHEMA` is added to the existing bootstrap.
+- Per-connection overhead is kept near zero: `CREATE SCHEMA` is memoised (runs once) and only a
+  single lightweight `SET` runs per acquired connection; the read path opens only a handful of
+  connections. The perf stage confirms no read-path regression.
 - Postgres database auto-creation (with `CREATEDB` + a maintenance connection) is a deliberate
   follow-up; this stage delivers the schema model and leaves the database as a pre-existing prereq.
