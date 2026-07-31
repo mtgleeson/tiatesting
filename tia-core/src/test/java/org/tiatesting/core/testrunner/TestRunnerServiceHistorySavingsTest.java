@@ -7,6 +7,7 @@ import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -45,7 +46,7 @@ class TestRunnerServiceHistorySavingsTest {
         tempDir = File.createTempFile("tia-runner-savings-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         service = new TestRunnerService(dataStore);
 
@@ -119,7 +120,8 @@ class TestRunnerServiceHistorySavingsTest {
         slowDir.mkdirs();
         long smallBaseline = 200L; // ms; less than SlowPersistJdbcDataStore.PERSIST_DELAY_MS
         SlowPersistJdbcDataStore slowStore = new SlowPersistJdbcDataStore(
-                new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath(), "test")));
+                new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath(), "test")),
+                BranchSchema.schemaName("test"));
         try {
             slowStore.getTiaData(true);
             TiaData tiaData = slowStore.getTiaData(true);
@@ -177,8 +179,8 @@ class TestRunnerServiceHistorySavingsTest {
     private static class SlowPersistJdbcDataStore extends JdbcDataStore {
         static final long PERSIST_DELAY_MS = 600L;
 
-        SlowPersistJdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider) {
-            super(dialect, connectionProvider);
+        SlowPersistJdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider, String schema) {
+            super(dialect, connectionProvider, schema);
         }
 
         @Override

@@ -3,6 +3,7 @@ package org.tiatesting.core.library;
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.*;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -34,7 +35,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
         tempDir = File.createTempFile("tia-drainer-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         drainer = new PendingLibraryImpactedMethodsDrainer();
     }

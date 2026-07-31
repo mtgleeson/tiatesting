@@ -1,6 +1,7 @@
 package org.tiatesting.core.persistence.h2;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -119,7 +120,8 @@ class JdbcDataStoreConnectionModeTest {
         // would attempt (and fail) a network connect. A no-op close returns without touching it.
         H2ConnectionSettings settings = H2ConnectionSettings.server(
                 "jdbc:h2:tcp://127.0.0.1:1/tiadb", "tia", "secret", "main");
-        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
+                BranchSchema.schemaName("main"));
 
         // when / then
         assertDoesNotThrow(dataStore::close);
@@ -133,7 +135,8 @@ class JdbcDataStoreConnectionModeTest {
         tempDir.mkdirs();
         try {
             JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
-                    new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")),
+                    BranchSchema.schemaName("test"));
             dataStore.getTiaData(true); // force schema creation / open the DB
 
             // when / then

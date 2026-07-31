@@ -45,16 +45,17 @@ public final class DataStoreFactory {
     public static DataStore fromConfig(final String dbFilePath, final String dbUrl, final String user,
                                        final String password, final String dialectOverride, final String branch) {
         SqlDialect dialect = SqlDialectRegistry.forUrl(dbUrl, dialectOverride);
+        String schema = BranchSchema.schemaName(branch);
 
         if ("h2".equals(dialect.id())) {
             H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl, user, password, branch);
             ConnectionProvider connectionProvider = new H2ConnectionProvider(settings);
-            return new JdbcDataStore(dialect, connectionProvider);
+            return new JdbcDataStore(dialect, connectionProvider, schema);
         }
 
         requireDriverPresent(dialect.id());
         ConnectionProvider connectionProvider = new JdbcConnectionProvider(dbUrl, user, password);
-        return new JdbcDataStore(dialect, connectionProvider);
+        return new JdbcDataStore(dialect, connectionProvider, schema);
     }
 
     /**

@@ -28,11 +28,18 @@ public final class PostgresDialect implements SqlDialect {
                 + String.join(", ", updates);
     }
 
-    /** {@inheritDoc} Postgres folds unquoted identifiers to lower case. */
+    /**
+     * {@inheritDoc} Postgres folds unquoted identifiers to lower case. The schema pattern is
+     * scoped to {@link Connection#getSchema()} (the schema {@code JdbcDataStore.getConnection()}
+     * just selected via {@code search_path}) rather than left as a wildcard: a {@code null} schema
+     * pattern in {@code DatabaseMetaData.getTables} matches every schema in the catalog, so on a DB
+     * shared by several per-branch schemas this would find another branch's tables and wrongly
+     * report the current (possibly still-empty) branch schema as already migrated.
+     */
     @Override
     public boolean tableExists(Connection connection, String tableName) throws SQLException {
         try (ResultSet rs = connection.getMetaData()
-                .getTables(null, null, tableName.toLowerCase(), new String[]{"TABLE"})) {
+                .getTables(null, connection.getSchema(), tableName.toLowerCase(), new String[]{"TABLE"})) {
             return rs.next();
         }
     }

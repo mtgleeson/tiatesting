@@ -106,22 +106,31 @@ public class JdbcDataStore implements DataStore {
     private final Logger log = LoggerFactory.getLogger(JdbcDataStore.class);
     private final SqlDialect dialect;
     private final ConnectionProvider connectionProvider;
+    private final String schema;
     // Memoizes ensureSchema: once the DB is known to exist with migrations applied, later
     // calls on this instance skip the existence-check and DDL round trips.
     private boolean schemaEnsured;
+    // Memoizes the per-branch schema's CREATE SCHEMA IF NOT EXISTS: once this instance has
+    // created it, later connections only need the (cheap) SET SCHEMA / search_path selection.
+    private boolean branchSchemaCreated;
 
     /**
      * Construct a datastore over a vendor-neutral SQL dialect and connection provider. The dialect
-     * supplies the vendor-varying SQL (upserts, identity DDL, table-existence lookup) and the
-     * provider owns connection acquisition and lifecycle (URL building, server-mode retry, and the
-     * close/shutdown behaviour). See the pluggable-datastore WIKI chapter.
+     * supplies the vendor-varying SQL (upserts, identity DDL, table-existence lookup, and the
+     * per-branch schema create/select statements) and the provider owns connection acquisition and
+     * lifecycle (URL building, server-mode retry, and the close/shutdown behaviour). Every
+     * connection this instance hands out is pinned to {@code schema} - see the per-branch schema
+     * WIKI chapter.
      *
      * @param dialect the SQL dialect that renders vendor-specific statements
      * @param connectionProvider the connection provider that opens and closes connections
+     * @param schema the per-branch schema to create (if needed) and select on every connection;
+     *               {@code null}/blank leaves the connection's default schema untouched
      */
-    public JdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider){
+    public JdbcDataStore(SqlDialect dialect, ConnectionProvider connectionProvider, String schema){
         this.dialect = dialect;
         this.connectionProvider = connectionProvider;
+        this.schema = schema;
     }
 
     @Override
@@ -2154,18 +2163,36 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Acquire a connection via the injected {@link ConnectionProvider}. The provider owns the
-     * vendor-specific acquisition (URL, credentials, and the server-mode retry). Its {@code get()}
-     * throws a checked {@link SQLException}; that is wrapped in the unchecked
-     * {@link TiaPersistenceException} here so every caller in this class keeps its previous
+     * Acquire a connection via the injected {@link ConnectionProvider}, then pin it to this
+     * instance's per-branch {@link #schema}. The provider owns the vendor-specific acquisition
+     * (URL, credentials, and the server-mode retry). On the first call, if a schema is configured,
+     * it is created (idempotently) before being selected - creation is memoised via
+     * {@link #branchSchemaCreated} since later connections only need re-selecting, but every
+     * connection (including the first) has the schema selected so unqualified statements resolve
+     * against it rather than the vendor's default schema. Any {@link SQLException} - from the
+     * provider or from the create/select statements - is wrapped in the unchecked
+     * {@link TiaPersistenceException} so every caller in this class keeps its previous
      * unchecked-failure behaviour.
      *
-     * @return an open connection to the configured database
-     * @throws TiaPersistenceException wrapping any {@link SQLException} the provider raises
+     * @return an open connection to the configured database, with the per-branch schema selected
+     * @throws TiaPersistenceException wrapping any {@link SQLException} raised while acquiring the
+     *         connection or creating/selecting the schema
      */
     Connection getConnection(){
         try {
-            return connectionProvider.get();
+            Connection connection = connectionProvider.get();
+            if (schema != null && !schema.trim().isEmpty()) {
+                try (Statement statement = connection.createStatement()) {
+                    // H2 requires the schema to exist before SET SCHEMA, so create-before-select
+                    // ordering is mandatory; skip the CREATE round trip once it is known to exist.
+                    if (!branchSchemaCreated) {
+                        statement.execute(dialect.createSchemaIfNotExistsSql(schema));
+                        branchSchemaCreated = true;
+                    }
+                    statement.execute(dialect.selectSchemaSql(schema));
+                }
+            }
+            return connection;
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }

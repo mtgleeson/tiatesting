@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -43,7 +44,7 @@ class JdbcDataStoreBatchedPersistTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
     }
 
@@ -114,6 +115,10 @@ class JdbcDataStoreBatchedPersistTest {
         try (Connection c = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              Statement st = c.createStatement()) {
+            // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
+            // JdbcDataStore selects on its own connections - select it explicitly before querying
+            // unqualified table names.
+            st.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test")));
             ResultSet rs = st.executeQuery("SELECT MIN(id), MAX(id), COUNT(*) FROM tia_source_class");
             rs.next();
             assertEquals(1, rs.getLong(1));
