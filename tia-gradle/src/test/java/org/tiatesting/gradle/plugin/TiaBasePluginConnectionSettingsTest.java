@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests that {@link TiaBasePlugin#buildH2ConnectionSettings(String)} resolves embedded vs server
+ * Tests that {@link TiaBasePlugin#buildH2ConnectionSettings()} resolves embedded vs server
  * mode from the {@code tia { ... }} extension, and that the new server-mode extension properties
  * round-trip. Uses {@link ProjectBuilder} so the plugin's project-relative path resolution is
  * exercised against a real project dir.
@@ -38,14 +38,13 @@ class TiaBasePluginConnectionSettingsTest {
         ext.setDbFilePath("tiadb");
 
         // when
-        H2ConnectionSettings settings = plugin.buildH2ConnectionSettings("main");
+        H2ConnectionSettings settings = plugin.buildH2ConnectionSettings();
 
         // then
         assertFalse(settings.isServerMode());
         // compare against project.getProjectDir() (not the raw @TempDir) so the macOS
         // /var -> /private/var canonicalisation ProjectBuilder applies does not cause a mismatch.
         assertEquals(new File(project.getProjectDir(), "tiadb").getAbsolutePath(), settings.getDbFilePath());
-        assertEquals("main", settings.getBranchSuffix());
     }
 
     @Test
@@ -59,7 +58,7 @@ class TiaBasePluginConnectionSettingsTest {
         ext.setDbPassword("secret");
 
         // when
-        H2ConnectionSettings settings = plugin.buildH2ConnectionSettings("main");
+        H2ConnectionSettings settings = plugin.buildH2ConnectionSettings();
 
         // then
         assertTrue(settings.isServerMode());

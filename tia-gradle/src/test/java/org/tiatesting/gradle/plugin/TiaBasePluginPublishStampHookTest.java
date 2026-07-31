@@ -76,7 +76,7 @@ class TiaBasePluginPublishStampHookTest {
         ext.setUpdateDBMapping(true);
         ext.setDbFilePath(dbDir.getAbsolutePath());
 
-        try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath(), "main")), BranchSchema.schemaName("main"))) {
+        try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main"))) {
             seed.getTiaData(true);
             seed.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
@@ -86,7 +86,7 @@ class TiaBasePluginPublishStampHookTest {
         publishLocal.getActions().forEach(action -> action.execute(publishLocal));
 
         // then the publish is recorded in the library's ledger
-        try (JdbcDataStore verify = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath(), "main")), BranchSchema.schemaName("main"))) {
+        try (JdbcDataStore verify = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main"))) {
             assertEquals(1, verify.readLibraryPublishes("com.example:mylib").size());
             assertEquals("1.0.0-SNAPSHOT",
                     verify.readLibraryPublishes("com.example:mylib").get(0).getPublishedVersion());
@@ -109,7 +109,7 @@ class TiaBasePluginPublishStampHookTest {
         ext.setUpdateDBMapping(false);
         ext.setDbFilePath(dbDir.getAbsolutePath());
 
-        try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath(), "main")), BranchSchema.schemaName("main"))) {
+        try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main"))) {
             seed.getTiaData(true);
             seed.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
@@ -119,7 +119,7 @@ class TiaBasePluginPublishStampHookTest {
         publishLocal.getActions().forEach(action -> action.execute(publishLocal));
 
         // then no ledger row was written
-        try (JdbcDataStore verify = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath(), "main")), BranchSchema.schemaName("main"))) {
+        try (JdbcDataStore verify = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main"))) {
             assertTrue(verify.readLibraryPublishes("com.example:mylib").isEmpty());
         }
     }

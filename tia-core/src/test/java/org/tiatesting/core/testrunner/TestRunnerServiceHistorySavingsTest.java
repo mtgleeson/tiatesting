@@ -46,7 +46,7 @@ class TestRunnerServiceHistorySavingsTest {
         tempDir = File.createTempFile("tia-runner-savings-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         service = new TestRunnerService(dataStore);
 
@@ -120,7 +120,7 @@ class TestRunnerServiceHistorySavingsTest {
         slowDir.mkdirs();
         long smallBaseline = 200L; // ms; less than SlowPersistJdbcDataStore.PERSIST_DELAY_MS
         SlowPersistJdbcDataStore slowStore = new SlowPersistJdbcDataStore(
-                new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath(), "test")),
+                new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath())),
                 BranchSchema.schemaName("test"));
         try {
             slowStore.getTiaData(true);

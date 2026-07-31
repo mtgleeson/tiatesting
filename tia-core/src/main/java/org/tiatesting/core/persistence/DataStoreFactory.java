@@ -34,8 +34,8 @@ public final class DataStoreFactory {
      * @param password       database password
      * @param dialectOverride an explicit dialect id (e.g. {@code "h2"}), or {@code null}/blank to
      *                        infer the dialect from {@code dbUrl}
-     * @param branch         VCS branch name; the embedded-mode file suffix, or the value a
-     *                       server-mode branch placeholder token expands to
+     * @param branch         VCS branch name, used to derive the per-branch schema
+     *                       ({@link BranchSchema#schemaName(String)}) selected on each connection
      * @return the constructed {@link DataStore} for the resolved dialect
      * @throws IllegalArgumentException if the dialect cannot be resolved (see
      *         {@link SqlDialectRegistry#forUrl(String, String)})
@@ -48,7 +48,7 @@ public final class DataStoreFactory {
         String schema = BranchSchema.schemaName(branch);
 
         if ("h2".equals(dialect.id())) {
-            H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl, user, password, branch);
+            H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl, user, password);
             ConnectionProvider connectionProvider = new H2ConnectionProvider(settings);
             return new JdbcDataStore(dialect, connectionProvider, schema);
         }
@@ -104,7 +104,8 @@ public final class DataStoreFactory {
      * test-runner listeners, which read connection config from system properties rather than a
      * build-tool extension.
      *
-     * @param branch the VCS branch name for the embedded-mode file suffix
+     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
+     *               connection
      * @return the constructed {@link DataStore} for the resolved dialect
      * @throws IllegalArgumentException if the dialect cannot be resolved (see
      *         {@link SqlDialectRegistry#forUrl(String, String)})

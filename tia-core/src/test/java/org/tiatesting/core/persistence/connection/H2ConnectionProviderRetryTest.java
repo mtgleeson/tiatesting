@@ -61,7 +61,7 @@ class H2ConnectionProviderRetryTest {
     }
 
     private static H2ConnectionSettings serverSettings() {
-        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb-test", "sa", "", "test");
+        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb", "sa", "");
     }
 
     @Test
@@ -99,7 +99,7 @@ class H2ConnectionProviderRetryTest {
     @Test
     void embeddedMode_doesNotRetry_failsFast() {
         // given - an embedded-mode provider whose single connection attempt fails
-        H2ConnectionSettings embedded = H2ConnectionSettings.embedded("/tmp/does-not-matter", "test");
+        H2ConnectionSettings embedded = H2ConnectionSettings.embedded("/tmp/does-not-matter");
         FlakyH2ConnectionProvider provider = new FlakyH2ConnectionProvider(embedded, Integer.MAX_VALUE);
 
         // when / then - the deterministic embedded failure is surfaced immediately, no retry

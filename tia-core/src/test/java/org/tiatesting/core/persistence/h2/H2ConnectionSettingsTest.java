@@ -14,18 +14,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class H2ConnectionSettingsTest {
 
     @Test
-    void embeddedModeUsesDefaultCredentialsAndCarriesPathAndSuffix() {
+    void embeddedModeUsesDefaultCredentialsAndCarriesPath() {
         // given
         String dbFilePath = "/var/tia";
-        String branch = "main";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.embedded(dbFilePath, branch);
+        H2ConnectionSettings settings = H2ConnectionSettings.embedded(dbFilePath);
 
         // then
         assertFalse(settings.isServerMode());
         assertEquals(dbFilePath, settings.getDbFilePath());
-        assertEquals(branch, settings.getBranchSuffix());
         assertNull(settings.getDbUrl());
         assertEquals("sa", settings.getUsername());
         assertEquals("1234", settings.getPassword());
@@ -37,7 +35,7 @@ class H2ConnectionSettingsTest {
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret", "main");
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret");
 
         // then
         assertTrue(settings.isServerMode());
@@ -45,8 +43,6 @@ class H2ConnectionSettingsTest {
         assertEquals("tia", settings.getUsername());
         assertEquals("secret", settings.getPassword());
         assertNull(settings.getDbFilePath());
-        // the branch is now retained in server mode so the {branch} token can be expanded
-        assertEquals("main", settings.getBranchSuffix());
     }
 
     @Test
@@ -55,7 +51,7 @@ class H2ConnectionSettingsTest {
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, "main");
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null);
 
         // then
         assertEquals("sa", settings.getUsername());
@@ -71,7 +67,7 @@ class H2ConnectionSettingsTest {
         env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, "main", env::get);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, env::get);
 
         // then
         assertEquals("envuser", settings.getUsername());
@@ -87,7 +83,7 @@ class H2ConnectionSettingsTest {
 
         // when
         // an explicitly-configured empty password must be used verbatim, not treated as "unset"
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "", "main", env::get);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "", env::get);
 
         // then
         assertEquals("", settings.getPassword());
@@ -102,7 +98,7 @@ class H2ConnectionSettingsTest {
 
         // when
         // whitespace is non-null, so it is honoured verbatim and the env fallback is not consulted
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "  ", "main", env::get);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "  ", env::get);
 
         // then
         assertEquals("  ", settings.getPassword());
@@ -116,7 +112,7 @@ class H2ConnectionSettingsTest {
         env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", null, "main", env::get);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", null, env::get);
 
         // then
         assertEquals("envsecret", settings.getPassword());
@@ -131,7 +127,7 @@ class H2ConnectionSettingsTest {
         env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret", "main", env::get);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret", env::get);
 
         // then
         assertEquals("tia", settings.getUsername());
@@ -144,7 +140,7 @@ class H2ConnectionSettingsTest {
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, "main", name -> null);
+        H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, name -> null);
 
         // then
         assertEquals("sa", settings.getUsername());
@@ -157,7 +153,7 @@ class H2ConnectionSettingsTest {
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", url, "tia", "secret", "main");
+        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", url, "tia", "secret");
 
         // then
         assertTrue(settings.isServerMode());
@@ -172,12 +168,11 @@ class H2ConnectionSettingsTest {
         String blankUrl = "   ";
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", blankUrl, "ignored", "ignored", "main");
+        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", blankUrl, "ignored", "ignored");
 
         // then
         assertFalse(settings.isServerMode());
         assertEquals("/var/tia", settings.getDbFilePath());
-        assertEquals("main", settings.getBranchSuffix());
         assertEquals("sa", settings.getUsername());
         assertEquals("1234", settings.getPassword());
     }
@@ -188,7 +183,7 @@ class H2ConnectionSettingsTest {
         String nullUrl = null;
 
         // when
-        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", nullUrl, null, null, "main");
+        H2ConnectionSettings settings = H2ConnectionSettings.fromConfig("/var/tia", nullUrl, null, null);
 
         // then
         assertFalse(settings.isServerMode());
@@ -203,7 +198,7 @@ class H2ConnectionSettingsTest {
         System.setProperty(H2ConnectionSettings.PROP_DB_PASSWORD, "secret");
         try {
             // when
-            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties("main");
+            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties();
 
             // then
             assertTrue(settings.isServerMode());
@@ -223,12 +218,11 @@ class H2ConnectionSettingsTest {
         System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, "/var/tia");
         try {
             // when
-            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties("main");
+            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties();
 
             // then
             assertFalse(settings.isServerMode());
             assertEquals("/var/tia", settings.getDbFilePath());
-            assertEquals("main", settings.getBranchSuffix());
         } finally {
             System.clearProperty(H2ConnectionSettings.PROP_DB_FILE_PATH);
         }

@@ -56,7 +56,7 @@ class JdbcDataStoreEmbeddedFlushOnCloseTest {
     @Test
     void trackedLibraryWrittenThenClosedSurvivesReopenByFreshDatastore() {
         // given a fresh embedded datastore that creates the schema, writes a tracked library, closes
-        JdbcDataStore first = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master")), BranchSchema.schemaName("master"));
+        JdbcDataStore first = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("master"));
         first.getTiaData(true);
         TrackedLibrary lib = new TrackedLibrary("org.example:lib", "/projects/lib", null);
         lib.setMappingBaselineCommit("baseline-abc");
@@ -65,7 +65,7 @@ class JdbcDataStoreEmbeddedFlushOnCloseTest {
         first.close();
 
         // when a fresh datastore opens the same on-disk DB (as the forked test JVM would)
-        JdbcDataStore second = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "master")), BranchSchema.schemaName("master"));
+        JdbcDataStore second = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("master"));
         try {
             Map<String, TrackedLibrary> tracked = second.readTrackedLibraries();
 

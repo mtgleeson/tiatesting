@@ -30,7 +30,7 @@ class JdbcDataStoreSchemaTest {
         // identifier, and BranchSchema.schemaName always lower-cases, so the stored schema name is
         // "tia_featurex")
         try (Connection c = new org.tiatesting.core.persistence.connection.H2ConnectionProvider(
-                org.tiatesting.core.persistence.h2.H2ConnectionSettings.embedded(dir.toString(), "featureX")).get();
+                org.tiatesting.core.persistence.h2.H2ConnectionSettings.embedded(dir.toString())).get();
              ResultSet rs = c.getMetaData().getTables(null, "tia_featurex", "%", new String[]{"TABLE"})) {
             // then - at least one Tia table is present in the branch schema
             assertTrue(rs.next(), "expected Tia tables in schema tia_featurex");

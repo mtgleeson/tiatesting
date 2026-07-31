@@ -37,7 +37,7 @@ class JdbcDataStoreDeveloperDisabledTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test");
+        settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
     }
 

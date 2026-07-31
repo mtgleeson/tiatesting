@@ -30,7 +30,7 @@ class JdbcDataStoreCoreBranchTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
         // force schema creation
         dataStore.getTiaData(true);
     }

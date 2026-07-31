@@ -47,7 +47,7 @@ import java.util.Set;
  *
  *   # server mode against a running H2 TCP server:
  *   ./gradlew :tia-core:profileSelectTests \
- *       -Purl=jdbc:h2:tcp://localhost:9092/tia-perf/tiadb-main -Pbranch=main -PdiffFiles=20
+ *       -Purl=jdbc:h2:tcp://localhost:9092/tia-perf/tiadb -Pbranch=main -PdiffFiles=20
  * </pre>
  *
  * <p>For a flame graph: download async-profiler, then run with the JVM agent attached. Example:
@@ -95,8 +95,8 @@ public final class ProfileSelectTests {
     private static void runOnce(Args args) {
         long t0 = System.nanoTime();
         H2ConnectionSettings settings = args.url == null
-                ? H2ConnectionSettings.embedded(args.outDb, args.branch)
-                : H2ConnectionSettings.server(args.url, args.user, args.password, args.branch);
+                ? H2ConnectionSettings.embedded(args.outDb)
+                : H2ConnectionSettings.server(args.url, args.user, args.password);
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName(args.branch));
         long tConstruct = System.nanoTime();

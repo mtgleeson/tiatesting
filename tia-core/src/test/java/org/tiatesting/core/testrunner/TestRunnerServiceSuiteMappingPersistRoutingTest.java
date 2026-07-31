@@ -60,7 +60,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         tempDir = File.createTempFile("tia-runner-routing-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        underlying = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
+        underlying = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
         underlying.getTiaData(true);
 
         TiaData tiaData = underlying.getTiaData(true);

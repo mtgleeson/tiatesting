@@ -63,7 +63,7 @@ public final class GenerateLargeTiaDb {
         // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
         JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch)),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb)),
                 BranchSchema.schemaName(parsed.branch));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
@@ -85,15 +85,17 @@ public final class GenerateLargeTiaDb {
         }
 
         System.out.println("Total time: " + (System.currentTimeMillis() - t0) + " ms");
-        System.out.println("DB written to " + parsed.outDb + "/tiadb-" + parsed.branch + ".mv.db");
+        System.out.println("DB written to " + parsed.outDb + "/tiadb.mv.db (schema "
+                + BranchSchema.schemaName(parsed.branch) + ")");
     }
 
     private static Connection openConnection(String outDb, String branch) throws Exception {
         Class.forName("org.h2.Driver");
-        // Mirror JdbcDataStore.buildJdbcUrl: <dir>/tiadb-<branch>, with the same page/cache tuning.
+        // Mirror H2ConnectionProvider.buildJdbcUrl: the single fixed <dir>/tiadb database, with the
+        // same page/cache tuning. Per-branch isolation comes from the schema selected below.
         long cacheSizeKB = Runtime.getRuntime().maxMemory() / 1024 / 2;
         long pageSizeByte = 1024 * 4 * 100;
-        String url = "jdbc:h2:" + outDb + "/tiadb-" + branch
+        String url = "jdbc:h2:" + outDb + "/tiadb"
                 + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE=" + cacheSizeKB;
         Connection connection = DriverManager.getConnection(url, "sa", "1234");
         // The bootstrap JdbcDataStore call above created the tables in the per-branch schema, not

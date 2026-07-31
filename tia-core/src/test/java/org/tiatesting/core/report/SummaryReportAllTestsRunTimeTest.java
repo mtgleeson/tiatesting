@@ -72,7 +72,7 @@ class SummaryReportAllTestsRunTimeTest {
     @Test
     void statusReport_showsAllTestsRunStats(@TempDir Path tempDir) {
         // given
-        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.toString(), "test")), BranchSchema.schemaName("test"));
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.toString())), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         dataStore.persistCoreData(coreData());
         history().forEach(dataStore::persistTestRunHistoryEntry);
