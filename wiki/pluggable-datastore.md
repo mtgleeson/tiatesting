@@ -28,20 +28,23 @@ Three pieces divide the responsibility:
 - **`ConnectionProvider`** (`org.tiatesting.core.persistence.connection`) - how to obtain a
   `java.sql.Connection`. `H2ConnectionProvider` carries H2's embedded-vs-server-mode split: engine
   options (`PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY`, `DB_CLOSE_ON_EXIT`) only in embedded mode,
-  the `{branch}` URL token expansion, connection retry with backoff in server mode, and the
-  graceful-`SHUTDOWN`-on-`close()` handshake needed before a forked test JVM can reopen the same
-  embedded file (see the "Embedded vs server-mode H2 connections" chapter for why each of those
-  exists). `JdbcConnectionProvider` is the generic counterpart every other vendor shares: it opens
-  a connection via `DriverManager.getConnection(jdbcUrl, user, password)` and nothing else - no
-  engine options, no retry, no branch substitution. Postgres uses it as-is; a URL-addressable
-  vendor with no H2-style embedded mode needs no provider of its own.
+  connection retry with backoff in server mode, and the graceful-`SHUTDOWN`-on-`close()` handshake
+  needed before a forked test JVM can reopen the same embedded file (see the "Embedded vs
+  server-mode H2 connections" chapter for why each of those exists). Both modes connect to a single
+  fixed database - branch isolation is not this class's concern, see "Branch isolation: schema per
+  branch" below. `JdbcConnectionProvider` is the generic counterpart every other vendor shares: it
+  opens a connection via `DriverManager.getConnection(jdbcUrl, user, password)` and nothing else -
+  no engine options, no retry. Postgres uses it as-is; a URL-addressable vendor with no H2-style
+  embedded mode needs no provider of its own.
 - **`DataStoreFactory`** (`org.tiatesting.core.persistence`) - the single place a caller asks for a
   `DataStore`, so build-tool plugins and test-runner listeners never construct
   `new JdbcDataStore(new H2Dialect(), ...)` (or any other vendor) directly. `fromConfig(dbFilePath,
   dbUrl, user, password, dialectOverride, branch)` resolves the dialect via `SqlDialectRegistry`,
-  then branches: H2 gets an `H2ConnectionProvider` built from `H2ConnectionSettings`; every other
-  resolved dialect gets a plain `JdbcConnectionProvider`, after `requireDriverPresent` confirms its
-  driver class is on the classpath (see "The two-classpath driver model" below).
+  derives the per-branch schema via `BranchSchema.schemaName(branch)`, then branches: H2 gets an
+  `H2ConnectionProvider` built from `H2ConnectionSettings`; every other resolved dialect gets a
+  plain `JdbcConnectionProvider`, after `requireDriverPresent` confirms its driver class is on the
+  classpath (see "The two-classpath driver model" below). Either way the resolved schema is passed
+  into `JdbcDataStore`'s constructor alongside the dialect and connection provider.
   `fromSystemProperties(branch)` is the same resolution read from the `tiaDBUrl` / `tiaDBUser` /
   `tiaDBPassword` / `tiaDBFilePath` / `tiaDBDialect` system properties the forked test JVM receives.
 - **`SqlDialectRegistry`** (`org.tiatesting.core.persistence.dialect`) - resolves a dialect id or
@@ -52,6 +55,33 @@ Three pieces divide the responsibility:
   bundled with Tia). Both `forUrl` (URL-sniffing) and `forId` (explicit override) read from the
   same `SUPPORTED_IDS` list when they need to report what's supported, so the two paths can't drift
   out of sync with each other.
+
+### Branch isolation: schema per branch
+
+Both dialects also carry two schema-management methods: `createSchemaIfNotExistsSql(schema)` and
+`selectSchemaSql(schema)` (H2's `SET SCHEMA "schema"`, Postgres's `SET search_path TO "schema"`).
+`BranchSchema.schemaName(branch)` (`org.tiatesting.core.persistence`) derives the schema name Tia
+uses for a given VCS branch: `tia_` followed by the branch lowercased with every character outside
+`[a-z0-9_]` replaced by `_`, clamped to 63 characters (Postgres's identifier limit) - so
+`feature/foo` becomes `tia_feature_foo`. `DataStoreFactory` derives this schema once, from the
+`branch` parameter passed to `fromConfig` / `fromSystemProperties`, and threads it into
+`JdbcDataStore`'s constructor.
+
+`JdbcDataStore.getConnection()` is where isolation actually happens: on every connection it
+acquires from the `ConnectionProvider`, it creates the branch's schema if needed (memoized per
+datastore instance, since H2 requires a schema to exist before it can be selected) and then
+selects it, so every unqualified statement on that connection resolves against the branch's own
+schema rather than the vendor's default. This is why branch isolation lives above the
+`ConnectionProvider` layer rather than inside it: both H2 and Postgres connect to one fixed
+database - the file path or URL never varies by branch - and it's the schema, not the database,
+that changes per branch. There is no `{branch}` token to configure in `tiaDBUrl` / `dbUrl`; the
+schema is derived automatically from the VCS branch on every run.
+
+Postgres does not create databases on Tia's behalf (that needs `CREATEDB`, a broader privilege
+than Tia asks for) - the database named in `tiaDBUrl` must already exist, and the connecting role
+needs `CREATE` privilege on it to create schemas. H2 has no such distinction: `H2ConnectionProvider`
+already creates the embedded file (or, in server mode, the server creates the database given
+`-ifNotExists`) on first use, and the branch schema is created inside it the same way as Postgres.
 
 ### URL-scheme dialect inference
 
