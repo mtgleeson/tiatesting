@@ -39,4 +39,12 @@ public final class PostgresDialect implements SqlDialect {
 
     /** {@inheritDoc} */
     @Override public String id() { return "postgres"; }
+
+    @Override public String createSchemaIfNotExistsSql(String schema) {
+        return "CREATE SCHEMA IF NOT EXISTS \"" + schema + "\"";
+    }
+
+    @Override public String selectSchemaSql(String schema) {
+        return "SET search_path TO \"" + schema + "\"";
+    }
 }

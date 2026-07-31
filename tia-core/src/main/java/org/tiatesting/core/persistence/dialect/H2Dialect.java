@@ -33,4 +33,12 @@ public final class H2Dialect implements SqlDialect {
 
     /** {@inheritDoc} */
     @Override public String id() { return "h2"; }
+
+    @Override public String createSchemaIfNotExistsSql(String schema) {
+        return "CREATE SCHEMA IF NOT EXISTS \"" + schema + "\"";
+    }
+
+    @Override public String selectSchemaSql(String schema) {
+        return "SET SCHEMA \"" + schema + "\"";
+    }
 }

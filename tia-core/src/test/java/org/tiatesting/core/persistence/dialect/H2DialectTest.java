@@ -32,4 +32,13 @@ class H2DialectTest {
         // given / when / then
         assertEquals("h2", new H2Dialect().id());
     }
+
+    @Test
+    void schemaSql() {
+        // given
+        H2Dialect d = new H2Dialect();
+        // when / then
+        assertEquals("CREATE SCHEMA IF NOT EXISTS \"tia_main\"", d.createSchemaIfNotExistsSql("tia_main"));
+        assertEquals("SET SCHEMA \"tia_main\"", d.selectSchemaSql("tia_main"));
+    }
 }
