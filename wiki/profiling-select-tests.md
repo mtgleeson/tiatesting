@@ -21,8 +21,8 @@ The two test-scope tools under `tia-core/src/test/java/org/tiatesting/core/perf/
 
 What the parameters mean:
 
-- `outDb` — directory the H2 file is written into. The actual file lands at `<outDb>/tiadb-<branch>.mv.db`, matching the layout `H2DataStore.buildJdbcUrl` expects, so a Tia plugin pointed at this directory will load it directly.
-- `branch` — the branch name embedded in the DB filename. Defaults to `main`. Use this if you want multiple synthetic DBs side by side.
+- `outDb` - directory the H2 file is written into. The actual file lands at `<outDb>/tiadb.mv.db` (one fixed file, matching the layout `H2ConnectionProvider.buildJdbcUrl` expects), so a Tia plugin pointed at this directory will load it directly.
+- `branch` - the branch whose schema the synthetic data is written into (`BranchSchema.schemaName(branch)`, e.g. `tia_main`), not part of the DB filename. Defaults to `main`. Use this if you want multiple synthetic branches' data side by side in the same file.
 - `testSuites` — rows in `tia_test_suite`.
 - `sourceMethods` — rows in `tia_source_method`.
 - `avgClassesPerSuite` — average rows in `tia_source_class` per test suite. With ±50% jitter so the profile sees a mix of light and heavy suites.
@@ -40,7 +40,7 @@ SELECT COUNT(*) FROM tia_source_class_method;
 
 …and pass `-PavgClassesPerSuite=<class_count / suite_count>` and `-PavgMethodsPerClass=<edge_count / class_count>`.
 
-The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per commit, autocommit off). At the reference scale it finishes in around 13 seconds. Schema creation goes through `H2DataStore.getTiaData(true)` so the layout always matches what Tia produces in normal operation, including the `tia_source_class.tia_test_suite_id` index that the bulk-load query depends on.
+The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per commit, autocommit off). At the reference scale it finishes in around 13 seconds. Table creation goes through `JdbcDataStore.getTiaData(true)` so the layout always matches what Tia produces in normal operation, including the `tia_source_class.tia_test_suite_id` index that the bulk-load query depends on.
 
 ### Step 2 — time the select-tests read path
 
@@ -53,7 +53,7 @@ The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per 
 
 The harness opens the DB you just generated and runs each iteration through three timed phases:
 
-1. **`H2DataStore` construction** — should always be near-zero. If this is non-trivial something is wrong with the connection setup.
+1. **`JdbcDataStore` construction** - should always be near-zero. If this is non-trivial something is wrong with the connection setup.
 2. **`getTiaData(true)` full load** — the path being investigated. This is what `select-tests` calls into, and what the bulk-join + index work in `select-tests-perf-fix` targets.
 3. **`selectTestsToIgnore` with empty diffs** — exercises the rest of the selector logic on top of the just-loaded data, using a stub `VCSReader` that reports no source-file changes. With an empty diff the selector should be near-instant; if it isn't, the cost is somewhere in the post-load logic. Note that `TestSelector.selectTestsToIgnore` re-loads the DB internally (see `TestSelector.java`), so this phase's wall time is roughly the sum of "another full load" plus the actual selection logic.
 
@@ -89,8 +89,8 @@ Open `/tmp/tia.jfr` in JDK Mission Control.
 
 The dominant wedges to look for, in priority order:
 
-- **`H2DataStore.getTestSuitesData` / `lambda$getTestSuitesData$0`** — the bulk-load reducer. If a large fraction of CPU lives here, the read path itself is the bottleneck.
-- **`H2DataStore.getSourceClasses`** (historical, no longer present in current code) — used to be 87% of CPU when the loader did N+1 per-suite queries via parallelStream. If it reappears in a future profile, the bulk-join rewrite has regressed.
+- **`JdbcDataStore.getTestSuitesData` / `lambda$getTestSuitesData$0`** - the bulk-load reducer. If a large fraction of CPU lives here, the read path itself is the bottleneck.
+- **`JdbcDataStore.getSourceClasses`** (historical, no longer present in current code) - used to be 87% of CPU when the loader did N+1 per-suite queries via parallelStream. If it reappears in a future profile, the bulk-join rewrite has regressed.
 - **`MVSortedTempResult.next` / `Page$NonLeaf.writeUnsavedRecursive`** — H2 spilling a sorted result set to a temp file. Indicates an `ORDER BY` whose sort can't be folded into an index. Fix: drop the `ORDER BY` and let the reducer cope with arbitrary row order.
 - **`MVSecondaryIndex.find`** at high percentage with low `SingleFileStore.readFully` underneath — H2 doing index probes that aren't paying off (e.g. nested-loop join on a column that has no index). Fix: add the index.
 - **`pread` / `MVStore.readPage` / `Cursor.hasNext`** as the bottom wedges — genuine "reading the data from disk" cost. After algorithmic fixes these should be the floor, not because Tia is doing anything wrong but because the DB is genuinely large.
@@ -130,7 +130,7 @@ measurable cost to the hot read path.
 
 - The generator's RNG is seeded, so two runs with the same `-Pseed=` produce identical DBs.
 - The generator regenerates from scratch — it truncates `tia_*` tables before populating. To start completely clean you can also `rm -rf <outDb>` first.
-- The H2 `tiadb-<branch>.mv.db` file is portable; copying it between machines reproduces the same profile shape modulo CPU/disk differences.
+- The H2 `tiadb.mv.db` file is portable; copying it between machines reproduces the same profile shape modulo CPU/disk differences. Each `-Pbranch` value used to generate data lives in its own schema inside that one file, so a copy carries every generated branch's schema along with it.
 - `ProfileSelectTests` doesn't write to the DB — repeat runs against the same fixture are safe.
 
 
