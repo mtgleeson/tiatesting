@@ -126,6 +126,30 @@ branch measurements) - if anything modestly faster, well inside the ~1.5x regres
 The `SqlDialect` indirection (a single virtual dispatch per SQL-string-building call) adds no
 measurable cost to the hot read path.
 
+### Post-schema-per-branch re-measurement
+
+Re-measured after the schema-per-branch change (`BranchSchema` deriving a per-branch H2 schema,
+`CREATE SCHEMA IF NOT EXISTS` on first connection, `SET SCHEMA` on every connection - see
+`H2ConnectionProvider` / `JdbcDataStore`). Every connection opened during the read path now pays
+one extra `SET SCHEMA` statement, so this is the check for whether that shows up in the Phase 3
+number. Same reference shape (1000 suites / 50,000 methods / ~936 classes-per-suite / 948,402
+`tia_source_class` rows / 5,690,706 `tia_source_class_method` edges), embedded H2, `-PdiffFiles=20`,
+five iterations against a freshly generated DB:
+
+| Iteration | Phase 3 (ms), run 1 | Phase 3 (ms), run 2 |
+|---|---|---|
+| 1 (JVM warmup, excluded from median) | 2526 | 695 |
+| 2 | 315 | 333 |
+| 3 | 282 | 276 |
+| 4 | 295 | 302 |
+| 5 | 282 | 269 |
+
+Median of iterations 2-5: **~288.5 ms** (run 1), **~289 ms** (run 2).
+
+Verdict: unchanged within noise, and if anything marginally faster than the recorded baseline of
+~316-319 ms - a ratio of about 0.90x, well inside the ~1.5x regression threshold. The per-connection
+`SET SCHEMA` (one extra statement per connection open) adds no measurable cost to the hot read path.
+
 ### Reproducibility notes
 
 - The generator's RNG is seeded, so two runs with the same `-Pseed=` produce identical DBs.
