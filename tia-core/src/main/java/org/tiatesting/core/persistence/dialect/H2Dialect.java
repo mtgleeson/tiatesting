@@ -23,19 +23,33 @@ public final class H2Dialect implements SqlDialect {
     }
 
     /**
-     * {@inheritDoc} H2 folds unquoted identifiers to upper case. The schema pattern is scoped to
+     * {@inheritDoc} H2 folds unquoted identifiers to upper case, and preserves the case of a
+     * quoted identifier (schema names here are always quoted and always lower case, since
+     * {@code BranchSchema.schemaName} lower-cases them). The lookup is scoped to
      * {@link Connection#getSchema()} (the schema {@code JdbcDataStore.getConnection()} just
-     * selected) rather than left as a wildcard: a {@code null} schema pattern in
-     * {@code DatabaseMetaData.getTables} matches every schema in the catalog, so on a DB shared by
-     * several per-branch schemas this would find another branch's tables and wrongly report the
-     * current (possibly still-empty) branch schema as already migrated.
+     * selected) via {@code DatabaseMetaData.getTables}, but {@code schemaPattern} and
+     * {@code tableNamePattern} are JDBC LIKE patterns in which {@code _} and {@code %} are
+     * wildcards - and every per-branch schema name is {@code tia_<sanitised-branch>}, which
+     * always contains {@code _}. Passing the schema/table name straight through as a pattern can
+     * therefore false-match a sibling schema (e.g. schema {@code tia_v1_2} used as a pattern
+     * matches the literal schema {@code tia_v1x2}), wrongly reporting a fresh branch schema as
+     * already migrated. To avoid that, the result set is iterated and each row's
+     * {@code TABLE_SCHEM}/{@code TABLE_NAME} is checked for an exact (non-pattern) match rather
+     * than trusting {@code rs.next()} from the pattern query.
      */
     @Override
     public boolean tableExists(Connection connection, String tableName) throws SQLException {
+        String schema = connection.getSchema();
+        String upperTableName = tableName.toUpperCase();
         try (ResultSet rs = connection.getMetaData()
-                .getTables(null, connection.getSchema(), tableName.toUpperCase(), new String[]{"TABLE"})) {
-            return rs.next();
+                .getTables(null, schema, upperTableName, new String[]{"TABLE"})) {
+            while (rs.next()) {
+                if (schema.equals(rs.getString("TABLE_SCHEM")) && upperTableName.equals(rs.getString("TABLE_NAME"))) {
+                    return true;
+                }
+            }
         }
+        return false;
     }
 
     /** {@inheritDoc} */
