@@ -26,7 +26,9 @@ public interface SqlDialect {
      * Whether a table exists, accounting for the vendor's identifier case folding. The check is
      * scoped to the connection's currently-selected schema (the caller must select the schema
      * before calling this method), so a table of the same name in a different schema is not
-     * reported as existing.
+     * reported as existing - including a sibling schema whose name merely matches under JDBC
+     * {@code _}/{@code %} wildcard expansion (e.g. schema {@code tia_v1_2} vs. {@code tia_v1x2}).
+     * Implementations must match the schema and table name exactly, not as a LIKE pattern.
      * @param connection an open connection, with the schema to check already selected
      * @param tableName the unquoted table name as written in the DDL
      * @return true if the table exists in the connection's current schema
