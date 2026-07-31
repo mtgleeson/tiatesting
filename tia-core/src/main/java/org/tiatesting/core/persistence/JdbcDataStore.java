@@ -2172,29 +2172,40 @@ public class JdbcDataStore implements DataStore {
      * against it rather than the vendor's default schema. Any {@link SQLException} - from the
      * provider or from the create/select statements - is wrapped in the unchecked
      * {@link TiaPersistenceException} so every caller in this class keeps its previous
-     * unchecked-failure behaviour.
+     * unchecked-failure behaviour. If the schema create/select statements fail after the
+     * connection was already acquired, the connection is closed before the wrapped exception is
+     * thrown, so a schema-setup failure never leaks an open connection.
      *
      * @return an open connection to the configured database, with the per-branch schema selected
      * @throws TiaPersistenceException wrapping any {@link SQLException} raised while acquiring the
      *         connection or creating/selecting the schema
      */
     Connection getConnection(){
+        Connection connection;
         try {
-            Connection connection = connectionProvider.get();
-            if (schema != null && !schema.trim().isEmpty()) {
-                try (Statement statement = connection.createStatement()) {
-                    // H2 requires the schema to exist before SET SCHEMA, so create-before-select
-                    // ordering is mandatory; skip the CREATE round trip once it is known to exist.
-                    if (!branchSchemaCreated) {
-                        statement.execute(dialect.createSchemaIfNotExistsSql(schema));
-                        branchSchemaCreated = true;
-                    }
-                    statement.execute(dialect.selectSchemaSql(schema));
-                }
-            }
-            return connection;
+            connection = connectionProvider.get();
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
+
+        if (schema != null && !schema.trim().isEmpty()) {
+            try (Statement statement = connection.createStatement()) {
+                // H2 requires the schema to exist before SET SCHEMA, so create-before-select
+                // ordering is mandatory; skip the CREATE round trip once it is known to exist.
+                if (!branchSchemaCreated) {
+                    statement.execute(dialect.createSchemaIfNotExistsSql(schema));
+                    branchSchemaCreated = true;
+                }
+                statement.execute(dialect.selectSchemaSql(schema));
+            } catch (SQLException e) {
+                try {
+                    connection.close();
+                } catch (SQLException closeEx) {
+                    // Swallow: the original schema-setup failure is the one worth reporting.
+                }
+                throw new TiaPersistenceException(e);
+            }
+        }
+        return connection;
     }
 }
