@@ -315,26 +315,26 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * {@code dbUrl} is configured, otherwise embedded mode using {@link #resolveDbFilePath()}
      * (which resolves a relative {@code dbFilePath} against the project dir, not the daemon cwd).
      *
-     * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
      * @return the resolved embedded- or server-mode connection settings
      */
-    public H2ConnectionSettings buildH2ConnectionSettings(String branchSuffix) {
+    public H2ConnectionSettings buildH2ConnectionSettings() {
         return H2ConnectionSettings.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), branchSuffix);
+                getDbPassword());
     }
 
     /**
      * Build the {@link DataStore} for the daemon-side Tia tasks, resolving the SQL dialect from
      * the {@code tia { ... }} extension's connection properties via {@link DataStoreFactory}.
-     * Shares {@link #resolveDbFilePath()} with {@link #buildH2ConnectionSettings(String)} so both
+     * Shares {@link #resolveDbFilePath()} with {@link #buildH2ConnectionSettings()} so both
      * paths agree on the daemon-cwd-vs-projectDir resolution described there.
      *
-     * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
+     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
+     *               connection
      * @return the constructed datastore for the resolved dialect
      */
-    public DataStore buildDataStore(String branchSuffix) {
+    public DataStore buildDataStore(String branch) {
         return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), getDbDialect(), branchSuffix);
+                getDbPassword(), getDbDialect(), branch);
     }
 
     /**

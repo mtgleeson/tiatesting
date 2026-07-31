@@ -15,7 +15,7 @@ class H2ConnectionProviderTest {
     void opensEmbeddedH2Connection(@TempDir Path dir) throws Exception {
         // given
         H2ConnectionProvider provider = new H2ConnectionProvider(
-                H2ConnectionSettings.embedded(dir.toString(), "main"));
+                H2ConnectionSettings.embedded(dir.toString()));
         // when
         try (Connection c = provider.get()) {
             // then

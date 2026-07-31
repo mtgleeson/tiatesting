@@ -53,7 +53,7 @@ class TestSelectorTrackedFileFilterTest {
         tempDir = File.createTempFile("tia-trackedfilter-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         // Foo.java is tracked (one method, lines 2-8, covered by FooTest); Bar.java is not tracked.
         seedMapping();

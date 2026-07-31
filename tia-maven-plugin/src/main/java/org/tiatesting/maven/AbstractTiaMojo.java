@@ -255,12 +255,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * every mojo's datastore construction consistent, and is the single place a mojo needs to
      * touch when a new dialect's configuration surface is added.
      *
-     * @param branchSuffix the VCS branch name, used as the embedded-mode file suffix
+     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
+     *               connection
      * @return the constructed datastore for the resolved dialect
      */
-    protected DataStore buildDataStore(final String branchSuffix){
+    protected DataStore buildDataStore(final String branch){
         return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branchSuffix);
+                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch);
     }
 
     public String getTiaSourceFilesDirs() {
