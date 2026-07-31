@@ -1,6 +1,7 @@
 package org.tiatesting.core.perf;
 
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -61,7 +62,9 @@ public final class GenerateLargeTiaDb {
         // Schema creation is triggered the first time getTiaData() is invoked on a missing DB
         // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
-        JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch)));
+        JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb, parsed.branch)),
+                BranchSchema.schemaName(parsed.branch));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 
@@ -92,7 +95,13 @@ public final class GenerateLargeTiaDb {
         long pageSizeByte = 1024 * 4 * 100;
         String url = "jdbc:h2:" + outDb + "/tiadb-" + branch
                 + ";PAGE_SIZE=" + pageSizeByte + ";CACHE_SIZE=" + cacheSizeKB;
-        return DriverManager.getConnection(url, "sa", "1234");
+        Connection connection = DriverManager.getConnection(url, "sa", "1234");
+        // The bootstrap JdbcDataStore call above created the tables in the per-branch schema, not
+        // the default PUBLIC schema this raw connection starts in - select it before inserting.
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName(branch)));
+        }
+        return connection;
     }
 
     private static void insertCoreRow(Connection connection, Args args) throws Exception {

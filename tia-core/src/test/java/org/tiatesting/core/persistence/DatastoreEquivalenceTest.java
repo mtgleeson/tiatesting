@@ -10,6 +10,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.persistence.dialect.PostgresDialect;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.IOException;
@@ -114,6 +115,9 @@ class DatastoreEquivalenceTest {
     private static void cleanPostgres() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
+            // the store's tables now live in the per-branch schema (see DataStoreFactory), not the
+            // default "public" schema a raw connection starts in - select it before dropping.
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
                     + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
                     + "tia_pending_library_impacted_method, tia_library_publish, tia_library, "

@@ -5,6 +5,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -96,7 +97,8 @@ public final class ProfileSelectTests {
         H2ConnectionSettings settings = args.url == null
                 ? H2ConnectionSettings.embedded(args.outDb, args.branch)
                 : H2ConnectionSettings.server(args.url, args.user, args.password, args.branch);
-        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings));
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
+                BranchSchema.schemaName(args.branch));
         long tConstruct = System.nanoTime();
         printPhase("Phase 1 - JdbcDataStore construction", t0, tConstruct);
 

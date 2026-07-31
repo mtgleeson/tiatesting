@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -71,7 +72,7 @@ class SummaryReportAllTestsRunTimeTest {
     @Test
     void statusReport_showsAllTestsRunStats(@TempDir Path tempDir) {
         // given
-        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.toString(), "test")));
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.toString(), "test")), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
         dataStore.persistCoreData(coreData());
         history().forEach(dataStore::persistTestRunHistoryEntry);

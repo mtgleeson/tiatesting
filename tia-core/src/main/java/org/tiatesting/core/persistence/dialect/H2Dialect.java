@@ -22,11 +22,18 @@ public final class H2Dialect implements SqlDialect {
                 + String.join(", ", keyColumns) + ") VALUES (" + placeholders + ")";
     }
 
-    /** {@inheritDoc} H2 folds unquoted identifiers to upper case. */
+    /**
+     * {@inheritDoc} H2 folds unquoted identifiers to upper case. The schema pattern is scoped to
+     * {@link Connection#getSchema()} (the schema {@code JdbcDataStore.getConnection()} just
+     * selected) rather than left as a wildcard: a {@code null} schema pattern in
+     * {@code DatabaseMetaData.getTables} matches every schema in the catalog, so on a DB shared by
+     * several per-branch schemas this would find another branch's tables and wrongly report the
+     * current (possibly still-empty) branch schema as already migrated.
+     */
     @Override
     public boolean tableExists(Connection connection, String tableName) throws SQLException {
         try (ResultSet rs = connection.getMetaData()
-                .getTables(null, null, tableName.toUpperCase(), new String[]{"TABLE"})) {
+                .getTables(null, connection.getSchema(), tableName.toUpperCase(), new String[]{"TABLE"})) {
             return rs.next();
         }
     }

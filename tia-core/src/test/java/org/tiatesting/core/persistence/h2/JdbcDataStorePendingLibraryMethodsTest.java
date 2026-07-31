@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence.h2;
 
+import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -29,7 +30,7 @@ class JdbcDataStorePendingLibraryMethodsTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "test")), BranchSchema.schemaName("test"));
         dataStore.getTiaData(true);
 
         TrackedLibrary lib = new TrackedLibrary("com.example:mylib", "/projects/mylib", null);
@@ -158,7 +159,7 @@ class JdbcDataStorePendingLibraryMethodsTest {
     @Test
     void readReturnsEmptyListWhenTableDoesNotExist() {
         // given a fresh datastore whose DB has not been bootstrapped
-        JdbcDataStore freshStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "fresh")));
+        JdbcDataStore freshStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath(), "fresh")), BranchSchema.schemaName("fresh"));
 
         // then the pending read returns empty
         List<PendingLibraryImpactedMethod> result = freshStore.readPendingLibraryImpactedMethods("com.example:mylib");
