@@ -30,4 +30,13 @@ class PostgresDialectTest {
         // given / when / then
         assertEquals("postgres", new PostgresDialect().id());
     }
+
+    @Test
+    void schemaSql() {
+        // given
+        PostgresDialect d = new PostgresDialect();
+        // when / then
+        assertEquals("CREATE SCHEMA IF NOT EXISTS \"tia_main\"", d.createSchemaIfNotExistsSql("tia_main"));
+        assertEquals("SET search_path TO \"tia_main\"", d.selectSchemaSql("tia_main"));
+    }
 }

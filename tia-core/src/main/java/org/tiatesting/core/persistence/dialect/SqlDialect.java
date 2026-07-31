@@ -36,4 +36,18 @@ public interface SqlDialect {
      * @return the dialect id (e.g. "h2", "postgres")
      */
     String id();
+
+    /**
+     * DDL that creates the given schema if it does not already exist.
+     * @param schema the (already-sanitised) schema name
+     * @return the vendor-specific CREATE SCHEMA IF NOT EXISTS statement
+     */
+    String createSchemaIfNotExistsSql(String schema);
+
+    /**
+     * Statement that makes the given schema the default for subsequent unqualified statements.
+     * @param schema the (already-sanitised) schema name
+     * @return the vendor-specific schema-selection statement
+     */
+    String selectSchemaSql(String schema);
 }
