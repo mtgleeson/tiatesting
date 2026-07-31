@@ -23,10 +23,13 @@ public interface SqlDialect {
     String upsert(String table, List<String> columns, List<String> keyColumns);
 
     /**
-     * Whether a table exists, accounting for the vendor's identifier case folding.
-     * @param connection an open connection
+     * Whether a table exists, accounting for the vendor's identifier case folding. The check is
+     * scoped to the connection's currently-selected schema (the caller must select the schema
+     * before calling this method), so a table of the same name in a different schema is not
+     * reported as existing.
+     * @param connection an open connection, with the schema to check already selected
      * @param tableName the unquoted table name as written in the DDL
-     * @return true if the table exists
+     * @return true if the table exists in the connection's current schema
      * @throws SQLException on metadata access failure
      */
     boolean tableExists(Connection connection, String tableName) throws SQLException;
