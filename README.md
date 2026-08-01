@@ -820,7 +820,7 @@ Tia isolates each VCS branch's mapping, statistics and library-tracking data fro
 
 This applies the same way to both datastores:
 - **H2** connects to one fixed database - the embedded `tiadb` file under `tiaDBFilePath` / `dbFilePath`, or the server URL given in `tiaDBUrl` / `dbUrl` - and creates/selects a schema in it per branch.
-- **Postgres** requires the database named in `tiaDBUrl` / `dbUrl` to already exist; Tia creates the per-branch schema inside it, but does not create the database itself. The connecting role therefore needs privilege to create a schema in that database (`CREATE` on the database, e.g. `GRANT CREATE ON DATABASE tiadb TO tia;`), not the broader ability to create a whole new database (`CREATEDB`). See [Using a different database](#using-a-different-database) below.
+- **Postgres** auto-creates the database named in `tiaDBUrl` / `dbUrl` when it does not yet exist, the same way H2 does, provided the connecting role holds the `CREATEDB` privilege. If you would rather not grant `CREATEDB`, pre-create the database yourself; then Tia needs only `CREATE` on that database to make the per-branch schema (e.g. `GRANT CREATE ON DATABASE tiadb TO tia;`). If the database is missing and the role lacks `CREATEDB`, Tia fails with a clear message (including the driver's own error) telling you to create the database first or grant `CREATEDB`. See [Using a different database](#using-a-different-database) below.
 
 ## Using a shared H2 server
 By default Tia stores its data in an embedded H2 file on the machine running the build. If you want several builds (for example a primary CI build plus developer/local builds) to share one Tia database, you can point Tia at an H2 instance running in [server (TCP) mode](https://www.h2database.com/html/tutorial.html#using_server) instead.
@@ -896,7 +896,7 @@ tia {
 
 `tiaDBDialect` / `dbDialect` can be left unset here - the `jdbc:postgresql:` scheme is enough for Tia to infer `postgres`.
 
-**Note:** the database named in `tiaDBUrl` (`tiadb` above) must already exist - Tia creates the per-branch schema inside it (see [Branch isolation](#branch-isolation-schema-per-branch)), but does not create the database itself. The connecting role needs `CREATE` privilege on that database (e.g. `GRANT CREATE ON DATABASE tiadb TO tia;`), not the broader `CREATEDB` privilege.
+**Note:** Tia auto-creates the database named in `tiaDBUrl` (`tiadb` above) when it is missing, if the connecting role holds `CREATEDB`. Otherwise pre-create it and grant the role `CREATE` on it (e.g. `GRANT CREATE ON DATABASE tiadb TO tia;`) - Tia then creates the per-branch schema inside it (see [Branch isolation](#branch-isolation-schema-per-branch)). If the database is missing and the role has neither the database nor `CREATEDB`, Tia fails with a message telling you to create the database or grant `CREATEDB`.
 
 **Note:** unlike H2 server mode, Tia does not fall back to a `TIA_DB_USER` / `TIA_DB_PASSWORD` environment variable for non-H2 vendors - that fallback is specific to `H2ConnectionSettings`. To keep a non-H2 password out of checked-in config, use the build tool's own indirection instead: Maven `${env.TIA_DB_PASSWORD}` or an encrypted `~/.m2/settings.xml` property, or Gradle `~/.gradle/gradle.properties` / a `-P` property (see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) above).
 

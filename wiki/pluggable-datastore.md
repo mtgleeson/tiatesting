@@ -77,11 +77,17 @@ database - the file path or URL never varies by branch - and it's the schema, no
 that changes per branch. There is no `{branch}` token to configure in `tiaDBUrl` / `dbUrl`; the
 schema is derived automatically from the VCS branch on every run.
 
-Postgres does not create databases on Tia's behalf (that needs `CREATEDB`, a broader privilege
-than Tia asks for) - the database named in `tiaDBUrl` must already exist, and the connecting role
-needs `CREATE` privilege on it to create schemas. H2 has no such distinction: `H2ConnectionProvider`
-already creates the embedded file (or, in server mode, the server creates the database given
-`-ifNotExists`) on first use, and the branch schema is created inside it the same way as Postgres.
+Postgres now auto-creates the database when it is missing, matching H2. On connect, if the database
+named in `tiaDBUrl` does not exist, `PostgresConnectionProvider` opens a maintenance connection to the
+`postgres` administrative database, runs `CREATE DATABASE`, and retries - then the branch schema is
+created inside it as usual. This needs the connecting role to hold `CREATEDB`. Auto-create is a
+best-effort convenience, so the reduced-privilege model still holds three ways: if the database already
+exists, no `CREATEDB` is needed and the role needs only `CREATE` on the database to make schemas; if the
+database is missing and the role has `CREATEDB`, Tia creates it; if the database is missing and the role
+lacks `CREATEDB`, Tia fails with a clear message (embedding the driver's own error) telling you to create
+the database first or grant `CREATEDB`. A user who will not grant `CREATEDB` simply pre-creates the
+database once. H2 has always auto-created its embedded file (or, in server mode, relied on the server's
+`-ifNotExists`); this brings Postgres to the same footing.
 
 ### URL-scheme dialect inference
 
