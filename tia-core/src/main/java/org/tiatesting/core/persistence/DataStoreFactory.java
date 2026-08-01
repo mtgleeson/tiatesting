@@ -12,9 +12,10 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
  * Builds a {@link DataStore} for the configured (or inferred) SQL dialect, so build-tool plugins
  * and test-runner listeners construct a datastore through one place instead of hard-coding
  * {@code new JdbcDataStore(new H2Dialect(), ...)} at every call site. H2 gets its own
- * {@link H2ConnectionProvider} branch for its embedded/server-mode handling; every other resolved
- * dialect (e.g. Postgres, see the pluggable-datastore WIKI chapter) shares a plain
- * {@link JdbcConnectionProvider} built from {@code dbUrl}/{@code user}/{@code password}.
+ * {@link H2ConnectionProvider} branch for its embedded/server-mode handling; Postgres gets
+ * {@link PostgresConnectionProvider} for its auto-create wiring; every other non-H2 dialect
+ * shares a plain {@link JdbcConnectionProvider} built from {@code dbUrl}/{@code user}/{@code password}.
+ * See the pluggable-datastore WIKI chapter.
  */
 public final class DataStoreFactory {
 
