@@ -1,6 +1,5 @@
 package org.tiatesting.core.persistence;
 
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -52,20 +51,8 @@ class SchemaPerBranchIsolationTest {
         DataStore storeA = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_A);
         DataStore storeB = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_B);
 
-        try {
-            // when a distinct failed-suite set is persisted into each branch's schema
-            storeA.getTiaData(true);
-            storeA.persistTestSuitesFailed(new HashSet<>(SUITES_A));
-            storeB.getTiaData(true);
-            storeB.persistTestSuitesFailed(new HashSet<>(SUITES_B));
-
-            // then each store reads back exactly its own branch's data, never the other's
-            assertEquals(SUITES_A, storeA.getTestSuitesFailed(), "branchA should see only its own failed suites");
-            assertEquals(SUITES_B, storeB.getTestSuitesFailed(), "branchB should see only its own failed suites");
-        } finally {
-            storeA.close();
-            storeB.close();
-        }
+        // when / then each branch persists into and reads back only its own schema
+        assertBranchesIsolated(storeA, storeB);
     }
 
     /**
@@ -86,6 +73,20 @@ class SchemaPerBranchIsolationTest {
         DataStore storeB = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH_B);
 
+        // when / then each branch persists into and reads back only its own schema
+        assertBranchesIsolated(storeA, storeB);
+    }
+
+    /**
+     * Persist a distinct failed-suite set into each branch's store and assert each reads back only
+     * its own branch's data, never the other's or their union - the isolation property both the H2
+     * and Postgres tests assert, shared here so the two differ only in how their stores are built.
+     * Both stores are closed in a {@code finally} block regardless of the assertion outcome.
+     *
+     * @param storeA the store bound to {@link #BRANCH_A}'s schema
+     * @param storeB the store bound to {@link #BRANCH_B}'s schema
+     */
+    private static void assertBranchesIsolated(DataStore storeA, DataStore storeB) {
         try {
             // when a distinct failed-suite set is persisted into each branch's schema
             storeA.getTiaData(true);
