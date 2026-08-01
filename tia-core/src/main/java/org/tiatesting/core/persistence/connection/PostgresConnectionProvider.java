@@ -10,7 +10,7 @@ import java.sql.Statement;
 /**
  * Postgres-specific {@link ConnectionProvider}. Beyond the generic {@link JdbcConnectionProvider}
  * behaviour it inherits, it auto-creates the configured database when it does not yet exist and the
- * connecting role is allowed to (see {@code get()} in a later stage), bringing Postgres to parity
+ * connecting role is allowed to (via the {@code get()} method), bringing Postgres to parity
  * with H2's auto-create. This class also owns the pure helpers that derive the maintenance-connection
  * URL and build the CREATEDB-gate error message. See the pluggable-datastore WIKI chapter.
  */
