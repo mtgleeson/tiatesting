@@ -31,12 +31,13 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
 
     private final String user;
     private final String password;
-    private final String maintenanceUrl;
-    private final String databaseName;
 
     /**
-     * Construct a Postgres connection provider for a fixed JDBC URL and credentials, precomputing the
-     * maintenance-connection URL and target database name used by the auto-create path.
+     * Construct a Postgres connection provider for a fixed JDBC URL and credentials. The
+     * maintenance-connection URL and target database name are derived lazily on the auto-create
+     * path (not here), so an unusual but driver-valid URL shape that the auto-create path cannot
+     * derive a maintenance target from does not fail construction - it falls back to the generic
+     * connect behaviour. See the pluggable-datastore WIKI chapter.
      *
      * @param jdbcUrl  the target Postgres JDBC URL to connect to
      * @param user     the database username
@@ -46,20 +47,19 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
         super(jdbcUrl, user, password);
         this.user = user;
         this.password = password;
-        this.maintenanceUrl = maintenanceUrl(jdbcUrl);
-        this.databaseName = databaseName(jdbcUrl);
     }
 
     /**
      * Open a connection, auto-creating the target database first if it does not yet exist. The normal
      * path is a plain {@link JdbcConnectionProvider#get()}; only a {@code 3D000} (database does not
      * exist) failure triggers the create-then-retry. Every other connection failure propagates
-     * unchanged, so existing error behaviour is untouched. This brings Postgres to parity with H2,
-     * which already auto-creates its database on first use. See the pluggable-datastore WIKI chapter.
+     * unchanged. This brings Postgres to parity with H2, which already auto-creates its database on
+     * first use. See the pluggable-datastore WIKI chapter.
      *
      * @return an open connection to the (now-existing) target database
      * @throws SQLException if the connection or the database creation fails for a reason other than
-     *         the missing database
+     *         the missing database, or if the URL shape has no derivable maintenance target (the
+     *         original missing-database error is surfaced unchanged in that case)
      */
     @Override
     public Connection get() throws SQLException {
@@ -69,26 +69,44 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
             if (!SQLSTATE_DB_MISSING.equals(e.getSQLState())) {
                 throw e;
             }
-            createDatabaseViaMaintenance();
+            createDatabaseViaMaintenance(e);
             return super.get();
         }
     }
 
     /**
      * Create the target database over a maintenance connection to the {@code postgres} administrative
-     * database ({@code CREATE DATABASE} cannot run while connected to the target). A concurrent
-     * creator winning the race ({@code 42P04}) is treated as success. A role lacking {@code CREATEDB}
+     * database ({@code CREATE DATABASE} cannot run while connected to the target). The maintenance URL
+     * and database name are derived here (lazily); if the configured URL shape has no derivable
+     * maintenance target, the original missing-database error is surfaced unchanged, so the provider
+     * falls back to the generic connect behaviour rather than auto-creating. A concurrent creator
+     * winning the race ({@code 42P04}) is treated as success. A role lacking {@code CREATEDB}
      * ({@code 42501}) is surfaced as a {@link TiaPersistenceException} whose message both explains the
      * fix and embeds the driver's original message inline, with the original exception chained as the
-     * cause. Any other failure propagates unchanged.
+     * cause. Any other failure propagates unchanged. The database identifier is quoted, doubling any
+     * embedded double-quote so the quoting is total.
      *
-     * @throws SQLException if the maintenance connection fails, or {@code CREATE DATABASE} fails for a
-     *         reason other than the database already existing or the CREATEDB gate
+     * @param databaseMissing the original {@code 3D000} exception, re-thrown unchanged when no
+     *                        maintenance target can be derived from the configured URL
+     * @throws SQLException if the maintenance connection fails, {@code CREATE DATABASE} fails for a
+     *         reason other than the database already existing or the CREATEDB gate, or no maintenance
+     *         target can be derived (the original missing-database error is re-thrown)
      */
-    private void createDatabaseViaMaintenance() throws SQLException {
+    private void createDatabaseViaMaintenance(final SQLException databaseMissing) throws SQLException {
+        final String maintenanceUrl;
+        final String databaseName;
+        try {
+            maintenanceUrl = maintenanceUrl(jdbcUrl());
+            databaseName = databaseName(jdbcUrl());
+        } catch (IllegalArgumentException cannotDeriveMaintenanceTarget) {
+            // A Postgres URL shape with no derivable maintenance target (for example the host-less
+            // jdbc:postgresql:db form the driver accepts and SqlDialectRegistry routes here). Fall
+            // back to the generic behaviour: surface the original missing-database error unchanged.
+            throw databaseMissing;
+        }
         try (Connection maintenance = DriverManager.getConnection(maintenanceUrl, user, password);
              Statement statement = maintenance.createStatement()) {
-            statement.execute("CREATE DATABASE \"" + databaseName + "\"");
+            statement.execute("CREATE DATABASE \"" + databaseName.replace("\"", "\"\"") + "\"");
         } catch (SQLException e) {
             if (SQLSTATE_DUPLICATE_DB.equals(e.getSQLState())) {
                 return;
