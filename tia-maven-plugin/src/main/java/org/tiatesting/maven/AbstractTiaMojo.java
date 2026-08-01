@@ -56,7 +56,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     /**
      * Explicit SQL dialect id override (e.g. {@code "h2"}), or unset to infer the dialect from
-     * {@link #tiaDBUrl}. See {@link DataStoreFactory#fromConfig}.
+     * {@link #tiaDBUrl}. See {@link DataStoreFactory} ({@code fromConfig}).
      */
     @Parameter(property = "tiaDBDialect")
     String tiaDBDialect;
