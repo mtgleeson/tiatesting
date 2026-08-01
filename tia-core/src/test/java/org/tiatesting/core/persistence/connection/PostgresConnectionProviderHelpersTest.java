@@ -2,6 +2,7 @@ package org.tiatesting.core.persistence.connection;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -121,5 +122,15 @@ class PostgresConnectionProviderHelpersTest {
         assertTrue(message.contains("tia_junit5"));
         assertTrue(message.contains("CREATEDB"));
         assertTrue(message.contains(driverMessage));
+    }
+
+    @Test
+    void constructorDoesNotEagerlyParseUnsupportedUrlShape() {
+        // given a host-less Postgres URL that SqlDialectRegistry routes to Postgres but that has no
+        // derivable maintenance target
+        String hostlessUrl = "jdbc:postgresql:tiadb";
+        // when / then constructing the provider does not throw - derivation is deferred to the
+        // auto-create path, which falls back to the generic behaviour for such URLs
+        assertDoesNotThrow(() -> new PostgresConnectionProvider(hostlessUrl, "u", "p"));
     }
 }
