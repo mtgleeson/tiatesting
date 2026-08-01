@@ -2208,4 +2208,15 @@ public class JdbcDataStore implements DataStore {
         }
         return connection;
     }
+
+    /**
+     * Expose the injected {@link ConnectionProvider} for tests that need to assert which provider the
+     * {@link DataStoreFactory} wired in (for example that a postgres URL routes to the auto-creating
+     * {@code PostgresConnectionProvider}). Package-private: for test use only, like {@link #getConnection()}.
+     *
+     * @return the connection provider this datastore was constructed with
+     */
+    ConnectionProvider getConnectionProvider() {
+        return connectionProvider;
+    }
 }

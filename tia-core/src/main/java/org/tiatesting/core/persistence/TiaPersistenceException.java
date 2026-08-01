@@ -15,4 +15,15 @@ public class TiaPersistenceException extends RuntimeException {
         super(exception);
     }
 
+    /**
+     * Wrap a lower-level failure while preserving both an explanatory Tia message and the original
+     * cause, so callers see the Tia guidance and can still inspect the underlying exception.
+     *
+     * @param message the explanatory Tia message
+     * @param cause   the original underlying exception
+     */
+    public TiaPersistenceException(String message, Throwable cause){
+        super(message, cause);
+    }
+
 }
