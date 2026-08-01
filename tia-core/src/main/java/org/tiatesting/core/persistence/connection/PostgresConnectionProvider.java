@@ -1,5 +1,12 @@
 package org.tiatesting.core.persistence.connection;
 
+import org.tiatesting.core.persistence.TiaPersistenceException;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+
 /**
  * Postgres-specific {@link ConnectionProvider}. Beyond the generic {@link JdbcConnectionProvider}
  * behaviour it inherits, it auto-creates the configured database when it does not yet exist and the
@@ -15,8 +22,21 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
     /** The always-present administrative database used as the maintenance-connection target. */
     static final String MAINTENANCE_DB = "postgres";
 
+    /** SQLState raised by the driver when the target database does not exist. */
+    private static final String SQLSTATE_DB_MISSING = "3D000";
+    /** SQLState raised by {@code CREATE DATABASE} when the database already exists (create race). */
+    private static final String SQLSTATE_DUPLICATE_DB = "42P04";
+    /** SQLState raised by {@code CREATE DATABASE} when the role lacks the CREATEDB privilege. */
+    private static final String SQLSTATE_INSUFFICIENT_PRIVILEGE = "42501";
+
+    private final String user;
+    private final String password;
+    private final String maintenanceUrl;
+    private final String databaseName;
+
     /**
-     * Construct a Postgres connection provider for a fixed JDBC URL and credentials.
+     * Construct a Postgres connection provider for a fixed JDBC URL and credentials, precomputing the
+     * maintenance-connection URL and target database name used by the auto-create path.
      *
      * @param jdbcUrl  the target Postgres JDBC URL to connect to
      * @param user     the database username
@@ -24,6 +44,61 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
      */
     public PostgresConnectionProvider(final String jdbcUrl, final String user, final String password) {
         super(jdbcUrl, user, password);
+        this.user = user;
+        this.password = password;
+        this.maintenanceUrl = maintenanceUrl(jdbcUrl);
+        this.databaseName = databaseName(jdbcUrl);
+    }
+
+    /**
+     * Open a connection, auto-creating the target database first if it does not yet exist. The normal
+     * path is a plain {@link JdbcConnectionProvider#get()}; only a {@code 3D000} (database does not
+     * exist) failure triggers the create-then-retry. Every other connection failure propagates
+     * unchanged, so existing error behaviour is untouched. This brings Postgres to parity with H2,
+     * which already auto-creates its database on first use. See the pluggable-datastore WIKI chapter.
+     *
+     * @return an open connection to the (now-existing) target database
+     * @throws SQLException if the connection or the database creation fails for a reason other than
+     *         the missing database
+     */
+    @Override
+    public Connection get() throws SQLException {
+        try {
+            return super.get();
+        } catch (SQLException e) {
+            if (!SQLSTATE_DB_MISSING.equals(e.getSQLState())) {
+                throw e;
+            }
+            createDatabaseViaMaintenance();
+            return super.get();
+        }
+    }
+
+    /**
+     * Create the target database over a maintenance connection to the {@code postgres} administrative
+     * database ({@code CREATE DATABASE} cannot run while connected to the target). A concurrent
+     * creator winning the race ({@code 42P04}) is treated as success. A role lacking {@code CREATEDB}
+     * ({@code 42501}) is surfaced as a {@link TiaPersistenceException} whose message both explains the
+     * fix and embeds the driver's original message inline, with the original exception chained as the
+     * cause. Any other failure propagates unchanged.
+     *
+     * @throws SQLException if the maintenance connection fails, or {@code CREATE DATABASE} fails for a
+     *         reason other than the database already existing or the CREATEDB gate
+     */
+    private void createDatabaseViaMaintenance() throws SQLException {
+        try (Connection maintenance = DriverManager.getConnection(maintenanceUrl, user, password);
+             Statement statement = maintenance.createStatement()) {
+            statement.execute("CREATE DATABASE \"" + databaseName + "\"");
+        } catch (SQLException e) {
+            if (SQLSTATE_DUPLICATE_DB.equals(e.getSQLState())) {
+                return;
+            }
+            if (SQLSTATE_INSUFFICIENT_PRIVILEGE.equals(e.getSQLState())) {
+                throw new TiaPersistenceException(
+                        createDbPrivilegeErrorMessage(databaseName, e.getMessage()), e);
+            }
+            throw e;
+        }
     }
 
     /**

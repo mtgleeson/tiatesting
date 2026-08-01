@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.connection.JdbcConnectionProvider;
+import org.tiatesting.core.persistence.connection.PostgresConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.persistence.dialect.SqlDialectRegistry;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -54,7 +55,9 @@ public final class DataStoreFactory {
         }
 
         requireDriverPresent(dialect.id());
-        ConnectionProvider connectionProvider = new JdbcConnectionProvider(dbUrl, user, password);
+        ConnectionProvider connectionProvider = "postgres".equals(dialect.id())
+                ? new PostgresConnectionProvider(dbUrl, user, password)
+                : new JdbcConnectionProvider(dbUrl, user, password);
         return new JdbcDataStore(dialect, connectionProvider, schema);
     }
 
