@@ -55,7 +55,7 @@ public class TrackedLibraryReconciler {
                                         Set<String> declaredCoordinates) {
         for (String existingKey : new ArrayList<>(persisted.keySet())) {
             if (!declaredCoordinates.contains(existingKey)) {
-                log.info("Library '{}' removed from tiaSourceLibs — deleting tracked library row.", existingKey);
+                log.info("Library '{}' removed from tiaSourceLibs - deleting tracked library row.", existingKey);
                 dataStore.deleteTrackedLibrary(existingKey);
             }
         }
@@ -81,14 +81,14 @@ public class TrackedLibraryReconciler {
 
             if (existing == null) {
                 TrackedLibrary newLib = buildTrackedLibraryFromConfig(coord, config);
-                log.info("Library '{}' added to tiaSourceLibs — inserting new tracked library row.", coord);
+                log.info("Library '{}' added to tiaSourceLibs - inserting new tracked library row.", coord);
                 dataStore.persistTrackedLibrary(newLib);
             } else {
                 TrackedLibrary updated = buildTrackedLibraryFromConfig(coord, config);
                 if (hasConfigChanged(existing, updated)) {
                     updated.setMappingBaselineCommit(existing.getMappingBaselineCommit());
                     updated.setLastAppliedSeq(existing.getLastAppliedSeq());
-                    log.info("Library '{}' config changed — updating tracked library row.", coord);
+                    log.info("Library '{}' config changed - updating tracked library row.", coord);
                     dataStore.persistTrackedLibrary(updated);
                 }
             }

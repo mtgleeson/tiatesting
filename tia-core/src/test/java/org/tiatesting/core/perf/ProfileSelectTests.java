@@ -228,7 +228,7 @@ public final class ProfileSelectTests {
         String branch = "main";
         int iterations = 3;
         String url;
-        String user = "sa";
+        String user = "tia";
         String password = "1234";
         int diffFiles = 0;
         boolean fullLoad = true;

@@ -411,13 +411,13 @@ public class LibraryJarResolver implements LibraryMetadataReader {
 
         File libDir = new File(libraryProjectDir);
         if (!libDir.isDirectory()) {
-            log.warn("Library project directory '{}' does not exist — cannot read source directories.",
+            log.warn("Library project directory '{}' does not exist - cannot read source directories.",
                     libraryProjectDir);
             return Collections.emptyList();
         }
         if (!looksLikeGradleProjectRoot(libDir)) {
             log.warn("Library project directory '{}' has no build.gradle / build.gradle.kts / "
-                    + "settings.gradle — expected the library's project root, not a source directory. "
+                    + "settings.gradle - expected the library's project root, not a source directory. "
                     + "Skipping source directory read.", libraryProjectDir);
             return Collections.emptyList();
         }
@@ -532,7 +532,7 @@ public class LibraryJarResolver implements LibraryMetadataReader {
             String[] parts = coord.split(":");
             if (parts.length != 2){
                 log.warn("Invalid sourceLibs coordinate '" + coord
-                        + "' — expected groupId:artifactId, skipping.");
+                        + "' - expected groupId:artifactId, skipping.");
                 continue;
             }
             String group = parts[0].trim();

@@ -25,7 +25,7 @@ class H2ConnectionSettingsTest {
         assertFalse(settings.isServerMode());
         assertEquals(dbFilePath, settings.getDbFilePath());
         assertNull(settings.getDbUrl());
-        assertEquals("sa", settings.getUsername());
+        assertEquals("tia", settings.getUsername());
         assertEquals("1234", settings.getPassword());
     }
 
@@ -54,7 +54,7 @@ class H2ConnectionSettingsTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null);
 
         // then
-        assertEquals("sa", settings.getUsername());
+        assertEquals("tia", settings.getUsername());
         assertEquals("", settings.getPassword());
     }
 
@@ -143,7 +143,7 @@ class H2ConnectionSettingsTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, name -> null);
 
         // then
-        assertEquals("sa", settings.getUsername());
+        assertEquals("tia", settings.getUsername());
         assertEquals("", settings.getPassword());
     }
 
@@ -173,7 +173,7 @@ class H2ConnectionSettingsTest {
         // then
         assertFalse(settings.isServerMode());
         assertEquals("/var/tia", settings.getDbFilePath());
-        assertEquals("sa", settings.getUsername());
+        assertEquals("tia", settings.getUsername());
         assertEquals("1234", settings.getPassword());
     }
 

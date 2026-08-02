@@ -374,7 +374,7 @@ public class TestRunnerService {
             TrackedLibrary library = trackedLibraries.get(groupArtifact);
 
             if (library == null) {
-                log.warn("Tracked library '{}' not found during drain cleanup — skipping applied-seq update.",
+                log.warn("Tracked library '{}' not found during drain cleanup - skipping applied-seq update.",
                         groupArtifact);
                 continue;
             }
