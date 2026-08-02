@@ -19,7 +19,7 @@ class JdbcDataStoreSchemaTest {
     @Test
     void createsAndUsesBranchSchemaOnH2(@TempDir Path dir) throws Exception {
         // given a factory-built H2 store on branch "featureX"
-        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, "featureX");
+        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "featureX");
         // when it bootstraps the schema (as every real Tia run does via getTiaData/getTiaCore
         // before any write) and then persists something. persistTestSuitesFailed alone does not
         // bootstrap the schema itself - it assumes an earlier read already did, exactly as it does

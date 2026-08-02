@@ -48,8 +48,8 @@ class SchemaPerBranchIsolationTest {
     @Test
     void h2StoresOnDifferentBranchesAreIsolated(@TempDir Path dir) {
         // given two H2 stores against the same database directory, differing only in branch
-        DataStore storeA = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_A);
-        DataStore storeB = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_B);
+        DataStore storeA = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_A);
+        DataStore storeB = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_B);
 
         // when / then each branch persists into and reads back only its own schema
         assertBranchesIsolated(storeA, storeB);

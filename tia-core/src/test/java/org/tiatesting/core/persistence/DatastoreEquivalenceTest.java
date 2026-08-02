@@ -228,7 +228,7 @@ class DatastoreEquivalenceTest {
         cleanPostgres();
 
         h2TempDir = Files.createTempDirectory("tia-h2-postgres-equivalence");
-        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "sa", "", null, BRANCH);
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH);
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH);
         seed(h2Store);

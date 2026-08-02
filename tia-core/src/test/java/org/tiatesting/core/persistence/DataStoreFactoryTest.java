@@ -17,7 +17,7 @@ class DataStoreFactoryTest {
     @Test
     void buildsH2StoreForNullUrl(@TempDir Path dir) {
         // given / when
-        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, "main");
+        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main");
         // then
         assertNotNull(store);
         assertTrue(store instanceof JdbcDataStore);

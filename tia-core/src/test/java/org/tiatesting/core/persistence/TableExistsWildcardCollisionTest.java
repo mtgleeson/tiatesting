@@ -67,7 +67,7 @@ class TableExistsWildcardCollisionTest {
     @Test
     void freshBranchSchemaIsNotFooledBySeededSiblingUnderWildcardCollision(@TempDir Path dir) {
         // given a seeded store on branch "v1x2" (schema tia_v1x2) whose Tia tables already exist
-        DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_SEEDED);
+        DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_SEEDED);
         try {
             seededStore.getTiaData(true);
             seededStore.persistTestSuitesFailed(new HashSet<>(Collections.singleton("seeded_only")));
@@ -77,7 +77,7 @@ class TableExistsWildcardCollisionTest {
 
         // when a fresh store on branch "v1_2" (schema tia_v1_2, which as a LIKE pattern matches the
         // literal schema tia_v1x2 above) bootstraps against the same physical database
-        DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "sa", "", null, BRANCH_FRESH);
+        DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_FRESH);
         try {
             freshStore.getTiaData(true);
             freshStore.persistTestSuitesFailed(new HashSet<>(SUITES_FRESH));
