@@ -328,7 +328,7 @@ public class TiaSpockGitGradlePluginTestExtension {
             } else if (segments.length == 2) {
                 result.add(new CoordinateAndDir(entry, null));
             } else {
-                LOGGER.warn("Invalid sourceLibs entry '{}' — expected groupId:artifactId or "
+                LOGGER.warn("Invalid sourceLibs entry '{}' - expected groupId:artifactId or "
                         + "groupId:artifactId:projectDir, skipping.", entry);
             }
         }

@@ -13,7 +13,7 @@ import java.util.function.Function;
  * <p>The mode is driven entirely by whether a JDBC URL is supplied:
  * <ul>
  *   <li><b>Embedded</b> (no {@code dbUrl}): the {@code dbFilePath} directory produces a single
- *       fixed {@code jdbc:h2:<path>/tiadb} URL, with the historical {@code sa}/{@code 1234}
+ *       fixed {@code jdbc:h2:<path>/tiadb} URL, with the historical {@code tia}/{@code 1234}
  *       credentials.</li>
  *   <li><b>Server</b> ({@code dbUrl} present): the supplied URL is used verbatim (Tia does not
  *       append any embedded-only engine options). Credentials come from the configured values,
@@ -27,7 +27,7 @@ import java.util.function.Function;
  */
 public class H2ConnectionSettings {
 
-    private static final String EMBEDDED_DEFAULT_USER = "sa";
+    private static final String EMBEDDED_DEFAULT_USER = "tia";
     private static final String EMBEDDED_DEFAULT_PASSWORD = "1234";
 
     /** System property holding the embedded-mode database directory. */
@@ -59,7 +59,7 @@ public class H2ConnectionSettings {
 
     /**
      * Build embedded-mode settings backed by a file-on-disk H2 database, using the historical
-     * {@code sa}/{@code 1234} credentials. All branches share the single fixed {@code tiadb}
+     * {@code tia}/{@code 1234} credentials. All branches share the single fixed {@code tiadb}
      * database file; per-branch isolation is provided by the schema, not the file name.
      *
      * @param dbFilePath the directory that holds (or will hold) the H2 database file
@@ -76,7 +76,7 @@ public class H2ConnectionSettings {
      *
      * <p>Credentials resolve in precedence order: the explicitly configured value, then the
      * {@value #ENV_DB_USER} / {@value #ENV_DB_PASSWORD} environment variable, then a default
-     * ({@code sa} for the user, an empty password). The environment-variable fallback lets a
+     * ({@code tia} for the user, an empty password). The environment-variable fallback lets a
      * build keep the password out of its checked-in Gradle/Maven config entirely - CI sets the
      * secret in the environment and leaves {@code dbPassword} unset.
      *

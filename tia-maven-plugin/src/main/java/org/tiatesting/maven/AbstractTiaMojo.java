@@ -62,7 +62,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaDBDialect;
 
     /**
-     * Database username for server-mode H2 ({@link #tiaDBUrl}). Defaults to {@code sa} when unset.
+     * Database username for server-mode H2 ({@link #tiaDBUrl}). Defaults to {@code tia} when unset.
      */
     @Parameter(property = "tiaDBUser")
     String tiaDBUser;

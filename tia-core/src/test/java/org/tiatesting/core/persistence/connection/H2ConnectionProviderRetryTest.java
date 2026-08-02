@@ -61,7 +61,7 @@ class H2ConnectionProviderRetryTest {
     }
 
     private static H2ConnectionSettings serverSettings() {
-        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb", "sa", "");
+        return H2ConnectionSettings.server("jdbc:h2:tcp://localhost:9092/tiadb", "tia", "");
     }
 
     @Test
