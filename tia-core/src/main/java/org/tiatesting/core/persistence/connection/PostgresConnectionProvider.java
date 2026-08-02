@@ -19,6 +19,9 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
     /** JDBC URL prefix every Postgres URL this provider handles starts with. */
     private static final String POSTGRES_URL_PREFIX = "jdbc:postgresql://";
 
+    /** Datastore name used in the connection log lines inherited from {@link JdbcConnectionProvider}. */
+    private static final String DATASTORE_NAME = "Postgres";
+
     /** The always-present administrative database used as the maintenance-connection target. */
     static final String MAINTENANCE_DB = "postgres";
 
@@ -44,7 +47,7 @@ public class PostgresConnectionProvider extends JdbcConnectionProvider {
      * @param password the database password
      */
     public PostgresConnectionProvider(final String jdbcUrl, final String user, final String password) {
-        super(jdbcUrl, user, password);
+        super(DATASTORE_NAME, jdbcUrl, user, password);
         this.user = user;
         this.password = password;
     }

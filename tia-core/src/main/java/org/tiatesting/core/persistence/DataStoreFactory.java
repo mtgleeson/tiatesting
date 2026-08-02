@@ -58,7 +58,7 @@ public final class DataStoreFactory {
         requireDriverPresent(dialect.id());
         ConnectionProvider connectionProvider = "postgres".equals(dialect.id())
                 ? new PostgresConnectionProvider(dbUrl, user, password)
-                : new JdbcConnectionProvider(dbUrl, user, password);
+                : new JdbcConnectionProvider(dialect.id(), dbUrl, user, password);
         return new JdbcDataStore(dialect, connectionProvider, schema);
     }
 

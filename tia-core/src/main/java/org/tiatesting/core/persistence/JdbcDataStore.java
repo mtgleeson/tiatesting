@@ -131,6 +131,11 @@ public class JdbcDataStore implements DataStore {
         this.dialect = dialect;
         this.connectionProvider = connectionProvider;
         this.schema = schema;
+
+        String schemaDescription = (schema == null || schema.trim().isEmpty())
+                ? "the connection's default schema"
+                : "schema '" + schema + "'";
+        log.info("Using {}, with {}.", connectionProvider.connectionSummary(), schemaDescription);
     }
 
     @Override
