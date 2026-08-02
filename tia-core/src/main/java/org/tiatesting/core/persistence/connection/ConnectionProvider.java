@@ -19,6 +19,16 @@ public interface ConnectionProvider {
     String jdbcUrl();
 
     /**
+     * A human-readable, password-free summary of the datastore vendor and connection this provider
+     * targets, used by {@code JdbcDataStore} for the one-line "Using ... as the Tia datastore" INFO
+     * logged when a datastore is created. Excludes the schema (the datastore owns that) and never
+     * includes the password.
+     * @return the connection summary (e.g. "H2 as the Tia datastore in server mode with the
+     *         connection: jdbc:h2:tcp://localhost:9092/tiadb")
+     */
+    String connectionSummary();
+
+    /**
      * Release any process-level resources this provider holds open (for example an embedded
      * database file lock), issuing any vendor-specific shutdown needed before a different process
      * can open the same database. Called from {@code JdbcDataStore.close()}. The default is a no-op

@@ -46,9 +46,19 @@ public class H2ConnectionProvider implements ConnectionProvider {
         this.username = settings.getUsername();
         this.password = settings.getPassword();
         this.jdbcURL = buildJdbcUrl();
+    }
 
-        log.info("Using H2 as the Tia datastore in {} mode with the connection: {}",
-                settings.isServerMode() ? "server" : "embedded", this.jdbcURL);
+    /**
+     * Build the password-free datastore/connection summary for the "Using ... as the Tia datastore"
+     * INFO line, reporting the H2 mode (server or embedded) and the resolved JDBC URL. The schema is
+     * appended by {@code JdbcDataStore}, not here.
+     *
+     * @return the H2 connection summary including the embedded/server mode and the JDBC URL
+     */
+    @Override
+    public String connectionSummary() {
+        return "H2 as the Tia datastore in " + (settings.isServerMode() ? "server" : "embedded")
+                + " mode with the connection: " + jdbcURL;
     }
 
     /**
