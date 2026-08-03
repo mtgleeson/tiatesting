@@ -225,6 +225,76 @@ public class TiaData implements Serializable {
     }
 
     /**
+     * Pending forced-selection batches from library static rules, awaiting drain. Only consumed
+     * by the HTML report renderers; the drainer uses the full-table
+     * {@code DataStore.readAllPendingLibraryForcedSelections()} read directly and the
+     * per-library reports use {@code DataStore.readPendingLibraryForcedSelections(groupArtifact)}.
+     * Lazy for the same reason as {@link #pendingLibraryImpactedMethods}: the data-store load
+     * path may install a {@link #pendingLibraryForcedSelectionsLoader} via
+     * {@link #setPendingLibraryForcedSelectionsLoader(Supplier)} and skip the eager populate; the
+     * first call to {@link #getPendingLibraryForcedSelections()} then invokes the loader and
+     * caches the result.
+     */
+    private List<PendingLibraryForcedSelection> pendingLibraryForcedSelections = new ArrayList<>();
+
+    /**
+     * When set, supplies the pending forced-selection list on first access via
+     * {@link #getPendingLibraryForcedSelections()}. Marked {@code transient} because the
+     * supplier typically closes over the {@code DataStore} and is not part of TiaData's
+     * persistable state.
+     */
+    private transient Supplier<List<PendingLibraryForcedSelection>> pendingLibraryForcedSelectionsLoader;
+
+    /**
+     * Tracks whether {@link #pendingLibraryForcedSelections} reflects a real load. Starts
+     * {@code true} for the default empty list; {@link #setPendingLibraryForcedSelectionsLoader}
+     * flips it to {@code false} so the next getter call triggers the loader exactly once.
+     */
+    private transient boolean pendingLibraryForcedSelectionsLoaded = true;
+
+    /**
+     * Return the pending forced-selection list. On first call after
+     * {@link #setPendingLibraryForcedSelectionsLoader(Supplier)} was used to install a lazy
+     * loader, this invokes the loader and caches the result; subsequent calls return the cached
+     * list directly.
+     *
+     * @return the list of pending forced-selection batches (never null)
+     */
+    public List<PendingLibraryForcedSelection> getPendingLibraryForcedSelections() {
+        if (!pendingLibraryForcedSelectionsLoaded && pendingLibraryForcedSelectionsLoader != null) {
+            pendingLibraryForcedSelections = pendingLibraryForcedSelectionsLoader.get();
+            pendingLibraryForcedSelectionsLoaded = true;
+        }
+        return pendingLibraryForcedSelections;
+    }
+
+    /**
+     * Eager setter. Marks the field as loaded so a previously-installed lazy loader is not
+     * consulted on the next getter call.
+     *
+     * @param pendingLibraryForcedSelections the resolved list
+     */
+    public void setPendingLibraryForcedSelections(List<PendingLibraryForcedSelection> pendingLibraryForcedSelections) {
+        this.pendingLibraryForcedSelections = pendingLibraryForcedSelections;
+        this.pendingLibraryForcedSelectionsLoaded = true;
+    }
+
+    /**
+     * Install a lazy loader for the pending forced-selection list. The loader is invoked on the
+     * first subsequent call to {@link #getPendingLibraryForcedSelections()}; the resolved list is
+     * cached so the loader runs at most once per TiaData instance.
+     *
+     * @param loader supplier that materialises the pending forced-selection list, typically
+     *               backed by {@code DataStore.readAllPendingLibraryForcedSelections()}.
+     *               {@code null} clears any previously-installed loader and leaves the current
+     *               cached value in place.
+     */
+    public void setPendingLibraryForcedSelectionsLoader(Supplier<List<PendingLibraryForcedSelection>> loader) {
+        this.pendingLibraryForcedSelectionsLoader = loader;
+        this.pendingLibraryForcedSelectionsLoaded = (loader == null);
+    }
+
+    /**
      * Return the publish-ledger rows across all tracked libraries. On first call after
      * {@link #setLibraryPublishesLoader(Supplier)} was used to install a lazy loader, this
      * invokes the loader and caches the result; subsequent calls return the cached list.
