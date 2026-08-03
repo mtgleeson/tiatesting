@@ -2,6 +2,7 @@ package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -200,21 +201,42 @@ public interface DataStore extends AutoCloseable {
     List<LibraryPublish> readLibraryPublishes(final String groupArtifact);
 
     /**
-     * Persist a publish ledger row and its impacted-method stamp in one transaction, assigning
-     * the row the library's next sequence number ({@code max(publishSeq)+1}). The stamp rows
-     * (when {@code impactedMethodIds} is non-empty) carry the assigned sequence, the published
-     * version as their stamp version and the publish's jar hash - written atomically with the
-     * ledger row so a publish can never exist without the stamps of the build it identifies
-     * (a consumer resolving that build would otherwise drain past untested changes). The
-     * assigned sequence is also set on the given object. The library must already exist in
-     * {@code tia_library} (the ledger cascades from it).
+     * Persist a published library build and, atomically, the impacted-method stamp and any
+     * forced-selection batches for that build. Assigns and returns the next per-library publish
+     * sequence. All rows are written in one transaction so a ledger row can never exist without
+     * the stamps of the build it identifies.
      *
-     * @param publish the publish row to persist; its {@code publishSeq} is ignored on input.
-     * @param impactedMethodIds the source method ids impacted since the library's mapping
-     *                          baseline; null or empty writes the ledger row only.
-     * @return the assigned sequence number.
+     * @param publish the publish-ledger row to write.
+     * @param impactedMethodIds the tracked source method ids impacted since the baseline; may be empty.
+     * @param forcedSelections the forced-selection batches produced by the library's static rules;
+     *                         may be empty.
+     * @return the assigned publish sequence.
      */
-    long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds);
+    long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds,
+                               final List<PendingLibraryForcedSelection> forcedSelections);
+
+    /**
+     * Read every pending forced-selection batch across all tracked libraries.
+     *
+     * @return the forced-selection batches; never {@code null}, may be empty.
+     */
+    List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections();
+
+    /**
+     * Read the pending forced-selection batches for one tracked library.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library.
+     * @return the library's forced-selection batches; never {@code null}, may be empty.
+     */
+    List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(final String groupArtifact);
+
+    /**
+     * Delete the forced-selection batches of one published build after they have been drained.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library.
+     * @param publishSeq the publish sequence whose forced-selection rows to delete.
+     */
+    void deletePendingLibraryForcedSelections(final String groupArtifact, final long publishSeq);
 
     /**
      * Read the publish ledger across all tracked libraries, ordered by library then

@@ -12,6 +12,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -98,7 +99,8 @@ class TestSelectorLibraryPreviewTest {
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
         seedLibraryMethodMapping();
         dataStore.persistLibraryPublish(new LibraryPublish(LIB_COORD, "1.0.0", null, "lib-commit", 1000L),
-                new HashSet<>(Collections.singletonList(METHOD_ID)));
+                new HashSet<>(Collections.singletonList(METHOD_ID)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when a preview build (updateDBMapping=false) runs selection with no app diffs
         TestSelector selector = new TestSelector(dataStore);
@@ -193,7 +195,8 @@ class TestSelectorLibraryPreviewTest {
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB_COORD, LIB_PROJECT_DIR, LIB_SRC_DIR));
         seedLibraryMethodMapping();
         dataStore.persistLibraryPublish(new LibraryPublish(LIB_COORD, "1.0.0", null, "lib-commit", 1000L),
-                new HashSet<>(Collections.singletonList(METHOD_ID)));
+                new HashSet<>(Collections.singletonList(METHOD_ID)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when a local-changes run executes with no diffs of its own
         TestSelector selector = new TestSelector(dataStore);

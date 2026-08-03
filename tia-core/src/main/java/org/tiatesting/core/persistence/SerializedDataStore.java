@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -235,8 +236,18 @@ public class SerializedDataStore implements DataStore {
         return new HashMap<>();
     }
 
+    /**
+     * No-op: the library publish ledger, its impacted-method stamps and its forced-selection
+     * batches are only supported by the JDBC-backed data stores (H2 / Postgres).
+     *
+     * @param publish ignored.
+     * @param impactedMethodIds ignored.
+     * @param forcedSelections ignored.
+     * @return {@code 0} - no sequence is ever assigned by this store.
+     */
     @Override
-    public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
+    public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds,
+                                      List<PendingLibraryForcedSelection> forcedSelections) {
         // the library publish ledger is only supported in the H2 data store
         return 0;
     }
@@ -265,6 +276,40 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) {
         // pending library methods are only supported in the H2 data store
+    }
+
+    /**
+     * No-op: forced-selection batches are only supported by the JDBC-backed data stores.
+     *
+     * @return an empty list.
+     */
+    @Override
+    public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
+        // forced-selection batches are only supported in the H2 data store
+        return new ArrayList<>();
+    }
+
+    /**
+     * No-op: forced-selection batches are only supported by the JDBC-backed data stores.
+     *
+     * @param groupArtifact ignored.
+     * @return an empty list.
+     */
+    @Override
+    public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(String groupArtifact) {
+        // forced-selection batches are only supported in the H2 data store
+        return new ArrayList<>();
+    }
+
+    /**
+     * No-op: forced-selection batches are only supported by the JDBC-backed data stores.
+     *
+     * @param groupArtifact ignored.
+     * @param publishSeq ignored.
+     */
+    @Override
+    public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) {
+        // forced-selection batches are only supported in the H2 data store
     }
 
     @Override

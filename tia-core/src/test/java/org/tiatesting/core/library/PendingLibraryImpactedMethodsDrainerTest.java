@@ -256,7 +256,8 @@ class PendingLibraryImpactedMethodsDrainerTest {
      */
     private long publish(String version, String jarHash, Set<Integer> methodIds) {
         return dataStore.persistLibraryPublish(
-                new LibraryPublish(LIB, version, jarHash, "commit", System.currentTimeMillis()), methodIds);
+                new LibraryPublish(LIB, version, jarHash, "commit", System.currentTimeMillis()), methodIds,
+                Collections.<PendingLibraryForcedSelection>emptyList());
     }
 
     /**

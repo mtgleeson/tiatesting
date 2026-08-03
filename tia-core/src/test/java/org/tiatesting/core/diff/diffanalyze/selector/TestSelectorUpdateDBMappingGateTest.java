@@ -12,6 +12,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -174,7 +175,8 @@ class TestSelectorUpdateDBMappingGateTest {
         // metadata reader resolves the library at 1.0.0 with no jar, so the drain identifies the
         // build via the release-version fallback.
         dataStore.persistLibraryPublish(new LibraryPublish("com.example:lib", "1.0.0", null,
-                "lib-commit", 1000L), new HashSet<>(Collections.singletonList(42)));
+                "lib-commit", 1000L), new HashSet<>(Collections.singletonList(42)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         CountingDataStore counting = new CountingDataStore(dataStore);
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
@@ -365,7 +367,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public List<LibraryPublish> readLibraryPublishes(String groupArtifact) { return delegate.readLibraryPublishes(groupArtifact); }
         @Override public List<LibraryPublish> readAllLibraryPublishes() { return delegate.readAllLibraryPublishes(); }
         @Override public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(Set<Integer> methodIds) { return delegate.getMethodsTrackedForIds(methodIds); }
-        @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) { return delegate.persistLibraryPublish(publish, impactedMethodIds); }
+        @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds, List<PendingLibraryForcedSelection> forcedSelections) { return delegate.persistLibraryPublish(publish, impactedMethodIds, forcedSelections); }
         @Override public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) { return delegate.lookupLibraryPublish(groupArtifact, jarHash, version); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }
@@ -391,6 +393,21 @@ class TestSelectorUpdateDBMappingGateTest {
         public void persistPendingLibraryImpactedMethods(PendingLibraryImpactedMethod pending) {
             persistPendingCalls.incrementAndGet();
             delegate.persistPendingLibraryImpactedMethods(pending);
+        }
+
+        @Override
+        public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
+            return delegate.readAllPendingLibraryForcedSelections();
+        }
+
+        @Override
+        public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(String groupArtifact) {
+            return delegate.readPendingLibraryForcedSelections(groupArtifact);
+        }
+
+        @Override
+        public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) {
+            delegate.deletePendingLibraryForcedSelections(groupArtifact, publishSeq);
         }
 
         @Override

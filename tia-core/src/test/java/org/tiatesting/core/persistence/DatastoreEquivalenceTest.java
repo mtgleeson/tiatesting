@@ -7,10 +7,14 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.dialect.PostgresDialect;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.IOException;
@@ -34,6 +38,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -96,6 +101,22 @@ class DatastoreEquivalenceTest {
     }
 
     /**
+     * Check whether the local Postgres instance is reachable, without aborting the calling test.
+     * Used by tests that must still exercise their H2 leg (and report it as passing) even when no
+     * Postgres is available, unlike {@link #assumePg()} which aborts the whole test.
+     *
+     * @return true if a TCP connection to {@code localhost:5432} succeeds within the timeout.
+     */
+    private static boolean isPostgresReachable() {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("localhost", 5432), 500);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
      * Drop the Tia tables so the next seed recreates the schema from the current DDL. Two reasons
      * this must DROP rather than merely truncate:
      * <ul>
@@ -120,8 +141,8 @@ class DatastoreEquivalenceTest {
             statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
                     + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
-                    + "tia_pending_library_impacted_method, tia_library_publish, tia_library, "
-                    + "tia_test_run_history CASCADE");
+                    + "tia_pending_library_impacted_method, tia_pending_library_forced_selection, "
+                    + "tia_library_publish, tia_library, tia_test_run_history CASCADE");
         }
     }
 
@@ -244,6 +265,91 @@ class DatastoreEquivalenceTest {
         assertEquals(h2Ignore, postgresIgnore);
         assertFalse(h2Ignore.isEmpty(), "expected the synthetic diff to leave at least one suite ignored");
         assertEquals(new HashSet<>(Arrays.asList("SuiteBar", "SuiteBaz")), h2Ignore);
+    }
+
+    /**
+     * Proves the forced-selection persistence round trip - {@link DataStore#persistLibraryPublish}
+     * writing a {@code RUN_ALL} batch (stored as a single null-pattern row) and a {@code SUITE_NAMES}
+     * batch atomically with the publish ledger row, {@link DataStore#readAllPendingLibraryForcedSelections()}
+     * reading both back grouped by rule, and {@link DataStore#deletePendingLibraryForcedSelections}
+     * removing them - against a fresh temp-directory H2 database, and, when a local Postgres instance
+     * is reachable, against it too. Unlike {@link #sameIgnoreSetOnBothBackends()} this does not use
+     * {@link #assumePg()}: the H2 leg always runs (and is reported as passing) even when Postgres is
+     * unavailable, rather than the whole test being silently skipped.
+     *
+     * @throws Exception if seeding the H2 temp database or cleaning Postgres fails
+     */
+    @Test
+    void forcedSelectionRoundTripAndDelete() throws Exception {
+        // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
+        h2TempDir = Files.createTempDirectory("tia-h2-forced-selection");
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH);
+        h2Store.getTiaData(true);
+
+        // when / then - the H2 leg always runs, regardless of Postgres availability
+        assertForcedSelectionRoundTrip(h2Store);
+
+        // when / then - the Postgres leg runs only when a local Postgres instance is reachable;
+        // when it is not, the H2 assertions above still stand as the test's result.
+        if (isPostgresReachable()) {
+            cleanPostgres();
+            postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                    null, BRANCH);
+            postgresStore.getTiaData(true);
+            assertForcedSelectionRoundTrip(postgresStore);
+        }
+    }
+
+    /**
+     * Run the forced-selection persist/read/delete round trip against a single store: seed a
+     * tracked library and a publish carrying a {@code RUN_ALL} batch (no patterns) and a
+     * {@code SUITE_NAMES} batch (two patterns), assert both come back correctly grouped and typed,
+     * then delete them and assert the store is empty again.
+     *
+     * @param store the datastore to exercise; already schema-bootstrapped.
+     */
+    private static void assertForcedSelectionRoundTrip(DataStore store) {
+        // given
+        TrackedLibrary lib = new TrackedLibrary("com.acme:widget", "com.acme", "widget");
+        store.persistTrackedLibrary(lib);
+        LibraryPublish publish = new LibraryPublish("com.acme:widget", "1.2.0", "hash", "commitA", 111L);
+        List<PendingLibraryForcedSelection> forced = Arrays.asList(
+                new PendingLibraryForcedSelection("com.acme:widget", "1.2.0", 0L, "run-all",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList()),
+                new PendingLibraryForcedSelection("com.acme:widget", "1.2.0", 0L, "repos",
+                        StaticTestSelectionRuleMode.SUITE_NAMES, Arrays.asList("Repo.*", ".*IT")));
+
+        // when
+        long seq = store.persistLibraryPublish(publish, Collections.<Integer>emptySet(), forced);
+        List<PendingLibraryForcedSelection> read = store.readAllPendingLibraryForcedSelections();
+
+        // then
+        assertEquals(2, read.size());
+        PendingLibraryForcedSelection runAll = findByRule(read, "run-all");
+        assertEquals(StaticTestSelectionRuleMode.RUN_ALL, runAll.getMode());
+        assertEquals(seq, runAll.getPublishSeq());
+        assertTrue(runAll.getSuiteNamePatterns().isEmpty());
+        PendingLibraryForcedSelection repos = findByRule(read, "repos");
+        assertEquals(StaticTestSelectionRuleMode.SUITE_NAMES, repos.getMode());
+        assertEquals(new HashSet<>(Arrays.asList("Repo.*", ".*IT")),
+                new HashSet<>(repos.getSuiteNamePatterns()));
+
+        // when
+        store.deletePendingLibraryForcedSelections("com.acme:widget", seq);
+
+        // then
+        assertTrue(store.readAllPendingLibraryForcedSelections().isEmpty());
+    }
+
+    /**
+     * Find a forced-selection batch by rule name in a list read back from a store.
+     *
+     * @param list the batches to search.
+     * @param rule the rule name to match.
+     * @return the matching batch.
+     */
+    private static PendingLibraryForcedSelection findByRule(List<PendingLibraryForcedSelection> list, String rule) {
+        return list.stream().filter(f -> rule.equals(f.getRuleName())).findFirst().orElseThrow(AssertionError::new);
     }
 
     /**
