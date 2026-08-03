@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.TestSuiteTracker;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -63,8 +64,9 @@ public class StaticTestSelectionResolver {
      * unioned in. Rules whose file-path regex matches no changed paths contribute nothing.
      *
      * <p>Per fired rule, an INFO log line records the rule name, matched-file count, and
-     * forced-suite count. Per-match logging is deliberately omitted to keep the read path
-     * cheap on high-volume commit ranges.
+     * forced-suite count. When DEBUG is enabled an additional line lists the individual
+     * changed file(s) that matched the rule; that per-match detail is gathered only when
+     * DEBUG is on so the read path stays cheap on high-volume commit ranges.
      *
      * @param changedPaths the repo-relative, forward-slash-normalised paths of every file
      *                     changed in the current commit range / local workspace.
@@ -79,8 +81,10 @@ public class StaticTestSelectionResolver {
             return forced;
         }
 
+        boolean debugEnabled = log.isDebugEnabled();
         for (StaticTestSelectionRule rule : config.getRules()) {
-            int matchedFileCount = countMatchingPaths(rule, changedPaths);
+            List<String> matchedPaths = debugEnabled ? matchingPaths(rule, changedPaths) : null;
+            int matchedFileCount = debugEnabled ? matchedPaths.size() : countMatchingPaths(rule, changedPaths);
             if (matchedFileCount == 0) {
                 log.debug("Static test selection rule '{}' did not match any changes, skipping.", rule.getName());
                 continue;
@@ -88,6 +92,9 @@ public class StaticTestSelectionResolver {
             Set<String> ruleForced = resolveRule(rule, testSuitesTracked);
             log.info("Static test selection rule '{}' matched {} changed file(s), forcing {} test suite(s).",
                     rule.getName(), matchedFileCount, ruleForced.size());
+            if (debugEnabled) {
+                log.debug("Static test selection rule '{}' matched changed file(s): {}", rule.getName(), matchedPaths);
+            }
             forced.addAll(ruleForced);
         }
         return forced;
@@ -203,6 +210,27 @@ public class StaticTestSelectionResolver {
             }
         }
         return count;
+    }
+
+    /**
+     * Collect the changed file paths that match the rule's file-path regex via
+     * {@link java.util.regex.Matcher#find()} (substring match). This is the file-listing
+     * counterpart to {@link #countMatchingPaths} and backs the per-rule DEBUG log line in
+     * {@link #resolve(Set, Map)}; it is invoked only when DEBUG logging is enabled so the
+     * hot read path avoids the extra allocation on high-volume commit ranges.
+     *
+     * @param rule the rule whose file-path pattern is applied.
+     * @param changedPaths the changed file paths to test.
+     * @return the matching paths in iteration order; never {@code null}, may be empty.
+     */
+    List<String> matchingPaths(final StaticTestSelectionRule rule, final Set<String> changedPaths) {
+        List<String> matched = new ArrayList<>();
+        for (String path : changedPaths) {
+            if (rule.getFilePathPattern().matcher(path).find()) {
+                matched.add(path);
+            }
+        }
+        return matched;
     }
 
     /**
