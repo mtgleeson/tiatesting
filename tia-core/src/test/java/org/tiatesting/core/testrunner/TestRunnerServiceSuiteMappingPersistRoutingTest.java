@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
@@ -205,12 +206,15 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public List<LibraryPublish> readLibraryPublishes(String groupArtifact) { return delegate.readLibraryPublishes(groupArtifact); }
         @Override public List<LibraryPublish> readAllLibraryPublishes() { return delegate.readAllLibraryPublishes(); }
         @Override public Map<Integer, MethodImpactTracker> getMethodsTrackedForIds(Set<Integer> methodIds) { return delegate.getMethodsTrackedForIds(methodIds); }
-        @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) { return delegate.persistLibraryPublish(publish, impactedMethodIds); }
+        @Override public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds, List<PendingLibraryForcedSelection> forcedSelections) { return delegate.persistLibraryPublish(publish, impactedMethodIds, forcedSelections); }
         @Override public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) { return delegate.lookupLibraryPublish(groupArtifact, jarHash, version); }
         @Override public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(String groupArtifact) { return delegate.readPendingLibraryImpactedMethods(groupArtifact); }
         @Override public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() { return delegate.readAllPendingLibraryImpactedMethods(); }
         @Override public void persistPendingLibraryImpactedMethods(PendingLibraryImpactedMethod pending) { delegate.persistPendingLibraryImpactedMethods(pending); }
         @Override public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) { delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq); }
+        @Override public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() { return delegate.readAllPendingLibraryForcedSelections(); }
+        @Override public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(String groupArtifact) { return delegate.readPendingLibraryForcedSelections(groupArtifact); }
+        @Override public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) { delegate.deletePendingLibraryForcedSelections(groupArtifact, publishSeq); }
         @Override public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) { delegate.persistTestRunHistoryEntry(entry); }
         @Override public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
     }

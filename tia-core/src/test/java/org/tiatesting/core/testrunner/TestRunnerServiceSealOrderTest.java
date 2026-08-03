@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
@@ -336,8 +337,9 @@ class TestRunnerServiceSealOrderTest {
             return delegate.getMethodsTrackedForIds(methodIds);
         }
         @Override
-        public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds) {
-            return delegate.persistLibraryPublish(publish, impactedMethodIds);
+        public long persistLibraryPublish(LibraryPublish publish, Set<Integer> impactedMethodIds,
+                                          List<PendingLibraryForcedSelection> forcedSelections) {
+            return delegate.persistLibraryPublish(publish, impactedMethodIds, forcedSelections);
         }
         @Override
         public LibraryPublish lookupLibraryPublish(String groupArtifact, String jarHash, String version) {
@@ -359,6 +361,18 @@ class TestRunnerServiceSealOrderTest {
                 throw new RuntimeException("simulated failure in deletePendingLibraryImpactedMethods");
             }
             delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq);
+        }
+        @Override
+        public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
+            return delegate.readAllPendingLibraryForcedSelections();
+        }
+        @Override
+        public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(String groupArtifact) {
+            return delegate.readPendingLibraryForcedSelections(groupArtifact);
+        }
+        @Override
+        public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) {
+            delegate.deletePendingLibraryForcedSelections(groupArtifact, publishSeq);
         }
         @Override
         public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {

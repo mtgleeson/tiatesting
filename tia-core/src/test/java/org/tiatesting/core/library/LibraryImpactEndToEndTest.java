@@ -113,7 +113,8 @@ class LibraryImpactEndToEndTest {
         File jar = jarFile("build-1");
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
                 LibraryJarHasher.computeSha256Hash(jar), "c1", 1000L),
-                new HashSet<>(Collections.singletonList(METHOD_ID)));
+                new HashSet<>(Collections.singletonList(METHOD_ID)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         LibraryImpactAnalysisConfig config = configResolving("1.0.0-SNAPSHOT", jar.getAbsolutePath());
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
@@ -138,7 +139,7 @@ class LibraryImpactEndToEndTest {
         // given a tracked library with a ledger row and a stamp
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0", "H1", "c1", 1000L),
-                new HashSet<>(Arrays.asList(10, 20)));
+                new HashSet<>(Arrays.asList(10, 20)), Collections.<PendingLibraryForcedSelection>emptyList());
         assertEquals(1, dataStore.readLibraryPublishes(LIB).size());
         assertEquals(1, dataStore.readPendingLibraryImpactedMethods(LIB).size());
 
@@ -164,9 +165,11 @@ class LibraryImpactEndToEndTest {
         File jarA = jarFile("build-a");
         File jarB = jarFile("build-b");
         dataStore.persistLibraryPublish(new LibraryPublish("com.example:a", "1.0.0",
-                LibraryJarHasher.computeSha256Hash(jarA), "c1", 1000L), new HashSet<>(Arrays.asList(10)));
+                LibraryJarHasher.computeSha256Hash(jarA), "c1", 1000L), new HashSet<>(Arrays.asList(10)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
         dataStore.persistLibraryPublish(new LibraryPublish("com.example:b", "2.0.0",
-                LibraryJarHasher.computeSha256Hash(jarB), "c2", 2000L), new HashSet<>(Arrays.asList(20)));
+                LibraryJarHasher.computeSha256Hash(jarB), "c2", 2000L), new HashSet<>(Arrays.asList(20)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when both libraries resolve their published jars and the drain runs
         Map<String, String> jarByCoord = new HashMap<>();
@@ -199,7 +202,8 @@ class LibraryImpactEndToEndTest {
         File jar = jarFile("build-1");
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0",
                 LibraryJarHasher.computeSha256Hash(jar), "c1", 1000L),
-                new HashSet<>(Collections.singletonList(METHOD_ID)));
+                new HashSet<>(Collections.singletonList(METHOD_ID)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
                         dataStore, configResolving("1.0.0", jar.getAbsolutePath()));

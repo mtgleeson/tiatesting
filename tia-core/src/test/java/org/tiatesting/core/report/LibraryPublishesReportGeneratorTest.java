@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.LibraryPublish;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -62,9 +63,11 @@ class LibraryPublishesReportGeneratorTest {
         // given a tracked library with an unstamped seed publish and a stamped publish
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/mylib", null));
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
-                "aaaaaaaaaaaaaaaabbbb", "commit-1-aaaaaaaa", 1000L), Collections.emptySet());
+                "aaaaaaaaaaaaaaaabbbb", "commit-1-aaaaaaaa", 1000L), Collections.emptySet(),
+                Collections.<PendingLibraryForcedSelection>emptyList());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0-SNAPSHOT",
-                "ccccccccccccccccdddd", "commit-2-bbbbbbbb", 2000L), new HashSet<>(Arrays.asList(10, 20)));
+                "ccccccccccccccccdddd", "commit-2-bbbbbbbb", 2000L), new HashSet<>(Arrays.asList(10, 20)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when the report is generated
         String report = generator.generateLibraryPublishesReport(dataStore, LIB);
@@ -119,9 +122,11 @@ class LibraryPublishesReportGeneratorTest {
         // given a stamped publish whose batch was drained (deleted) and one still pending
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/mylib", null));
         long drainedSeq = dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.0.0",
-                "H1", "c1", 1000L), new HashSet<>(Arrays.asList(10)));
+                "H1", "c1", 1000L), new HashSet<>(Arrays.asList(10)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
         dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.1.0",
-                "H2", "c2", 2000L), new HashSet<>(Arrays.asList(20)));
+                "H2", "c2", 2000L), new HashSet<>(Arrays.asList(20)),
+                Collections.<PendingLibraryForcedSelection>emptyList());
         dataStore.deletePendingLibraryImpactedMethods(LIB, drainedSeq);
 
         // when the report is generated

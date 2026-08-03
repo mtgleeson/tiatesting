@@ -7,6 +7,7 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -14,6 +15,7 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.sql.*;
 import java.util.*;
@@ -57,6 +59,10 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_PUBLISHED_AT = "published_at";
     private static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
     private static final String COL_STAMP_VERSION = "stamp_version";
+    private static final String TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION = "tia_pending_library_forced_selection";
+    private static final String COL_RULE_NAME = "rule_name";
+    private static final String COL_MODE = "mode";
+    private static final String COL_SUITE_NAME_PATTERN = "suite_name_pattern";
     private static final String TABLE_TIA_TEST_RUN_HISTORY = "tia_test_run_history";
     private static final String COL_RUN_TIMESTAMP = "run_timestamp";
     private static final String COL_BRANCH = "branch";
@@ -774,6 +780,92 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
+    /**
+     * Read every pending forced-selection batch across all tracked libraries.
+     *
+     * @return the forced-selection batches; never {@code null}, may be empty.
+     */
+    @Override
+    public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
+        Connection connection = getConnection();
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+                return new ArrayList<>();
+            }
+            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION;
+            Statement statement = connection.createStatement();
+            return buildForcedBatchesFromResultSet(statement.executeQuery(sql));
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * Read the pending forced-selection batches for one tracked library.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library.
+     * @return the library's forced-selection batches; never {@code null}, may be empty.
+     */
+    @Override
+    public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(final String groupArtifact) {
+        Connection connection = getConnection();
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+                return new ArrayList<>();
+            }
+            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
+                    + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, groupArtifact);
+            return buildForcedBatchesFromResultSet(ps.executeQuery());
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * Delete the forced-selection rows of one published build after they have been drained.
+     *
+     * @param groupArtifact the {@code groupId:artifactId} of the library.
+     * @param publishSeq the publish sequence whose forced-selection rows to delete.
+     */
+    @Override
+    public void deletePendingLibraryForcedSelections(final String groupArtifact, final long publishSeq) {
+        Connection connection = getConnection();
+        try {
+            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+                return;
+            }
+            String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
+                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, groupArtifact);
+            ps.setLong(2, publishSeq);
+            ps.executeUpdate();
+            log.debug("Deleted pending forced selections for {} at seq {}", groupArtifact, publishSeq);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
     @Override
     public List<LibraryPublish> readLibraryPublishes(final String groupArtifact) {
         List<LibraryPublish> result = new ArrayList<>();
@@ -804,8 +896,21 @@ public class JdbcDataStore implements DataStore {
         return result;
     }
 
+    /**
+     * Persist a published library build and, atomically, the impacted-method stamp and any
+     * forced-selection batches for that build. Assigns and returns the next per-library publish
+     * sequence. All rows are written in one transaction so a ledger row can never exist without
+     * the stamps of the build it identifies.
+     *
+     * @param publish the publish-ledger row to write.
+     * @param impactedMethodIds the tracked source method ids impacted since the baseline; may be empty.
+     * @param forcedSelections the forced-selection batches produced by the library's static rules;
+     *                         may be empty.
+     * @return the assigned publish sequence.
+     */
     @Override
-    public long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds) {
+    public long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds,
+                                      final List<PendingLibraryForcedSelection> forcedSelections) {
         Connection connection = getConnection();
 
         try {
@@ -854,6 +959,40 @@ public class JdbcDataStore implements DataStore {
                     stampPs.addBatch();
                 }
                 stampPs.executeBatch();
+            }
+
+            // Persist the forced-selection batches against the assigned sequence in the same
+            // transaction as the ledger row and the impacted-method stamp, so a publish can never
+            // exist without the forced selections its own static rules produced.
+            if (forcedSelections != null && !forcedSelections.isEmpty()) {
+                ensurePendingLibraryForcedSelectionTableExists(connection);
+                String forcedSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
+                        + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_PUBLISH_SEQ + ", "
+                        + COL_RULE_NAME + ", " + COL_MODE + ", " + COL_SUITE_NAME_PATTERN + ") "
+                        + "VALUES (?, ?, ?, ?, ?, ?)";
+                PreparedStatement forcedPs = connection.prepareStatement(forcedSql);
+                for (PendingLibraryForcedSelection forced : forcedSelections) {
+                    if (forced.getSuiteNamePatterns().isEmpty()) {
+                        forcedPs.setString(1, publish.getGroupArtifact());
+                        forcedPs.setString(2, publish.getPublishedVersion());
+                        forcedPs.setLong(3, assignedSeq);
+                        forcedPs.setString(4, forced.getRuleName());
+                        forcedPs.setString(5, forced.getMode().name());
+                        forcedPs.setNull(6, java.sql.Types.VARCHAR);
+                        forcedPs.addBatch();
+                    } else {
+                        for (String pattern : forced.getSuiteNamePatterns()) {
+                            forcedPs.setString(1, publish.getGroupArtifact());
+                            forcedPs.setString(2, publish.getPublishedVersion());
+                            forcedPs.setLong(3, assignedSeq);
+                            forcedPs.setString(4, forced.getRuleName());
+                            forcedPs.setString(5, forced.getMode().name());
+                            forcedPs.setString(6, pattern);
+                            forcedPs.addBatch();
+                        }
+                    }
+                }
+                forcedPs.executeBatch();
             }
 
             connection.commit();
@@ -1142,6 +1281,37 @@ public class JdbcDataStore implements DataStore {
             batch.getSourceMethodIds().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
         }
 
+        return new ArrayList<>(batchMap.values());
+    }
+
+    /**
+     * Group flat forced-selection rows into batches keyed by
+     * {@code (group_artifact, publish_seq, rule_name)}, collecting each batch's non-null patterns.
+     *
+     * @param resultSet the result set over the forced-selection table.
+     * @return one {@link PendingLibraryForcedSelection} per distinct batch key.
+     * @throws SQLException if the result set cannot be read.
+     */
+    private List<PendingLibraryForcedSelection> buildForcedBatchesFromResultSet(ResultSet resultSet) throws SQLException {
+        Map<String, PendingLibraryForcedSelection> batchMap = new LinkedHashMap<>();
+        while (resultSet.next()) {
+            String ga = resultSet.getString(COL_GROUP_ARTIFACT);
+            long seq = resultSet.getLong(COL_PUBLISH_SEQ);
+            String ruleName = resultSet.getString(COL_RULE_NAME);
+            String key = ga + "|" + seq + "|" + ruleName;
+            PendingLibraryForcedSelection batch = batchMap.get(key);
+            if (batch == null) {
+                batch = new PendingLibraryForcedSelection(ga, resultSet.getString(COL_STAMP_VERSION),
+                        seq, ruleName,
+                        StaticTestSelectionRuleMode.valueOf(resultSet.getString(COL_MODE)),
+                        new ArrayList<String>());
+                batchMap.put(key, batch);
+            }
+            String pattern = resultSet.getString(COL_SUITE_NAME_PATTERN);
+            if (pattern != null) {
+                batch.getSuiteNamePatterns().add(pattern);
+            }
+        }
         return new ArrayList<>(batchMap.values());
     }
 
@@ -1841,6 +2011,7 @@ public class JdbcDataStore implements DataStore {
 
         String createLibraryTableSql = buildCreateLibraryTableSql();
         String createPendingLibraryMethodTableSql = buildCreatePendingLibraryImpactedMethodTableSql();
+        String createPendingLibraryForcedSelectionTableSql = buildCreatePendingLibraryForcedSelectionTableSql();
         String createLibraryPublishTableSql = buildCreateLibraryPublishTableSql();
         String createTestRunHistoryTableSql = buildCreateTestRunHistoryTableSql();
         String createTestRunHistoryIndexSql = buildCreateTestRunHistoryIndexSql();
@@ -1860,6 +2031,7 @@ public class JdbcDataStore implements DataStore {
             statement.executeUpdate(createSourceClassMethodMethodIdIndexSql);
             statement.executeUpdate(createLibraryTableSql);
             statement.executeUpdate(createPendingLibraryMethodTableSql);
+            statement.executeUpdate(createPendingLibraryForcedSelectionTableSql);
             statement.executeUpdate(createLibraryPublishTableSql);
             statement.executeUpdate(createTestRunHistoryTableSql);
             statement.executeUpdate(createTestRunHistoryIndexSql);
@@ -1935,6 +2107,40 @@ public class JdbcDataStore implements DataStore {
             Statement statement = connection.createStatement();
             statement.executeUpdate(buildCreatePendingLibraryImpactedMethodTableSql());
             log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD);
+        }
+    }
+
+    /**
+     * Build the DDL for the {@code tia_pending_library_forced_selection} table - one row per
+     * (library build, rule, suite-name pattern); RUN_ALL stores a single row with a NULL pattern.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the forced-selection table.
+     */
+    private String buildCreatePendingLibraryForcedSelectionTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
+                + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
+                + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
+                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
+                + COL_RULE_NAME + " VARCHAR(256) NOT NULL, "
+                + COL_MODE + " VARCHAR(32) NOT NULL, "
+                + COL_SUITE_NAME_PATTERN + " VARCHAR(512), "
+                + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY
+                + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
+    }
+
+    /**
+     * Ensure the {@code tia_pending_library_forced_selection} table exists, creating it and its
+     * parent {@code tia_library} table if necessary.
+     *
+     * @param connection the open JDBC connection.
+     * @throws SQLException if the table cannot be created.
+     */
+    private void ensurePendingLibraryForcedSelectionTableExists(Connection connection) throws SQLException {
+        ensureLibraryTableExists(connection);
+        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+            Statement statement = connection.createStatement();
+            statement.executeUpdate(buildCreatePendingLibraryForcedSelectionTableSql());
+            log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION);
         }
     }
 

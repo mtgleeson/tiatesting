@@ -3,6 +3,7 @@ package org.tiatesting.core.library;
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.LibraryPublish;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -123,7 +124,7 @@ class TrackedLibraryReconcilerTest {
         // given a tracked library with a ledger row and a stamp, no longer declared
         dataStore.persistTrackedLibrary(new TrackedLibrary("com.example:gone", "/projects/gone", null));
         dataStore.persistLibraryPublish(new LibraryPublish("com.example:gone", "1.0.0", "H1", "c1", 1000L),
-                new HashSet<>(Arrays.asList(10)));
+                new HashSet<>(Arrays.asList(10)), Collections.<PendingLibraryForcedSelection>emptyList());
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
 
         // when reconcile runs declaring only the other library

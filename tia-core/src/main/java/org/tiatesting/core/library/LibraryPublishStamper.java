@@ -7,6 +7,7 @@ import org.tiatesting.core.diff.diffanalyze.FileImpactAnalyzer;
 import org.tiatesting.core.diff.diffanalyze.MethodImpactAnalyzer;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
@@ -92,7 +93,8 @@ public class LibraryPublishStamper {
                 headCommit, System.currentTimeMillis());
 
         if (tracked.getMappingBaselineCommit() == null) {
-            long seq = dataStore.persistLibraryPublish(publish, Collections.emptySet());
+            long seq = dataStore.persistLibraryPublish(publish, Collections.emptySet(),
+                    Collections.<PendingLibraryForcedSelection>emptyList());
             tracked.setMappingBaselineCommit(headCommit);
             dataStore.persistTrackedLibrary(tracked);
             log.info("First publish for library '{}' - ledger seeded at seq {} (version '{}'), baseline commit set to {}; nothing stamped.",
@@ -103,7 +105,10 @@ public class LibraryPublishStamper {
         String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
                 previousPublishCommit);
-        long seq = dataStore.persistLibraryPublish(publish, impactedMethods);
+        // Task 3 replaces this empty list with the forced selections computed from the library's
+        // own static test selection rules matched against the same diff.
+        long seq = dataStore.persistLibraryPublish(publish, impactedMethods,
+                Collections.<PendingLibraryForcedSelection>emptyList());
         log.info("Stamped publish of library '{}' version '{}' at seq {} with {} impacted methods.",
                 groupArtifact, publishedVersion, seq, impactedMethods.size());
         return new PublishStampResult(PublishStampResult.Outcome.STAMPED, seq, impactedMethods);
