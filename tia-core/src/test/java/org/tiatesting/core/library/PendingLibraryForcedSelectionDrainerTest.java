@@ -2,6 +2,7 @@ package org.tiatesting.core.library;
 
 import org.junit.jupiter.api.*;
 import org.tiatesting.core.model.*;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -10,8 +11,11 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.io.File;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -151,6 +155,70 @@ class PendingLibraryForcedSelectionDrainerTest {
                 new HashSet<>(outcome.getTestsToAdd()));
         assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
         assertEquals(1, outcome.getDrainResult().getDrainedForcedBatchKeys().size());
+    }
+
+    /**
+     * When a library has BOTH a pending method batch and a pending forced batch at the same
+     * resolved seq, the drain applies both (their selected tests are unioned) AND the per-library
+     * build-sequence resolution - the ledger lookup at the heart of {@code resolveBuildSeqOrHold} -
+     * runs exactly once for that library, not once per batch kind. Regression coverage for the
+     * double-resolve fixed in the drain: previously a library with both batch kinds paid the
+     * resolved-jar-hash + ledger lookup twice and logged "resolved to ledger seq" twice.
+     */
+    @Test
+    void resolvesBuildSeqOnceForLibraryWithBothMethodAndForcedBatches() throws Exception {
+        // given a publish stamping method 10 (covered by TestA) and forcing SUITE_NAMES matching TestB
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        setupTrackedSuitesWithMethod("com.acme.AaaTest", 10);
+        Map<String, TestSuiteTracker> tracked = tracked("com.acme.AaaTest", "com.acme.BbbIT");
+        File jar1 = jarFile("jar1-content");
+        dataStore.persistLibraryPublish(
+                new LibraryPublish(LIB, "1.0-SNAPSHOT", LibraryJarHasher.computeSha256Hash(jar1), "commit", System.currentTimeMillis()),
+                new HashSet<>(Arrays.asList(10)),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "1.0-SNAPSHOT", 0L, "it-suites",
+                        StaticTestSelectionRuleMode.SUITE_NAMES, Collections.singletonList(".*IT$"))));
+
+        AtomicInteger lookupCount = new AtomicInteger();
+        DataStore countingDataStore = countingLookupProxy(dataStore, lookupCount);
+
+        // when the drain runs through a proxy that counts calls to lookupLibraryPublish - the
+        // ledger lookup the per-library resolve step makes - against the underlying data store
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                countingDataStore, configResolving("1.0-SNAPSHOT", jar1.getAbsolutePath()), tracked);
+
+        // then both the method-covering test and the forced-matching test are selected, and the
+        // build-sequence resolution for this library ran exactly once despite the two batch kinds
+        assertEquals(new HashSet<>(Arrays.asList("com.acme.AaaTest", "com.acme.BbbIT")),
+                new HashSet<>(outcome.getTestsToAdd()));
+        assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
+        assertEquals(1, outcome.getDrainResult().getDrainedForcedBatchKeys().size());
+        assertEquals(1, lookupCount.get());
+    }
+
+    /**
+     * Build a {@link DataStore} proxy that delegates every call to {@code delegate} unchanged,
+     * while counting invocations of {@link DataStore#lookupLibraryPublish} - the ledger lookup
+     * {@code resolveBuildSeqOrHold} makes once per library resolution - so a test can assert the
+     * per-library resolve step ran a specific number of times without a mocking library dependency.
+     *
+     * @param delegate the real data store every call is forwarded to.
+     * @param lookupCount incremented once per {@code lookupLibraryPublish} invocation observed.
+     * @return a {@link DataStore} proxy wrapping {@code delegate}.
+     */
+    private DataStore countingLookupProxy(final DataStore delegate, final AtomicInteger lookupCount) {
+        return (DataStore) Proxy.newProxyInstance(
+                DataStore.class.getClassLoader(),
+                new Class<?>[] { DataStore.class },
+                (proxy, method, args) -> {
+                    if ("lookupLibraryPublish".equals(method.getName())) {
+                        lookupCount.incrementAndGet();
+                    }
+                    try {
+                        return method.invoke(delegate, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 
     /**

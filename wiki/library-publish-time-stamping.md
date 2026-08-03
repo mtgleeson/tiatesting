@@ -274,6 +274,20 @@ Two differences from the method stamp are worth calling out:
   source dirs, so a rule can match any file that ships with the module - migrations and resources
   included - without also matching a sibling module in the same repository.
 
+Two module-scoping edge cases are worth knowing about, both fail-safe (they under-select, never
+falsely force):
+
+- **Matching is repo-relative under the module directory.** Changed paths are matched against the
+  library's module directory by directory-ancestor prefix (see `pathBelongsToModule` in
+  `LibraryPublishStamper`), so a changed file only counts when some ancestor directory of its
+  repo-relative path lines up with the module's own path suffix.
+- **A single-module library whose project directory is the repository root will not match.** The
+  prefix check needs the module directory to end with a repo-relative subdirectory of the changed
+  path; a bare repo root has no such subdirectory suffix, so no changed path can ever satisfy it.
+  Module scoping assumes a shared multi-module repo where the library lives in a subdirectory -
+  a single-module library published from the repo root should not rely on forced selection until
+  it is nested under a module path.
+
 The consumer's drain resolves each pending forced batch exactly like it resolves method stamps:
 gated on `publishSeq <= resolvedSeq` against the build the consumer actually holds, with the same
 hold rules (unresolved build, downgrade). Once gated in, the batch is resolved against the

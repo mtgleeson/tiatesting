@@ -207,7 +207,10 @@ public class StaticTestSelectionResolver {
 
     /**
      * Resolve a single rule into the set of suite names it would force-run if its file-path
-     * regex matched at least one changed path.
+     * regex matched at least one changed path. Delegates to {@link #resolveForcedSelection} -
+     * a rule's mode and suite-name patterns resolve identically whether they come from a fired
+     * rule here or a drained library forced-selection batch, so the RUN_ALL / SUITE_NAMES
+     * resolution logic lives in one place.
      *
      * @param rule the rule to resolve.
      * @param testSuitesTracked the tracked test suites keyed by suite name.
@@ -215,16 +218,7 @@ public class StaticTestSelectionResolver {
      */
     private Set<String> resolveRule(final StaticTestSelectionRule rule,
                                     final Map<String, TestSuiteTracker> testSuitesTracked) {
-        switch (rule.getMode()) {
-            case RUN_ALL:
-                return (testSuitesTracked == null || testSuitesTracked.isEmpty())
-                        ? Collections.emptySet()
-                        : new HashSet<>(testSuitesTracked.keySet());
-            case SUITE_NAMES:
-                return resolveSuiteNamePatterns(rule.getSuiteNamePatterns(), testSuitesTracked);
-            default:
-                return Collections.emptySet();
-        }
+        return resolveForcedSelection(rule.getMode(), rule.getSuiteNamePatterns(), testSuitesTracked);
     }
 
     /**

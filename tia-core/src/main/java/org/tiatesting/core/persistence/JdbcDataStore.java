@@ -964,6 +964,7 @@ public class JdbcDataStore implements DataStore {
             // Persist the forced-selection batches against the assigned sequence in the same
             // transaction as the ledger row and the impacted-method stamp, so a publish can never
             // exist without the forced selections its own static rules produced.
+            int forcedRowCount = 0;
             if (forcedSelections != null && !forcedSelections.isEmpty()) {
                 ensurePendingLibraryForcedSelectionTableExists(connection);
                 String forcedSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
@@ -978,8 +979,9 @@ public class JdbcDataStore implements DataStore {
                         forcedPs.setLong(3, assignedSeq);
                         forcedPs.setString(4, forced.getRuleName());
                         forcedPs.setString(5, forced.getMode().name());
-                        forcedPs.setNull(6, java.sql.Types.VARCHAR);
+                        forcedPs.setNull(6, Types.VARCHAR);
                         forcedPs.addBatch();
+                        forcedRowCount++;
                     } else {
                         for (String pattern : forced.getSuiteNamePatterns()) {
                             forcedPs.setString(1, publish.getGroupArtifact());
@@ -989,6 +991,7 @@ public class JdbcDataStore implements DataStore {
                             forcedPs.setString(5, forced.getMode().name());
                             forcedPs.setString(6, pattern);
                             forcedPs.addBatch();
+                            forcedRowCount++;
                         }
                     }
                 }
@@ -998,9 +1001,11 @@ public class JdbcDataStore implements DataStore {
             connection.commit();
 
             publish.setPublishSeq(assignedSeq);
-            log.debug("Persisted library publish {} at seq {} (version '{}', {} stamped methods).",
+            log.debug("Persisted library publish {} at seq {} (version '{}', {} stamped methods, "
+                            + "{} forced-selection row(s) across {} batch(es)).",
                     publish.getGroupArtifact(), assignedSeq, publish.getPublishedVersion(),
-                    impactedMethodIds != null ? impactedMethodIds.size() : 0);
+                    impactedMethodIds != null ? impactedMethodIds.size() : 0,
+                    forcedRowCount, forcedSelections != null ? forcedSelections.size() : 0);
             return assignedSeq;
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
