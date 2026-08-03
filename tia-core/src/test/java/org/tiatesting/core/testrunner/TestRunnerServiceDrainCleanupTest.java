@@ -8,6 +8,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.io.File;
 import java.time.Instant;
@@ -80,6 +81,35 @@ class TestRunnerServiceDrainCleanupTest {
         List<PendingLibraryImpactedMethod> remaining = dataStore.readPendingLibraryImpactedMethods(LIB);
         assertEquals(1, remaining.size());
         assertEquals(2L, remaining.get(0).getPublishSeq());
+    }
+
+    /**
+     * A drain result carrying both a drained method batch and a drained forced-selection batch
+     * for the same library deletes both pending rows after the test run - the forced-selection
+     * table is cleaned up by the same drain-cleanup path as the impacted-method table.
+     */
+    @Test
+    void deletesDrainedForcedSelectionBatchAlongsideMethodBatchAfterTestRun() {
+        // given a tracked library published once with both an impacted method stamp and a
+        // forced-selection batch, both landing at publish seq 1
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        LibraryPublish publish = new LibraryPublish(LIB, "1.0.0", "hash1", "libcommit1", System.currentTimeMillis());
+        List<PendingLibraryForcedSelection> forcedSelections = Collections.singletonList(
+                new PendingLibraryForcedSelection(LIB, "1.0.0", 1L, "widget-rule",
+                        StaticTestSelectionRuleMode.RUN_ALL, Collections.emptyList()));
+        long assignedSeq = dataStore.persistLibraryPublish(publish, new HashSet<>(Arrays.asList(10)), forcedSelections);
+
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch(LIB, assignedSeq);
+        drainResult.addDrainedForcedBatch(LIB, assignedSeq);
+        drainResult.setAppliedSeq(LIB, assignedSeq);
+
+        // when the post-run persist applies the drain result
+        persistWithDrainResult(drainResult, 1);
+
+        // then both the impacted-method stamp and the forced-selection batch are gone
+        assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
     }
 
     /**
