@@ -13,6 +13,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.io.File;
 import java.time.Instant;
@@ -102,6 +103,34 @@ class LibraryPendingMethodsReportGeneratorTest {
         // then the row renders with the id and dashed method detail
         assertTrue(report.contains("999"));
         assertTrue(report.contains(" - "), "untracked method detail must render as dashes");
+    }
+
+    /**
+     * A pending forced-selection batch (produced by one of the library's own static rules
+     * matching a changed file at publish time) renders in its own section alongside the
+     * pending-methods table, carrying the library, publish seq, stamp version, rule name,
+     * mode and patterns.
+     */
+    @Test
+    void reportIncludesPendingForcedSelections() {
+        // given a tracked library publish carrying a RUN_ALL forced-selection batch and no
+        // pending impacted methods
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/mylib", null));
+        dataStore.persistLibraryPublish(new LibraryPublish(LIB, "1.2.0", "H1", "c1", 1000L),
+                Collections.<Integer>emptySet(),
+                Collections.singletonList(new PendingLibraryForcedSelection(LIB, "1.2.0", 0L,
+                        "sql-run-all", StaticTestSelectionRuleMode.RUN_ALL, Collections.<String>emptyList())));
+
+        // when the report is generated
+        String report = generator.generateLibraryPendingMethodsReport(dataStore, LIB);
+
+        // then the forced-selection batch's library, seq, version, rule name, mode and
+        // patterns all render
+        assertTrue(report.contains("Pending forced selections for library " + LIB));
+        assertTrue(report.contains("1"), "the assigned publish seq must render");
+        assertTrue(report.contains("1.2.0"));
+        assertTrue(report.contains("sql-run-all"));
+        assertTrue(report.contains("RUN_ALL"));
     }
 
     /**

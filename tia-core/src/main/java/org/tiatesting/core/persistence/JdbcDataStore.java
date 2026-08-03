@@ -1748,11 +1748,13 @@ public class JdbcDataStore implements DataStore {
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setLibrariesTracked(readTrackedLibraries());
                 log.debug("SQL query time for tracked libraries: {}", (System.currentTimeMillis() - startQueryTime) / 1000);
-                // Lazy: only HTML reports consume tiaData.getPendingLibraryImpactedMethods().
-                // The select-tests selector + drainer use per-library reads instead, so paying
-                // for a full-table scan + result materialisation here on every load is wasted IO.
-                // The loader runs on first getter call and caches; reports trigger it naturally.
+                // Lazy: only HTML reports consume tiaData.getPendingLibraryImpactedMethods() and
+                // tiaData.getPendingLibraryForcedSelections(). The select-tests selector +
+                // drainer use per-library / full-table reads directly instead, so paying for a
+                // full-table scan + result materialisation here on every load is wasted IO.
+                // The loaders run on first getter call and cache; reports trigger them naturally.
                 tiaData.setPendingLibraryImpactedMethodsLoader(this::readAllPendingLibraryImpactedMethods);
+                tiaData.setPendingLibraryForcedSelectionsLoader(this::readAllPendingLibraryForcedSelections);
                 tiaData.setLibraryPublishesLoader(this::readAllLibraryPublishes);
                 startQueryTime = System.currentTimeMillis();
                 tiaData.setTestRunHistory(readTestRunHistory());

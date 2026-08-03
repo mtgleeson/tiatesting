@@ -5,6 +5,7 @@ import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.LibraryPublish;
+import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -21,8 +22,11 @@ import static j2html.TagCreator.*;
 
 /**
  * Lists every tracked library with its ledger state and pending-batch count, followed by the
- * per-library publish ledger (one row per published build) and the pending impacted-method
- * batches (one row per publish still awaiting its drain).
+ * per-library publish ledger (one row per published build), the pending impacted-method batches
+ * (one row per publish still awaiting its drain) and the pending forced-selection batches
+ * produced when one of a library's own static test selection rules matched a changed file at
+ * publish time. Drain-time application of forced selections stays log-only, so this report is
+ * their only surfaced view; see the library publish-time stamping chapter in {@code WIKI.md}.
  */
 public class HtmlLibraryReport {
     private static final Logger log = LoggerFactory.getLogger(HtmlLibraryReport.class);
@@ -57,6 +61,8 @@ public class HtmlLibraryReport {
         List<LibraryPublish> publishes = tiaData.getLibraryPublishes() != null
                 ? tiaData.getLibraryPublishes() : new java.util.ArrayList<>();
         Map<String, Integer> pendingMethodsBySeq = countPendingMethodsBySeq(pending);
+        List<PendingLibraryForcedSelection> pendingForced = tiaData.getPendingLibraryForcedSelections() != null
+                ? tiaData.getPendingLibraryForcedSelections() : new java.util.ArrayList<>();
 
         try (FileWriter writer = new FileWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
@@ -138,6 +144,31 @@ public class HtmlLibraryReport {
                                                                     td(batch.getStampVersion()),
                                                                     td(String.valueOf(batch.getSourceMethodIds() != null
                                                                             ? batch.getSourceMethodIds().size() : 0))
+                                                            )
+                                                    ))
+                                            ),
+                                    HtmlLayout.pageHeading(HtmlLayout.ICON_LIBRARY, "Pending forced selections"),
+                                    pendingForced.isEmpty()
+                                            ? p(span("No pending forced selections.").withClass("tia-empty"))
+                                            : table(attrs("#tiaLibraryPendingForcedTable"),
+                                                    thead(tr(
+                                                            th("Library"),
+                                                            th("Publish seq").attr(numberDataType),
+                                                            th("Version"),
+                                                            th("Rule"),
+                                                            th("Mode"),
+                                                            th("Patterns")
+                                                    )),
+                                                    tbody(each(pendingForced, batch ->
+                                                            tr(
+                                                                    td(batch.getGroupArtifact()),
+                                                                    td(String.valueOf(batch.getPublishSeq())),
+                                                                    td(batch.getStampVersion()),
+                                                                    td(batch.getRuleName()),
+                                                                    td(batch.getMode() != null ? batch.getMode().name() : "—"),
+                                                                    td(emptyDash(batch.getSuiteNamePatterns() == null
+                                                                            || batch.getSuiteNamePatterns().isEmpty()
+                                                                            ? null : String.join(", ", batch.getSuiteNamePatterns())))
                                                             )
                                                     ))
                                             )
