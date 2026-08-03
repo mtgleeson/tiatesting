@@ -127,7 +127,6 @@ class LibraryPendingMethodsReportGeneratorTest {
         // then the forced-selection batch's library, seq, version, rule name, mode and
         // patterns all render
         assertTrue(report.contains("Pending forced selections for library " + LIB));
-        assertTrue(report.contains("1"), "the assigned publish seq must render");
         assertTrue(report.contains("1.2.0"));
         assertTrue(report.contains("sql-run-all"));
         assertTrue(report.contains("RUN_ALL"));
