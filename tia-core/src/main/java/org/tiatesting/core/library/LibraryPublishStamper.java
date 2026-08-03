@@ -11,10 +11,13 @@ import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * Producer side of publish-time library stamping: invoked from the library module's build when an
@@ -76,14 +79,20 @@ public class LibraryPublishStamper {
      * @param publishedVersion the exact version being published (e.g. {@code 0.1.1-SNAPSHOT}).
      * @param jarFilePath path to the built artifact to content-hash, or null when unavailable
      *                    (the ledger row is still written, with a null hash).
-     * @return the outcome, the assigned publish sequence (0 when skipped) and the stamped method ids.
+     * @param staticConfig the library's own static test selection rules, evaluated against the
+     *                     files it changed since its previous publish; pass
+     *                     {@link StaticTestSelectionConfig#EMPTY} when the library configures none.
+     * @return the outcome, the assigned publish sequence (0 when skipped), the stamped method ids
+     *         and any forced-selection batches recorded from the library's static rules.
      */
     public PublishStampResult stampPublish(DataStore dataStore, VCSReader vcsReader, String groupArtifact,
-                                           String publishedVersion, String jarFilePath) {
+                                           String publishedVersion, String jarFilePath,
+                                           final StaticTestSelectionConfig staticConfig) {
         TrackedLibrary tracked = dataStore.readTrackedLibraries().get(groupArtifact);
         if (tracked == null) {
             log.warn("Library '{}' is not tracked (no tia_library row) - skipping publish stamp.", groupArtifact);
-            return new PublishStampResult(PublishStampResult.Outcome.SKIPPED_NOT_TRACKED, 0, Collections.emptySet());
+            return new PublishStampResult(PublishStampResult.Outcome.SKIPPED_NOT_TRACKED, 0, Collections.emptySet(),
+                    Collections.<PendingLibraryForcedSelection>emptyList());
         }
 
         String jarHash = jarFilePath != null
@@ -99,19 +108,19 @@ public class LibraryPublishStamper {
             dataStore.persistTrackedLibrary(tracked);
             log.info("First publish for library '{}' - ledger seeded at seq {} (version '{}'), baseline commit set to {}; nothing stamped.",
                     groupArtifact, seq, publishedVersion, headCommit);
-            return new PublishStampResult(PublishStampResult.Outcome.SEEDED, seq, Collections.emptySet());
+            return new PublishStampResult(PublishStampResult.Outcome.SEEDED, seq, Collections.emptySet(),
+                    Collections.<PendingLibraryForcedSelection>emptyList());
         }
 
         String previousPublishCommit = resolvePreviousPublishCommit(dataStore, groupArtifact, tracked);
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
                 previousPublishCommit);
-        // Task 3 replaces this empty list with the forced selections computed from the library's
-        // own static test selection rules matched against the same diff.
-        long seq = dataStore.persistLibraryPublish(publish, impactedMethods,
-                Collections.<PendingLibraryForcedSelection>emptyList());
-        log.info("Stamped publish of library '{}' version '{}' at seq {} with {} impacted methods.",
-                groupArtifact, publishedVersion, seq, impactedMethods.size());
-        return new PublishStampResult(PublishStampResult.Outcome.STAMPED, seq, impactedMethods);
+        List<PendingLibraryForcedSelection> forcedSelections = evaluateForcedSelections(
+                vcsReader, tracked, previousPublishCommit, publishedVersion, staticConfig);
+        long seq = dataStore.persistLibraryPublish(publish, impactedMethods, forcedSelections);
+        log.info("Stamped publish of library '{}' version '{}' at seq {} with {} impacted methods and {} forced-selection rule(s).",
+                groupArtifact, publishedVersion, seq, impactedMethods.size(), forcedSelections.size());
+        return new PublishStampResult(PublishStampResult.Outcome.STAMPED, seq, impactedMethods, forcedSelections);
     }
 
     /**
@@ -254,6 +263,107 @@ public class LibraryPublishStamper {
     }
 
     /**
+     * Evaluate the library's own static test selection rules against the files it changed since its
+     * previous publish, producing a forced-selection batch per matching rule. The since-previous-publish
+     * scope deduplicates: a version-only or no-matching-change re-publish yields nothing, mirroring the
+     * method-stamp dedup. All changed file types are considered (the unfiltered
+     * {@link VCSReader#getChangedFilePaths}), restricted to the library's own source dirs, so a rule
+     * can match non-code files (e.g. a SQL migration) that the coverage-driven method stamp cannot see.
+     * See the library publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * @param vcsReader the VCS reader for the shared repository.
+     * @param tracked the tracked library being published.
+     * @param previousPublishCommit the commit of the library's previous publish (the diff baseline here).
+     * @param publishedVersion the version being published (recorded as each batch's stamp version).
+     * @param staticConfig the library's static test selection config; may be disabled/empty.
+     * @return the forced-selection batches; empty when the config is disabled or no rule matches.
+     */
+    private List<PendingLibraryForcedSelection> evaluateForcedSelections(
+            VCSReader vcsReader, TrackedLibrary tracked, String previousPublishCommit,
+            String publishedVersion, StaticTestSelectionConfig staticConfig) {
+        if (staticConfig == null || !staticConfig.isEnabled() || previousPublishCommit == null) {
+            return Collections.emptyList();
+        }
+        List<String> sourceDirs = resolveLibrarySourceDirs(tracked);
+        Set<String> changedPaths = vcsReader.getChangedFilePaths(previousPublishCommit, false);
+        Set<String> libraryScopedPaths = restrictPathsToLibraryDirs(changedPaths, sourceDirs);
+        if (libraryScopedPaths.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<PendingLibraryForcedSelection> forced = new ArrayList<>();
+        for (StaticTestSelectionRule rule : staticConfig.getRules()) {
+            boolean matched = false;
+            for (String path : libraryScopedPaths) {
+                if (rule.getFilePathPattern().matcher(path).find()) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) {
+                List<String> patternStrings = new ArrayList<>();
+                for (Pattern p : rule.getSuiteNamePatterns()) {
+                    patternStrings.add(p.pattern());
+                }
+                forced.add(new PendingLibraryForcedSelection(tracked.getGroupArtifact(), publishedVersion,
+                        0L, rule.getName(), rule.getMode(), patternStrings));
+                log.info("Library '{}' static rule '{}' matched a changed file - recording forced selection (mode {}).",
+                        tracked.getGroupArtifact(), rule.getName(), rule.getMode());
+            }
+        }
+        return forced;
+    }
+
+    /**
+     * Restrict a set of repo-relative changed paths to those under the library's source dirs. The
+     * library's recorded source dirs are absolute (read from the library's own build file - see
+     * {@link LibraryMetadataReader#readSourceDirectories}) while {@code changedPaths} are the
+     * repo-relative, forward-slash-normalized paths {@link VCSReader#getChangedFilePaths} returns;
+     * the repository root is not known here, so each source dir is reduced to its trailing segments
+     * (see {@link #deriveRepoRelativeTail}) and matched as a path prefix. See the library
+     * publish-time stamping chapter in {@code WIKI.md}.
+     *
+     * @param changedPaths the repo-relative changed paths.
+     * @param sourceDirs the library's recorded absolute source dirs.
+     * @return the subset of {@code changedPaths} that fall under any of the source dirs; when no
+     *         source dir is recorded, the input is returned unchanged (the whole library repo).
+     */
+    private Set<String> restrictPathsToLibraryDirs(Set<String> changedPaths, List<String> sourceDirs) {
+        if (sourceDirs.isEmpty()) {
+            return changedPaths;
+        }
+        Set<String> kept = new HashSet<>();
+        for (String path : changedPaths) {
+            String normPath = path.replace('\\', '/');
+            for (String dir : sourceDirs) {
+                String tail = deriveRepoRelativeTail(dir.replace('\\', '/'));
+                if (normPath.startsWith(tail) || normPath.contains("/" + tail)) {
+                    kept.add(path);
+                    break;
+                }
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * Derive a repo-relative tail from an absolute source dir. The repository root is not known
+     * here, so fall back to the last two path segments, which is specific enough to scope to the
+     * library module within a shared repo.
+     *
+     * @param normDir a forward-slash-normalized absolute source dir.
+     * @return the last two segments of the path (or the whole thing when it has fewer).
+     */
+    private String deriveRepoRelativeTail(String normDir) {
+        String trimmed = normDir.endsWith("/") ? normDir.substring(0, normDir.length() - 1) : normDir;
+        String[] segs = trimmed.split("/");
+        if (segs.length <= 2) {
+            return trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+        }
+        return segs[segs.length - 2] + "/" + segs[segs.length - 1];
+    }
+
+    /**
      * Run the targeted changed-files-to-tracked-methods read for the library's modified diffs:
      * normalize each diff's original file path to its stored mapping key and query the tracked
      * methods (with line ranges) for those files in one call.
@@ -299,8 +409,9 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Result of a publish stamp attempt: what happened, the assigned ledger sequence and the
-     * method ids that were stamped.
+     * Result of a publish stamp attempt: what happened, the assigned ledger sequence, the
+     * method ids that were stamped and any forced-selection batches recorded from the library's
+     * own static test selection rules.
      */
     public static class PublishStampResult {
 
@@ -317,6 +428,7 @@ public class LibraryPublishStamper {
         private final Outcome outcome;
         private final long publishSeq;
         private final Set<Integer> stampedMethodIds;
+        private final List<PendingLibraryForcedSelection> forcedSelections;
 
         /**
          * Construct a stamp result.
@@ -324,11 +436,16 @@ public class LibraryPublishStamper {
          * @param outcome what the stamp attempt did.
          * @param publishSeq the assigned ledger sequence, or 0 when nothing was written.
          * @param stampedMethodIds the method ids stamped for this publish; empty when none.
+         * @param forcedSelections the forced-selection batches recorded from the library's static
+         *                         test selection rules; empty when none matched (or the config was
+         *                         disabled, or the outcome is not {@code STAMPED}).
          */
-        public PublishStampResult(Outcome outcome, long publishSeq, Set<Integer> stampedMethodIds) {
+        public PublishStampResult(Outcome outcome, long publishSeq, Set<Integer> stampedMethodIds,
+                                  List<PendingLibraryForcedSelection> forcedSelections) {
             this.outcome = outcome;
             this.publishSeq = publishSeq;
             this.stampedMethodIds = stampedMethodIds;
+            this.forcedSelections = forcedSelections;
         }
 
         public Outcome getOutcome() {
@@ -341,6 +458,15 @@ public class LibraryPublishStamper {
 
         public Set<Integer> getStampedMethodIds() {
             return stampedMethodIds;
+        }
+
+        /**
+         * Return the forced-selection batches recorded for this publish.
+         *
+         * @return the forced-selection batches; empty when none matched.
+         */
+        public List<PendingLibraryForcedSelection> getForcedSelections() {
+            return forcedSelections;
         }
     }
 }

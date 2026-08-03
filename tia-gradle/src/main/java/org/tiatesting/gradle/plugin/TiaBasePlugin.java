@@ -240,8 +240,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
         VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+            // EMPTY: this plugin does not yet resolve the library's own static test selection
+            // config at publish time, so no rule can force a selection here.
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
-                    .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath);
+                    .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath,
+                            StaticTestSelectionConfig.EMPTY);
             LOGGER.info("Tia publish stamp for {} {}: {} (seq {}, {} methods).",
                     groupArtifact, publishedVersion, result.getOutcome(), result.getPublishSeq(),
                     result.getStampedMethodIds().size());
