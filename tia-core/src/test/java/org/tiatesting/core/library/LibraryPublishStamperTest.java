@@ -293,13 +293,12 @@ class LibraryPublishStamperTest {
      * A library's own static test selection rule that matches a file changed since the previous
      * publish is recorded as a forced-selection batch, alongside any impacted-method stamp. This
      * lets a library force a consumer's drain to select tests for a change the coverage-driven
-     * stamp cannot see - here a SQL migration under the library's module dir, outside anything
-     * method-impact analysis tracks.
+     * stamp cannot see - here a SQL migration, outside anything method-impact analysis tracks.
      */
     @Test
     void publishRecordsForcedSelectionWhenChangedFileMatchesLibraryRule() {
         // given a tracked library with a baseline, a previous publish, and a changed SQL file
-        // under the library's absolute module dir since that previous publish
+        // since that previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
@@ -321,9 +320,8 @@ class LibraryPublishStamperTest {
     }
 
     /**
-     * A changed file that falls under the library's module dir but matches no configured rule
-     * records no forced selection - static rules only add selections on an actual pattern match,
-     * they never force anything speculatively.
+     * A changed file that matches no configured rule records no forced selection - static rules only
+     * add selections on an actual pattern match, they never force anything speculatively.
      */
     @Test
     void publishRecordsNoForcedSelectionWhenNoRuleMatches() {
@@ -358,7 +356,7 @@ class LibraryPublishStamperTest {
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
 
-        // when publish A's diff since "prev-commit" has a matching SQL file under the module dir
+        // when publish A's diff since "prev-commit" has a matching SQL file
         PublishStampResult first = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/widget/src/main/resources/db/V2__add.sql")),
@@ -378,28 +376,29 @@ class LibraryPublishStamperTest {
     }
 
     /**
-     * A changed file under a sibling module in the same shared repo must not force a selection for
-     * this library, even when the sibling's path also matches the rule's file pattern and shares a
-     * source-dir tail (both modules end in the same conventional layout). Scoping by the library's
-     * module dir ({@link TrackedLibrary#getProjectDir()}) rather than a source-dir-tail heuristic
-     * is what prevents the cross-module leak.
+     * A library's static rules are evaluated repo-wide, not restricted to the library's own module
+     * directory: a changed file anywhere in the shared repo that matches the rule's file pattern
+     * forces a selection. This is deliberate - a library may depend on a collaborating module in the
+     * same repo (e.g. a service it makes HTTP calls to) whose change should force the library's
+     * consumers to re-test. Scoping is the rule author's job via the rule's {@code filePathPattern}.
      */
     @Test
-    void publishRecordsNoForcedSelectionForSiblingModuleChange() {
-        // given a tracked library "widget" whose module dir is a sibling of "gadget" in the same repo
+    void publishRecordsForcedSelectionForChangeOutsideLibraryModuleMatchingRule() {
+        // given a tracked library "widget" and a rule matching any .sql file
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
 
-        // when the only changed file since the previous publish is under the sibling module "gadget"
+        // when the only changed file since the previous publish is under a sibling module "gadget"
         PublishStampResult result = stamper.stampPublish(dataStore,
                 new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
                         changedPathsAt("prev-commit", "libs/gadget/src/main/resources/db/V2.sql")),
                 LIB, "1.2.0", null, config);
 
-        // then no forced selection is recorded for "widget" - the sibling module's change is out of scope
-        assertTrue(result.getForcedSelections().isEmpty());
-        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+        // then a forced selection is recorded - the rule fired on the repo-wide match
+        assertEquals(1, result.getForcedSelections().size());
+        assertEquals("sql-run-all", result.getForcedSelections().get(0).getRuleName());
+        assertEquals(1, dataStore.readPendingLibraryForcedSelections(LIB).size());
     }
 
     /**
