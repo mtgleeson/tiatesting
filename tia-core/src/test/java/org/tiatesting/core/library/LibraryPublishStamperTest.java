@@ -293,22 +293,21 @@ class LibraryPublishStamperTest {
      * A library's own static test selection rule that matches a file changed since the previous
      * publish is recorded as a forced-selection batch, alongside any impacted-method stamp. This
      * lets a library force a consumer's drain to select tests for a change the coverage-driven
-     * stamp cannot see - here a SQL migration under the library's source dir, outside anything
+     * stamp cannot see - here a SQL migration under the library's module dir, outside anything
      * method-impact analysis tracks.
      */
     @Test
     void publishRecordsForcedSelectionWhenChangedFileMatchesLibraryRule() {
         // given a tracked library with a baseline, a previous publish, and a changed SQL file
-        // under the library's absolute source dir since that previous publish
+        // under the library's absolute module dir since that previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
-        Set<String> changedSincePrevious = new HashSet<>(Arrays.asList(
-                "libs/widget/src/main/resources/db/V2__add.sql"));
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
 
         // when a publish is stamped with no tracked method change but a matching SQL file change
         PublishStampResult result = stamper.stampPublish(dataStore,
-                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), changedSincePrevious),
+                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
+                        changedPathsAt("prev-commit", "libs/widget/src/main/resources/db/V2__add.sql")),
                 LIB, "1.2.0", null, config);
 
         // then a RUN_ALL forced selection is recorded against the assigned publish sequence
@@ -322,7 +321,7 @@ class LibraryPublishStamperTest {
     }
 
     /**
-     * A changed file that falls under the library's source dir but matches no configured rule
+     * A changed file that falls under the library's module dir but matches no configured rule
      * records no forced selection - static rules only add selections on an actual pattern match,
      * they never force anything speculatively.
      */
@@ -330,19 +329,88 @@ class LibraryPublishStamperTest {
     void publishRecordsNoForcedSelectionWhenNoRuleMatches() {
         // given the same setup but the changed file does not match the configured rule
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
-        Set<String> changedSincePrevious = new HashSet<>(Arrays.asList(
-                "libs/widget/src/main/java/Foo.java"));
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
 
         // when
         PublishStampResult result = stamper.stampPublish(dataStore,
-                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), changedSincePrevious),
+                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
+                        changedPathsAt("prev-commit", "libs/widget/src/main/java/Foo.java")),
                 LIB, "1.2.0", null, config);
 
         // then no forced selection is recorded
         assertTrue(result.getForcedSelections().isEmpty());
         assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+    }
+
+    /**
+     * The forced-selection evaluation is scoped to the since-previous-publish diff, so a matching
+     * change on one publish does not leak into a later republish whose own diff has no matching
+     * change - the same dedup guarantee the impacted-method stamp already provides, now proven for
+     * forced selections: publish A's since-"prev-commit" diff contains a matching SQL file and
+     * records a forced selection; publish B's since-"head-2" diff (head-2 is now the previous
+     * publish commit) contains no matching file and records none.
+     */
+    @Test
+    void publishRecordsNoForcedSelectionOnRepublishWithNoNewMatchingChange() {
+        // given a tracked library with a baseline and a previous publish
+        trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+
+        // when publish A's diff since "prev-commit" has a matching SQL file under the module dir
+        PublishStampResult first = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
+                        changedPathsAt("prev-commit", "libs/widget/src/main/resources/db/V2__add.sql")),
+                LIB, "1.2.0", null, config);
+
+        // and publish B's diff since "head-2" (publish A's commit, now the previous publish) has no
+        // matching file
+        PublishStampResult second = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-3", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
+                        changedPathsAt("head-2", "libs/widget/src/main/java/Foo.java")),
+                LIB, "1.3.0", null, config);
+
+        // then publish A recorded the forced selection and publish B recorded none
+        assertEquals(1, first.getForcedSelections().size());
+        assertTrue(second.getForcedSelections().isEmpty());
+        assertEquals(1, dataStore.readPendingLibraryForcedSelections(LIB).size());
+    }
+
+    /**
+     * A changed file under a sibling module in the same shared repo must not force a selection for
+     * this library, even when the sibling's path also matches the rule's file pattern and shares a
+     * source-dir tail (both modules end in the same conventional layout). Scoping by the library's
+     * module dir ({@link TrackedLibrary#getProjectDir()}) rather than a source-dir-tail heuristic
+     * is what prevents the cross-module leak.
+     */
+    @Test
+    void publishRecordsNoForcedSelectionForSiblingModuleChange() {
+        // given a tracked library "widget" whose module dir is a sibling of "gadget" in the same repo
+        trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+
+        // when the only changed file since the previous publish is under the sibling module "gadget"
+        PublishStampResult result = stamper.stampPublish(dataStore,
+                new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(), Collections.emptyMap(),
+                        changedPathsAt("prev-commit", "libs/gadget/src/main/resources/db/V2.sql")),
+                LIB, "1.2.0", null, config);
+
+        // then no forced selection is recorded for "widget" - the sibling module's change is out of scope
+        assertTrue(result.getForcedSelections().isEmpty());
+        assertTrue(dataStore.readPendingLibraryForcedSelections(LIB).isEmpty());
+    }
+
+    /**
+     * Build a single-entry base-commit-to-changed-paths map for {@link StubVCSReader}.
+     *
+     * @param baseCommit the commit key {@link VCSReader#getChangedFilePaths} is expected to be called with.
+     * @param paths the repo-relative changed paths to return for that commit.
+     * @return an immutable single-entry map from {@code baseCommit} to {@code paths}.
+     */
+    private static Map<String, Set<String>> changedPathsAt(String baseCommit, String... paths) {
+        return Collections.singletonMap(baseCommit, new HashSet<>(Arrays.asList(paths)));
     }
 
     /**
@@ -428,36 +496,37 @@ class LibraryPublishStamperTest {
         private final String headCommit;
         private final Set<SourceFileDiffContext> defaultDiffs;
         private final Map<String, Set<SourceFileDiffContext>> diffsByBase;
-        private final Set<String> changedFilePaths;
+        private final Map<String, Set<String>> changedFilePathsByBase;
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
-            this(headCommit, new HashSet<>(Arrays.asList(diffs)), Collections.emptyMap(), Collections.emptySet());
+            this(headCommit, new HashSet<>(Arrays.asList(diffs)), Collections.emptyMap(), Collections.emptyMap());
         }
 
         StubVCSReader(String headCommit, Set<SourceFileDiffContext> defaultDiffs,
                       Map<String, Set<SourceFileDiffContext>> diffsByBase) {
-            this(headCommit, defaultDiffs, diffsByBase, Collections.emptySet());
+            this(headCommit, defaultDiffs, diffsByBase, Collections.emptyMap());
         }
 
         /**
-         * Build a stub whose {@link #getChangedFilePaths} answers with a fixed set regardless of
-         * the requested base commit, for exercising the forced-selection evaluation against the
-         * previous-publish-to-HEAD changed paths.
+         * Build a stub whose {@link #getChangedFilePaths} answers per requested base commit from
+         * {@code changedFilePathsByBase}, defaulting to an empty set for any commit not present -
+         * for exercising forced-selection evaluation, which is scoped to the since-previous-publish
+         * diff and so must be able to differ between successive publishes in the same test.
          *
          * @param headCommit the commit {@link #getHeadCommit()} returns.
          * @param defaultDiffs the diff set {@link #getDiffFiles} returns for any base not in {@code diffsByBase}.
-         * @param changedFilePaths the repo-relative paths {@link #getChangedFilePaths} always returns.
+         * @param diffsByBase the diff set {@link #getDiffFiles} returns per requested base commit.
+         * @param changedFilePathsByBase the repo-relative paths {@link #getChangedFilePaths} returns
+         *                                per requested base commit; a commit absent from the map
+         *                                yields an empty set, matching a real "nothing changed" diff.
          */
-        StubVCSReader(String headCommit, Set<SourceFileDiffContext> defaultDiffs, Set<String> changedFilePaths) {
-            this(headCommit, defaultDiffs, Collections.emptyMap(), changedFilePaths);
-        }
-
         StubVCSReader(String headCommit, Set<SourceFileDiffContext> defaultDiffs,
-                      Map<String, Set<SourceFileDiffContext>> diffsByBase, Set<String> changedFilePaths) {
+                      Map<String, Set<SourceFileDiffContext>> diffsByBase,
+                      Map<String, Set<String>> changedFilePathsByBase) {
             this.headCommit = headCommit;
             this.defaultDiffs = defaultDiffs;
             this.diffsByBase = diffsByBase;
-            this.changedFilePaths = changedFilePaths;
+            this.changedFilePathsByBase = changedFilePathsByBase;
         }
 
         @Override public String getBranchName() { return "test"; }
@@ -482,7 +551,7 @@ class LibraryPublishStamperTest {
 
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
-            return changedFilePaths;
+            return changedFilePathsByBase.getOrDefault(baseChangeNum, Collections.<String>emptySet());
         }
 
         @Override public void close() { }

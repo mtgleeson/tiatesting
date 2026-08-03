@@ -267,9 +267,10 @@ public class LibraryPublishStamper {
      * previous publish, producing a forced-selection batch per matching rule. The since-previous-publish
      * scope deduplicates: a version-only or no-matching-change re-publish yields nothing, mirroring the
      * method-stamp dedup. All changed file types are considered (the unfiltered
-     * {@link VCSReader#getChangedFilePaths}), restricted to the library's own source dirs, so a rule
-     * can match non-code files (e.g. a SQL migration) that the coverage-driven method stamp cannot see.
-     * See the library publish-time stamping chapter in {@code WIKI.md}.
+     * {@link VCSReader#getChangedFilePaths}), restricted to the library's own module directory (see
+     * {@link #restrictPathsToLibraryModuleDir}) so a rule can match non-code files (e.g. a SQL
+     * migration) that the coverage-driven method stamp cannot see, without matching a sibling module
+     * in a shared repo. See the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param vcsReader the VCS reader for the shared repository.
      * @param tracked the tracked library being published.
@@ -284,9 +285,8 @@ public class LibraryPublishStamper {
         if (staticConfig == null || !staticConfig.isEnabled() || previousPublishCommit == null) {
             return Collections.emptyList();
         }
-        List<String> sourceDirs = resolveLibrarySourceDirs(tracked);
         Set<String> changedPaths = vcsReader.getChangedFilePaths(previousPublishCommit, false);
-        Set<String> libraryScopedPaths = restrictPathsToLibraryDirs(changedPaths, sourceDirs);
+        Set<String> libraryScopedPaths = restrictPathsToLibraryModuleDir(changedPaths, tracked.getProjectDir());
         if (libraryScopedPaths.isEmpty()) {
             return Collections.emptyList();
         }
@@ -315,52 +315,54 @@ public class LibraryPublishStamper {
     }
 
     /**
-     * Restrict a set of repo-relative changed paths to those under the library's source dirs. The
-     * library's recorded source dirs are absolute (read from the library's own build file - see
-     * {@link LibraryMetadataReader#readSourceDirectories}) while {@code changedPaths} are the
-     * repo-relative, forward-slash-normalized paths {@link VCSReader#getChangedFilePaths} returns;
-     * the repository root is not known here, so each source dir is reduced to its trailing segments
-     * (see {@link #deriveRepoRelativeTail}) and matched as a path prefix. See the library
-     * publish-time stamping chapter in {@code WIKI.md}.
+     * Restrict a set of repo-relative changed paths to those under the library's module directory.
+     * Changed paths are repo-relative; the library's {@code projectDir} is an absolute path that
+     * ends with the module's repo-relative path. A changed file belongs to the library when
+     * {@code projectDir} ends with one of the file's directory-ancestor prefixes, which recovers
+     * the exact module boundary without needing the repository root and cannot match a sibling
+     * module. See the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param changedPaths the repo-relative changed paths.
-     * @param sourceDirs the library's recorded absolute source dirs.
-     * @return the subset of {@code changedPaths} that fall under any of the source dirs; when no
-     *         source dir is recorded, the input is returned unchanged (the whole library repo).
+     * @param projectDir the library's absolute module directory (may be null/blank).
+     * @return the subset of {@code changedPaths} under the module dir; the input unchanged when
+     *         no module dir is recorded (fail-open, preserving prior behaviour).
      */
-    private Set<String> restrictPathsToLibraryDirs(Set<String> changedPaths, List<String> sourceDirs) {
-        if (sourceDirs.isEmpty()) {
+    private Set<String> restrictPathsToLibraryModuleDir(Set<String> changedPaths, String projectDir) {
+        if (projectDir == null || projectDir.trim().isEmpty()) {
             return changedPaths;
+        }
+        String normProjectDir = projectDir.replace('\\', '/');
+        if (normProjectDir.endsWith("/")) {
+            normProjectDir = normProjectDir.substring(0, normProjectDir.length() - 1);
         }
         Set<String> kept = new HashSet<>();
         for (String path : changedPaths) {
-            String normPath = path.replace('\\', '/');
-            for (String dir : sourceDirs) {
-                String tail = deriveRepoRelativeTail(dir.replace('\\', '/'));
-                if (normPath.startsWith(tail) || normPath.contains("/" + tail)) {
-                    kept.add(path);
-                    break;
-                }
+            if (pathBelongsToModule(path.replace('\\', '/'), normProjectDir)) {
+                kept.add(path);
             }
         }
         return kept;
     }
 
     /**
-     * Derive a repo-relative tail from an absolute source dir. The repository root is not known
-     * here, so fall back to the last two path segments, which is specific enough to scope to the
-     * library module within a shared repo.
+     * Determine whether a repo-relative changed path lives under a library's module directory by
+     * checking whether the absolute {@code normProjectDir} ends with any directory-ancestor prefix
+     * of the path.
      *
-     * @param normDir a forward-slash-normalized absolute source dir.
-     * @return the last two segments of the path (or the whole thing when it has fewer).
+     * @param normPath a forward-slash-normalized, repo-relative changed path.
+     * @param normProjectDir the forward-slash-normalized absolute module directory, no trailing slash.
+     * @return {@code true} when the changed file is under the module directory.
      */
-    private String deriveRepoRelativeTail(String normDir) {
-        String trimmed = normDir.endsWith("/") ? normDir.substring(0, normDir.length() - 1) : normDir;
-        String[] segs = trimmed.split("/");
-        if (segs.length <= 2) {
-            return trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+    private boolean pathBelongsToModule(String normPath, String normProjectDir) {
+        int idx = normPath.lastIndexOf('/');
+        while (idx > 0) {
+            String prefix = normPath.substring(0, idx);
+            if (normProjectDir.equals(prefix) || normProjectDir.endsWith("/" + prefix)) {
+                return true;
+            }
+            idx = normPath.lastIndexOf('/', idx - 1);
         }
-        return segs[segs.length - 2] + "/" + segs[segs.length - 1];
+        return false;
     }
 
     /**
