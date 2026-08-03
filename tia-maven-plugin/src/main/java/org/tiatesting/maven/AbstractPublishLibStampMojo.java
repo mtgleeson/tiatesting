@@ -3,6 +3,7 @@ package org.tiatesting.maven;
 import org.apache.maven.artifact.Artifact;
 import org.tiatesting.core.library.LibraryPublishStamper;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.vcs.VCSReader;
 
 /**
@@ -44,8 +45,11 @@ public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
 
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+            // EMPTY: this mojo does not yet resolve the library's own static test selection
+            // config at publish time, so no rule can force a selection here.
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
-                    .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath);
+                    .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath,
+                            StaticTestSelectionConfig.EMPTY);
             getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
                     + ": " + result.getOutcome() + " (seq " + result.getPublishSeq()
                     + ", " + result.getStampedMethodIds().size() + " methods).");

@@ -9,6 +9,7 @@ import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
@@ -75,12 +76,14 @@ class LibraryImpactEndToEndTest {
         setupTestMappingWithMethods(METHOD_ID);
         LibraryPublishStamper stamper = new LibraryPublishStamper();
         File jar1 = jarFile("build-1");
-        stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT", jar1.getAbsolutePath());
+        stamper.stampPublish(dataStore, new StubVCSReader("c0"), LIB, "1.0.0-SNAPSHOT", jar1.getAbsolutePath(),
+                StaticTestSelectionConfig.EMPTY);
 
         // PUBLISH: the second publish diffs baseline c0 -> HEAD and stamps the changed method
         File jar2 = jarFile("build-2");
         LibraryPublishStamper.PublishStampResult stamp = stamper.stampPublish(dataStore,
-                new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT", jar2.getAbsolutePath());
+                new StubVCSReader("c1", libraryDiff()), LIB, "1.0.0-SNAPSHOT", jar2.getAbsolutePath(),
+                StaticTestSelectionConfig.EMPTY);
         assertEquals(LibraryPublishStamper.PublishStampResult.Outcome.STAMPED, stamp.getOutcome());
         assertEquals(2L, stamp.getPublishSeq());
         assertEquals(Collections.singleton(METHOD_ID), stamp.getStampedMethodIds());
