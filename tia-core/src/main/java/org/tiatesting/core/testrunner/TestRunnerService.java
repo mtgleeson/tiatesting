@@ -328,9 +328,12 @@ public class TestRunnerService {
      * Apply the library impact drain result after a successful test run. Deletes the drained
      * stamp rows from the data store and advances each drained library's
      * {@code last_applied_seq} to the resolved build's sequence and its
-     * {@code mapping_baseline_commit} to this run's sealed commit - the drain ran the library's
-     * covering suites with coverage, so their method line numbers were just re-captured at this
-     * commit. See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
+     * {@code mapping_baseline_commit} to this run's sealed commit - for a method-stamp drain, the
+     * drain ran the library's covering suites with coverage, so their method line numbers were
+     * just re-captured at this commit; for a forced-selection drain the advance instead rests on
+     * a pure forced batch implying no tracked-method change in the library (a code change would
+     * have produced a method batch too), and a RUN_ALL forced drain re-running everything anyway.
+     * See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param drainResult the drain result from test selection, or {@code null} if no drain occurred.
      * @param commitValue the commit this run seals - the new mapping baseline for drained libraries.
@@ -368,7 +371,12 @@ public class TestRunnerService {
     /**
      * Advance each drained library's {@code last_applied_seq} to the sequence of the build the
      * source project resolved, and its {@code mapping_baseline_commit} to this run's sealed
-     * commit (its covering suites just re-ran with coverage).
+     * commit. For a method-stamp drain this is justified because its covering suites just re-ran
+     * with coverage, re-capturing the library's method line numbers at this commit. A
+     * forced-selection drain's rule-selected suites need not cover the library at all, so the
+     * advance there instead rests on a pure forced batch implying no tracked-method change in the
+     * library occurred (a code change would have produced a method batch), and on a RUN_ALL
+     * forced drain re-running the full suite set regardless.
      *
      * @param drainResult the drain result carrying the applied sequence per drained library.
      * @param commitValue the commit this run seals.
