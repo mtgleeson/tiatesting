@@ -21,7 +21,7 @@ public enum StaticTestSelectionRuleMode {
     /**
      * Reserved for a future stage. Will force-run every tracked test suite whose persisted
      * annotations or tags match at least one of the rule's annotation/tag regex patterns.
-     * Not yet supported — passing this mode to {@link StaticTestSelectionRule} throws an
+     * Not yet supported - passing this mode to {@link StaticTestSelectionRule} throws an
      * {@link UnsupportedOperationException}.
      */
     ANNOTATIONS_TAGS

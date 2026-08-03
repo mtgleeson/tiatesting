@@ -242,6 +242,60 @@ The first publish in each baseline window - the seed, and the first publish afte
 the baseline - has its previous publish equal to the baseline, so Diff 2 is skipped and the publish
 stamps the full precise Diff 1.
 
+### Library-declared forced selection
+
+Method stamping (above) is coverage-driven: it can only select tests for library methods Tia
+already tracks with line-level coverage. Some library changes need a coarser, user-declared
+trigger instead - a database migration with no covering unit test, a config file that changes
+behaviour Tia cannot see in bytecode. For that case a library can declare its own static test
+selection rules, the same `tiaStaticTestSelectionRules` mechanism described in
+[Static test selection](static-test-selection.md), and have them evaluated at publish time
+rather than on every consumer run.
+
+At publish time, alongside the method stamp, the publish task evaluates the library's own static
+rules against the files it changed since its previous publish. A rule that matches records a
+**forced-selection batch** - the rule's mode (`RUN_ALL` or `SUITE_NAMES`) and its suite-name
+patterns - keyed to the same publish sequence as the method stamp, in the sibling
+`tia_pending_library_forced_selection` table. The batch is written in the same transaction as the
+ledger row and the method stamp, so it is subject to the identical version-gating: a SEEDED first
+publish forces nothing, and a version-only or no-matching-change republish forces nothing either,
+because the evaluation is scoped to files changed since the previous publish, mirroring the
+method stamp's since-previous-publish dedup.
+
+Two differences from the method stamp are worth calling out:
+
+- **Non-code files are visible.** The method stamp can only see files the coverage mapping
+  tracks (source files with methods). The forced-selection evaluation instead runs against the
+  library's unfiltered changed-paths diff - every file changed since the previous publish,
+  regardless of type - so a rule can match a `.sql` migration, a YAML config, or any other file a
+  method-level diff would never surface.
+- **Scoping is by module directory, not source dirs.** The changed paths are restricted to the
+  library's own module directory (`TrackedLibrary`'s project dir), not its narrower tracked
+  source dirs, so a rule can match any file that ships with the module - migrations and resources
+  included - without also matching a sibling module in the same repository.
+
+The consumer's drain resolves each pending forced batch exactly like it resolves method stamps:
+gated on `publishSeq <= resolvedSeq` against the build the consumer actually holds, with the same
+hold rules (unresolved build, downgrade). Once gated in, the batch is resolved against the
+**consumer's current tracked suites**, not the library's:
+
+- `RUN_ALL` resolves to every suite the consumer tracks.
+- `SUITE_NAMES` resolves to the subset of the consumer's tracked suites whose simple class name
+  or fully qualified name matches at least one of the rule's suite-name patterns.
+
+The resolved suites are unioned into the run set alongside the tests selected from any method
+stamps draining at the same sequence - a forced batch and a method stamp at the same seq both
+apply; neither suppresses the other. Applying a forced batch is deliberately log-only (no separate
+persisted record beyond the row's deletion), so a run's forced selections show up in its logs, not
+as a second report artifact. Drained forced batches are deleted after the run, the same
+crash-safe, overselection-only cleanup as method stamps.
+
+Pending (not-yet-drained) forced batches are visible ahead of a drain in the same places as
+pending method stamps: the `library-pending-methods` / `tia-library-pending-methods`
+task/mojo lists each library's pending forced-selection batches (publish seq, version, rule name,
+mode and patterns) alongside its pending methods, and the HTML `tia-libraries.html` page renders
+them in a "Pending forced selections" section.
+
 ### Local development flow
 
 A developer edits the library, runs `mvn install` locally, then runs Tia on the app and expects
