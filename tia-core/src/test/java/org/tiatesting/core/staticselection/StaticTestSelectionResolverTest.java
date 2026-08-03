@@ -317,6 +317,36 @@ class StaticTestSelectionResolverTest {
         assertEquals(Collections.singleton("com.acme.BbbIT"), forced);
     }
 
+    @Test
+    void matchingPathsReturnsOnlyThePathsThatMatchTheRuleFilePattern() {
+        // given
+        StaticTestSelectionRule rule = runAllRule("sql-migrations", ".*\\.sql$");
+        Set<String> changedPaths = setOf(
+                "src/main/resources/db/V001.sql",
+                "src/main/resources/db/V002.sql",
+                "src/main/java/com/acme/Order.java");
+
+        // when
+        List<String> matched = new StaticTestSelectionResolver(configWith(rule)).matchingPaths(rule, changedPaths);
+
+        // then - both .sql files matched, the .java file excluded
+        assertEquals(setOf("src/main/resources/db/V001.sql", "src/main/resources/db/V002.sql"),
+                new HashSet<>(matched));
+    }
+
+    @Test
+    void matchingPathsReturnsEmptyWhenNoPathMatches() {
+        // given
+        StaticTestSelectionRule rule = runAllRule("sql-migrations", ".*\\.sql$");
+        Set<String> changedPaths = setOf("src/main/java/com/acme/Order.java");
+
+        // when
+        List<String> matched = new StaticTestSelectionResolver(configWith(rule)).matchingPaths(rule, changedPaths);
+
+        // then
+        assertTrue(matched.isEmpty());
+    }
+
     private static Map<String, TestSuiteTracker> trackedWith(String... suiteNames) {
         Map<String, TestSuiteTracker> tracked = new LinkedHashMap<>();
         for (String name : suiteNames) {
