@@ -105,7 +105,6 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -205,10 +204,6 @@ public class PendingLibraryForcedSelection implements Serializable {
                 + ", ruleName='" + ruleName
                 + "', mode=" + mode
                 + ", patterns=" + suiteNamePatterns + "}";
-    }
-
-    private static List<String> emptyIfNull(List<String> in) {
-        return in != null ? in : Collections.<String>emptyList();
     }
 }
 ```
@@ -752,9 +747,9 @@ Add the evaluation method:
     }
 
     /**
-     * Derive a repo-relative tail from an absolute source dir by dropping everything up to and
-     * including the repository-root-relative portion is not known here, so fall back to the last
-     * two path segments, which is specific enough to scope to the library module in a shared repo.
+     * Derive a repo-relative tail from an absolute source dir. The repository root is not known
+     * here, so fall back to the last two path segments, which is specific enough to scope to the
+     * library module within a shared repo.
      *
      * @param normDir a forward-slash-normalized absolute source dir.
      * @return the last two segments of the path (or the whole thing when it has fewer).
