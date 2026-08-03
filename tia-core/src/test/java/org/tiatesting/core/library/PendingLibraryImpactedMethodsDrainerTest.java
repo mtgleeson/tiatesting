@@ -68,7 +68,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs with the app resolving seq 3's jar
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar3.getAbsolutePath()));
+                dataStore, configResolving("1.0-SNAPSHOT", jar3.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then both pending batches (seq 2 and 3) drain and both covering tests are selected
         assertEquals(2, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -93,7 +93,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
         // when the app resolves release 1.0.0 with a jar hash the ledger has never seen
         File unknownJar = jarFile("repackaged-content");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0.0", unknownJar.getAbsolutePath()));
+                dataStore, configResolving("1.0.0", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then the version fallback identifies seq 2 and the seq-1 stamp drains
         assertEquals(1, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -119,7 +119,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs against the older resolved jar
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()));
+                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then nothing drains - the seq-3 stamp is held until a build >= seq 3 is resolved
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -140,7 +140,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         File unknownJar = jarFile("never-published-content");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()));
+                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then everything is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -163,7 +163,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
         // when the app resolves an unknown jar under the same SNAPSHOT version string
         File unknownJar = jarFile("some-other-snapshot-build");
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()));
+                dataStore, configResolving("1.0-SNAPSHOT", unknownJar.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then the version string is not used as identity and the batch is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -188,7 +188,7 @@ class PendingLibraryImpactedMethodsDrainerTest {
 
         // when the drain runs against the downgraded resolve
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
-                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()));
+                dataStore, configResolving("1.0-SNAPSHOT", jar2.getAbsolutePath()), Collections.<String, TestSuiteTracker>emptyMap());
 
         // then the downgrade guard holds everything, even batches at or below the resolved seq
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -211,7 +211,8 @@ class PendingLibraryImpactedMethodsDrainerTest {
                 new StubMetadataReader(null, null));
 
         // when the drain runs
-        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(dataStore, config);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
 
         // then everything is held
         assertFalse(outcome.getDrainResult().hasDrainedBatches());
@@ -239,7 +240,8 @@ class PendingLibraryImpactedMethodsDrainerTest {
                 });
 
         // when the drain runs
-        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(dataStore, config);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome = drainer.drainPendingMethods(
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
 
         // then it returns empty without touching resolution
         assertFalse(outcome.getDrainResult().hasDrainedBatches());

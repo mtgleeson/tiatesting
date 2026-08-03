@@ -103,7 +103,7 @@ public class TestSelector {
                 tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
 
         LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
-                libraryConfig, testsToRun);
+                libraryConfig, testsToRun, testSuitesTracked);
 
         applyStaticTestSelection(vcsReader, staticMappingConfig, tiaCore.getCommitValue(), testSuitesTracked,
                 testsToRun, checkLocalChanges);
@@ -841,10 +841,15 @@ public class TestSelector {
      *
      * @param libraryConfig the library impact analysis configuration, or null when not configured
      * @param testsToRun the run set to add drained tests to
+     * @param testSuitesTracked the consumer's currently tracked test suites, forwarded to the
+     *                          drainer so drained forced-selection batches resolve
+     *                          {@code RUN_ALL} / {@code SUITE_NAMES} against this project's own
+     *                          suite set rather than the library's.
      * @return the drain result for post-run cleanup, or null when draining was skipped
      */
     private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
-            LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun) {
+            LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun,
+            Map<String, TestSuiteTracker> testSuitesTracked) {
 
         if (libraryConfig == null || !libraryConfig.isEnabled()) {
             return null;
@@ -852,7 +857,7 @@ public class TestSelector {
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                drainer.drainPendingMethods(dataStore, libraryConfig);
+                drainer.drainPendingMethods(dataStore, libraryConfig, testSuitesTracked);
 
         if (!outcome.getTestsToAdd().isEmpty()) {
             log.info("Selected tests to run from pending library changes: {}", outcome.getTestsToAdd());

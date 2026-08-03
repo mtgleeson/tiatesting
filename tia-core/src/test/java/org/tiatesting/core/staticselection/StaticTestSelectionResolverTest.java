@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -281,6 +282,39 @@ class StaticTestSelectionResolverTest {
 
         // when / then
         new StaticTestSelectionResolver(config).warnOnEmptyRules(tracked);
+    }
+
+    @Test
+    public void resolveForcedSelectionRunAllReturnsAllTrackedSuites() {
+        // given
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        tracked.put("com.acme.AaaTest", new TestSuiteTracker("com.acme.AaaTest"));
+        tracked.put("com.acme.BbbIT", new TestSuiteTracker("com.acme.BbbIT"));
+        StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(StaticTestSelectionConfig.EMPTY);
+
+        // when
+        Set<String> forced = resolver.resolveForcedSelection(
+                StaticTestSelectionRuleMode.RUN_ALL, Collections.<Pattern>emptyList(), tracked);
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("com.acme.AaaTest", "com.acme.BbbIT")), forced);
+    }
+
+    @Test
+    public void resolveForcedSelectionSuiteNamesMatchesSubset() {
+        // given
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        tracked.put("com.acme.AaaTest", new TestSuiteTracker("com.acme.AaaTest"));
+        tracked.put("com.acme.BbbIT", new TestSuiteTracker("com.acme.BbbIT"));
+        StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(StaticTestSelectionConfig.EMPTY);
+
+        // when
+        Set<String> forced = resolver.resolveForcedSelection(
+                StaticTestSelectionRuleMode.SUITE_NAMES,
+                Collections.singletonList(Pattern.compile(".*IT$")), tracked);
+
+        // then
+        assertEquals(Collections.singleton("com.acme.BbbIT"), forced);
     }
 
     private static Map<String, TestSuiteTracker> trackedWith(String... suiteNames) {

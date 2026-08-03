@@ -20,6 +20,14 @@ public class LibraryImpactDrainResult implements Serializable {
     private final List<DrainedBatchKey> drainedBatchKeys;
 
     /**
+     * The {@code (groupArtifact, publishSeq)} keys of the forced-selection batches drained in
+     * this selection run. Each identifies the pending forced-selection rows of one published
+     * build, deleted after the test run completes - kept as a separate list from
+     * {@link #drainedBatchKeys} because the two batch kinds live in separate pending tables.
+     */
+    private final List<DrainedBatchKey> drainedForcedBatchKeys;
+
+    /**
      * For each library that was drained, the publish sequence of the build the source project
      * resolved - the new {@code last_applied_seq} to record post-test-run.
      */
@@ -27,6 +35,7 @@ public class LibraryImpactDrainResult implements Serializable {
 
     public LibraryImpactDrainResult() {
         this.drainedBatchKeys = new ArrayList<>();
+        this.drainedForcedBatchKeys = new ArrayList<>();
         this.appliedSeqByLibrary = new LinkedHashMap<>();
     }
 
@@ -38,6 +47,16 @@ public class LibraryImpactDrainResult implements Serializable {
      */
     public void addDrainedBatch(String groupArtifact, long publishSeq) {
         drainedBatchKeys.add(new DrainedBatchKey(groupArtifact, publishSeq));
+    }
+
+    /**
+     * Record a drained forced-selection batch for post-run deletion.
+     *
+     * @param groupArtifact the library the forced batch belongs to.
+     * @param publishSeq the publish sequence of the drained forced batch.
+     */
+    public void addDrainedForcedBatch(String groupArtifact, long publishSeq) {
+        drainedForcedBatchKeys.add(new DrainedBatchKey(groupArtifact, publishSeq));
     }
 
     /**
@@ -55,12 +74,17 @@ public class LibraryImpactDrainResult implements Serializable {
         return drainedBatchKeys;
     }
 
+    /** @return the drained forced-selection batch keys for post-run deletion. */
+    public List<DrainedBatchKey> getDrainedForcedBatchKeys() {
+        return drainedForcedBatchKeys;
+    }
+
     public Map<String, Long> getAppliedSeqByLibrary() {
         return appliedSeqByLibrary;
     }
 
     public boolean hasDrainedBatches() {
-        return !drainedBatchKeys.isEmpty();
+        return !drainedBatchKeys.isEmpty() || !drainedForcedBatchKeys.isEmpty();
     }
 
     /**
