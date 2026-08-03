@@ -346,14 +346,22 @@ public class TestRunnerService {
     }
 
     /**
-     * Delete each drained {@code (groupArtifact, publishSeq)} batch from the pending table.
+     * Delete each drained {@code (groupArtifact, publishSeq)} batch from the pending
+     * impacted-method table, then each drained forced-selection batch from the pending
+     * forced-selection table. The two batch kinds live in separate pending tables and are
+     * drained independently, so both loops run regardless of whether the other found anything.
      *
-     * @param drainResult the drain result carrying the drained batch keys.
+     * @param drainResult the drain result carrying the drained method and forced-selection batch keys.
      */
     private void deleteDrainedPendingBatches(final LibraryImpactDrainResult drainResult) {
         for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedBatchKeys()) {
             log.info("Deleting drained pending batch: {}", key);
             dataStore.deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getPublishSeq());
+        }
+
+        for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedForcedBatchKeys()) {
+            log.info("Deleting drained forced-selection batch: {}", key);
+            dataStore.deletePendingLibraryForcedSelections(key.getGroupArtifact(), key.getPublishSeq());
         }
     }
 
