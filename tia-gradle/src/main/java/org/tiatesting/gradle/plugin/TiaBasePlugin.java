@@ -217,11 +217,13 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
-     * Record this project's publish in the Tia publish ledger and stamp its impacted methods.
-     * No-ops when Tia is disabled or this build does not own mapping-DB writes
-     * ({@code updateDBMapping=false}, e.g. a developer machine against a shared DB - the local
-     * development flow is covered app-side without persisted stamps). The stamper itself skips,
-     * with a warning, when this project is not a tracked library in the Tia DB.
+     * Record this project's publish in the Tia publish ledger and stamp its impacted methods,
+     * evaluating this project's own configured static test selection rules (built the same way
+     * as the {@code tia-select-tests} task, via {@link #buildStaticTestSelectionConfig()}) against
+     * the files changed since the previous publish. No-ops when Tia is disabled or this build does
+     * not own mapping-DB writes ({@code updateDBMapping=false}, e.g. a developer machine against a
+     * shared DB - the local development flow is covered app-side without persisted stamps). The
+     * stamper itself skips, with a warning, when this project is not a tracked library in the Tia DB.
      */
     private void stampPublish() {
         if (!Boolean.TRUE.equals(getEnabled())) {
@@ -239,12 +241,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         String jarFilePath = resolveBuiltArchivePath();
 
         VCSReader vcsReader = getVCSReader();
+        StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
-            // EMPTY: this plugin does not yet resolve the library's own static test selection
-            // config at publish time, so no rule can force a selection here.
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                     .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath,
-                            StaticTestSelectionConfig.EMPTY);
+                            staticConfig);
             LOGGER.info("Tia publish stamp for {} {}: {} (seq {}, {} methods).",
                     groupArtifact, publishedVersion, result.getOutcome(), result.getPublishSeq(),
                     result.getStampedMethodIds().size());

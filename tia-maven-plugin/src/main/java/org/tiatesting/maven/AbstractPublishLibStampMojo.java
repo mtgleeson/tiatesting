@@ -23,9 +23,12 @@ import org.tiatesting.core.vcs.VCSReader;
 public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
 
     /**
-     * Record this module's publish in the ledger and stamp its impacted methods. No-ops when Tia
-     * is disabled or this build does not own mapping-DB writes; the stamper itself skips (with a
-     * warning) when the module is not a tracked library in the Tia DB.
+     * Record this module's publish in the ledger and stamp its impacted methods, evaluating this
+     * module's own configured static test selection rules (built the same way as the
+     * {@code tia-select-tests} mojo, via {@link #buildStaticTestSelectionConfig()}) against the
+     * files changed since the previous publish. No-ops when Tia is disabled or this build does not
+     * own mapping-DB writes; the stamper itself skips (with a warning) when the module is not a
+     * tracked library in the Tia DB.
      */
     @Override
     public void execute() {
@@ -44,12 +47,11 @@ public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
         String jarFilePath = resolveBuiltArtifactPath();
 
         final VCSReader vcsReader = getVCSReader();
+        StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
-            // EMPTY: this mojo does not yet resolve the library's own static test selection
-            // config at publish time, so no rule can force a selection here.
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                     .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath,
-                            StaticTestSelectionConfig.EMPTY);
+                            staticConfig);
             getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
                     + ": " + result.getOutcome() + " (seq " + result.getPublishSeq()
                     + ", " + result.getStampedMethodIds().size() + " methods).");
