@@ -267,10 +267,11 @@ public class LibraryPublishStamper {
      * previous publish, producing a forced-selection batch per matching rule. The since-previous-publish
      * scope deduplicates: a version-only or no-matching-change re-publish yields nothing, mirroring the
      * method-stamp dedup. All changed file types are considered (the unfiltered
-     * {@link VCSReader#getChangedFilePaths}), restricted to the library's own module directory (see
-     * {@link #restrictPathsToLibraryModuleDir}) so a rule can match non-code files (e.g. a SQL
-     * migration) that the coverage-driven method stamp cannot see, without matching a sibling module
-     * in a shared repo. See the library publish-time stamping chapter in {@code WIKI.md}.
+     * {@link VCSReader#getChangedFilePaths}) and evaluated repo-wide: a rule can match non-code files
+     * (e.g. a SQL migration) that the coverage-driven method stamp cannot see, and can deliberately
+     * match files anywhere in a shared repo (e.g. a collaborating service the library depends on).
+     * Scoping is the rule author's responsibility via each rule's {@code filePathPattern}. See the
+     * library publish-time stamping chapter in {@code WIKI.md}.
      *
      * @param vcsReader the VCS reader for the shared repository.
      * @param tracked the tracked library being published.
@@ -286,15 +287,14 @@ public class LibraryPublishStamper {
             return Collections.emptyList();
         }
         Set<String> changedPaths = vcsReader.getChangedFilePaths(previousPublishCommit, false);
-        Set<String> libraryScopedPaths = restrictPathsToLibraryModuleDir(changedPaths, tracked.getProjectDir());
-        if (libraryScopedPaths.isEmpty()) {
+        if (changedPaths.isEmpty()) {
             return Collections.emptyList();
         }
 
         List<PendingLibraryForcedSelection> forced = new ArrayList<>();
         for (StaticTestSelectionRule rule : staticConfig.getRules()) {
             boolean matched = false;
-            for (String path : libraryScopedPaths) {
+            for (String path : changedPaths) {
                 if (rule.getFilePathPattern().matcher(path).find()) {
                     matched = true;
                     break;
@@ -312,57 +312,6 @@ public class LibraryPublishStamper {
             }
         }
         return forced;
-    }
-
-    /**
-     * Restrict a set of repo-relative changed paths to those under the library's module directory.
-     * Changed paths are repo-relative; the library's {@code projectDir} is an absolute path that
-     * ends with the module's repo-relative path. A changed file belongs to the library when
-     * {@code projectDir} ends with one of the file's directory-ancestor prefixes, which recovers
-     * the exact module boundary without needing the repository root and cannot match a sibling
-     * module. See the library publish-time stamping chapter in {@code WIKI.md}.
-     *
-     * @param changedPaths the repo-relative changed paths.
-     * @param projectDir the library's absolute module directory (may be null/blank).
-     * @return the subset of {@code changedPaths} under the module dir; the input unchanged when
-     *         no module dir is recorded (fail-open, preserving prior behaviour).
-     */
-    private Set<String> restrictPathsToLibraryModuleDir(Set<String> changedPaths, String projectDir) {
-        if (projectDir == null || projectDir.trim().isEmpty()) {
-            return changedPaths;
-        }
-        String normProjectDir = projectDir.replace('\\', '/');
-        if (normProjectDir.endsWith("/")) {
-            normProjectDir = normProjectDir.substring(0, normProjectDir.length() - 1);
-        }
-        Set<String> kept = new HashSet<>();
-        for (String path : changedPaths) {
-            if (pathBelongsToModule(path.replace('\\', '/'), normProjectDir)) {
-                kept.add(path);
-            }
-        }
-        return kept;
-    }
-
-    /**
-     * Determine whether a repo-relative changed path lives under a library's module directory by
-     * checking whether the absolute {@code normProjectDir} ends with any directory-ancestor prefix
-     * of the path.
-     *
-     * @param normPath a forward-slash-normalized, repo-relative changed path.
-     * @param normProjectDir the forward-slash-normalized absolute module directory, no trailing slash.
-     * @return {@code true} when the changed file is under the module directory.
-     */
-    private boolean pathBelongsToModule(String normPath, String normProjectDir) {
-        int idx = normPath.lastIndexOf('/');
-        while (idx > 0) {
-            String prefix = normPath.substring(0, idx);
-            if (normProjectDir.equals(prefix) || normProjectDir.endsWith("/" + prefix)) {
-                return true;
-            }
-            idx = normPath.lastIndexOf('/', idx - 1);
-        }
-        return false;
     }
 
     /**
