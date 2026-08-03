@@ -165,7 +165,7 @@ public class HtmlLibraryReport {
                                                                     td(String.valueOf(batch.getPublishSeq())),
                                                                     td(batch.getStampVersion()),
                                                                     td(batch.getRuleName()),
-                                                                    td(batch.getMode() != null ? batch.getMode().name() : "—"),
+                                                                    td(emptyDash(batch.getMode() != null ? batch.getMode().name() : null)),
                                                                     td(emptyDash(batch.getSuiteNamePatterns() == null
                                                                             || batch.getSuiteNamePatterns().isEmpty()
                                                                             ? null : String.join(", ", batch.getSuiteNamePatterns())))
