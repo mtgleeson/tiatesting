@@ -221,27 +221,56 @@ public class StaticTestSelectionResolver {
                         ? Collections.emptySet()
                         : new HashSet<>(testSuitesTracked.keySet());
             case SUITE_NAMES:
-                return resolveSuiteNamesRule(rule, testSuitesTracked);
+                return resolveSuiteNamePatterns(rule.getSuiteNamePatterns(), testSuitesTracked);
             default:
                 return Collections.emptySet();
         }
     }
 
     /**
-     * Resolve a {@link StaticTestSelectionRuleMode#SUITE_NAMES} rule against the suite name
-     * index. Each pattern is matched via {@link java.util.regex.Matcher#find()} against both
-     * the simple class name and the fully qualified name of every tracked suite; either match
-     * counts as a hit and contributes the FQN(s) to the resolved set.
+     * Resolve a decided mode plus suite-name patterns - a rule's outcome once it has fired, or a
+     * library forced-selection batch's stored mode and patterns - into the set of tracked suite
+     * names to force-run. {@code RUN_ALL} returns every tracked suite; {@code SUITE_NAMES}
+     * delegates to {@link #resolveSuiteNamePatterns(List, Map)}. Shared by rule evaluation
+     * ({@link #resolveRule}) and the library forced-selection drain, so the SUITE_NAMES matching
+     * loop is not duplicated between the two callers.
      *
-     * <p>Per-pattern empty-resolution warnings are emitted by
+     * @param mode the selection mode.
+     * @param suiteNamePatterns the compiled suite-name patterns; ignored for {@code RUN_ALL}.
+     * @param tracked the tracked test suites keyed by suite name.
+     * @return the forced suite names; never {@code null}, may be empty.
+     */
+    public Set<String> resolveForcedSelection(final StaticTestSelectionRuleMode mode,
+                                              final List<Pattern> suiteNamePatterns,
+                                              final Map<String, TestSuiteTracker> tracked) {
+        switch (mode) {
+            case RUN_ALL:
+                return (tracked == null || tracked.isEmpty())
+                        ? Collections.emptySet() : new HashSet<>(tracked.keySet());
+            case SUITE_NAMES:
+                return resolveSuiteNamePatterns(suiteNamePatterns, tracked);
+            default:
+                return Collections.emptySet();
+        }
+    }
+
+    /**
+     * Match a set of suite-name patterns against the suite name index built from the tracked
+     * suites. Each pattern is matched via {@link java.util.regex.Matcher#find()} against both
+     * the simple class name and the fully qualified name of every tracked suite; either match
+     * counts as a hit and contributes the FQN(s) to the resolved set. Shared by
+     * {@link #resolveRule} (the SUITE_NAMES case) and {@link #resolveForcedSelection} so the
+     * matching loop and the lazy {@link SuiteNameIndex} cache are not duplicated.
+     *
+     * <p>Per-pattern empty-resolution warnings for configured rules are emitted by
      * {@link #warnOnEmptyRules(Map)} and not duplicated here.
      *
-     * @param rule the SUITE_NAMES rule being resolved.
+     * @param suiteNamePatterns the compiled suite-name patterns to match.
      * @param testSuitesTracked the tracked test suites used to lazily build the suite name index.
-     * @return the union of FQNs matched by any of the rule's patterns.
+     * @return the union of FQNs matched by any of the patterns; never {@code null}, may be empty.
      */
-    private Set<String> resolveSuiteNamesRule(final StaticTestSelectionRule rule,
-                                              final Map<String, TestSuiteTracker> testSuitesTracked) {
+    private Set<String> resolveSuiteNamePatterns(final List<Pattern> suiteNamePatterns,
+                                                 final Map<String, TestSuiteTracker> testSuitesTracked) {
         SuiteNameIndex index = getSuiteNameIndex(testSuitesTracked);
         Map<String, List<String>> simpleNameToFqns = index.getSimpleNameToFqns();
         Set<String> fqns = index.getFqns();
@@ -250,7 +279,7 @@ public class StaticTestSelectionResolver {
         }
 
         Set<String> matched = new HashSet<>();
-        for (Pattern pattern : rule.getSuiteNamePatterns()) {
+        for (Pattern pattern : suiteNamePatterns) {
             for (Map.Entry<String, List<String>> entry : simpleNameToFqns.entrySet()) {
                 if (pattern.matcher(entry.getKey()).find()) {
                     matched.addAll(entry.getValue());

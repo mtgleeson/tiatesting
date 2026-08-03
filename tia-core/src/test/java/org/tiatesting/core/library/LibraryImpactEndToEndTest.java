@@ -91,7 +91,8 @@ class LibraryImpactEndToEndTest {
         // DRAIN: the consumer resolves build 2's jar; the ledger identifies seq 2 and the stamp drains
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
-                        dataStore, configResolving("1.0.0-SNAPSHOT", jar2.getAbsolutePath()));
+                        dataStore, configResolving("1.0.0-SNAPSHOT", jar2.getAbsolutePath()),
+                        Collections.<String, TestSuiteTracker>emptyMap());
         assertTrue(outcome.getDrainResult().hasDrainedBatches());
         assertTrue(outcome.getTestsToAdd().contains("com.example.TestA"));
 
@@ -121,12 +122,14 @@ class LibraryImpactEndToEndTest {
 
         LibraryImpactAnalysisConfig config = configResolving("1.0.0-SNAPSHOT", jar.getAbsolutePath());
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
-        PendingLibraryImpactedMethodsDrainer.DrainOutcome first = drainer.drainPendingMethods(dataStore, config);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome first = drainer.drainPendingMethods(
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
         assertTrue(first.getDrainResult().hasDrainedBatches());
         // (crash: persistTestRunData never runs - stamps and applied seq unchanged)
 
         // when the next run drains again
-        PendingLibraryImpactedMethodsDrainer.DrainOutcome second = drainer.drainPendingMethods(dataStore, config);
+        PendingLibraryImpactedMethodsDrainer.DrainOutcome second = drainer.drainPendingMethods(
+                dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
 
         // then the same batch re-drains with the same tests - self-correcting overselection
         assertTrue(second.getDrainResult().hasDrainedBatches());
@@ -182,7 +185,8 @@ class LibraryImpactEndToEndTest {
                 Arrays.asList("com.example:a", "com.example:b"), null, "/projects/source",
                 new PerCoordinateReader(jarByCoord));
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
-                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(dataStore, config);
+                new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
+                        dataStore, config, Collections.<String, TestSuiteTracker>emptyMap());
 
         // then both drain, and cleanup advances each library independently
         assertEquals(2, outcome.getDrainResult().getDrainedBatchKeys().size());
@@ -209,7 +213,8 @@ class LibraryImpactEndToEndTest {
                 Collections.<PendingLibraryForcedSelection>emptyList());
         PendingLibraryImpactedMethodsDrainer.DrainOutcome outcome =
                 new PendingLibraryImpactedMethodsDrainer().drainPendingMethods(
-                        dataStore, configResolving("1.0.0", jar.getAbsolutePath()));
+                        dataStore, configResolving("1.0.0", jar.getAbsolutePath()),
+                        Collections.<String, TestSuiteTracker>emptyMap());
 
         // when the drain result crosses the plugin-to-fork boundary via serialization
         File serFile = new File(tempDir, "drain-result.ser");
