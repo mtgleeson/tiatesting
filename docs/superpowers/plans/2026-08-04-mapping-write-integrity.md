@@ -733,49 +733,111 @@ In `DataStore.java`, add after `persistSourceMethods`:
     void persistSealedRunData(final SealedRunData sealedRunData);
 ```
 
-- [ ] **Step 5: Implement it on `JdbcDataStore`**
+- [ ] **Step 5a: Extract a transaction-free core out of `persistSourceMethods`**
 
-Add to `JdbcDataStore.java` near `persistCoreData`. Note it reuses the existing private `Connection`-taking overloads, and adds three new ones for the library operations that currently only exist as connection-owning public methods:
+**This step is load-bearing for the whole task.** The existing private
+`persistSourceMethods(Connection, Map)` manages its own transaction and calls
+`connection.commit()`. Called from inside the seal transaction it would commit the outer
+transaction's work early, so the bundle would not be atomic - and the happy path would look
+completely correct, so a test that only checks the end state would not catch it.
+
+Split it. Move the `TRUNCATE` + `INSERT` statements into a helper that does no transaction
+management, and leave the existing method owning the transaction exactly as it does today:
+
+```java
+    /**
+     * Rewrite {@code tia_source_method} on a caller-supplied connection without managing a
+     * transaction, so the write can either own one ({@link #persistSourceMethods(Connection, Map)})
+     * or join the caller's ({@link #persistSealedRunData(SealedRunData)}).
+     *
+     * <p>The {@code TRUNCATE} and the {@code INSERT} must end up in the same transaction whichever
+     * caller runs them - H2's {@code TRUNCATE} is transactional, so a failure during the insert
+     * rolls the truncate back and leaves the previous rows intact.
+     *
+     * @param connection the connection to write on; its auto-commit state is not changed
+     * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
+     *                      a no-op
+     * @throws SQLException if the truncate or the insert fails
+     */
+    private void writeSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
+        // Body: exactly the statements currently inside persistSourceMethods(Connection, Map)'s
+        // try block - the TRUNCATE, the empty-map early return (without its commit() call), and
+        // the batched multi-VALUES INSERT. No setAutoCommit, no commit, no rollback, no catch.
+    }
+```
+
+`persistSourceMethods(Connection, Map)` keeps its `setAutoCommit(false)` / `catch (Exception)` /
+rollback / `finally` restore structure verbatim, with its try block reduced to
+`writeSourceMethods(connection, sourceMethods); connection.commit();`.
+
+Run `./gradlew :tia-core:test --tests 'org.tiatesting.core.persistence.*'` after this split and
+before moving on. It must be behaviour-preserving.
+
+- [ ] **Step 5b: Implement `persistSealedRunData` on `JdbcDataStore`**
+
+Add to `JdbcDataStore.java` near `persistCoreData`. It calls `writeSourceMethods` (not
+`persistSourceMethods`), and follows the rollback pattern this file already uses in
+`persistSourceMethods` and `persistTestSuiteClasses` - `catch (Exception)`, not
+`catch (SQLException)`, so an unchecked failure still rolls back. Without that, the `finally`
+restoring auto-commit would **commit** the partial transaction, because JDBC commits the open
+transaction when auto-commit is switched back on.
+
+`persistTiaCore` and the three library methods run plain `executeUpdate` with no transaction
+handling of their own, so they are safe to call here as-is.
 
 ```java
     @Override
     public void persistSealedRunData(final SealedRunData sealedRunData){
         long startTime = System.currentTimeMillis();
         Connection connection = getConnection();
-        boolean previousAutoCommit = true;
 
         try {
             ensureLibraryTableExists(connection);
-            previousAutoCommit = connection.getAutoCommit();
+            boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
 
-            persistSourceMethods(connection, sealedRunData.getMethodsTracked());
-
-            for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()){
-                deletePendingLibraryImpactedMethods(connection, key.getGroupArtifact(), key.getPublishSeq());
-            }
-            for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedForcedBatchKeys()){
-                deletePendingLibraryForcedSelections(connection, key.getGroupArtifact(), key.getPublishSeq());
-            }
-            for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()){
-                persistTrackedLibrary(connection, library);
-            }
-
-            // Seal last within the transaction too, so the write order still reads as
-            // "everything, then the commit value" even though they commit together.
-            persistTiaCore(connection, sealedRunData.getTiaData());
-
-            connection.commit();
-        } catch (SQLException e) {
             try {
-                connection.rollback();
-            } catch (SQLException rollbackFailure) {
-                log.error("Rollback of the seal transaction failed.", rollbackFailure);
+                writeSourceMethods(connection, sealedRunData.getMethodsTracked());
+
+                for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()){
+                    deletePendingLibraryImpactedMethods(connection, key.getGroupArtifact(), key.getPublishSeq());
+                }
+                for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedForcedBatchKeys()){
+                    deletePendingLibraryForcedSelections(connection, key.getGroupArtifact(), key.getPublishSeq());
+                }
+                for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()){
+                    persistTrackedLibrary(connection, library);
+                }
+
+                clearUnsealedTestSuites(connection);
+
+                // Seal last within the transaction too, so the write order still reads as
+                // "everything, then the commit value" even though they commit together.
+                persistTiaCore(connection, sealedRunData.getTiaData());
+
+                connection.commit();
+            } catch (Exception e) {
+                // Catch Exception (not just SQLException) so any failure - including an unchecked
+                // one - rolls back before the finally restores auto-commit. Switching auto-commit
+                // back on commits the open transaction, so a missed rollback here would publish a
+                // half-written seal.
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackEx) {
+                    e.addSuppressed(rollbackEx);
+                }
+                throw e;
+            } finally {
+                try {
+                    connection.setAutoCommit(previousAutoCommit);
+                } catch (SQLException restoreEx) {
+                    log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+                }
             }
+        } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
             try {
-                connection.setAutoCommit(previousAutoCommit);
                 connection.close();
             } catch (SQLException e) {
                 throw new TiaPersistenceException(e);
@@ -785,6 +847,10 @@ Add to `JdbcDataStore.java` near `persistCoreData`. Note it reuses the existing 
         log.debug("Time to persist the sealed run data (ms): " + (System.currentTimeMillis() - startTime));
     }
 ```
+
+Note `clearUnsealedTestSuites(connection)` is called unconditionally. The bundle is only ever
+invoked by a mapping-owning run (see Task 4), so there is no flag to gate it on. That method
+arrives in Task 5; until then, omit the line and add it as part of Task 6.
 
 Refactor the three library methods so their bodies move to `Connection`-taking private overloads, with the existing public methods reduced to connection management. For example, `deletePendingLibraryImpactedMethods` becomes:
 
@@ -1038,32 +1104,36 @@ Add the new method, replacing `updateTiaCoreData`:
     private void sealRun(final TiaData tiaData, final String commitValue, final String branch,
                          final boolean updateDBMapping, final boolean updateDBStats,
                          final TestRunResult testRunResult, final boolean allTestsRun){
-        Map<Integer, MethodImpactTracker> methodsTracked = Collections.emptyMap();
-        List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
-        List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
-        List<TrackedLibrary> librariesToPersist = Collections.emptyList();
-
-        if (updateDBMapping) {
-            tiaData.setCommitValue(commitValue);
-            tiaData.setBranch(branch);
-            tiaData.setLastUpdated(Instant.now());
-
-            methodsTracked = buildMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
-            LibraryImpactDrainResult drainResult = testRunResult.getLibraryImpactDrainResult();
-            if (drainResult != null && drainResult.hasDrainedBatches()) {
-                drainedMethodKeys = new ArrayList<>(drainResult.getDrainedBatchKeys());
-                drainedForcedKeys = new ArrayList<>(drainResult.getDrainedForcedBatchKeys());
-            }
-            librariesToPersist = collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
-        } else {
-            // No mapping updates: keep whatever the store already holds so the bundle's catalogue
-            // write is a faithful no-op rewrite rather than a truncate.
-            methodsTracked = dataStore.getMethodsTracked();
-        }
-
         if (updateDBStats){
             tiaData.incrementStats(testRunResult.getTestStats(), allTestsRun);
         }
+
+        if (!updateDBMapping) {
+            // This run does not own mapping updates, so there is nothing to seal. The only write
+            // is the core row, which carries the Tia-level run stats as well as the commit value.
+            // tia_source_method, the library baselines and the unsealed flags are all mapping
+            // concerns and stay untouched, exactly as on a stats-only run today.
+            dataStore.persistCoreData(tiaData);
+            return;
+        }
+
+        tiaData.setCommitValue(commitValue);
+        tiaData.setBranch(branch);
+        tiaData.setLastUpdated(Instant.now());
+
+        Map<Integer, MethodImpactTracker> methodsTracked =
+                buildMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
+
+        List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
+        List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
+        LibraryImpactDrainResult drainResult = testRunResult.getLibraryImpactDrainResult();
+        if (drainResult != null && drainResult.hasDrainedBatches()) {
+            drainedMethodKeys = new ArrayList<>(drainResult.getDrainedBatchKeys());
+            drainedForcedKeys = new ArrayList<>(drainResult.getDrainedForcedBatchKeys());
+        }
+
+        List<TrackedLibrary> librariesToPersist =
+                collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
 
         dataStore.persistSealedRunData(new SealedRunData(tiaData, methodsTracked,
                 drainedMethodKeys, drainedForcedKeys, librariesToPersist));
@@ -1611,22 +1681,18 @@ and add the method:
 
 - [ ] **Step 4: Clear the flag inside the seal transaction**
 
-In `JdbcDataStore.persistSealedRunData`, add the clear immediately before `persistTiaCore`, guarded so it only runs on mapping-owning seals:
+In `JdbcDataStore.persistSealedRunData`, add the clear immediately before `persistTiaCore` (the line Task 3 Step 5b told you to defer):
 
 ```java
-            if (sealedRunData.isClearUnsealedSuites()){
-                clearUnsealedTestSuites(connection);
-            }
+            clearUnsealedTestSuites(connection);
 ```
 
-Add the field, constructor parameter, javadoc and getter `isClearUnsealedSuites()` to `SealedRunData`, and pass `updateDBMapping` for it from `TestRunnerService.sealRun`:
+No flag guards it. `TestRunnerService.sealRun` only reaches `persistSealedRunData` on a
+mapping-owning run - a non-mapping run returns early after `persistCoreData` - so the bundle is
+by construction a mapping seal, and clearing is unconditionally correct. `SealedRunData` needs no
+new field.
 
-```java
-        dataStore.persistSealedRunData(new SealedRunData(tiaData, methodsTracked,
-                drainedMethodKeys, drainedForcedKeys, librariesToPersist, updateDBMapping));
-```
-
-Mirror the clear in `SerializedDataStore.persistSealedRunData`.
+Mirror the clear in `SerializedDataStore.persistSealedRunData`, before its `persistCoreData` call.
 
 - [ ] **Step 5: Write the round-trip test**
 
@@ -1794,4 +1860,12 @@ recovering state is legible."
 
 **Deliberate spec deviations, both flagged in-plan:** `persistSourceMethods` / `persistCoreData` stay on the interface (Task 7 Step 6 amends the spec), and the spec's `unsealed_commit` diagnostic column is **not** implemented - Task 7 surfaces a count instead. Add the column later if the count proves insufficient; it drives nothing and can be added without touching selection.
 
-**Type consistency.** `SealedRunData`'s constructor gains a sixth parameter in Task 6 Step 4 (`boolean clearUnsealedSuites`); Task 3's call sites are updated there, and no other caller exists. `allocateSourceClassIdBlock(Connection, int)` returns `long` and is used as such in Task 2. `isUnsealed()` / `setUnsealed(boolean)` are used consistently across Tasks 5, 6 and 7. `clearUnsealedTestSuites()` exists in both a public no-arg form and a private `(Connection)` overload, matching the file's established pattern.
+**Type consistency.** `SealedRunData`'s five-parameter constructor is fixed across Tasks 3, 4 and 6 - no task changes its shape. `allocateSourceClassIdBlock(Connection, int)` returns `long` and is used as such in Task 2. `isUnsealed()` / `setUnsealed(boolean)` are used consistently across Tasks 5, 6 and 7. `clearUnsealedTestSuites()` exists in both a public no-arg form and a private `(Connection)` overload, matching the file's established pattern. `writeSourceMethods(Connection, Map)` (Task 3 Step 5a) is called by both `persistSourceMethods(Connection, Map)` and `persistSealedRunData`.
+
+**Pre-flight corrections applied before execution.** Three defects in this plan's own code were found and fixed before Task 1 was dispatched:
+
+1. `persistSealedRunData` called `persistSourceMethods(Connection, Map)`, which manages its own transaction and calls `connection.commit()`. Nested inside the seal transaction that would have committed the outer work early, leaving the bundle non-atomic while looking correct on the happy path. Fixed by extracting the transaction-free `writeSourceMethods` (Task 3 Step 5a).
+2. `persistSealedRunData` caught only `SQLException`. An unchecked failure would have skipped the rollback, and the `finally` restoring auto-commit would then have committed the partial transaction. Fixed by adopting the `catch (Exception)` pattern this file already uses in `persistSourceMethods` and `persistTestSuiteClasses`.
+3. `sealRun` routed non-mapping runs through the seal bundle, which would have made every stats-only build read, truncate and re-insert all of `tia_source_method` to reach identical contents. Fixed by returning early after `persistCoreData` when `updateDBMapping` is false - the path a stats-only run takes today.
+
+`persistTiaCore` and the three library persist/delete methods were checked for the same nested-transaction issue and are clean: plain `executeUpdate` with no transaction handling.
