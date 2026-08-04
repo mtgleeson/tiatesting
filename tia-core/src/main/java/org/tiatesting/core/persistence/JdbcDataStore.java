@@ -1870,17 +1870,20 @@ public class JdbcDataStore implements DataStore {
             return;
         }
 
-        // TRUNCATE + INSERT must be atomic. H2's TRUNCATE is transactional, so an exception
-        // during the INSERT rolls the truncate back too — leaving the previous failed-test
-        // rows intact rather than wiping them. Same pattern (and same negligible cost) as
-        // persistSourceMethods.
+        // The clear-out and the INSERT must end up in the same transaction, which is why this
+        // clears the table with DELETE FROM rather than TRUNCATE TABLE: H2 implements TRUNCATE
+        // as DDL, which implicitly commits on execution regardless of the connection's
+        // auto-commit state or any later rollback() - so a TRUNCATE here would silently escape
+        // the transaction and could not be undone if the insert failed. DELETE FROM is a normal
+        // DML statement and rolls back correctly with the rest of the transaction. Same pattern
+        // as writeSourceMethods.
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
         try (Statement statement = connection.createStatement()) {
-            String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_TEST_SUITES_FAILED;
-            log.debug("Truncating failed test suites: {}", truncateSql);
-            statement.executeUpdate(truncateSql);
+            String deleteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITES_FAILED;
+            log.debug("Clearing failed test suites: {}", deleteSql);
+            statement.executeUpdate(deleteSql);
 
             if (testSuitesFailed.isEmpty()){
                 connection.commit();
