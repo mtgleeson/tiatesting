@@ -73,6 +73,10 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
+    private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
+    private static final String COL_BLOCK_NAME = "block_name";
+    private static final String COL_NEXT_VALUE = "next_value";
+    private static final String ID_BLOCK_SOURCE_CLASS = "tia_source_class";
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
     // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
@@ -1467,6 +1471,88 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Reserve a contiguous block of {@code tia_source_class} ids for the calling writer. The
+     * counter row is locked with {@code SELECT ... FOR UPDATE} and advanced in the same
+     * transaction, so two writers persisting concurrently receive disjoint ranges rather than
+     * both reading the same {@code MAX(id)} and colliding on the primary key.
+     *
+     * <p>On first use against a database created before this table existed, the counter is
+     * seeded from {@code MAX(id) + 1} of the existing rows so already-assigned ids are never
+     * handed out again.
+     *
+     * <p>A writer that dies after allocating leaves its block unused. That is a harmless gap in
+     * the id space - ids carry no meaning beyond identity.
+     *
+     * @param connection the connection to allocate on; its auto-commit state is restored before
+     *                   returning
+     * @param blockSize the number of ids to reserve; must be positive
+     * @return the first id of the reserved block; the caller may use
+     *         {@code [result, result + blockSize)}
+     * @throws SQLException if the lock, read or update fails
+     */
+    long allocateSourceClassIdBlock(Connection connection, int blockSize) throws SQLException {
+        ensureIdBlockTableExists(connection);
+        seedSourceClassIdBlockIfAbsent(connection);
+
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try {
+            long nextValue;
+            String selectSql = "SELECT " + COL_NEXT_VALUE + " FROM " + TABLE_TIA_ID_BLOCK
+                    + " WHERE " + COL_BLOCK_NAME + " = ? FOR UPDATE";
+            try (PreparedStatement ps = connection.prepareStatement(selectSql)) {
+                ps.setString(1, ID_BLOCK_SOURCE_CLASS);
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    nextValue = rs.getLong(1);
+                }
+            }
+
+            String updateSql = "UPDATE " + TABLE_TIA_ID_BLOCK + " SET " + COL_NEXT_VALUE + " = ?"
+                    + " WHERE " + COL_BLOCK_NAME + " = ?";
+            try (PreparedStatement ps = connection.prepareStatement(updateSql)) {
+                ps.setLong(1, nextValue + blockSize);
+                ps.setString(2, ID_BLOCK_SOURCE_CLASS);
+                ps.executeUpdate();
+            }
+
+            connection.commit();
+            return nextValue;
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(previousAutoCommit);
+        }
+    }
+
+    /**
+     * Insert the {@code tia_source_class} counter row if it is not already present, seeding it
+     * from the highest existing id so a database populated before the id-block table existed
+     * continues from where it left off. The conditional insert makes this a no-op once seeded;
+     * a duplicate-key failure from two writers racing the very first seed is swallowed, since
+     * it means another writer seeded it first.
+     *
+     * @param connection the connection to seed on
+     * @throws SQLException if reading the existing maximum id fails
+     */
+    private void seedSourceClassIdBlockIfAbsent(Connection connection) throws SQLException {
+        long seed = readMaxSourceClassId(connection) + 1;
+        String sql = "INSERT INTO " + TABLE_TIA_ID_BLOCK + " (" + COL_BLOCK_NAME + ", " + COL_NEXT_VALUE + ")"
+                + " SELECT ?, ? WHERE NOT EXISTS ("
+                + "SELECT 1 FROM " + TABLE_TIA_ID_BLOCK + " WHERE " + COL_BLOCK_NAME + " = ?)";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, ID_BLOCK_SOURCE_CLASS);
+            ps.setLong(2, seed);
+            ps.setString(3, ID_BLOCK_SOURCE_CLASS);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.debug("Seed of the {} id block lost a race with another writer - continuing.",
+                    ID_BLOCK_SOURCE_CLASS);
+        }
+    }
+
+    /**
      * Reseat the {@code tia_source_class} identity sequence so the next auto-increment value is
      * {@code nextId}. Required after inserting rows with explicit ids, so any later insert that
      * relies on auto-increment cannot collide with an application-assigned id.
@@ -2318,6 +2404,22 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_id_block} table exists. It holds one row per
+     * application-assigned id space, recording the next unallocated value, so concurrent writers
+     * can reserve disjoint id blocks instead of each reading {@code MAX(id)} and colliding.
+     * Idempotent via {@code CREATE TABLE IF NOT EXISTS}.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureIdBlockTableExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE_TIA_ID_BLOCK + " ("
+                + COL_BLOCK_NAME + " VARCHAR(100) PRIMARY KEY, "
+                + COL_NEXT_VALUE + " BIGINT NOT NULL)");
+    }
+
+    /**
      * Migration: ensure the {@code tia_core.all_tests_run_time} and {@code tia_core.num_all_tests_runs}
      * columns exist on an already-populated DB created before the all-tests-run stats were added.
      * Idempotent via {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to 0.
@@ -2361,6 +2463,7 @@ public class JdbcDataStore implements DataStore {
         ensureTargetedQueryIndexesExist(connection);
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
+        ensureIdBlockTableExists(connection);
 
         schemaEnsured = true;
         return dbExisted;
