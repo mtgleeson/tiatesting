@@ -226,11 +226,22 @@ B, and coverage is a function of the code, so at C it still does not - the B-gen
 the more accurate one. Constructing a real failure needs coverage to change at B and change back
 before C. Corner case, not the general case.
 
-That argument rests on "coverage is a function of the code", which is not reliably true in
-practice. Recorded as an open concern in
-`docs/notes/2026-08-04-edge-removal-under-selection.md`, which also notes that the broader
-version of the problem is neither distributed-specific nor unsealed-build-specific. Out of scope
-here; tracked for separate investigation.
+That argument is structural rather than airtight - it runs through the caller, since the branch
+deciding whether S reaches M lives in code S still covers - and it has counterexamples
+(dispatch driven by untracked config files, a caller deleted at B and restored at C).
+
+It is therefore **not relied on**. Problem C in
+[mapping write integrity](2026-08-04-mapping-write-integrity-design.md) marks suite mapping rows
+unsealed when written and clears them at the seal, so an unsealed run force-runs exactly the
+suites that ran. Each runner flags its own suites and the sealer clears all of them after the
+barrier. That converts this section from an argument into a mechanical guarantee, which matters
+here because **unsealed builds get more likely as the runner count grows** - any one of N runners
+dying blocks the seal.
+
+The separate question of whether edges are ever removed *spuriously* (a suite observing less
+coverage for non-code reasons) is out of scope by decision; see
+`docs/notes/2026-08-04-edge-removal-under-selection.md`, which also records that distribution
+amplifies it by making suite ordering vary run to run.
 
 ### Why the method catalogue is NOT safe the same way, and what we do about it
 
@@ -479,9 +490,10 @@ style.
 ## Delivery stages
 
 **Prerequisite:** [mapping write integrity](2026-08-04-mapping-write-integrity-design.md) ships
-first, in full. Both of its stages are load-bearing here - concurrent runners cannot persist
-suite mapping rows without block-allocated ids, and the sealer's catalogue write depends on the
-catalogue/seal atomicity established there.
+first, in full. All three of its problems are load-bearing here - concurrent runners cannot
+persist suite mapping rows without block-allocated ids, the sealer's catalogue write depends on
+the catalogue/seal atomicity, and the unsealed flag is what makes an aborted distributed run
+recover exactly the suites that ran.
 
 Per project convention, each stage stops for review before the next begins.
 

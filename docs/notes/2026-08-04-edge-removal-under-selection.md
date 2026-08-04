@@ -1,86 +1,78 @@
 # Note: coverage edge removal as an under-selection vector
 
 Date: 2026-08-04
-Status: Open. Not scheduled, not designed. Raised during the distributed test runs design.
+Status: Closed for the stale-baseline case. Out of scope for the spurious case, by decision.
 
-## Why this note exists
+## What this note covers
 
-Any scenario that can produce under-selection is a correctness concern for Tia, however rare.
-This one was identified while arguing that coverage edges are safe when a build fails before the
-seal. The argument holds for the general case, but it has a hole worth investigating on its own.
+An edge (`tia_source_class_method` row) is removed whenever a run observes a suite covering less
+code than before, because `persistTestSuiteClasses` replaces a suite's rows wholesale. Edge
+*addition* is self-correcting; edge *removal* is not, and a removed edge means a suite is not
+selected for a change it should have been selected for. Under-selection produces no error, just
+a test that did not run.
 
-While writing it up, the hole turned out to be **broader than the failed-build case**. It is not
-specific to distributed runs, and not specific to unsealed builds. See framing 2, which is
-probably the one that matters.
+Two distinct problems were identified. They are recorded together because they look alike, but
+they have different causes, different blast radii and different resolutions.
 
-## Framing 1: the narrow case (unsealed build)
+## Case 1: stale baseline - RESOLVED
 
-Stored commit A. A build at commit B runs suite S with coverage and rewrites its mapping rows.
-S's coverage no longer includes method M, which it did cover at A, so the S→M edge is removed.
-The build then fails before the seal, so the stored commit stays at A.
+Stored commit A. A run at commit B rewrites suite S's rows and the S→M edge is legitimately
+removed, because at B the code genuinely no longer has S reaching M. The build fails before the
+seal, so the stored commit stays at A. Commit C restores the behaviour. The next build diffs
+A→C, sees M change, but the mapping says S does not cover M, so S is not selected.
 
-The next build diffs A→C. M changed somewhere in that range. S is not selected, because the
-current mapping says S does not cover M. But relative to the baseline the build is actually
-diffing from - commit A - S *did* cover M.
+The defining feature is a **disagreement between the mapping and the baseline the diff runs
+from**: the mapping is at B, the diff starts at A. The removal was correct at B and is only wrong
+when read against A.
 
-The argument for why this is acceptable: S genuinely stopped covering M at B, coverage is a
-function of the code, so at C it still does not cover M, and the B-generation edge is the more
-accurate one. Producing a real failure needs coverage to change at B and change back before C -
-for instance a revert landing between B and C.
+There is a structural argument that this self-heals. For S to stop covering M it must take a
+different path, and the branch deciding that lives in code S still covers, so the restoring
+change at C lands in a method S still has an edge to and selects S that way. It holds in the
+common case but has real counterexamples: dispatch driven by untracked files (`.properties`, DI
+wiring, reflection), or a caller deleted at B and restored at C. An argument, not a guarantee.
 
-That argument depends entirely on "coverage is a function of the code", which is where framing 2
-comes in.
+**Resolved** by Problem C in
+`docs/superpowers/specs/2026-08-04-mapping-write-integrity-design.md`: suite mapping rows are
+marked unsealed when written and cleared by the seal, so a crash before the seal leaves exactly
+the suites that ran flagged for a forced re-run. That replaces the structural argument with a
+mechanical guarantee and makes the counterexamples irrelevant.
 
-## Framing 2: the broader case (any run, sealed or not)
+## Case 2: spurious removal - OUT OF SCOPE, by decision
 
-**Coverage is not a pure function of the code in practice.** A test's covered set can vary
-between runs at the same commit:
+This asks a different question: **why was the edge removed at all?** Case 1 assumes the removal
+was legitimate. But an edge is removed whenever a run merely *observes* less coverage, and
+observation is not the same as truth.
 
-- Conditional paths driven by time, locale, timezone, random seeds, hostname, environment.
-- Tests that are flaky in *which* code they reach, not only in whether they pass.
-- Ordering effects between suites (caches, statics, lazily-initialised singletons).
-- Suites that short-circuit early on a failure, so a failing run covers strictly less than a
-  passing one.
+Example. Suite S calls a service backed by a lazily-initialised cache. Running after suite T, the
+cache is already populated, S takes the cache-hit path and never executes `CacheLoader.load()`.
+Running first, it executes `load()`. Both runs pass. Whichever ran last wins, and if it was the
+cache-hit ordering the S→load edge is deleted from a mapping that is otherwise perfectly in sync
+with the stored commit. No failed build, no baseline disagreement, and no window that closes.
 
-Whenever a run observes less coverage than the previous run, `persistTestSuiteClasses` rewrites
-that suite's rows to the smaller set, permanently removing the edge. Nothing ever restores it
-except another run of that suite that happens to reach the code again.
+Sub-case worth recording: a suite that **fails early** also observes less coverage, but it lands
+in `tia_test_suites_failed` and `addPreviouslyFailedTests` force-runs it next build, so a passing
+re-run restores its full coverage. That case is self-healing. The unprotected case is a suite
+that **passes** while covering less, because nothing forces it to run again.
 
-The last bullet is the one that looks most likely to bite: a suite that fails early covers less,
-Tia records the reduced mapping, and the suite is then not selected for changes to the code it
-used to cover. The suite is in `tia_test_suites_failed` so it is force-re-run next time, which
-masks it in the common case - but only until it passes once.
+**Out of scope by decision (2026-08-04):** this is outside Tia's control. The execution path
+through source code from a given test should be deterministic between runs given unchanged source
+and test code, and tests should be written not to depend on or be affected by other tests. No
+easy solution belongs inside Tia.
 
-So the general shape is: **any transient reduction in observed coverage narrows the stored
-mapping permanently, and a narrowed mapping under-selects.** Edge *addition* is self-correcting;
-edge *removal* is not.
+Recorded because it is worth knowing that **distributed runs amplify it**. Today every suite runs
+in one JVM after the same set of preceding suites, so order-dependent coverage is at least
+consistently order-dependent. Under distribution a suite's neighbours are whichever suites landed
+in its group, and group composition changes every build with the selection and the group count -
+so order-dependent coverage would start varying run to run. If this ever does surface, the
+distributed rollout is the most likely trigger.
 
-## Why this is not obviously already a problem
-
-Tia has been running against real projects without this surfacing, which suggests either that
-coverage is stable enough in practice, or that the failed-suite force-re-run and the
-modified-test-file rule mask it. Worth establishing which before designing anything.
-
-## Possible directions, none evaluated
-
-- **Measure first.** Instrument a project over many runs at a fixed commit and count edge
-  churn: how often does a suite's covered set shrink without a code change? This determines
-  whether the concern is theoretical or live, and should precede any design.
-- **Union rather than replace**, with an explicit eviction policy. Removes the under-selection
-  vector but grows the mapping monotonically and would need a way to drop genuinely dead edges,
-  or the DB grows without bound and selection widens over time.
-- **Only shrink a suite's edges on a clean pass.** Cheap and targeted at the
-  early-failure case specifically: a suite that failed did not run to completion, so its coverage
-  is not authoritative and should not replace a wider stored set. This is probably the highest
-  value-to-cost option and may be worth doing regardless of what the measurement shows.
-- **Track edge age** and require corroboration before removal (seen absent N consecutive runs).
-  More faithful, more state.
+Directions considered but not evaluated, if it is ever revisited: measure edge churn at a fixed
+commit before designing anything; union rather than replace with a separate eviction policy;
+require corroboration before removal (absent from N consecutive runs of that suite).
 
 ## Related
 
-- `docs/superpowers/specs/2026-08-04-distributed-test-runs-design.md` - where this was found;
-  contains the full edge-safety argument this note qualifies.
-- `docs/superpowers/specs/2026-08-04-mapping-write-integrity-design.md` - the *other*
-  under-selection vector found at the same time (method catalogue coordinate misalignment).
-  That one is understood and being fixed; this one is not yet understood.
-- `wiki/persist-flow-and-crash-safety.md` - the Category A failure-mode taxonomy.
+- `docs/superpowers/specs/2026-08-04-mapping-write-integrity-design.md` - resolves case 1.
+- `docs/superpowers/specs/2026-08-04-distributed-test-runs-design.md` - where both were found.
+- `wiki/persist-flow-and-crash-safety.md` - the Category A failure-mode taxonomy, whose
+  "no under-selection" claim this note qualifies and the integrity spec then repairs.
