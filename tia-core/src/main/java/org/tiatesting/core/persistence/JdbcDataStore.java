@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodIdSet;
@@ -474,6 +475,75 @@ public class JdbcDataStore implements DataStore {
         log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * Persist a run's seal atomically: the method catalogue, the library drain cleanup and the
+     * commit value are written in one transaction, so none of them can end up ahead of the
+     * others. The catalogue's line ranges and each library's mapping baseline are both claims
+     * about the commit being sealed, so a partial write would leave a later diff reading them
+     * against the wrong baseline. See the "Persist flow and crash safety" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param sealedRunData the complete seal payload
+     */
+    @Override
+    public void persistSealedRunData(final SealedRunData sealedRunData){
+        long startTime = System.currentTimeMillis();
+        Connection connection = getConnection();
+
+        try {
+            ensureLibraryTableExists(connection);
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+
+            try {
+                writeSourceMethods(connection, sealedRunData.getMethodsTracked());
+
+                for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()){
+                    deletePendingLibraryImpactedMethods(connection, key.getGroupArtifact(), key.getPublishSeq());
+                }
+                for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedForcedBatchKeys()){
+                    deletePendingLibraryForcedSelections(connection, key.getGroupArtifact(), key.getPublishSeq());
+                }
+                for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()){
+                    persistTrackedLibrary(connection, library);
+                }
+
+                // Seal last within the transaction too, so the write order still reads as
+                // "everything, then the commit value" even though they commit together.
+                persistTiaCore(connection, sealedRunData.getTiaData());
+
+                connection.commit();
+            } catch (Exception e) {
+                // Catch Exception (not just SQLException) so any failure - including an unchecked
+                // one - rolls back before the finally restores auto-commit. Switching auto-commit
+                // back on commits the open transaction, so a missed rollback here would publish a
+                // half-written seal.
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackEx) {
+                    e.addSuppressed(rollbackEx);
+                }
+                throw e;
+            } finally {
+                try {
+                    connection.setAutoCommit(previousAutoCommit);
+                } catch (SQLException restoreEx) {
+                    log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        log.debug("Time to persist the sealed run data (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
     @Override
     public void persistTestSuitesFailed(final Set<String> testSuitesFailed){
         long startTime = System.currentTimeMillis();
@@ -616,13 +686,34 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            ensureLibraryTableExists(connection);
-            String sql = dialect.upsert(TABLE_TIA_LIBRARY,
-                    Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
-                            COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
-                    Collections.singletonList(COL_GROUP_ARTIFACT));
+            persistTrackedLibrary(connection, trackedLibrary);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
 
-            PreparedStatement ps = connection.prepareStatement(sql);
+    /**
+     * Upsert one tracked library row on a caller-supplied connection, so the write can join the
+     * seal transaction rather than committing on its own.
+     *
+     * @param connection the connection to write on
+     * @param trackedLibrary the tracked library to persist
+     * @throws SQLException if the upsert fails
+     */
+    private void persistTrackedLibrary(Connection connection, TrackedLibrary trackedLibrary) throws SQLException {
+        ensureLibraryTableExists(connection);
+        String sql = dialect.upsert(TABLE_TIA_LIBRARY,
+                Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
+                        COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
+                Collections.singletonList(COL_GROUP_ARTIFACT));
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, trackedLibrary.getGroupArtifact());
             ps.setString(2, trackedLibrary.getProjectDir());
             ps.setString(3, trackedLibrary.getSourceDirsCsv());
@@ -633,16 +724,8 @@ public class JdbcDataStore implements DataStore {
                 ps.setNull(5, Types.BIGINT);
             }
             ps.executeUpdate();
-            log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
         }
+        log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
     }
 
     @Override
@@ -763,16 +846,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-                return;
-            }
-            String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            ps.setLong(2, publishSeq);
-            ps.executeUpdate();
-            log.debug("Deleted pending impacted methods for {} at seq {}", groupArtifact, publishSeq);
+            deletePendingLibraryImpactedMethods(connection, groupArtifact, publishSeq);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -782,6 +856,30 @@ public class JdbcDataStore implements DataStore {
                 throw new TiaPersistenceException(e);
             }
         }
+    }
+
+    /**
+     * Delete one drained publish's pending impacted-method rows on a caller-supplied connection,
+     * so the delete can join the seal transaction rather than committing on its own.
+     *
+     * @param connection the connection to delete on
+     * @param groupArtifact the {@code groupId:artifactId} of the library
+     * @param publishSeq the publish sequence whose stamp rows to delete
+     * @throws SQLException if the delete fails
+     */
+    private void deletePendingLibraryImpactedMethods(Connection connection, String groupArtifact,
+                                                     long publishSeq) throws SQLException {
+        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
+            return;
+        }
+        String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
+                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, groupArtifact);
+            ps.setLong(2, publishSeq);
+            ps.executeUpdate();
+        }
+        log.debug("Deleted pending impacted methods for {} at seq {}", groupArtifact, publishSeq);
     }
 
     /**
@@ -849,16 +947,7 @@ public class JdbcDataStore implements DataStore {
     public void deletePendingLibraryForcedSelections(final String groupArtifact, final long publishSeq) {
         Connection connection = getConnection();
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-                return;
-            }
-            String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            ps.setLong(2, publishSeq);
-            ps.executeUpdate();
-            log.debug("Deleted pending forced selections for {} at seq {}", groupArtifact, publishSeq);
+            deletePendingLibraryForcedSelections(connection, groupArtifact, publishSeq);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -868,6 +957,30 @@ public class JdbcDataStore implements DataStore {
                 throw new TiaPersistenceException(e);
             }
         }
+    }
+
+    /**
+     * Delete one drained publish's pending forced-selection rows on a caller-supplied connection,
+     * so the delete can join the seal transaction rather than committing on its own.
+     *
+     * @param connection the connection to delete on
+     * @param groupArtifact the {@code groupId:artifactId} of the library
+     * @param publishSeq the publish sequence whose forced-selection rows to delete
+     * @throws SQLException if the delete fails
+     */
+    private void deletePendingLibraryForcedSelections(Connection connection, String groupArtifact,
+                                                       long publishSeq) throws SQLException {
+        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+            return;
+        }
+        String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
+                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, groupArtifact);
+            ps.setLong(2, publishSeq);
+            ps.executeUpdate();
+        }
+        log.debug("Deleted pending forced selections for {} at seq {}", groupArtifact, publishSeq);
     }
 
     @Override
@@ -1807,10 +1920,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     private void persistSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
-        if (sourceMethods == null){
-            return;
-        }
-
         // TRUNCATE + INSERT must be atomic. H2's TRUNCATE is transactional (unlike MySQL/InnoDB),
         // so wrapping both statements in one transaction means an exception during the INSERT
         // rolls the truncate back too, leaving the previous tia_source_method rows intact rather
@@ -1819,13 +1928,55 @@ public class JdbcDataStore implements DataStore {
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
+        try {
+            writeSourceMethods(connection, sourceMethods);
+            connection.commit();
+        } catch (Exception e) {
+            // Catch Exception (not just SQLException) so any failure in this block — including
+            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // any exception in this class as a stop-the-world condition: roll back, then
+            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
+            throw e;
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore — the connection is about to be closed by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Rewrite {@code tia_source_method} on a caller-supplied connection without managing a
+     * transaction, so the write can either own one ({@link #persistSourceMethods(Connection, Map)})
+     * or join the caller's ({@link #persistSealedRunData(SealedRunData)}).
+     *
+     * <p>The {@code TRUNCATE} and the {@code INSERT} must end up in the same transaction whichever
+     * caller runs them - H2's {@code TRUNCATE} is transactional, so a failure during the insert
+     * rolls the truncate back and leaves the previous rows intact.
+     *
+     * @param connection the connection to write on; its auto-commit state is not changed
+     * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
+     *                      a no-op
+     * @throws SQLException if the truncate or the insert fails
+     */
+    private void writeSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
+        if (sourceMethods == null){
+            return;
+        }
+
         try (Statement statement = connection.createStatement()) {
             String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
             log.debug("Truncating indexed source methods: {}", truncateSql);
             statement.executeUpdate(truncateSql);
 
             if (sourceMethods.isEmpty()){
-                connection.commit();
                 return;
             }
 
@@ -1846,26 +1997,6 @@ public class JdbcDataStore implements DataStore {
 
             log.debug("Persisting indexed source methods: {}", insertSql);
             statement.executeUpdate(insertSql);
-
-            connection.commit();
-        } catch (Exception e) {
-            // Catch Exception (not just SQLException) so any failure in this block — including
-            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
-            // any exception in this class as a stop-the-world condition: roll back, then
-            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
-            try {
-                connection.rollback();
-            } catch (SQLException rollbackEx) {
-                e.addSuppressed(rollbackEx);
-            }
-            throw e;
-        } finally {
-            try {
-                connection.setAutoCommit(previousAutoCommit);
-            } catch (SQLException restoreEx) {
-                // best-effort restore — the connection is about to be closed by the caller
-                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
-            }
         }
     }
 

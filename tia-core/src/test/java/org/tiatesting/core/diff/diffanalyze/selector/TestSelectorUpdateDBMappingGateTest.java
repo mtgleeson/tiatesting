@@ -19,6 +19,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.SealedRunData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -360,6 +361,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public void persistCoreData(TiaData tiaData) { delegate.persistCoreData(tiaData); }
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
+        @Override public void persistSealedRunData(SealedRunData sealedRunData) { delegate.persistSealedRunData(sealedRunData); }
         @Override public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuites(testSuites); }
         @Override public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuiteStatsOnly(testSuites); }
         @Override public void deleteTestSuites(Set<String> testSuites) { delegate.deleteTestSuites(testSuites); }
