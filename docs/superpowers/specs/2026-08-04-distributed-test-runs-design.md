@@ -226,6 +226,12 @@ B, and coverage is a function of the code, so at C it still does not - the B-gen
 the more accurate one. Constructing a real failure needs coverage to change at B and change back
 before C. Corner case, not the general case.
 
+That argument rests on "coverage is a function of the code", which is not reliably true in
+practice. Recorded as an open concern in
+`docs/notes/2026-08-04-edge-removal-under-selection.md`, which also notes that the broader
+version of the problem is neither distributed-specific nor unsealed-build-specific. Out of scope
+here; tracked for separate investigation.
+
 ### Why the method catalogue is NOT safe the same way, and what we do about it
 
 `MethodImpactAnalyzer` diffs the original file content fetched at the **stored commit** against
@@ -243,11 +249,17 @@ methods shorter than the drift can be missed, longer ones still overlap.
 **This is a pre-existing exposure**, not one distribution introduces, and the persist-flow
 chapter's claim of "no under-selection" in Category A is optimistic on this dimension.
 
-The design removes it. `tia_source_method` becomes **write-only-by-the-sealer**, so the
-catalogue is never ahead of the stored commit. An unsealed distributed build leaves edges ahead
-(bounded, edge-dimension risk only) and coordinates exactly aligned. That is strictly better
-than the status quo, which is why this is treated as a fix rather than a distributed-only
-concession. The WIKI chapter is updated accordingly.
+It is fixed in its own spec,
+[mapping write integrity](2026-08-04-mapping-write-integrity-design.md), by making the catalogue
+write atomic with the seal so the catalogue can never be ahead of the commit. **That spec is a
+prerequisite for this one.**
+
+This design extends that fix rather than duplicating it. With N runners there is no single
+process holding the run's method trackers, so the catalogue write moves to the sealer and
+runners stage their trackers in a per-run table. The sealer then performs the catalogue write
+and the seal as one transaction, exactly as a single-host run does. An unsealed distributed
+build leaves suite mapping rows ahead (bounded, edge-dimension risk only) and coordinates
+exactly aligned.
 
 The enabler is that method ids are line-independent, so edges written by a runner stay valid
 against a catalogue written later by the sealer.
@@ -271,10 +283,9 @@ runners read the same MAX and hand out the same ids. Because `id` is
 (Postgres), collisions surface as primary key violations - loud, not silent corruption - but
 distributed runs would fail at random.
 
-Fix: replace `MAX(id) + 1` with atomic block allocation. Each runner reserves a disjoint id
-range up front via a single conditional UPDATE on a counter row. A dead runner's unused block is
-a harmless gap. This also removes `ALTER TABLE ... RESTART WITH` from the persist path;
-concurrent DDL from several sessions is its own problem.
+Fixed in [mapping write integrity](2026-08-04-mapping-write-integrity-design.md) by replacing
+`MAX(id) + 1` with atomic block allocation. **Prerequisite for this design**, but not caused by
+it: any two concurrent writers hit it, which already includes the known Gradle multi-fork case.
 
 ### Straggler protection
 
@@ -467,20 +478,23 @@ style.
 
 ## Delivery stages
 
+**Prerequisite:** [mapping write integrity](2026-08-04-mapping-write-integrity-design.md) ships
+first, in full. Both of its stages are load-bearing here - concurrent runners cannot persist
+suite mapping rows without block-allocated ids, and the sealer's catalogue write depends on the
+catalogue/seal atomicity established there.
+
 Per project convention, each stage stops for review before the next begins.
 
 1. Schema, model objects and `DataStore` plan operations (H2 + Postgres). No behaviour change.
 2. `TestGroupBalancer` and the run-time weighting, unit tested standalone.
-3. Source-class id block allocation, replacing `MAX(id) + 1` and the `RESTART WITH` DDL. Lands
-   independently of distributed mode - it is a latent bug fix.
-4. Method catalogue staging: move the `tia_source_method` write to a single owner and add the
-   staging table. Improves Category A alignment for single-host runs too.
-5. `DistributedRunPlanner`, the `tia-plan` goal/task, the JSON output, and the grouping display
+3. Method catalogue staging: the per-run staging table, and routing the sealer's catalogue write
+   through it instead of in-process trackers.
+4. `DistributedRunPlanner`, the `tia-plan` goal/task, the JSON output, and the grouping display
    in `select-tests`.
-6. Claim protocol and runner-side ignore-list derivation, Maven then Gradle/Spock.
-7. Barrier, sealer election, seal bundle, aggregated stats and history.
-8. Lazy first-runner planning with the stampede guard.
-9. WIKI chapter, plus the correction to the Category A claim in the persist-flow chapter.
+5. Claim protocol and runner-side ignore-list derivation, Maven then Gradle/Spock.
+6. Barrier, sealer election, seal bundle, aggregated stats and history.
+7. Lazy first-runner planning with the stampede guard.
+8. WIKI chapter.
 
 ## Residual risks and non-goals
 
