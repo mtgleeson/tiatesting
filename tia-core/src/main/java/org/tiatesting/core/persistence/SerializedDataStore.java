@@ -185,15 +185,18 @@ public class SerializedDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>The serialized store writes the whole object graph as one file, so there is no
-     * transaction to join - the calls are made in sequence and the single file write at the end
-     * is what makes them visible together.
+     * <p>The serialized store has no transaction to join, so it cannot make several writes land
+     * together the way the JDBC-backed stores do. Instead it sets the method catalogue directly
+     * onto the seal's core data and performs exactly one {@code writeTiaDataToDisk} call - the
+     * library drain deletes and upserts below are no-ops on this store (tracked libraries are
+     * only supported in the H2 data store), so the catalogue and the commit value are the only
+     * state that actually needs to reach disk, and they do so in a single file write rather than
+     * two.
      *
      * @param sealedRunData the complete seal payload
      */
     @Override
     public void persistSealedRunData(final SealedRunData sealedRunData) {
-        persistSourceMethods(sealedRunData.getMethodsTracked());
         for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()) {
             deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getPublishSeq());
         }
@@ -203,7 +206,10 @@ public class SerializedDataStore implements DataStore {
         for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()) {
             persistTrackedLibrary(library);
         }
-        persistCoreData(sealedRunData.getTiaData());
+
+        TiaData tiaData = sealedRunData.getTiaData();
+        tiaData.setMethodsTracked(sealedRunData.getMethodsTracked());
+        persistCoreData(tiaData);
     }
 
     @Override

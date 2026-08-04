@@ -491,8 +491,9 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
+            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
+            // it inside the transaction would silently break atomicity.
             ensureLibraryTableExists(connection);
-            boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
 
             try {
@@ -515,22 +516,21 @@ public class JdbcDataStore implements DataStore {
                 connection.commit();
             } catch (Exception e) {
                 // Catch Exception (not just SQLException) so any failure - including an unchecked
-                // one - rolls back before the finally restores auto-commit. Switching auto-commit
-                // back on commits the open transaction, so a missed rollback here would publish a
-                // half-written seal.
+                // one - rolls back before the exception is rethrown.
                 try {
                     connection.rollback();
                 } catch (SQLException rollbackEx) {
                     e.addSuppressed(rollbackEx);
                 }
                 throw e;
-            } finally {
-                try {
-                    connection.setAutoCommit(previousAutoCommit);
-                } catch (SQLException restoreEx) {
-                    log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
-                }
             }
+            // Deliberately no autoCommit restore here, unlike persistSourceMethods(Connection, Map)
+            // and persistTestSuiteClasses: this connection is local to this method and closed a few
+            // lines below, so nothing needs it restored. Restoring it would call
+            // setAutoCommit(true), which commits the open transaction - on a failure that bypasses
+            // the catch above (e.g. an Error, which "catch (Exception)" does not catch), that would
+            // silently publish a half-written seal instead of leaving it uncommitted for the
+            // connection close to discard.
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -1920,11 +1920,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     private void persistSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
-        // TRUNCATE + INSERT must be atomic. H2's TRUNCATE is transactional (unlike MySQL/InnoDB),
-        // so wrapping both statements in one transaction means an exception during the INSERT
-        // rolls the truncate back too, leaving the previous tia_source_method rows intact rather
-        // than wiping the table. Negligible perf cost — the entire bulk insert was already a
-        // single batched multi-VALUES statement.
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
@@ -1932,8 +1927,8 @@ public class JdbcDataStore implements DataStore {
             writeSourceMethods(connection, sourceMethods);
             connection.commit();
         } catch (Exception e) {
-            // Catch Exception (not just SQLException) so any failure in this block — including
-            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // Catch Exception (not just SQLException) so any failure in this block - including
+            // an NPE while building the insert SQL - still triggers the rollback. Tia treats
             // any exception in this class as a stop-the-world condition: roll back, then
             // re-throw so the failure bubbles up rather than continuing with a half-written DB.
             try {
@@ -1946,7 +1941,7 @@ public class JdbcDataStore implements DataStore {
             try {
                 connection.setAutoCommit(previousAutoCommit);
             } catch (SQLException restoreEx) {
-                // best-effort restore — the connection is about to be closed by the caller
+                // best-effort restore - the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
             }
         }
@@ -1957,14 +1952,19 @@ public class JdbcDataStore implements DataStore {
      * transaction, so the write can either own one ({@link #persistSourceMethods(Connection, Map)})
      * or join the caller's ({@link #persistSealedRunData(SealedRunData)}).
      *
-     * <p>The {@code TRUNCATE} and the {@code INSERT} must end up in the same transaction whichever
-     * caller runs them - H2's {@code TRUNCATE} is transactional, so a failure during the insert
-     * rolls the truncate back and leaves the previous rows intact.
+     * <p>The clear-out and the {@code INSERT} must end up in the same transaction whichever
+     * caller runs them, which is why this clears the table with {@code DELETE FROM} rather than
+     * {@code TRUNCATE TABLE}: H2 implements {@code TRUNCATE} as DDL ({@code DefineCommand}), which
+     * implicitly commits on execution regardless of the connection's auto-commit state or any
+     * later {@code rollback()} - so a {@code TRUNCATE} here would silently escape the transaction
+     * and could not be undone if the insert (or a later step in the same seal) failed. {@code
+     * DELETE FROM} is a normal DML statement and rolls back correctly with the rest of the
+     * transaction.
      *
      * @param connection the connection to write on; its auto-commit state is not changed
      * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
      *                      a no-op
-     * @throws SQLException if the truncate or the insert fails
+     * @throws SQLException if the delete or the insert fails
      */
     private void writeSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
         if (sourceMethods == null){
@@ -1972,9 +1972,9 @@ public class JdbcDataStore implements DataStore {
         }
 
         try (Statement statement = connection.createStatement()) {
-            String truncateSql = "TRUNCATE TABLE " + TABLE_TIA_SOURCE_METHOD;
-            log.debug("Truncating indexed source methods: {}", truncateSql);
-            statement.executeUpdate(truncateSql);
+            String deleteSql = "DELETE FROM " + TABLE_TIA_SOURCE_METHOD;
+            log.debug("Clearing indexed source methods: {}", deleteSql);
+            statement.executeUpdate(deleteSql);
 
             if (sourceMethods.isEmpty()){
                 return;
