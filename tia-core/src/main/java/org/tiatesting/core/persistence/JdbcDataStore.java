@@ -76,7 +76,7 @@ public class JdbcDataStore implements DataStore {
     private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
     private static final String COL_BLOCK_NAME = "block_name";
     private static final String COL_NEXT_VALUE = "next_value";
-    private static final String ID_BLOCK_SOURCE_CLASS = "tia_source_class";
+    private static final String ID_BLOCK_SOURCE_CLASS = TABLE_TIA_SOURCE_CLASS;
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
     // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
@@ -1488,7 +1488,8 @@ public class JdbcDataStore implements DataStore {
      * @param blockSize the number of ids to reserve; must be positive
      * @return the first id of the reserved block; the caller may use
      *         {@code [result, result + blockSize)}
-     * @throws SQLException if the lock, read or update fails
+     * @throws SQLException if the lock, read or update fails, or if the counter row is
+     *                       unexpectedly missing after seeding
      */
     long allocateSourceClassIdBlock(Connection connection, int blockSize) throws SQLException {
         ensureIdBlockTableExists(connection);
@@ -1503,7 +1504,10 @@ public class JdbcDataStore implements DataStore {
             try (PreparedStatement ps = connection.prepareStatement(selectSql)) {
                 ps.setString(1, ID_BLOCK_SOURCE_CLASS);
                 try (ResultSet rs = ps.executeQuery()) {
-                    rs.next();
+                    if (!rs.next()) {
+                        throw new SQLException("Missing " + TABLE_TIA_ID_BLOCK + " counter row for block '"
+                                + ID_BLOCK_SOURCE_CLASS + "' - it should have been seeded before this select.");
+                    }
                     nextValue = rs.getLong(1);
                 }
             }
@@ -1519,24 +1523,69 @@ public class JdbcDataStore implements DataStore {
             connection.commit();
             return nextValue;
         } catch (SQLException e) {
-            connection.rollback();
+            // Roll back on its own try/catch so a failure here (e.g. connection already broken)
+            // doesn't replace the original exception - the original is what the caller needs to
+            // diagnose the real cause.
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
             throw e;
         } finally {
-            connection.setAutoCommit(previousAutoCommit);
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore - the connection is about to be closed/reused by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Check whether the {@code tia_id_block} counter row for {@link #ID_BLOCK_SOURCE_CLASS}
+     * already exists. Used both to short-circuit {@link #seedSourceClassIdBlockIfAbsent(Connection)}
+     * before it does any work, and afterwards to tell a genuinely lost seed race (row now exists,
+     * tolerate the failure) apart from a real failure (row still absent, rethrow) - checked by
+     * re-querying rather than by matching a vendor-specific SQL state, so the distinction holds
+     * across both H2 and Postgres.
+     *
+     * @param connection the connection to query on
+     * @return {@code true} if the {@code tia_source_class} counter row is present
+     * @throws SQLException if the existence query fails
+     */
+    private boolean sourceClassIdBlockRowExists(Connection connection) throws SQLException {
+        String sql = "SELECT 1 FROM " + TABLE_TIA_ID_BLOCK + " WHERE " + COL_BLOCK_NAME + " = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, ID_BLOCK_SOURCE_CLASS);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 
     /**
      * Insert the {@code tia_source_class} counter row if it is not already present, seeding it
      * from the highest existing id so a database populated before the id-block table existed
-     * continues from where it left off. The conditional insert makes this a no-op once seeded;
-     * a duplicate-key failure from two writers racing the very first seed is swallowed, since
-     * it means another writer seeded it first.
+     * continues from where it left off. Short-circuits on the existence check before doing any
+     * work, so the steady-state path (row already seeded) never pays for the {@code MAX(id)}
+     * scan over {@code tia_source_class}.
+     *
+     * <p>The conditional insert makes the write itself a no-op once another writer has already
+     * seeded the row. If the insert throws, the row's existence is re-checked: a lost race
+     * (another writer seeded it first, so the row now exists) is tolerated and logged; anything
+     * else - the row still doesn't exist - is a genuine failure (permissions, connectivity, a
+     * vendor-specific constraint error) and is rethrown so it isn't silently discarded.
      *
      * @param connection the connection to seed on
-     * @throws SQLException if reading the existing maximum id fails
+     * @throws SQLException if reading the existing maximum id fails, or if the conditional insert
+     *                       fails for a reason other than a lost seed race
      */
     private void seedSourceClassIdBlockIfAbsent(Connection connection) throws SQLException {
+        if (sourceClassIdBlockRowExists(connection)) {
+            return;
+        }
+
         long seed = readMaxSourceClassId(connection) + 1;
         String sql = "INSERT INTO " + TABLE_TIA_ID_BLOCK + " (" + COL_BLOCK_NAME + ", " + COL_NEXT_VALUE + ")"
                 + " SELECT ?, ? WHERE NOT EXISTS ("
@@ -1547,6 +1596,9 @@ public class JdbcDataStore implements DataStore {
             ps.setString(3, ID_BLOCK_SOURCE_CLASS);
             ps.executeUpdate();
         } catch (SQLException e) {
+            if (!sourceClassIdBlockRowExists(connection)) {
+                throw e;
+            }
             log.debug("Seed of the {} id block lost a race with another writer - continuing.",
                     ID_BLOCK_SOURCE_CLASS);
         }

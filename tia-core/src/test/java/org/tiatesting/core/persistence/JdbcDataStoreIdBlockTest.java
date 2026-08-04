@@ -9,6 +9,8 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
 import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -18,6 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -96,5 +99,59 @@ class JdbcDataStoreIdBlockTest {
             assertTrue(starts.get(i) - starts.get(i - 1) >= blockSize,
                     "blocks must not overlap: " + starts);
         }
+    }
+
+    @Test
+    void seedsFromExistingMaxIdWhenBlockRowIsAbsent() throws Exception {
+        // given - a tia_source_class row already present (simulating a DB created before the
+        // id-block table existed) but the tia_id_block counter row has never been seeded
+        Connection connection = dataStore.getConnection();
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO tia_source_class (id, tia_test_suite_id, source_filename) "
+                    + "VALUES (500, NULL, 'com/example/Foo.java')");
+        }
+
+        // when
+        long firstBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+        connection.close();
+
+        // then
+        assertEquals(501, firstBlockStart, "the counter must seed from MAX(id) + 1 of the existing rows");
+    }
+
+    @Test
+    void repeatedAllocationDoesNotReseedOrResetTheCounter() throws Exception {
+        // given - the block is already seeded and advanced by a first allocation
+        Connection connection = dataStore.getConnection();
+        long firstBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+
+        // when - a later allocation runs the (now short-circuited) seed path again
+        long secondBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+        connection.close();
+
+        // then - the counter continues on from where the first allocation left it, rather than
+        // being reset back to the original seed value
+        assertEquals(firstBlockStart + 10, secondBlockStart,
+                "re-running the seed path on an already-seeded block must not reset the counter");
+    }
+
+    @Test
+    void genuineSeedFailureIsNotSwallowedAsALostRace() throws Exception {
+        // given - the tia_id_block table exists (created by ensureSchema in setUp) but the
+        // tia_source_class counter row has never been seeded; shrink block_name so the seed's
+        // conditional insert fails for a real reason (value too long for column) rather than a
+        // lost race against another writer
+        Connection ddlConnection = dataStore.getConnection();
+        try (Statement statement = ddlConnection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE tia_id_block ALTER COLUMN block_name VARCHAR(3)");
+        }
+        ddlConnection.close();
+
+        Connection connection = dataStore.getConnection();
+
+        // when / then
+        assertThrows(SQLException.class, () -> dataStore.allocateSourceClassIdBlock(connection, 10),
+                "a genuine seed failure must propagate rather than being swallowed as a lost race");
+        connection.close();
     }
 }
