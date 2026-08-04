@@ -1405,13 +1405,18 @@ public class JdbcDataStore implements DataStore {
                 Collections.singletonList(COL_NAME));
 
         // The class/edge inserts reuse two full-chunk multi-row prepared statements for the whole
-        // persist, and assign tia_source_class ids application-side from MAX(id)+1 so rows can be
-        // inserted INSERT_CHUNK at a time (one round trip per chunk) instead of one per row.
+        // persist, and assign tia_source_class ids application-side from a single atomically
+        // reserved block so rows can be inserted INSERT_CHUNK at a time (one round trip per
+        // chunk) instead of one per row, without colliding with a concurrent writer's ids.
         long[] nextSourceClassId = null;
         PreparedStatement classChunkPs = null;
         PreparedStatement edgeChunkPs = null;
         if (includeClassMappings){
-            nextSourceClassId = new long[]{ readMaxSourceClassId(connection) + 1 };
+            // Reserve exactly the ids this persist needs, in one atomic allocation, so a
+            // concurrent writer cannot be handed the same range. See the "Persist flow and crash
+            // safety" chapter in WIKI.md.
+            int idsNeeded = countSourceClassRows(testSuites);
+            nextSourceClassId = new long[]{ idsNeeded > 0 ? allocateSourceClassIdBlock(connection, idsNeeded) : 0L };
             classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
             edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
@@ -1441,10 +1446,6 @@ public class JdbcDataStore implements DataStore {
                             testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
                 }
             }
-
-            if (includeClassMappings){
-                restartSourceClassIdentity(connection, nextSourceClassId[0]);
-            }
         } finally {
             suitePs.close();
             if (classChunkPs != null){ classChunkPs.close(); }
@@ -1468,6 +1469,25 @@ public class JdbcDataStore implements DataStore {
             long max = rs.getLong(1);
             return rs.wasNull() ? 0L : max;
         }
+    }
+
+    /**
+     * Count the {@code tia_source_class} rows a persist will insert: one per impacted class of
+     * every suite that has coverage this run. Suites with no coverage are skipped because their
+     * existing rows are left untouched, exactly matching the condition guarding
+     * {@code persistTestSuiteClasses}.
+     *
+     * @param testSuites the suites being persisted
+     * @return the number of source-class ids the persist needs to reserve
+     */
+    private static int countSourceClassRows(Collection<TestSuiteTracker> testSuites){
+        int count = 0;
+        for (TestSuiteTracker testSuite : testSuites){
+            if (!testSuite.getClassesImpacted().isEmpty()){
+                count += testSuite.getClassesImpacted().size();
+            }
+        }
+        return count;
     }
 
     /**
@@ -1601,22 +1621,6 @@ public class JdbcDataStore implements DataStore {
             }
             log.debug("Seed of the {} id block lost a race with another writer - continuing.",
                     ID_BLOCK_SOURCE_CLASS);
-        }
-    }
-
-    /**
-     * Reseat the {@code tia_source_class} identity sequence so the next auto-increment value is
-     * {@code nextId}. Required after inserting rows with explicit ids, so any later insert that
-     * relies on auto-increment cannot collide with an application-assigned id.
-     *
-     * @param connection the connection
-     * @param nextId the value the identity should next produce
-     * @throws SQLException if the DDL fails
-     */
-    private void restartSourceClassIdentity(Connection connection, long nextId) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_CLASS
-                    + " ALTER COLUMN " + COL_ID + " RESTART WITH " + nextId);
         }
     }
 

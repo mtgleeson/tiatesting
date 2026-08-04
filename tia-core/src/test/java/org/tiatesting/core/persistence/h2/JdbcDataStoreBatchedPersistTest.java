@@ -25,12 +25,12 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies the batched mapping-insert path in {@link JdbcDataStore}: classes and edges round-trip
- * correctly, {@code tia_source_class} ids are assigned application-side from {@code MAX(id)+1}, the
- * identity sequence is reseated afterward, and a re-persist of one suite updates only that suite.
+ * correctly, {@code tia_source_class} ids are assigned application-side from a single atomically
+ * reserved block (see {@code allocateSourceClassIdBlock}), successive persists continue on from
+ * that block's counter, and a re-persist of one suite updates only that suite.
  */
 class JdbcDataStoreBatchedPersistTest {
 
@@ -99,19 +99,25 @@ class JdbcDataStoreBatchedPersistTest {
     }
 
     @Test
-    void assignsContiguousIdsAndReseatsIdentity() throws Exception {
+    void assignsContiguousIdsFromTheAtomicIdBlockAllocator() throws Exception {
         // given
-        seedMethods(1, 2);
+        seedMethods(1, 2, 3);
         Map<String, int[]> classes = new HashMap<>();
         classes.put("com/example/Foo.java", new int[]{1});
         classes.put("com/example/Bar.java", new int[]{2});
         Map<String, TestSuiteTracker> suites = new HashMap<>();
         suites.put("com.example.FooTest", suite("com.example.FooTest", classes));
 
-        // when
+        // when - two persists run one after the other, the second adding a third source class
         dataStore.persistTestSuites(suites);
+        Map<String, int[]> moreClasses = new HashMap<>();
+        moreClasses.put("com/example/Baz.java", new int[]{3});
+        Map<String, TestSuiteTracker> moreSuites = new HashMap<>();
+        moreSuites.put("com.example.BazTest", suite("com.example.BazTest", moreClasses));
+        dataStore.persistTestSuites(moreSuites);
 
-        // then - ids are 1..2, and a subsequent auto-increment insert gets id 3 (identity reseated)
+        // then - the first persist's ids are contiguous starting at 1, and the second persist's id
+        // continues on from the id-block counter rather than restarting from MAX(id)+1
         try (Connection c = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
              Statement st = c.createStatement()) {
@@ -122,13 +128,12 @@ class JdbcDataStoreBatchedPersistTest {
             ResultSet rs = st.executeQuery("SELECT MIN(id), MAX(id), COUNT(*) FROM tia_source_class");
             rs.next();
             assertEquals(1, rs.getLong(1));
-            assertEquals(2, rs.getLong(2));
-            assertEquals(2, rs.getLong(3));
-            st.executeUpdate("INSERT INTO tia_source_class (tia_test_suite_id, source_filename) "
-                    + "VALUES (999, 'x')", Statement.RETURN_GENERATED_KEYS);
-            ResultSet keys = st.getGeneratedKeys();
-            keys.next();
-            assertTrue(keys.getLong(1) >= 3, "identity must be reseated past the app-assigned ids");
+            assertEquals(3, rs.getLong(2));
+            assertEquals(3, rs.getLong(3));
+
+            ResultSet bazId = st.executeQuery("SELECT id FROM tia_source_class WHERE source_filename = 'com/example/Baz.java'");
+            bazId.next();
+            assertEquals(3, bazId.getLong(1), "the second persist's id must continue on from the block counter");
         }
     }
 
