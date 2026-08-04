@@ -140,6 +140,18 @@ public interface DataStore extends AutoCloseable {
     void persistSourceMethods(final Map<Integer, MethodImpactTracker> methodsTracked);
 
     /**
+     * Persist a run's seal atomically: the method catalogue, the library drain cleanup and the
+     * commit value are written in one transaction, so none of them can end up ahead of the
+     * others. The catalogue's line ranges and each library's mapping baseline are both claims
+     * about the commit being sealed, so a partial write would leave a later diff reading them
+     * against the wrong baseline. See the "Persist flow and crash safety" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param sealedRunData the complete seal payload
+     */
+    void persistSealedRunData(final SealedRunData sealedRunData);
+
+    /**
      * Persist the full test suites data to disk - both the per-suite row (name + stats) AND the
      * underlying suite-to-source-class-to-method edges. Used on primary-build runs that update
      * the mapping ({@code updateDBMapping=true}).

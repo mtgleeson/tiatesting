@@ -2,6 +2,7 @@ package org.tiatesting.core.persistence;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
@@ -179,6 +180,30 @@ public class SerializedDataStore implements DataStore {
         long startTime = System.currentTimeMillis();
         writeTiaDataToDisk(tiaData);
         log.info("Time to save the methods tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The serialized store writes the whole object graph as one file, so there is no
+     * transaction to join - the calls are made in sequence and the single file write at the end
+     * is what makes them visible together.
+     *
+     * @param sealedRunData the complete seal payload
+     */
+    @Override
+    public void persistSealedRunData(final SealedRunData sealedRunData) {
+        persistSourceMethods(sealedRunData.getMethodsTracked());
+        for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()) {
+            deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getPublishSeq());
+        }
+        for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedForcedBatchKeys()) {
+            deletePendingLibraryForcedSelections(key.getGroupArtifact(), key.getPublishSeq());
+        }
+        for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()) {
+            persistTrackedLibrary(library);
+        }
+        persistCoreData(sealedRunData.getTiaData());
     }
 
     @Override
