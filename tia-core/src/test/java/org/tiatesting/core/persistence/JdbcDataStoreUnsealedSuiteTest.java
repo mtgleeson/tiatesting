@@ -40,6 +40,12 @@ class JdbcDataStoreUnsealedSuiteTest {
     private JdbcDataStore dataStore;
     private File tempDir;
 
+    /**
+     * Create a fresh embedded H2 database in a new temp directory and bootstrap its schema, so
+     * each test method starts from a clean, isolated store with no suites persisted yet.
+     *
+     * @throws Exception if the temp directory cannot be created or schema bootstrap fails
+     */
     @BeforeEach
     void setUp() throws Exception {
         tempDir = File.createTempFile("tia-unsealed-", "");
@@ -51,6 +57,12 @@ class JdbcDataStoreUnsealedSuiteTest {
         dataStore.getTiaData(true);
     }
 
+    /**
+     * Close the data store and delete its temp directory, so each test method's embedded H2
+     * database is fully cleaned up rather than leaked into the OS temp directory.
+     *
+     * @throws Exception if the data store fails to close or the temp directory cannot be deleted
+     */
     @AfterEach
     void tearDown() throws Exception {
         dataStore.close();

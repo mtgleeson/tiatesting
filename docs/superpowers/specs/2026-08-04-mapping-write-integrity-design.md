@@ -94,8 +94,9 @@ The drain cleanup joins the same transaction because `updateAppliedLibraryState`
 outside, a crash would leave the library baseline claiming B while the catalogue it is supposed
 to correspond to sits at A. It is a handful of rows, so the transaction stays small.
 
-Why this is cheap: `persistSourceMethods` already wraps its `TRUNCATE` + `INSERT` in a single
-transaction, and `persistCoreData` is a single-row `INSERT`/`UPDATE`. Merging them adds one row
+Why this is cheap: `persistSourceMethods` already wraps its clear-out + `INSERT` in a single
+transaction (`DELETE FROM` on H2, `TRUNCATE` on Postgres, via `SqlDialect.clearTableTransactionallySql`),
+and `persistCoreData` is a single-row `INSERT`/`UPDATE`. Merging them adds one row
 to a transaction that already carries the whole catalogue, so the MVStore undo-log profile is
 unchanged. This is explicitly *not* the "wrap all of `persistTestRunData` in one transaction"
 option the persist-flow chapter rejects - the bulk suite mapping writes stay outside.
@@ -209,8 +210,11 @@ The predicate that is actually wanted is "written but not yet sealed", which is 
 different mechanism again for Perforce changelists. A boolean expresses the intent directly and
 costs nothing.
 
-The capture commit is still stored, as `unsealed_commit`, but for diagnostics only - so
-`tia-status` can report which commit the unsealed edges came from. It never drives selection.
+An earlier version of this design also stored the capture commit, as `unsealed_commit`, for
+diagnostics only - so `tia-status` could report which commit the unsealed edges came from. That
+column was dropped before landing: a count of currently-unsealed suites in `tia-status` gives the
+operator the signal that matters (something is unsealed, act on it) without a second column to
+migrate and keep consistent. It never drove selection either way.
 
 ### Interaction with distributed runs
 

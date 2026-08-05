@@ -1636,7 +1636,7 @@ public class JdbcDataStore implements DataStore {
                 if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
                     ResultSet rs = suitePs.getGeneratedKeys();
                     rs.next();
-                    persistTestSuiteClasses(connection, rs.getLong(COL_ID), testSuite.getName(),
+                    persistTestSuiteClasses(connection, rs.getLong(COL_ID),
                             testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
                 }
             }
@@ -1697,6 +1697,13 @@ public class JdbcDataStore implements DataStore {
      * <p>A writer that dies after allocating leaves its block unused. That is a harmless gap in
      * the id space - ids carry no meaning beyond identity.
      *
+     * <p>Does not call {@code ensureIdBlockTableExists} itself: every path that reaches this
+     * method does so through a {@code JdbcDataStore} instance that has already run
+     * {@code ensureSchema} on the same instance (it is the single schema-bootstrap entry point,
+     * called before both {@code getTiaCore} and the full-load read that production callers use
+     * ahead of a mapping persist), so the table is already guaranteed to exist. Re-checking it
+     * here on every call would add a redundant DDL round trip to the persist path.
+     *
      * @param connection the connection to allocate on; its auto-commit state is restored before
      *                   returning
      * @param blockSize the number of ids to reserve; must be positive
@@ -1706,7 +1713,6 @@ public class JdbcDataStore implements DataStore {
      *                       unexpectedly missing after seeding
      */
     long allocateSourceClassIdBlock(Connection connection, int blockSize) throws SQLException {
-        ensureIdBlockTableExists(connection);
         seedSourceClassIdBlockIfAbsent(connection);
 
         boolean previousAutoCommit = connection.getAutoCommit();
@@ -1831,15 +1837,14 @@ public class JdbcDataStore implements DataStore {
      * the suite's previous mapping (and flag) intact.
      *
      * @param connection the H2 connection
-     * @param testSuiteId the id of the suite these classes belong to
-     * @param testSuiteName the name of the suite these classes belong to, used to flag it as unsealed
+     * @param testSuiteId the id of the suite these classes belong to; also used to flag it as unsealed
      * @param sourceClasses the suite's impacted classes (each with its method-id set)
      * @param classChunkPs reused full-chunk multi-row insert for {@code tia_source_class}
      * @param edgeChunkPs reused full-chunk multi-row insert for {@code tia_source_class_method}
      * @param nextId one-element holder for the next application-assigned class id; advanced in place
      * @throws SQLException if any insert/delete/flag write fails (the suite's transaction is rolled back first)
      */
-    private void persistTestSuiteClasses(Connection connection, long testSuiteId, String testSuiteName,
+    private void persistTestSuiteClasses(Connection connection, long testSuiteId,
                                          List<ClassImpactTracker> sourceClasses,
                                          PreparedStatement classChunkPs, PreparedStatement edgeChunkPs,
                                          long[] nextId) throws SQLException {
@@ -1881,13 +1886,12 @@ public class JdbcDataStore implements DataStore {
             // Flag this suite as unsealed in the same transaction as its edge rewrite, before the
             // commit, so the two can never land apart: either both are visible after a crash or
             // neither is. This is the only statement in the class that sets the column to TRUE;
-            // only the seal (clearUnsealedTestSuites) may clear it.
-            String flagUnsealedSql = "UPDATE " + TABLE_TIA_TEST_SUITE + " SET " + COL_UNSEALED
-                    + " = TRUE WHERE " + COL_NAME + " = ?";
-            try (PreparedStatement flagPs = connection.prepareStatement(flagUnsealedSql)) {
-                flagPs.setString(1, testSuiteName);
-                flagPs.executeUpdate();
-            }
+            // only the seal (clearUnsealedTestSuites) may clear it. Reuses the Statement already
+            // open for the two DELETEs above (keyed off testSuiteId, already trusted for them)
+            // rather than preparing a new PreparedStatement per suite, which would add a round
+            // trip on the mapping persist's hot path.
+            statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE + " SET " + COL_UNSEALED
+                    + " = TRUE WHERE " + COL_ID + " = " + testSuiteId);
 
             connection.commit();
         } catch (Exception e) {
@@ -2710,9 +2714,10 @@ public class JdbcDataStore implements DataStore {
      * @throws SQLException if the DDL statement fails
      */
     private void ensureTestSuiteDeveloperDisabledColumnExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
-                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE");
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
+                    COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE");
+        }
     }
 
     /**
@@ -2725,9 +2730,10 @@ public class JdbcDataStore implements DataStore {
      * @throws SQLException if the DDL statement fails
      */
     private void ensureTestSuiteUnsealedColumnExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
-                COL_UNSEALED + " BOOLEAN DEFAULT FALSE");
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
+                    COL_UNSEALED + " BOOLEAN DEFAULT FALSE");
+        }
     }
 
     /**
@@ -2740,10 +2746,11 @@ public class JdbcDataStore implements DataStore {
      * @throws SQLException if the DDL statement fails
      */
     private void ensureIdBlockTableExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE_TIA_ID_BLOCK + " ("
-                + COL_BLOCK_NAME + " VARCHAR(100) PRIMARY KEY, "
-                + COL_NEXT_VALUE + " BIGINT NOT NULL)");
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE_TIA_ID_BLOCK + " ("
+                    + COL_BLOCK_NAME + " VARCHAR(100) PRIMARY KEY, "
+                    + COL_NEXT_VALUE + " BIGINT NOT NULL)");
+        }
     }
 
     /**
