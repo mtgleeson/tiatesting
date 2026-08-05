@@ -248,12 +248,17 @@ class TestRunnerServiceSealOrderTest {
 
     /**
      * A run that reaches the seal clears the unsealed flag from every suite it flagged; a run
-     * that fails inside the seal bundle leaves those suites flagged so a later run force-selects
-     * them. Both {@code persistTestRunData} calls write the same suite
-     * ({@code com.example.SomeTest} from {@link #makeResultWithMapping()}, which carries one
-     * impacted class so the write actually reaches {@code persistTestSuiteClasses} and flags the
-     * suite unsealed), so the first call's clear and the second call's write are exercised
-     * against the same row.
+     * whose {@code persistSealedRunData} call never runs the real bundle - {@code failInSealBundle}
+     * throws from the {@link RecordingDataStore} spy before delegating, so
+     * {@code clearUnsealedTestSuites(connection)} inside the real
+     * {@link JdbcDataStore#persistSealedRunData} never executes - leaves those suites flagged so a
+     * later run force-selects them. This proves only that a seal that never ran didn't clear; it
+     * does not exercise the in-transaction clear itself or its rollback behaviour, which
+     * {@code JdbcDataStoreSealedRunDataTest} covers directly against the real bundle. Both
+     * {@code persistTestRunData} calls write the same suite ({@code com.example.SomeTest} from
+     * {@link #makeResultWithMapping()}, which carries one impacted class so the write actually
+     * reaches {@code persistTestSuiteClasses} and flags the suite unsealed), so the first call's
+     * clear and the second call's write are exercised against the same row.
      */
     @Test
     void aSealedRunClearsTheUnsealedFlagAndAnAbortedOneDoesNot() {

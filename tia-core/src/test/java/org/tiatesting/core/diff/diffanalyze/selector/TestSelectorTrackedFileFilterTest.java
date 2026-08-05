@@ -136,7 +136,12 @@ class TestSelectorTrackedFileFilterTest {
 
     /**
      * Overlay run-time stats onto the seeded mapping: set {@code FooTest}'s {@code avgRunTime} and
-     * the Tia-level all-tests baseline so the estimate and its overhead are exercised.
+     * the Tia-level all-tests baseline so the estimate and its overhead are exercised. Re-persists
+     * the full tracked map loaded via {@link JdbcDataStore#getTiaData}, which carries
+     * {@code classesImpacted} for {@code FooTest} - so, like {@link #seedMapping()}, this write
+     * re-flags the suite unsealed as a side effect and the flag is cleared again immediately,
+     * otherwise the suite would be force-selected regardless of the diff under test in
+     * {@link #resultCarriesBaseEstimateAndMappingOverheadSeparately()}.
      *
      * @param suiteAvgMs the {@code avgRunTime} (ms) to store for {@code FooTest}
      * @param allTestsRunTimeMs the full-suite baseline (ms) to store on the core row
@@ -147,6 +152,7 @@ class TestSelectorTrackedFileFilterTest {
         dataStore.persistCoreData(tiaData);
         tiaData.getTestSuitesTracked().get(SUITE_NAME).getTestStats().setAvgRunTime(suiteAvgMs);
         dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+        dataStore.clearUnsealedTestSuites();
     }
 
     /**

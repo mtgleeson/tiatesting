@@ -227,6 +227,20 @@ class TestSelectorUpdateDBMappingGateTest {
         dataStore.persistSourceMethods(methods);
     }
 
+    /**
+     * Seed the DB with a tracked suite with non-empty coverage, so the persisted mapping can be
+     * drained into via a pending library stamp. Seeding the edges flags the suite unsealed (as a
+     * side effect of {@link JdbcDataStore#persistTestSuites} writing its coverage), which is then
+     * cleared immediately so this fixture models an already-sealed mapping - this class tests the
+     * update-DB-mapping gate and the library preview drain, not unsealed-suite force-selection.
+     * Left flagged, {@code com.example.LibTest} would be force-selected regardless of the drain,
+     * making {@link #previewDrainsPendingBatchIntoTestsToRunWithoutDbWrites()}'s central assertion
+     * pass even with the drain removed.
+     *
+     * @param commit the commit value to store as the tracked mapping's commit
+     * @param methodId the impacted method id to attach to the suite, so it has non-empty coverage
+     * @param testSuiteName the test suite name to register as tracked with that coverage
+     */
     private void seedStoredCommitWithTestMapping(String commit, int methodId, String testSuiteName) {
         TiaData tiaData = dataStore.getTiaData(true);
         tiaData.setCommitValue(commit);
@@ -247,6 +261,7 @@ class TestSelectorUpdateDBMappingGateTest {
         dataStore.persistCoreData(tiaData);
         dataStore.persistTestSuites(testSuites);
         dataStore.persistSourceMethods(methods);
+        dataStore.clearUnsealedTestSuites();
     }
 
     private VCSReader emptyDiffsVcsReader() {

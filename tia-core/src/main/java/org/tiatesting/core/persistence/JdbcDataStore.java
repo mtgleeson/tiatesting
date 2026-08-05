@@ -514,10 +514,16 @@ public class JdbcDataStore implements DataStore {
 
                 // Clear every currently-flagged suite before the commit value advances: those
                 // suites' mapping rows are now safe to trust against the commit about to become
-                // the stored one. Unconditional - this bundle is only ever reached by a
-                // mapping-owning run (TestRunnerService.sealRun returns early on a non-mapping
-                // run), so clearing here can never drop a flag that a mapping write didn't just
-                // account for. See the "Persist flow and crash safety" chapter in WIKI.md.
+                // the stored one. Deliberately unconditional and not scoped to this run's own
+                // suites (see TestSelector.addUnsealedTests, which force-selects every flagged
+                // suite): on a run that executes what it selected, every flag cleared here was
+                // just re-accounted for by this run's own edge write. That is a weaker guarantee
+                // than "never drops an unaccounted flag" - a run that does not execute its full
+                // selection (a --tests filter, a tag filter, a fail-fast abort) can clear a
+                // flagged suite's flag without recapturing its coverage, and the same is true
+                // across peer forks, where one fork's seal clears flags another fork set. The
+                // flag is a best-effort narrowing of the force-rerun window, not an absolute
+                // guarantee. See the "Persist flow and crash safety" chapter in WIKI.md.
                 clearUnsealedTestSuites(connection);
 
                 // Seal last within the transaction too, so the write order still reads as
@@ -598,8 +604,10 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Clear the unsealed flag from every flagged suite on a caller-supplied connection, so the
-     * clear can join the seal transaction. Restricted to flagged rows so the update touches only
-     * the suites this run wrote rather than rewriting the whole table.
+     * clear can join the seal transaction. Restricted to flagged rows only as a cheap {@code WHERE}
+     * filter so the update touches fewer rows than rewriting the whole table - it is deliberately
+     * NOT scoped to suites this run wrote; see the seal-bundle javadoc in
+     * {@link #persistSealedRunData} for why the clear is unconditional across all flagged suites.
      *
      * @param connection the connection to update on
      * @throws SQLException if the update fails
