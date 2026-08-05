@@ -1865,25 +1865,33 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
+    /**
+     * Rewrite {@code tia_test_suites_failed} on a caller-supplied connection: clear the previous
+     * failed-suite set and insert the new one in one transaction, so a failure partway through the
+     * insert leaves the previously persisted rows intact rather than half-written. The clear-out
+     * uses {@link SqlDialect#clearTableTransactionallySql} so the statement stays transactional on
+     * whichever vendor the datastore is configured for - see the pluggable-datastore WIKI chapter.
+     *
+     * @param connection the connection to write on; owns and commits/rolls back its own transaction
+     * @param testSuitesFailed the full set of currently-failed test suite names to persist; a null
+     *                         set is a no-op
+     * @throws SQLException if the clear-out or the insert fails
+     */
     private void persistTestSuitesFailed(Connection connection, Set<String> testSuitesFailed) throws SQLException {
         if (testSuitesFailed == null){
             return;
         }
 
-        // The clear-out and the INSERT must end up in the same transaction, which is why this
-        // clears the table with DELETE FROM rather than TRUNCATE TABLE: H2 implements TRUNCATE
-        // as DDL, which implicitly commits on execution regardless of the connection's
-        // auto-commit state or any later rollback() - so a TRUNCATE here would silently escape
-        // the transaction and could not be undone if the insert failed. DELETE FROM is a normal
-        // DML statement and rolls back correctly with the rest of the transaction. Same pattern
-        // as writeSourceMethods.
+        // The clear-out and the INSERT must end up in the same transaction; dialect.clearTableTransactionallySql
+        // gives a statement that is guaranteed to roll back with the rest of the transaction on
+        // whichever vendor this datastore is configured for. Same pattern as writeSourceMethods.
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
         try (Statement statement = connection.createStatement()) {
-            String deleteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITES_FAILED;
-            log.debug("Clearing failed test suites: {}", deleteSql);
-            statement.executeUpdate(deleteSql);
+            String clearSql = dialect.clearTableTransactionallySql(TABLE_TIA_TEST_SUITES_FAILED);
+            log.debug("Clearing failed test suites: {}", clearSql);
+            statement.executeUpdate(clearSql);
 
             if (testSuitesFailed.isEmpty()){
                 connection.commit();
@@ -1922,6 +1930,18 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
+    /**
+     * Rewrite {@code tia_source_method} on a caller-supplied connection, owning and
+     * committing/rolling back its own transaction around {@link #writeSourceMethods(Connection, Map)}.
+     * Used by the standalone {@link #persistSourceMethods(Map)} entry point; the seal path instead
+     * calls {@link #writeSourceMethods(Connection, Map)} directly so the write can join the seal's
+     * own transaction.
+     *
+     * @param connection the connection to write on; its auto-commit state is restored afterwards
+     * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
+     *                      a no-op
+     * @throws SQLException if the clear-out or the insert fails
+     */
     private void persistSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
@@ -1956,18 +1976,18 @@ public class JdbcDataStore implements DataStore {
      * or join the caller's ({@link #persistSealedRunData(SealedRunData)}).
      *
      * <p>The clear-out and the {@code INSERT} must end up in the same transaction whichever
-     * caller runs them, which is why this clears the table with {@code DELETE FROM} rather than
-     * {@code TRUNCATE TABLE}: H2 implements {@code TRUNCATE} as DDL ({@code DefineCommand}), which
-     * implicitly commits on execution regardless of the connection's auto-commit state or any
-     * later {@code rollback()} - so a {@code TRUNCATE} here would silently escape the transaction
-     * and could not be undone if the insert (or a later step in the same seal) failed. {@code
-     * DELETE FROM} is a normal DML statement and rolls back correctly with the rest of the
-     * transaction.
+     * caller runs them, which is why this clears the table with
+     * {@link SqlDialect#clearTableTransactionallySql} rather than a hard-coded statement: the
+     * two vendors need different SQL to give that guarantee (see
+     * {@link org.tiatesting.core.persistence.dialect.H2Dialect} and
+     * {@link org.tiatesting.core.persistence.dialect.PostgresDialect}) and a hard-coded
+     * {@code TRUNCATE TABLE} would silently escape the transaction on H2, unable to be undone if
+     * the insert (or a later step in the same seal) failed.
      *
      * @param connection the connection to write on; its auto-commit state is not changed
      * @param sourceMethods the full method catalogue to write, keyed by method id; a null map is
      *                      a no-op
-     * @throws SQLException if the delete or the insert fails
+     * @throws SQLException if the clear-out or the insert fails
      */
     private void writeSourceMethods(Connection connection, Map<Integer, MethodImpactTracker> sourceMethods) throws SQLException {
         if (sourceMethods == null){
@@ -1975,9 +1995,9 @@ public class JdbcDataStore implements DataStore {
         }
 
         try (Statement statement = connection.createStatement()) {
-            String deleteSql = "DELETE FROM " + TABLE_TIA_SOURCE_METHOD;
-            log.debug("Clearing indexed source methods: {}", deleteSql);
-            statement.executeUpdate(deleteSql);
+            String clearSql = dialect.clearTableTransactionallySql(TABLE_TIA_SOURCE_METHOD);
+            log.debug("Clearing indexed source methods: {}", clearSql);
+            statement.executeUpdate(clearSql);
 
             if (sourceMethods.isEmpty()){
                 return;

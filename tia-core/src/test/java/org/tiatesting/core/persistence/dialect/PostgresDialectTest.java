@@ -32,6 +32,18 @@ class PostgresDialectTest {
     }
 
     @Test
+    void clearTableTransactionallySqlUsesTruncateTable() {
+        // given
+        PostgresDialect dialect = new PostgresDialect();
+
+        // when
+        String sql = dialect.clearTableTransactionallySql("tia_source_method");
+
+        // then
+        assertEquals("TRUNCATE TABLE tia_source_method", sql);
+    }
+
+    @Test
     void schemaSql() {
         // given
         PostgresDialect d = new PostgresDialect();

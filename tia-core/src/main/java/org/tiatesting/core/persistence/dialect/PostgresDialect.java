@@ -29,6 +29,17 @@ public final class PostgresDialect implements SqlDialect {
     }
 
     /**
+     * {@inheritDoc} Implemented as {@code TRUNCATE TABLE <table>}: unlike H2, Postgres's
+     * {@code TRUNCATE} is transactional - it is safely rolled back if the enclosing transaction
+     * does not commit - and it deallocates the table's pages in roughly constant time rather than
+     * writing a per-row undo log entry the way {@code DELETE FROM} does, which matters for tables
+     * that can hold hundreds of thousands of rows on the persist path.
+     * @param table the table to clear
+     * @return the {@code TRUNCATE TABLE} statement for the table
+     */
+    @Override public String clearTableTransactionallySql(String table) { return "TRUNCATE TABLE " + table; }
+
+    /**
      * {@inheritDoc} Postgres folds unquoted identifiers to lower case, and preserves the case of a
      * quoted identifier (schema names here are always quoted and always lower case, since
      * {@code BranchSchema.schemaName} lower-cases them). The lookup is scoped to

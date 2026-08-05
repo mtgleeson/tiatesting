@@ -23,6 +23,18 @@ public final class H2Dialect implements SqlDialect {
     }
 
     /**
+     * {@inheritDoc} Implemented as {@code DELETE FROM <table>} rather than {@code TRUNCATE TABLE}:
+     * H2 implements {@code TRUNCATE} as DDL ({@code DefineCommand}), which implicitly commits on
+     * execution regardless of the connection's auto-commit state or any later {@code rollback()}
+     * - so a {@code TRUNCATE} here would silently escape the enclosing transaction and could not
+     * be undone if a later step in the same transaction failed. {@code DELETE FROM} is a normal
+     * DML statement and rolls back correctly with the rest of the transaction.
+     * @param table the table to clear
+     * @return the {@code DELETE FROM} statement for the table
+     */
+    @Override public String clearTableTransactionallySql(String table) { return "DELETE FROM " + table; }
+
+    /**
      * {@inheritDoc} H2 folds unquoted identifiers to upper case, and preserves the case of a
      * quoted identifier (schema names here are always quoted and always lower case, since
      * {@code BranchSchema.schemaName} lower-cases them). The lookup is scoped to
