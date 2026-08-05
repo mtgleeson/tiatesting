@@ -51,11 +51,10 @@ class JdbcDataStoreTestSuitesFailedTest {
             // SQL, throwing part way through the insert phase, after the clear-out has already run
             Set<String> broken = Collections.singleton("com.example.Broken'Test");
 
-            // then the call fails
+            // then the call fails, and the originally seeded rows are still present - proving the
+            // clear-out was rolled back along with the rest of the failed transaction rather than
+            // having escaped it
             assertThrows(RuntimeException.class, () -> store.persistTestSuitesFailed(broken));
-
-            // then the originally seeded rows are still present, proving the clear-out was rolled
-            // back along with the rest of the failed transaction rather than having escaped it
             assertEquals(SEEDED_SUITES, store.getTestSuitesFailed(),
                     "the previously persisted failed suites must survive a rolled-back clear-out");
         } finally {

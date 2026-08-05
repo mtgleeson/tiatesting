@@ -115,7 +115,11 @@ without the suite's coverage actually having been recaptured against the sealed 
   the seal is unconditional, so if that run reaches its seal, the flag is cleared anyway, without
   the suite's coverage having been rewritten. A suite that runs and legitimately returns empty
   coverage has the identical effect: no edge rewrite, but the seal still clears whatever flag was
-  already set.
+  already set. The most likely real-world instance of this escape is a Surefire/Failsafe retry:
+  `persistTestRunData` is called once per retry attempt for JUnit 4 / JUnit 5 (see "One persist per
+  run" above), so attempt 1 can flag suites A and B and then die before sealing; attempt 2 retries
+  only suite A, runs it, and reaches its own seal, which clears both A's and B's flags
+  unconditionally, even though B's coverage was never recaptured on any retry attempt.
 - The clear is deliberately unscoped - `UPDATE tia_test_suite SET unsealed = FALSE WHERE unsealed = TRUE`,
   not restricted to the suites this run touched. With a single sequential test run this is harmless
   (every flag it clears is one this run's own edge write just re-accounted for). With multiple
@@ -129,6 +133,28 @@ a suite whose flag was cleared without its coverage having been rewritten, in wh
 original class-of-bug this flag was built to shrink is possible again for that suite. What the flag
 does guarantee: on the common path - a suite runs to completion in the same JVM that seals - the
 suite's mapping rows and the commit value they are cleared against are consistent.
+
+**Only a mapping-owning run can clear the flag.** `sealRun` early-returns to `persistCoreData` when
+`updateDBMapping = false` - that path never reaches `persistSealedRunData`, so it never reaches
+`clearUnsealedTestSuites` either. `persistTestSuiteStatsOnly` never touches the `unsealed` column.
+Only the read side, `TestSelector.addUnsealedTests`, is unconditional. So once a mapping build has
+crashed mid-persist and left suites flagged, a project that subsequently runs only preview or
+stats-only builds will force-run those flagged suites on every single build, indefinitely, until a
+build that owns the mapping (`updateDBMapping = true`) completes and seals. This is the safe
+direction to fail in - it costs selectivity, not correctness - but it is a standing cost worth
+naming rather than a self-healing one.
+
+**"A crash before the seal leaves exactly the suites that ran flagged" is slightly too strong.**
+The suite-row `MERGE` in `persistTestSuites` (name + stats columns) commits in the connection's
+default autocommit mode, before `persistTestSuiteClasses` opens its own per-suite transaction for
+that suite's edges and flag. A crash landing in the narrow window between those two steps - after
+the `MERGE` for a brand-new suite commits but before its `persistTestSuiteClasses` transaction opens
+or commits - leaves that suite tracked with zero source-class edges and `unsealed = FALSE` (the
+column's default), rather than flagged. From then on it reads identically to a suite Tia has always
+found no coverage for, and stays that way until it next produces coverage and its mapping is
+written. This is pre-existing (not introduced by the work that added the flag) and the window is
+tiny, but it is a genuine counterexample to "exactly the suites that ran are flagged" - a
+brand-new suite killed in that window is left tracked and unflagged instead.
 
 **`SerializedDataStore` implements `clearUnsealedTestSuites()`, but nothing ever sets the flag
 there.** The `unsealed = TRUE` write lives in `JdbcDataStore.persistTestSuiteClasses` only; the

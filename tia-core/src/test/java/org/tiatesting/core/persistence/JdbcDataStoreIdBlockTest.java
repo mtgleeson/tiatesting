@@ -36,6 +36,13 @@ class JdbcDataStoreIdBlockTest {
     private JdbcDataStore dataStore;
     private File tempDir;
 
+    /**
+     * Create a fresh embedded H2 database in a new temp directory and bootstrap its schema
+     * (including the {@code tia_id_block} table), so each test method starts from a clean,
+     * isolated store with no ids allocated yet.
+     *
+     * @throws Exception if the temp directory cannot be created or schema bootstrap fails
+     */
     @BeforeEach
     void setUp() throws Exception {
         tempDir = File.createTempFile("tia-id-block-", "");
@@ -47,6 +54,10 @@ class JdbcDataStoreIdBlockTest {
         dataStore.getTiaData(true);
     }
 
+    /**
+     * Close the data store so its embedded H2 database releases its file lock after each test
+     * method.
+     */
     @AfterEach
     void tearDown() {
         dataStore.close();
