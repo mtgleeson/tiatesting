@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -115,7 +116,7 @@ class StatusReportUnsealedTest {
         String report = new StatusReportGenerator().generateSummaryReport(dataStore);
 
         // then
-        assertTrue(!report.contains("Unsealed test suites:"),
+        assertFalse(report.contains("Unsealed test suites:"),
                 "no unsealed line should be printed when the count is zero. Report was:\n" + report);
     }
 }

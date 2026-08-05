@@ -3,7 +3,6 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
@@ -148,6 +147,11 @@ class TestRunnerServiceSealOrderTest {
                 "a stats-only run must not go through the seal bundle");
         assertEquals(1, Collections.frequency(spy.callOrder, "persistCoreData"),
                 "a stats-only run must write its core row via persistCoreData");
+
+        // and - the method catalogue is never rewritten either: neither call frequency alone
+        // would catch a regression that wrote it directly on this path outside the seal bundle
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistSourceMethods"),
+                "a stats-only run must not rewrite the method catalogue");
 
         // and - a non-mapping run must not seal a new commit value
         TiaData reloaded = dataStore.getTiaData(true);
@@ -306,27 +310,19 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * Build a minimal {@link TestRunResult} with no drain. Internal tests use
-     * {@link #makeResult(LibraryImpactDrainResult)} when they need to exercise the drain path.
+     * Build a minimal {@link TestRunResult} with no drain, no mapped classes and a single suite.
+     * Suitable for tests that only care about write ordering / commit-value movement, not about
+     * the mapping edges themselves - see {@link #makeResultWithMapping()} for a tracker that
+     * carries coverage.
      *
      * @return a sparsely-populated TestRunResult suitable for persist tests
      */
     private TestRunResult makeResult() {
-        return makeResult(null);
-    }
-
-    /**
-     * Build a minimal {@link TestRunResult} with the provided drain result.
-     *
-     * @param drainResult the drain result to attach (or null for none)
-     * @return a sparsely-populated TestRunResult suitable for persist tests
-     */
-    private TestRunResult makeResult(LibraryImpactDrainResult drainResult) {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 0, 1);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
     /**

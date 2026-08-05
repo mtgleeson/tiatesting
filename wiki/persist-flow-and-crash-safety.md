@@ -88,6 +88,12 @@ re-inserting, embedded H2, averaged over warm repetitions:
 Linear in both variants; the delta is under 1-3% of a full mapping persist, which runs in tens of
 seconds. Correctness fix, cost accepted.
 
+The original measurement used a temporary, uncommitted profiler, so the exact figures above are
+not independently reproducible from the repo history. The `DELETE FROM` side (the code path Tia
+actually runs on H2) can be reproduced with the committed profiler: `./gradlew
+:tia-core:profileMethodCatalogueClear -Prows=200000 -Prepetitions=5` - see
+`tia-core/src/test/java/org/tiatesting/core/perf/ProfileMethodCatalogueClear.java`.
+
 ### The `unsealed` flag
 
 `tia_test_suite.unsealed` narrows the window described above, for suite mapping rows specifically.

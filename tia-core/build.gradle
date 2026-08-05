@@ -59,6 +59,20 @@ tasks.register('profileSelectTests', JavaExec) {
     }
 }
 
+// Times the tia_source_method clear-and-repopulate cost inside persistSourceMethods (the
+// DELETE FROM clear-out that replaced TRUNCATE TABLE on H2 - see ProfileMethodCatalogueClear.java
+// javadoc and the "Persist flow and crash safety" WIKI chapter for why).
+tasks.register('profileMethodCatalogueClear', JavaExec) {
+    group = 'verification'
+    description = 'Times the tia_source_method clear-and-repopulate cost. Tunable via -P properties.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.tiatesting.core.perf.ProfileMethodCatalogueClear'
+
+    def passthrough = ['rows', 'repetitions', 'branch']
+    args = passthrough.findAll { project.hasProperty(it) }
+            .collect { it + '=' + project.property(it) }
+}
+
 publishing {
     publications {
         mavenJava(MavenPublication) {
