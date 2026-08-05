@@ -34,6 +34,18 @@ class H2DialectTest {
     }
 
     @Test
+    void clearTableTransactionallySqlUsesDeleteFrom() {
+        // given
+        H2Dialect dialect = new H2Dialect();
+
+        // when
+        String sql = dialect.clearTableTransactionallySql("tia_source_method");
+
+        // then
+        assertEquals("DELETE FROM tia_source_method", sql);
+    }
+
+    @Test
     void schemaSql() {
         // given
         H2Dialect d = new H2Dialect();

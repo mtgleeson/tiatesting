@@ -23,6 +23,17 @@ public interface SqlDialect {
     String upsert(String table, List<String> columns, List<String> keyColumns);
 
     /**
+     * Build the statement that removes every row from a table while still rolling back cleanly
+     * if the enclosing transaction is later rolled back. Callers use this for clear-and-reinsert
+     * writes, where the clear-out and the reinsert must commit or roll back together - the two
+     * vendors need different SQL to give that guarantee (see {@link H2Dialect} and
+     * {@link PostgresDialect}).
+     * @param table the table to clear
+     * @return the vendor-specific SQL that clears the table transactionally
+     */
+    String clearTableTransactionallySql(String table);
+
+    /**
      * Whether a table exists, accounting for the vendor's identifier case folding. The check is
      * scoped to the connection's currently-selected schema (the caller must select the schema
      * before calling this method), so a table of the same name in a different schema is not
