@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -242,6 +244,60 @@ class TestRunnerServiceSealOrderTest {
                 "suite mapping must be written before the seal. Call order: " + spy.callOrder);
         assertTrue(spy.callOrder.indexOf("persistTestSuitesFailed") < sealIdx,
                 "the failed set must be written before the seal. Call order: " + spy.callOrder);
+    }
+
+    /**
+     * A run that reaches the seal clears the unsealed flag from every suite it flagged; a run
+     * that fails inside the seal bundle leaves those suites flagged so a later run force-selects
+     * them. Both {@code persistTestRunData} calls write the same suite
+     * ({@code com.example.SomeTest} from {@link #makeResultWithMapping()}, which carries one
+     * impacted class so the write actually reaches {@code persistTestSuiteClasses} and flags the
+     * suite unsealed), so the first call's clear and the second call's write are exercised
+     * against the same row.
+     */
+    @Test
+    void aSealedRunClearsTheUnsealedFlagAndAnAbortedOneDoesNot() {
+        // given
+        RecordingDataStore spy = new RecordingDataStore(dataStore);
+        TestRunnerService service = new TestRunnerService(spy);
+
+        // when - a run that seals
+        service.persistTestRunData(true, true, false, "sealedCommit", "main",
+                System.currentTimeMillis(), makeResultWithMapping());
+
+        // then
+        for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
+            assertFalse(tracker.isUnsealed(), tracker.getName() + " must be cleared by the seal");
+        }
+
+        // when - a run that fails inside the seal bundle
+        spy.failInSealBundle = true;
+        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
+                "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping()));
+
+        // then - the suites that ran stay flagged for a forced re-run
+        assertTrue(dataStore.getTestSuitesTracked().values().stream().anyMatch(TestSuiteTracker::isUnsealed),
+                "an aborted run must leave the suites it ran flagged");
+    }
+
+    /**
+     * Build a {@link TestRunResult} whose sole suite tracker carries one impacted class/method, so
+     * a mapping-update persist actually reaches {@link JdbcDataStore#persistTestSuiteClasses} and
+     * flags the suite unsealed - {@link #makeResult()}'s empty-mapping tracker never does, since
+     * the unsealed write only fires for suites with non-empty coverage this run.
+     *
+     * @return a {@link TestRunResult} with one mapped suite, suitable for exercising the unsealed
+     *         flag write and clear
+     */
+    private TestRunResult makeResultWithMapping() {
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        TestSuiteTracker tracker = new TestSuiteTracker("com.example.SomeTest");
+        tracker.setClassesImpacted(Collections.singletonList(
+                new ClassImpactTracker("com/example/Some.java", new HashSet<>(Collections.singletonList(1)))));
+        trackers.put("com.example.SomeTest", tracker);
+        return new TestRunResult(
+                trackers, new HashSet<>(), new HashSet<>(),
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
     /**

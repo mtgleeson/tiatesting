@@ -388,7 +388,37 @@ public class TestSelector {
         // Re-run tests that failed since the last successful full test run.
         addPreviouslyFailedTests(testsToRun);
 
+        // Re-run suites whose mapping rows were written by a run that never sealed - those rows
+        // describe a later commit than the stored one.
+        addUnsealedTests(testSuitesTracked, testsToRun);
+
         return testsToRun;
+    }
+
+    /**
+     * Add suites whose stored mapping rows are unsealed - written by a run that did not reach its
+     * commit seal, so they describe a later commit than the stored one. Re-running them recaptures
+     * their coverage against this run's commit and lets the seal clear the flag.
+     *
+     * <p>The flag is read from the suite metadata already loaded for this selection, so this adds
+     * no query to the read path.
+     *
+     * @param testSuitesTracked the tracked test suites keyed by suite name
+     * @param testsToRun the run set to add the unsealed suites to
+     */
+    private void addUnsealedTests(final Map<String, TestSuiteTracker> testSuitesTracked,
+                                  final Set<String> testsToRun){
+        Set<String> unsealed = new HashSet<>();
+        for (Map.Entry<String, TestSuiteTracker> entry : testSuitesTracked.entrySet()){
+            if (entry.getValue().isUnsealed()){
+                unsealed.add(entry.getKey());
+            }
+        }
+
+        if (!unsealed.isEmpty()){
+            log.info("Selected tests to run from unsealed mapping rows (a previous run did not complete): {}", unsealed);
+            testsToRun.addAll(unsealed);
+        }
     }
 
     /**

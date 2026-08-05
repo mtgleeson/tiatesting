@@ -151,7 +151,10 @@ class TestSelectorTrackedFileFilterTest {
 
     /**
      * Seed a mapping where {@code com/example/Foo.java} has one tracked method (lines 2-8) covered
-     * by {@code com.example.FooTest}. {@code com/example/Bar.java} is left untracked.
+     * by {@code com.example.FooTest}. {@code com/example/Bar.java} is left untracked. The unsealed
+     * flag {@link JdbcDataStore#persistTestSuites} sets as a side effect of the edge write is
+     * immediately cleared, so the fixture models an already-sealed mapping - this class tests the
+     * tracked-file content-fetch optimisation, not unsealed-suite force-selection.
      */
     private void seedMapping() {
         TiaData tiaData = dataStore.getTiaData(true);
@@ -172,6 +175,7 @@ class TestSelectorTrackedFileFilterTest {
         dataStore.persistCoreData(tiaData);
         dataStore.persistTestSuites(testSuites);
         dataStore.persistSourceMethods(methods);
+        dataStore.clearUnsealedTestSuites();
     }
 
     /**

@@ -199,7 +199,10 @@ class DatastoreEquivalenceTest {
      * Seed the same deterministic mapping (core row, tracked methods, tracked suites) into the
      * given store via the public {@link DataStore} persist API - the path exercised by every real
      * Tia run, and (for a {@code jdbc:postgresql} store) the first end-to-end persist-and-read
-     * proof against a real Postgres.
+     * proof against a real Postgres. The unsealed flag {@code persistTestSuites} sets as a side
+     * effect of the edge write is cleared afterwards, so the seeded mapping models an
+     * already-sealed baseline - this test proves ignore-set equivalence between backends, not
+     * unsealed-suite force-selection.
      *
      * @param store the datastore to seed
      */
@@ -216,6 +219,7 @@ class DatastoreEquivalenceTest {
         store.persistCoreData(core);
         store.persistSourceMethods(buildMethods());
         store.persistTestSuites(buildSuites());
+        store.clearUnsealedTestSuites();
     }
 
     /**

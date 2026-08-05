@@ -204,11 +204,14 @@ public class SerializedDataStore implements DataStore {
      *
      * <p>The serialized store has no transaction to join, so it cannot make several writes land
      * together the way the JDBC-backed stores do. Instead it sets the method catalogue directly
-     * onto the seal's core data and performs exactly one {@code writeTiaDataToDisk} call - the
-     * library drain deletes and upserts below are no-ops on this store (tracked libraries are
-     * only supported in the H2 data store), so the catalogue and the commit value are the only
-     * state that actually needs to reach disk, and they do so in a single file write rather than
-     * two.
+     * onto the seal's core data and clears the unsealed flag before its one closing
+     * {@code writeTiaDataToDisk} call (via {@link #persistCoreData}) - the library drain deletes
+     * and upserts below are no-ops on this store (tracked libraries are only supported in the H2
+     * data store), so the catalogue, the cleared flags and the commit value are the only state
+     * that actually needs to reach disk. {@link #clearUnsealedTestSuites()} and
+     * {@link #persistCoreData} both write the same cached {@link TiaData} instance, so the
+     * intermediate write it performs is redundant but not incorrect - the final write carries
+     * every mutation regardless of which call put it there first.
      *
      * @param sealedRunData the complete seal payload
      */
@@ -226,6 +229,7 @@ public class SerializedDataStore implements DataStore {
 
         TiaData tiaData = sealedRunData.getTiaData();
         tiaData.setMethodsTracked(sealedRunData.getMethodsTracked());
+        clearUnsealedTestSuites();
         persistCoreData(tiaData);
     }
 
