@@ -32,6 +32,13 @@ public class TestSuiteTracker implements Serializable {
      */
     private boolean developerDisabled;
 
+    /**
+     * True when this suite's mapping rows have been written but the run that wrote them has not
+     * sealed its commit value. Such rows describe a later commit than the stored one, so the
+     * suite is force-selected on the next run until a seal clears the flag.
+     */
+    private boolean unsealed;
+
     public TestSuiteTracker(){}
 
     public TestSuiteTracker(String name) {
@@ -98,6 +105,22 @@ public class TestSuiteTracker implements Serializable {
         this.developerDisabled = developerDisabled;
     }
 
+    /**
+     * @return {@code true} when this suite's mapping rows were written by a run that has not
+     *         sealed its commit value
+     */
+    public boolean isUnsealed() {
+        return unsealed;
+    }
+
+    /**
+     * @param unsealed {@code true} when this suite's mapping rows were written by a run that has
+     *                 not sealed its commit value
+     */
+    public void setUnsealed(boolean unsealed) {
+        this.unsealed = unsealed;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -118,6 +141,7 @@ public class TestSuiteTracker implements Serializable {
                 ", classesImpacted=" + classesImpacted +
                 ", testStats=" + testStats +
                 ", developerDisabled=" + developerDisabled +
+                ", unsealed=" + unsealed +
                 '}';
     }
 }

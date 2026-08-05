@@ -31,6 +31,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_ALL_TESTS_RUN_TIME = "all_tests_run_time";
     private static final String COL_NUM_ALL_TESTS_RUNS = "num_all_tests_runs";
     private static final String COL_DEVELOPER_DISABLED = "developer_disabled";
+    private static final String COL_UNSEALED = "unsealed";
     private static final String TABLE_TIA_CORE = "tia_core";
     private static final String TABLE_TIA_TEST_SUITE = "tia_test_suite";
     private static final String TABLE_TIA_TEST_SUITES_FAILED = TABLE_TIA_TEST_SUITE + "s_failed";
@@ -562,6 +563,43 @@ public class JdbcDataStore implements DataStore {
         }
 
         log.debug("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    /**
+     * Clear the unsealed flag from every currently-flagged test suite, opening and closing its
+     * own connection. Called as part of the seal, once the commit value those mapping rows
+     * describe is about to become the stored commit.
+     */
+    @Override
+    public void clearUnsealedTestSuites(){
+        Connection connection = getConnection();
+        try {
+            clearUnsealedTestSuites(connection);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * Clear the unsealed flag from every flagged suite on a caller-supplied connection, so the
+     * clear can join the seal transaction. Restricted to flagged rows so the update touches only
+     * the suites this run wrote rather than rewriting the whole table.
+     *
+     * @param connection the connection to update on
+     * @throws SQLException if the update fails
+     */
+    private void clearUnsealedTestSuites(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            int cleared = statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE
+                    + " SET " + COL_UNSEALED + " = FALSE WHERE " + COL_UNSEALED + " = TRUE");
+            log.debug("Cleared the unsealed flag from {} test suite(s).", cleared);
+        }
     }
 
     @Override
@@ -1499,6 +1537,44 @@ public class JdbcDataStore implements DataStore {
         return "'" + value.replace("'", "''") + "'";
     }
 
+    /**
+     * Read the names of every test suite currently flagged {@code unsealed} in the DB. Used by
+     * {@link #persistTestSuites(Connection, Collection, boolean)} as the source of truth for
+     * "does this suite already have the flag set", independent of whatever value the in-memory
+     * {@link TestSuiteTracker} handed to that call happens to carry.
+     *
+     * @param connection the connection to query on
+     * @return the names of the currently-flagged suites; empty when none are flagged
+     * @throws SQLException if the query fails
+     */
+    private Set<String> readUnsealedTestSuiteNames(Connection connection) throws SQLException {
+        Set<String> unsealedNames = new HashSet<>();
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("SELECT " + COL_NAME + " FROM " + TABLE_TIA_TEST_SUITE
+                     + " WHERE " + COL_UNSEALED + " = TRUE")) {
+            while (rs.next()) {
+                unsealedNames.add(rs.getString(COL_NAME));
+            }
+        }
+        return unsealedNames;
+    }
+
+    /**
+     * Upsert the given suites' name/stats rows and, for mapping-update runs, their unsealed flag
+     * and suite-to-source-class/method edges. Every suite in {@code testSuites} gets a row write
+     * regardless of whether it ran this time - the caller passes the whole merged suite map - but
+     * the edges (and the unsealed flag, when {@code includeClassMappings} is {@code true}) are
+     * only written for suites with non-empty {@link TestSuiteTracker#getClassesImpacted()}, i.e.
+     * suites that actually have coverage this run. See the "Persist flow and crash safety"
+     * chapter in {@code WIKI.md}.
+     *
+     * @param connection the connection to write on
+     * @param testSuites the suites whose rows to persist; a no-op when empty
+     * @param includeClassMappings whether to also write the unsealed flag and delete-and-reinsert
+     *                             the per-suite {@code tia_source_class} / {@code tia_source_class_method}
+     *                             edges; {@code true} for mapping-update runs, {@code false} for stats-only
+     * @throws SQLException if any write fails
+     */
     private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites,
                                    boolean includeClassMappings) throws SQLException {
         if (testSuites.isEmpty()){
@@ -1513,6 +1589,7 @@ public class JdbcDataStore implements DataStore {
                 COL_AVG_RUN_TIME, COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS));
         if (includeClassMappings){
             suiteColumns.add(COL_DEVELOPER_DISABLED);
+            suiteColumns.add(COL_UNSEALED);
         }
         String mergeSql = dialect.upsert(TABLE_TIA_TEST_SUITE, suiteColumns,
                 Collections.singletonList(COL_NAME));
@@ -1524,6 +1601,14 @@ public class JdbcDataStore implements DataStore {
         long[] nextSourceClassId = null;
         PreparedStatement classChunkPs = null;
         PreparedStatement edgeChunkPs = null;
+        // The names currently flagged unsealed in the DB, read once up front so the write below
+        // can OR against the stored value rather than trusting the caller's in-memory flag - the
+        // caller may hand in a freshly-constructed tracker (e.g. a suite merged in from a prior
+        // run) that never carried the DB's value forward. Only the seal (clearUnsealedTestSuites)
+        // may make this flag go from true to false; this lookup is what keeps this write from
+        // being an accidental second way to clear it.
+        Set<String> existingUnsealedSuiteNames = includeClassMappings
+                ? readUnsealedTestSuiteNames(connection) : Collections.emptySet();
         if (includeClassMappings){
             // Reserve exactly the ids this persist needs, in one atomic allocation, so a
             // concurrent writer cannot be handed the same range. See the "Persist flow and crash
@@ -1544,6 +1629,14 @@ public class JdbcDataStore implements DataStore {
                 suitePs.setLong(5, testSuite.getTestStats().getNumFailRuns());
                 if (includeClassMappings){
                     suitePs.setBoolean(6, testSuite.isDeveloperDisabled());
+                    // Flag only the suites whose mapping rows are actually written, matching the
+                    // condition that guards persistTestSuiteClasses below. The existing stored
+                    // flag (and whatever the caller's tracker already carried) is preserved so a
+                    // second consecutive unsealed run does not clear the first.
+                    boolean ranThisRun = !testSuite.getClassesImpacted().isEmpty();
+                    boolean existingFlag = testSuite.isUnsealed()
+                            || existingUnsealedSuiteNames.contains(testSuite.getName());
+                    suitePs.setBoolean(7, existingFlag || ranThisRun);
                 }
 
                 suitePs.executeUpdate();
@@ -2157,6 +2250,7 @@ public class JdbcDataStore implements DataStore {
                 "ts." + COL_NUM_RUNS + " AS suite_num_runs, ts." + COL_AVG_RUN_TIME + " AS suite_avg_run_time, " +
                 "ts." + COL_NUM_SUCCESS_RUNS + " AS suite_num_success_runs, ts." + COL_NUM_FAIL_RUNS + " AS suite_num_fail_runs, " +
                 "ts." + COL_DEVELOPER_DISABLED + " AS suite_developer_disabled, " +
+                "ts." + COL_UNSEALED + " AS suite_unsealed, " +
                 "sc." + COL_ID + " AS class_id, sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
                 "scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id " +
                 "FROM " + TABLE_TIA_TEST_SUITE + " ts " +
@@ -2186,6 +2280,7 @@ public class JdbcDataStore implements DataStore {
                     suite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
                     suite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
                     suite.setDeveloperDisabled(rs.getBoolean("suite_developer_disabled"));
+                    suite.setUnsealed(rs.getBoolean("suite_unsealed"));
                     suite.setClassesImpacted(new ArrayList<>());
                     suitesById.put(suiteId, suite);
                     testSuites.put(suite.getName(), suite);
@@ -2244,6 +2339,7 @@ public class JdbcDataStore implements DataStore {
                 testSuite.getTestStats().setNumSuccessRuns(resultSet.getLong(COL_NUM_SUCCESS_RUNS));
                 testSuite.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
                 testSuite.setDeveloperDisabled(resultSet.getBoolean(COL_DEVELOPER_DISABLED));
+                testSuite.setUnsealed(resultSet.getBoolean(COL_UNSEALED));
                 testSuites.put(testSuite.getName(), testSuite);
             }
         }
@@ -2280,7 +2376,8 @@ public class JdbcDataStore implements DataStore {
                 COL_AVG_RUN_TIME + " BIGINT, " +
                 COL_NUM_SUCCESS_RUNS + " BIGINT, " +
                 COL_NUM_FAIL_RUNS + " BIGINT, " +
-                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE)";
+                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE, " +
+                COL_UNSEALED + " BOOLEAN DEFAULT FALSE)";
 
         // Unique index on tia_test_suite.name. This is the conflict target for the suite upsert
         // (H2 MERGE ... KEY(name) / Postgres INSERT ... ON CONFLICT (name)). Postgres requires the
@@ -2614,6 +2711,21 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_test_suite.unsealed} column exists on an already-populated
+     * DB created before the flag was added. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
+     * pre-existing rows default to {@code FALSE}, which is correct - their mapping rows were
+     * written by runs that did seal.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureTestSuiteUnsealedColumnExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
+                COL_UNSEALED + " BOOLEAN DEFAULT FALSE");
+    }
+
+    /**
      * Migration: ensure the {@code tia_id_block} table exists. It holds one row per
      * application-assigned id space, recording the next unallocated value, so concurrent writers
      * can reserve disjoint id blocks instead of each reading {@code MAX(id)} and colliding.
@@ -2672,6 +2784,7 @@ public class JdbcDataStore implements DataStore {
         ensureTestRunHistoryTableExists(connection);
         ensureTargetedQueryIndexesExist(connection);
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
+        ensureTestSuiteUnsealedColumnExists(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
         ensureIdBlockTableExists(connection);
 

@@ -133,6 +133,12 @@ public interface DataStore extends AutoCloseable {
     void persistTestSuitesFailed(final Set<String> testSuitesFailed);
 
     /**
+     * Clear the unsealed flag from every flagged test suite. Called as part of the seal, once the
+     * commit value those mapping rows describe is about to become the stored commit.
+     */
+    void clearUnsealedTestSuites();
+
+    /**
      * Persist the methods tracked data to disk.
      *
      * @param methodsTracked the list of methods that should be tracked by Tia.
