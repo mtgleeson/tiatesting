@@ -477,12 +477,14 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Persist a run's seal atomically: the method catalogue, the library drain cleanup and the
-     * commit value are written in one transaction, so none of them can end up ahead of the
-     * others. The catalogue's line ranges and each library's mapping baseline are both claims
-     * about the commit being sealed, so a partial write would leave a later diff reading them
-     * against the wrong baseline. See the "Persist flow and crash safety" chapter in
-     * {@code WIKI.md}.
+     * Persist a run's seal atomically: the method catalogue, the library drain cleanup, the
+     * clearing of every currently-flagged unsealed suite, and the commit value are all written in
+     * one transaction, so none of them can end up ahead of the others. The catalogue's line ranges
+     * and each library's mapping baseline are both claims about the commit being sealed, so a
+     * partial write would leave a later diff reading them against the wrong baseline. Clearing the
+     * unsealed flags is unconditional and not scoped to this run's own suites - it is what lets
+     * one runner's seal clear flags a peer runner set, in the distributed model this bundle is
+     * groundwork for. See the "Persist flow and crash safety" chapter in {@code WIKI.md}.
      *
      * @param sealedRunData the complete seal payload
      */
@@ -509,6 +511,14 @@ public class JdbcDataStore implements DataStore {
                 for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()){
                     persistTrackedLibrary(connection, library);
                 }
+
+                // Clear every currently-flagged suite before the commit value advances: those
+                // suites' mapping rows are now safe to trust against the commit about to become
+                // the stored one. Unconditional - this bundle is only ever reached by a
+                // mapping-owning run (TestRunnerService.sealRun returns early on a non-mapping
+                // run), so clearing here can never drop a flag that a mapping write didn't just
+                // account for. See the "Persist flow and crash safety" chapter in WIKI.md.
+                clearUnsealedTestSuites(connection);
 
                 // Seal last within the transaction too, so the write order still reads as
                 // "everything, then the commit value" even though they commit together.

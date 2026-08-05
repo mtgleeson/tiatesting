@@ -212,7 +212,10 @@ class TestSelectorLibraryPreviewTest {
 
     /**
      * Seed a mapping where the library file {@code com/example/Lib.java} has one tracked method
-     * spanning lines 2-8, covered by {@code com.example.LibTest}.
+     * spanning lines 2-8, covered by {@code com.example.LibTest}. The unsealed flag
+     * {@link JdbcDataStore#persistTestSuites} sets as a side effect of the edge write is
+     * immediately cleared, so the fixture models an already-sealed mapping - this class tests the
+     * library publish/drain flow, not unsealed-suite force-selection.
      */
     private void seedLibraryMethodMapping() {
         TiaData tiaData = dataStore.getTiaData(true);
@@ -233,6 +236,7 @@ class TestSelectorLibraryPreviewTest {
         dataStore.persistCoreData(tiaData);
         dataStore.persistTestSuites(testSuites);
         dataStore.persistSourceMethods(methods);
+        dataStore.clearUnsealedTestSuites();
     }
 
     /**
