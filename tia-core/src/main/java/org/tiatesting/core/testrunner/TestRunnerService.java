@@ -441,10 +441,15 @@ public class TestRunnerService {
     }
 
     /**
-     * Update the method tracker which is stored on disk.
+     * Update the method tracker which is stored on disk. Any method id referenced from
+     * {@code tia_source_class_method} that has no entry in either this run's results or the
+     * on-disk catalogue is dropped as an orphan rather than carried forward - see the
+     * "Persist flow and crash safety" chapter in {@code WIKI.md} for how such orphans arise
+     * and why skipping them here is self-correcting.
      *
      * @param methodTrackerOnDisk current method tracker persisted on disk
      * @param methodTrackerFromTestRun methods called from the current test run
+     * @return the updated method tracker map, with any orphaned ids dropped
      */
     private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
                                                                   final Map<Integer, MethodImpactTracker> methodTrackerFromTestRun){
@@ -470,7 +475,7 @@ public class TestRunnerService {
                 // The id is referenced from tia_source_class_method but neither this run's
                 // JaCoCo results nor the tia_source_method table on disk knows about it.
                 // Most likely an orphan left behind by an earlier run that aborted between
-                // updating the join table and the truncate+insert of tia_source_method.
+                // updating the join table and the seal's rewrite of tia_source_method.
                 // Skip the orphan rather than NPE downstream in persistSourceMethods.
                 log.error("Source method id {} is referenced from tia_source_class_method but " +
                         "has no entry in tia_source_method (and was not invoked in this run); " +

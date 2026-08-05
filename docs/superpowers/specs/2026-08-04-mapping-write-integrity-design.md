@@ -109,9 +109,16 @@ it.
 ### API impact
 
 `persistSourceMethods`, the drain cleanup calls and `persistCoreData` each manage their own
-connection today. Making them atomic requires one combined `DataStore` operation rather than
-several independent calls. Per project convention there is no backwards-compatibility shim: the
-existing methods are replaced by the combined one and all callers are updated in the same change.
+connection today. Making them atomic requires one combined `DataStore` operation
+(`persistSealedRunData`) rather than several independent calls, and the production seal path
+(`TestRunnerService.sealRun`) is switched to call only that combined operation.
+
+`persistSourceMethods` and `persistCoreData` are not removed, and not deprecated - they stay on
+the `DataStore` interface as standalone primitives with real independent callers: roughly 30 test
+files across the codebase use them directly for seeding, without going through a full test-run
+persist. `persistCoreData` also keeps a production caller of its own - `sealRun` calls it directly,
+not through `persistSealedRunData`, on a stats-only run (`updateDBMapping=false`), where there is
+no catalogue, no drain cleanup and no unsealed-flag clear to bundle - just the one core row.
 
 ## Problem B: colliding `tia_source_class` id allocation
 

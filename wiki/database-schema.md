@@ -1,11 +1,13 @@
 # Database schema (tables and relationships)
 
-Tia stores everything in a single H2 database (embedded file or server mode). All DDL lives in
-`H2DataStore` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The ten tables
+Tia stores everything in a single H2 database (embedded file or server mode) - or the equivalent
+Postgres schema, see the [pluggable datastore](pluggable-datastore.md) chapter. All DDL lives in
+`JdbcDataStore` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The tables
 fall into three clusters: the **mapping** cluster (what test covers what code - the bulk of the
 data), the **library-impact** cluster (see the
 [library publish-time stamping](library-publish-time-stamping.md) chapter), and a few
-**standalone** header/audit tables.
+**standalone** header/audit tables, one of which - `tia_id_block` - exists purely to allocate ids,
+not to store mapping or audit data.
 
 ```mermaid
 erDiagram
@@ -38,6 +40,7 @@ erDiagram
         BIGINT num_success_runs
         BIGINT num_fail_runs
         BOOLEAN developer_disabled
+        BOOLEAN unsealed
     }
 
     tia_source_class {
@@ -99,18 +102,26 @@ erDiagram
         BIGINT publish_seq PK
         INT tia_source_method_id PK, FK
     }
+
+    tia_id_block {
+        VARCHAR block_name PK
+        BIGINT next_value
+    }
 ```
 
-(`tia_core`, `tia_test_suites_failed` and `tia_test_run_history` carry no foreign keys - they are
-linked only logically, by commit / branch / suite name.)
+(`tia_core`, `tia_test_suites_failed`, `tia_test_run_history` and `tia_id_block` carry no foreign
+keys - they are linked only logically, by commit / branch / suite name, or - for `tia_id_block` -
+not linked to other rows at all; it is consulted, not joined against.)
 
 ### Table purposes
 
 - **tia_core** - single-row header: the sealed `commit_value` the mapping is valid for, the branch,
   and the Tia-level aggregate run stats (selected-run average `avg_run_time`, full-suite baseline
   `all_tests_run_time`, run/success/fail counts).
-- **tia_test_suite** - one row per tracked test suite: name, source file, per-suite run stats, and
-  the `developer_disabled` flag (suite disabled in source by the developer, not ignored by Tia).
+- **tia_test_suite** - one row per tracked test suite: name, source file, per-suite run stats, the
+  `developer_disabled` flag (suite disabled in source by the developer, not ignored by Tia), and the
+  `unsealed` flag - set when this suite's mapping edges were written by a run whose seal has not
+  yet completed, cleared by the next seal. See the "Persist flow and crash safety" chapter.
 - **tia_source_class** - the source classes a given suite exercises; the first hop of the
   suite -> class -> method coverage mapping (`tia_test_suite_id` points back to the suite).
 - **tia_source_method** - catalogue of every tracked source method with its line range; the unit of
@@ -132,6 +143,10 @@ linked only logically, by commit / branch / suite name.)
   the publish sequence they shipped in (`stamp_version` is display-only) and awaiting "drain" once
   the consuming project resolves a build at or past that sequence (FK to `tia_library`,
   `ON DELETE CASCADE`).
+- **tia_id_block** - one row per named id counter (currently just `tia_source_class`), holding the
+  next id to hand out. `allocateSourceClassIdBlock` locks a counter row with `SELECT ... FOR UPDATE`
+  and advances it by the size of the block a writer needs, so concurrent writers reserve disjoint
+  id ranges instead of both computing the same `MAX(id) + 1` and colliding on the primary key.
 
 The mapping read path runs this chain in reverse: a code change resolves changed files to
 `tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the
