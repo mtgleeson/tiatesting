@@ -53,8 +53,13 @@ class TestSelectorUnsealedSuitesTest {
         dataStore.getTiaData(true);
     }
 
+    /**
+     * Close the data store and remove the temp directory created for it in {@link #setUp()}, so
+     * repeated test runs do not leak an embedded-H2 connection or directory per run.
+     */
     @AfterEach
     void tearDown() {
+        dataStore.close();
         if (tempDir != null && tempDir.exists()) {
             for (File f : tempDir.listFiles()) {
                 f.delete();
@@ -84,6 +89,32 @@ class TestSelectorUnsealedSuitesTest {
         assertFalse(result.getTestsToIgnore().contains("com.example.UnsealedSpec"));
         assertTrue(result.getTestsToIgnore().contains("com.example.SealedSpec"),
                 "a sealed suite with no impacting change must still be ignored");
+    }
+
+    /**
+     * The force-selection in {@link TestSelector#selectTestsToIgnore} is deliberately not gated
+     * on {@code updateDBMapping} - an unsealed suite must be force-run on a preview
+     * ({@code updateDBMapping=false}, covered above) just as much as on a primary build
+     * ({@code updateDBMapping=true}), because either kind of run needs the recaptured coverage.
+     * This pins the {@code true} case so a future {@code if (updateDBMapping)} wrapper around
+     * {@code addUnsealedTests} would be caught here even though the {@code false} case above
+     * would still pass.
+     */
+    @Test
+    void anUnsealedSuiteIsForceSelectedWhenUpdateDBMappingIsTrue() {
+        // given - no diff at all, one suite flagged unsealed, a primary (mapping-owning) run
+        seedTrackedSuite("com.example.SealedSpec", 1, false);
+        seedTrackedSuite("com.example.UnsealedSpec", 2, true);
+
+        // when
+        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+                new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
+                false, null, null, true);
+
+        // then
+        assertTrue(result.getTestsToRun().contains("com.example.UnsealedSpec"),
+                "an unsealed suite must be force-selected on a mapping-owning run too");
+        assertFalse(result.getTestsToIgnore().contains("com.example.UnsealedSpec"));
     }
 
     /**

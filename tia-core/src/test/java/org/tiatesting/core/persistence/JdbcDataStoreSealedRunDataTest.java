@@ -3,7 +3,9 @@ package org.tiatesting.core.persistence;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -15,10 +17,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Lock the atomicity of the seal bundle. The method catalogue, the library drain cleanup and the
@@ -142,6 +146,45 @@ class JdbcDataStoreSealedRunDataTest {
                 "the commit value must not advance when a later step in the seal fails");
         assertEquals(seedMethods().keySet(), dataStore.getMethodsTracked().keySet(),
                 "a catalogue write that already succeeded must still be rolled back when a later step in the same seal fails");
+    }
+
+    /**
+     * The unsealed-flag clear runs inside the seal transaction, ahead of {@code persistTiaCore}
+     * (the bundle's last statement). This test injects a failure AFTER the clear has already
+     * executed - an over-length commit value, which blows past the {@code commit_value}
+     * column's {@code VARCHAR(255)} definition and throws only once {@code persistTiaCore}
+     * builds its statement - so a rollback that only undid the clear's own statement (rather
+     * than the whole transaction) would leave the flagged suite wrongly cleared. The other
+     * failure tests in this class all inject before the clear runs, so none of them can catch
+     * that gap.
+     */
+    @Test
+    void aFailureAfterTheClearRollsBackTheClearTogetherWithTheRestOfTheTransaction() {
+        // given - a suite flagged unsealed by a prior mapping write, and a commit value too long
+        // for the commit_value column so persistTiaCore throws after the clear has run
+        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
+        TestSuiteTracker tracker = new TestSuiteTracker("com.example.FlaggedSpec");
+        tracker.setClassesImpacted(Collections.singletonList(new ClassImpactTracker(
+                "com/example/Flagged.java", new HashSet<>(Collections.singletonList(101)))));
+        testSuites.put("com.example.FlaggedSpec", tracker);
+        dataStore.persistTestSuites(testSuites);
+        assertTrue(dataStore.getTestSuitesTracked().get("com.example.FlaggedSpec").isUnsealed(),
+                "seeding must flag the suite unsealed before the seal under test runs");
+
+        StringBuilder overLength = new StringBuilder();
+        for (int i = 0; i < 256; i++) {
+            overLength.append('c');
+        }
+
+        // when
+        assertThrows(RuntimeException.class, () ->
+                dataStore.persistSealedRunData(new SealedRunData(coreData(overLength.toString()), methods(),
+                        Collections.emptyList(), Collections.emptyList(), new ArrayList<>())));
+
+        // then - the flag survives: the in-transaction clear was rolled back along with the
+        // rest of the bundle, not committed ahead of the failing persistTiaCore statement
+        assertTrue(dataStore.getTestSuitesTracked().get("com.example.FlaggedSpec").isUnsealed(),
+                "a suite's unsealed flag must survive a seal failure that happens after the in-transaction clear");
     }
 
     /**
