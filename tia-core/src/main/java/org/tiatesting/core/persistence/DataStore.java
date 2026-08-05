@@ -147,6 +147,12 @@ public interface DataStore extends AutoCloseable {
      * against the wrong baseline. See the "Persist flow and crash safety" chapter in
      * {@code WIKI.md}.
      *
+     * <p><b>Instance contract.</b> {@code sealedRunData.getTiaData()} must be the very
+     * {@link TiaData} instance obtained from {@link #getTiaCore()} for this run, mutated in place
+     * with this run's commit, branch and stats. Some implementations persist that instance
+     * wholesale rather than field-by-field, so handing in a detached copy would silently drop
+     * whatever earlier steps of the run already wrote onto the original instance.
+     *
      * @param sealedRunData the complete seal payload
      */
     void persistSealedRunData(final SealedRunData sealedRunData);

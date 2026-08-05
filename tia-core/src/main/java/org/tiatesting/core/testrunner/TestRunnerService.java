@@ -366,6 +366,12 @@ public class TestRunnerService {
      * re-covered. See the mapping-baseline section of the library publish-time stamping chapter
      * in {@code WIKI.md}.
      *
+     * <p>Neither source has anything to contribute on a selective run (not all-tests) with no
+     * drained batches, so that case returns an empty list before reading {@link
+     * DataStore#readTrackedLibraries()} - this keeps the common primary-build persist (a targeted
+     * mapping run, no library drain) from paying an unconditional library-table read on every
+     * call, per the performance guidance in {@code WIKI.md}.
+     *
      * @param drainResult the drain result from test selection, or {@code null} when no drain ran
      * @param commitValue the commit this run seals - the new mapping baseline
      * @param allTestsRun {@code true} when Tia ignored zero suites this run
@@ -374,6 +380,10 @@ public class TestRunnerService {
     private List<TrackedLibrary> collectLibrariesToPersist(final LibraryImpactDrainResult drainResult,
                                                            final String commitValue,
                                                            final boolean allTestsRun) {
+        if ((drainResult == null || !drainResult.hasDrainedBatches()) && !allTestsRun) {
+            return Collections.emptyList();
+        }
+
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
         Map<String, TrackedLibrary> changed = new LinkedHashMap<>();
 
