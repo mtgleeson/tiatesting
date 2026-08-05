@@ -24,6 +24,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -98,10 +99,11 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * Crash during the methods-tracked write (the second mapping write) must leave the stored
-     * commit value at the prior setting. The suite mapping has already updated at this point;
-     * the orphan-skip logic at {@code TestRunnerService.updateMethodTracker} handles the partial
-     * state on the next read.
+     * Crash while writing the method catalogue must leave the stored commit value at the prior
+     * setting. The catalogue is now written as part of the seal bundle
+     * ({@code persistSealedRunData}), so this simulates the failure at that entry point; the
+     * suite mapping has already updated at this point, and the orphan-skip logic at
+     * {@code TestRunnerService.updateMethodTracker} handles the partial state on the next read.
      */
     @Test
     void crashDuringMethodsTracked_storedCommitValueRemainsPriorValue() {
@@ -143,9 +145,10 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * Crash during the library-impact drain (the last mapping-adjacent write before the seal)
-     * must still leave the stored commit value at the prior setting. The pending library rows
-     * remain in the DB; the next run re-drains them - idempotent.
+     * Crash during the library-impact drain cleanup must still leave the stored commit value at
+     * the prior setting. The drain cleanup is now part of the seal bundle
+     * ({@code persistSealedRunData}), so this simulates the failure at that entry point. The
+     * pending library rows remain in the DB; the next run re-drains them - idempotent.
      */
     @Test
     void crashDuringLibraryDrain_storedCommitValueRemainsPriorValue() {
@@ -175,12 +178,12 @@ class TestRunnerServiceSealOrderTest {
 
     /**
      * Happy path: with no injected failure, the stored commit value advances to the new value
-     * AND {@code persistCoreData} (the seal) is invoked after every mapping write. This is the
-     * regression-proof for the reorder: if anyone moves {@code updateTiaCoreData} back to the
-     * front, this test breaks.
+     * AND {@code persistSealedRunData} (the seal bundle) is invoked after every write that
+     * precedes it. This is the regression-proof for the reorder: if anyone moves the seal bundle
+     * back to the front, this test breaks.
      */
     @Test
-    void happyPath_persistCoreDataInvokedAfterAllMappingWrites() {
+    void happyPath_persistSealedRunDataInvokedAfterAllMappingWrites() {
         // given
         RecordingDataStore spy = new RecordingDataStore(dataStore);
         TestRunnerService service = new TestRunnerService(spy);
@@ -194,19 +197,65 @@ class TestRunnerServiceSealOrderTest {
         assertEquals("new-commit", reloaded.getCommitValue(),
                 "happy path must advance the stored commit value");
 
-        // and - persistCoreData was invoked AFTER every mapping write
-        int sealIdx = spy.callOrder.indexOf("persistCoreData");
-        assertTrue(sealIdx >= 0, "persistCoreData must be invoked");
+        // and - persistSealedRunData was invoked AFTER every write that precedes the seal
+        int sealIdx = spy.callOrder.indexOf("persistSealedRunData");
+        assertTrue(sealIdx >= 0, "persistSealedRunData must be invoked");
 
         int suitesIdx = spy.callOrder.indexOf("persistTestSuites");
-        int methodsIdx = spy.callOrder.indexOf("persistSourceMethods");
         int failedIdx = spy.callOrder.indexOf("persistTestSuitesFailed");
         assertTrue(suitesIdx >= 0 && suitesIdx < sealIdx,
                 "persistTestSuites must be invoked before the seal. Call order: " + spy.callOrder);
-        assertTrue(methodsIdx >= 0 && methodsIdx < sealIdx,
-                "persistSourceMethods must be invoked before the seal. Call order: " + spy.callOrder);
         assertTrue(failedIdx >= 0 && failedIdx < sealIdx,
                 "persistTestSuitesFailed must be invoked before the seal. Call order: " + spy.callOrder);
+    }
+
+    /**
+     * The seal bundle ({@code persistSealedRunData}) is the single write that advances the
+     * commit value. A failure inside the bundle must leave the prior commit value in place, and
+     * the catalogue / commit writes must never reach the data store through the old separate
+     * {@code persistCoreData} / {@code persistSourceMethods} entry points.
+     */
+    @Test
+    void sealBundleIsTheSingleWriteThatAdvancesTheCommit() {
+        // given - a spy that fails inside the seal bundle
+        RecordingDataStore spy = new RecordingDataStore(dataStore);
+        spy.failInSealBundle = true;
+        TestRunnerService service = new TestRunnerService(spy);
+
+        // when
+        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
+                "new-commit", "main", System.currentTimeMillis(), makeResult()));
+
+        // then - the prior commit survived and the seal ran as one call, not two
+        assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue());
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistCoreData"),
+                "the seal must go through persistSealedRunData, not persistCoreData");
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistSourceMethods"),
+                "the catalogue must go through persistSealedRunData, not persistSourceMethods");
+    }
+
+    /**
+     * The suite mapping and the failed-suite set are written ahead of the seal bundle - both are
+     * safe to be ahead of the commit value, so they must complete before
+     * {@code persistSealedRunData} is invoked.
+     */
+    @Test
+    void suiteMappingAndFailedSetAreWrittenBeforeTheSealBundle() {
+        // given
+        RecordingDataStore spy = new RecordingDataStore(dataStore);
+        TestRunnerService service = new TestRunnerService(spy);
+
+        // when
+        service.persistTestRunData(true, true, false, "new-commit", "main",
+                System.currentTimeMillis(), makeResult());
+
+        // then
+        int sealIdx = spy.callOrder.indexOf("persistSealedRunData");
+        assertTrue(sealIdx >= 0, "persistSealedRunData must be invoked");
+        assertTrue(spy.callOrder.indexOf("persistTestSuites") < sealIdx,
+                "suite mapping must be written before the seal. Call order: " + spy.callOrder);
+        assertTrue(spy.callOrder.indexOf("persistTestSuitesFailed") < sealIdx,
+                "the failed set must be written before the seal. Call order: " + spy.callOrder);
     }
 
     /**
@@ -244,6 +293,7 @@ class TestRunnerServiceSealOrderTest {
         boolean throwOnPersistSourceMethods = false;
         boolean throwOnPersistTestSuitesFailed = false;
         boolean throwOnDeletePendingLibraryImpactedMethods = false;
+        boolean failInSealBundle;
 
         RecordingDataStore(DataStore delegate) {
             this.delegate = delegate;
@@ -292,7 +342,19 @@ class TestRunnerServiceSealOrderTest {
             delegate.persistSourceMethods(methodsTracked);
         }
         @Override
-        public void persistSealedRunData(SealedRunData sealedRunData) { delegate.persistSealedRunData(sealedRunData); }
+        public void persistSealedRunData(SealedRunData sealedRunData) {
+            callOrder.add("persistSealedRunData");
+            if (failInSealBundle) {
+                throw new RuntimeException("simulated failure in persistSealedRunData");
+            }
+            if (throwOnPersistSourceMethods) {
+                throw new RuntimeException("simulated failure writing the method catalogue inside persistSealedRunData");
+            }
+            if (throwOnDeletePendingLibraryImpactedMethods) {
+                throw new RuntimeException("simulated failure in the library drain cleanup inside persistSealedRunData");
+            }
+            delegate.persistSealedRunData(sealedRunData);
+        }
         @Override
         public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) {
             callOrder.add("persistTestSuites");
