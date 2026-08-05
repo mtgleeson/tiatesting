@@ -1539,27 +1539,25 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Upsert the given suites' name/stats rows and, for mapping-update runs, their
-     * suite-to-source-class/method edges, then flag as {@code unsealed} exactly the suites that
-     * had coverage this run. Every suite in {@code testSuites} gets a row write regardless of
-     * whether it ran this time - the caller passes the whole merged suite map - but the edges
-     * (and the unsealed flag, when {@code includeClassMappings} is {@code true}) are only written
-     * for suites with non-empty {@link TestSuiteTracker#getClassesImpacted()}, i.e. suites that
-     * actually have coverage this run.
+     * suite-to-source-class/method edges. Every suite in {@code testSuites} gets a row write
+     * regardless of whether it ran this time - the caller passes the whole merged suite map -
+     * but the edges are only written for suites with non-empty
+     * {@link TestSuiteTracker#getClassesImpacted()}, i.e. suites that actually have coverage this
+     * run. For those suites, {@link #persistTestSuiteClasses} also flags the suite as
+     * {@code unsealed} in the same per-suite transaction as its edge rewrite, so a crash mid-persist
+     * can never leave a suite with rewritten edges and no flag - see the "Persist flow and crash
+     * safety" chapter in {@code WIKI.md}.
      *
-     * <p>{@code unsealed} is deliberately kept out of the upsert's column list: the upsert
-     * touches every suite in {@code testSuites}, including ones with no coverage this run, so if
-     * the flag were part of that write it would need read-modify-write logic to avoid clobbering
-     * a value set by a concurrent writer - and any such logic still leaves a read/write race
-     * across the two separate statements. Instead the flag is set with one targeted
-     * {@code UPDATE ... WHERE name IN (...)} covering only the suites that actually ran, issued
-     * after the suite loop. That statement can only ever set the flag to {@code true}; only the
-     * seal ({@link #clearUnsealedTestSuites(Connection)}) may clear it. See the "Persist flow and
-     * crash safety" chapter in {@code WIKI.md}.
+     * <p>{@code unsealed} is deliberately kept out of this method's own upsert column list: that
+     * upsert touches every suite in {@code testSuites}, including ones with no coverage this run,
+     * so if the flag were part of that write it would need read-modify-write logic to avoid
+     * clobbering a value set by a concurrent writer. The flag write only ever sets the column to
+     * {@code true}; only the seal ({@link #clearUnsealedTestSuites(Connection)}) may clear it.
      *
      * @param connection the connection to write on
      * @param testSuites the suites whose rows to persist; a no-op when empty
-     * @param includeClassMappings whether to also flag the unsealed suites and delete-and-reinsert
-     *                             the per-suite {@code tia_source_class} / {@code tia_source_class_method}
+     * @param includeClassMappings whether to also delete-and-reinsert (and flag as unsealed) the
+     *                             per-suite {@code tia_source_class} / {@code tia_source_class_method}
      *                             edges; {@code true} for mapping-update runs, {@code false} for stats-only
      * @throws SQLException if any write fails
      */
@@ -1599,11 +1597,6 @@ public class JdbcDataStore implements DataStore {
             edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
 
-        // Names of the suites that had coverage this run, collected while iterating so the
-        // unsealed flag can be set afterwards with one targeted statement instead of as part of
-        // the per-suite upsert.
-        List<String> suiteNamesRanThisRun = includeClassMappings ? new ArrayList<>() : Collections.emptyList();
-
         PreparedStatement suitePs = connection.prepareStatement(mergeSql, Statement.RETURN_GENERATED_KEYS);
         try {
             for (TestSuiteTracker testSuite : testSuites){
@@ -1625,53 +1618,14 @@ public class JdbcDataStore implements DataStore {
                 if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
                     ResultSet rs = suitePs.getGeneratedKeys();
                     rs.next();
-                    persistTestSuiteClasses(connection, rs.getLong(COL_ID),
+                    persistTestSuiteClasses(connection, rs.getLong(COL_ID), testSuite.getName(),
                             testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
-                    suiteNamesRanThisRun.add(testSuite.getName());
                 }
             }
         } finally {
             suitePs.close();
             if (classChunkPs != null){ classChunkPs.close(); }
             if (edgeChunkPs != null){ edgeChunkPs.close(); }
-        }
-
-        if (includeClassMappings){
-            flagUnsealedTestSuites(connection, suiteNamesRanThisRun);
-        }
-    }
-
-    /**
-     * Flag the given test suites as {@code unsealed}: their mapping rows were just written by a
-     * run that has not yet sealed its commit value. This is the only statement in
-     * {@link #persistTestSuites(Connection, Collection, boolean)} that touches the column, and it
-     * only ever sets it to {@code true} - clearing it is exclusively the seal's job
-     * ({@link #clearUnsealedTestSuites(Connection)}). Chunked into
-     * {@value #IN_CLAUSE_CHUNK_SIZE}-name statements with bound parameters, matching the other
-     * targeted IN-clause queries in this class; suite names are not trusted input for direct SQL
-     * assembly.
-     *
-     * @param connection the connection to write on
-     * @param suiteNames the names of the suites to flag; a no-op when empty
-     * @throws SQLException if the update fails
-     */
-    private void flagUnsealedTestSuites(Connection connection, List<String> suiteNames) throws SQLException {
-        if (suiteNames.isEmpty()){
-            return;
-        }
-
-        for (int from = 0; from < suiteNames.size(); from += IN_CLAUSE_CHUNK_SIZE){
-            List<String> chunk = suiteNames.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, suiteNames.size()));
-            String placeholders = String.join(", ", Collections.nCopies(chunk.size(), "?"));
-            String sql = "UPDATE " + TABLE_TIA_TEST_SUITE + " SET " + COL_UNSEALED + " = TRUE WHERE "
-                    + COL_NAME + " IN (" + placeholders + ")";
-            try (PreparedStatement ps = connection.prepareStatement(sql)){
-                int paramIndex = 1;
-                for (String name : chunk){
-                    ps.setString(paramIndex++, name);
-                }
-                ps.executeUpdate();
-            }
         }
     }
 
@@ -1848,20 +1802,26 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Re-persist one suite's source-class -> method mapping using the shared, reused prepared
-     * statements. Deletes the suite's existing classes and edges (a no-op on a seed where the table
-     * is empty), assigns each class an application-side id from {@code nextId}, and batch-inserts
-     * the class rows and their edge rows. Kept inside a per-suite transaction so a failure leaves
-     * the suite's previous mapping intact.
+     * statements, and flag the suite as {@code unsealed} in the same transaction. Deletes the
+     * suite's existing classes and edges (a no-op on a seed where the table is empty), assigns
+     * each class an application-side id from {@code nextId}, and batch-inserts the class rows and
+     * their edge rows. The {@code unsealed} flag write is issued before the commit so it lands
+     * atomically with the edge rewrite: a crash partway through a persist covering many suites
+     * then leaves every already-processed suite flagged, never edges-rewritten-but-unflagged,
+     * which is the one direction test selection cannot detect. See the "Persist flow and crash
+     * safety" chapter in {@code WIKI.md}. Kept inside a per-suite transaction so a failure leaves
+     * the suite's previous mapping (and flag) intact.
      *
      * @param connection the H2 connection
      * @param testSuiteId the id of the suite these classes belong to
+     * @param testSuiteName the name of the suite these classes belong to, used to flag it as unsealed
      * @param sourceClasses the suite's impacted classes (each with its method-id set)
      * @param classChunkPs reused full-chunk multi-row insert for {@code tia_source_class}
      * @param edgeChunkPs reused full-chunk multi-row insert for {@code tia_source_class_method}
      * @param nextId one-element holder for the next application-assigned class id; advanced in place
-     * @throws SQLException if any insert/delete fails (the suite's transaction is rolled back first)
+     * @throws SQLException if any insert/delete/flag write fails (the suite's transaction is rolled back first)
      */
-    private void persistTestSuiteClasses(Connection connection, long testSuiteId,
+    private void persistTestSuiteClasses(Connection connection, long testSuiteId, String testSuiteName,
                                          List<ClassImpactTracker> sourceClasses,
                                          PreparedStatement classChunkPs, PreparedStatement edgeChunkPs,
                                          long[] nextId) throws SQLException {
@@ -1899,6 +1859,17 @@ public class JdbcDataStore implements DataStore {
 
             insertRowsChunked(connection, classChunkPs, TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, classRows);
             insertRowsChunked(connection, edgeChunkPs, TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, edgeRows);
+
+            // Flag this suite as unsealed in the same transaction as its edge rewrite, before the
+            // commit, so the two can never land apart: either both are visible after a crash or
+            // neither is. This is the only statement in the class that sets the column to TRUE;
+            // only the seal (clearUnsealedTestSuites) may clear it.
+            String flagUnsealedSql = "UPDATE " + TABLE_TIA_TEST_SUITE + " SET " + COL_UNSEALED
+                    + " = TRUE WHERE " + COL_NAME + " = ?";
+            try (PreparedStatement flagPs = connection.prepareStatement(flagUnsealedSql)) {
+                flagPs.setString(1, testSuiteName);
+                flagPs.executeUpdate();
+            }
 
             connection.commit();
         } catch (Exception e) {

@@ -21,10 +21,12 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -147,6 +149,32 @@ class JdbcDataStoreUnsealedSuiteTest {
                 "the suite_unsealed alias must map back to the unsealed flag");
     }
 
+    @Test
+    void suitesProcessedBeforeAMidPersistFailureAreStillFlagged() {
+        // given - three suites with coverage, inserted in a LinkedHashMap so persistTestSuites
+        // processes them in this order: SuiteJ, SuiteK succeed, then SuiteL's edge write fails
+        // (its source filename exceeds the tia_source_class.source_filename column length, so
+        // the INSERT inside persistTestSuiteClasses genuinely throws - not an earlier step).
+        // Under the old post-loop flagging design this exception would abort the suite loop
+        // before flagUnsealedTestSuites ever ran, leaving SuiteJ and SuiteK unflagged despite
+        // their edges having already been committed - exactly the silent-under-selection gap
+        // the flag exists to prevent.
+        Map<String, TestSuiteTracker> suites = new LinkedHashMap<>();
+        suites.put("SuiteJ", withCoverage("SuiteJ"));
+        suites.put("SuiteK", withCoverage("SuiteK"));
+        suites.put("SuiteL", withCoverageOfFilename("SuiteL", oversizedSourceFilename()));
+
+        // when
+        assertThrows(RuntimeException.class, () -> dataStore.persistTestSuites(suites));
+
+        // then - the suites processed before the failure committed their edges and their flag
+        // together, so they are still flagged even though the overall persist call failed
+        assertTrue(dataStore.getTestSuitesTracked().get("SuiteJ").isUnsealed(),
+                "a suite whose edges committed before a later suite's failure must still be flagged");
+        assertTrue(dataStore.getTestSuitesTracked().get("SuiteK").isUnsealed(),
+                "a suite whose edges committed before a later suite's failure must still be flagged");
+    }
+
     /**
      * Build a suite tracker that has coverage this run, so its mapping rows will be written.
      *
@@ -161,6 +189,42 @@ class JdbcDataStoreUnsealedSuiteTest {
         classes.add(new ClassImpactTracker("com/example/" + name + ".java", methods));
         tracker.setClassesImpacted(classes);
         return tracker;
+    }
+
+    /**
+     * Build a suite tracker that has coverage this run, using a caller-supplied source filename
+     * instead of one derived from the suite name. Used to force a failure inside
+     * {@code persistTestSuiteClasses}'s edge write for a specific suite while keeping its name
+     * distinct and readable in test assertions.
+     *
+     * @param name the suite name
+     * @param sourceFilename the source filename to give the suite's single impacted class
+     * @return the tracker
+     */
+    private TestSuiteTracker withCoverageOfFilename(String name, String sourceFilename) {
+        TestSuiteTracker tracker = new TestSuiteTracker(name);
+        MethodIdSet methods = new MethodIdSet();
+        methods.add(name.hashCode());
+        List<ClassImpactTracker> classes = new ArrayList<>();
+        classes.add(new ClassImpactTracker(sourceFilename, methods));
+        tracker.setClassesImpacted(classes);
+        return tracker;
+    }
+
+    /**
+     * Build a source-class filename longer than the {@code tia_source_class.source_filename}
+     * column's 500-character limit, so inserting a class row that carries it fails with a
+     * genuine SQL "value too long" error from inside {@code persistTestSuiteClasses}'s edge
+     * write, rather than from an earlier step in the persist.
+     *
+     * @return a 600-character source-file path
+     */
+    private String oversizedSourceFilename() {
+        StringBuilder sb = new StringBuilder("com/example/");
+        while (sb.length() < 600) {
+            sb.append("VeryLongPackageSegment/");
+        }
+        return sb.toString();
     }
 
     /**
