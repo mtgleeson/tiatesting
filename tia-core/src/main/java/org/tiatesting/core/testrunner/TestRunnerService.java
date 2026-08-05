@@ -10,7 +10,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.persistence.SealedRunData;
 import org.tiatesting.core.sourcefile.FileExtensions;
 
 import java.io.File;
@@ -19,8 +19,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -41,8 +45,9 @@ public class TestRunnerService {
      * Persist the data accumulated by a Tia test run.
      *
      * <p><b>Write ordering and crash safety.</b> The DB calls are sequenced so that
-     * {@link #updateTiaCoreData} (which writes the {@code commitValue} stamp) is the final
-     * mapping-related write. The invariant is: <em>if commit X is the stored value, every
+     * {@link #sealRun} (which writes the method catalogue, the library drain cleanup and the
+     * {@code commitValue} stamp together, via {@link DataStore#persistSealedRunData}) is the
+     * final mapping-related write. The invariant is: <em>if commit X is the stored value, every
      * mapping write for X has completed.</em> A crash before the seal leaves the stored
      * commit at the prior value; the next run diffs against that older commit and re-does
      * the impacted work. Slightly wasteful on recovery, never under-selects. See the
@@ -79,33 +84,28 @@ public class TestRunnerService {
 
         TiaData tiaData = dataStore.getTiaCore();
 
-        // 1. Mapping writes first. A crash anywhere in this block leaves the stored commit
-        //    value at its prior setting, so the next run re-diffs against that older commit
-        //    and re-does the work.
+        // 1. Suite mapping rows first. These are safe to be ahead of the stored commit - they
+        //    carry no line coordinates, and they are marked unsealed until the seal clears them.
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
                 testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
 
         // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
-        // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites
-        // (Stage 1), so this stays a plain == 0 check.
+        // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites,
+        // so this stays a plain == 0 check.
         boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0;
 
         if (updateDBMapping){
-            updateMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
+            // 2. The failed set is incremental and safe to be ahead of the commit; over-inclusion
+            //    only force-runs extra suites next time.
             updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
-            applyLibraryImpactDrainResult(testRunResult.getLibraryImpactDrainResult(), commitValue);
-            if (allTestsRun) {
-                advanceAllMappingBaselines(commitValue);
-            }
         }
 
-        // 2. Seal: writing the commit value last is what makes commit X "official". Until this
-        //    line executes, the stored commit value is unchanged and the next run will treat
-        //    everything since the prior commit as unmapped.
-        updateTiaCoreData(tiaData, commitValue, branch, updateDBMapping, updateDBStats,
-                testRunResult.getTestStats(), allTestsRun);
+        // 3. The seal bundle: catalogue, library drain cleanup and the commit value, written in
+        //    one transaction so none of them can end up ahead of the others.
+        sealRun(tiaData, commitValue, branch, updateDBMapping, updateDBStats,
+                testRunResult, allTestsRun);
 
-        // 3. History row is audit-only and has no select-tests consistency implications;
+        // 4. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
         if (updateDBTestRunHistory) {
             // Baseline for this run's savings: the all-tests average as it stands now. Partial runs
@@ -115,6 +115,61 @@ public class TestRunnerService {
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
                     durationMs, testRunResult, allTestsRunTimeMs);
         }
+    }
+
+    /**
+     * Assemble and write the run's seal. The method catalogue, the library drain cleanup and the
+     * commit value all describe the commit being sealed, so they are handed to the data store as
+     * one bundle and written in a single transaction via {@link DataStore#persistSealedRunData}.
+     * On a run that does not own mapping updates the only write is the core row - it carries the
+     * Tia-level run stats as well as the commit value, but there is no catalogue rewrite, no
+     * drain cleanup and no commit advance, exactly as on today's stats-only path.
+     *
+     * @param tiaData the core data read at the start of the persist, mutated with the new commit
+     *                and stats before being written
+     * @param commitValue the VCS commit / changelist the run was against
+     * @param branch the VCS branch the run targeted
+     * @param updateDBMapping whether this run owns mapping-DB updates
+     * @param updateDBStats whether the run stats should be updated
+     * @param testRunResult the collected results of the test run
+     * @param allTestsRun {@code true} when Tia ignored zero suites this run
+     */
+    private void sealRun(final TiaData tiaData, final String commitValue, final String branch,
+                         final boolean updateDBMapping, final boolean updateDBStats,
+                         final TestRunResult testRunResult, final boolean allTestsRun){
+        if (updateDBStats){
+            tiaData.incrementStats(testRunResult.getTestStats(), allTestsRun);
+        }
+
+        if (!updateDBMapping) {
+            // This run does not own mapping updates, so there is nothing to seal. The only write
+            // is the core row, which carries the Tia-level run stats as well as the commit value.
+            // tia_source_method, the library baselines and the unsealed flags are all mapping
+            // concerns and stay untouched, exactly as on a stats-only run today.
+            dataStore.persistCoreData(tiaData);
+            return;
+        }
+
+        tiaData.setCommitValue(commitValue);
+        tiaData.setBranch(branch);
+        tiaData.setLastUpdated(Instant.now());
+
+        Map<Integer, MethodImpactTracker> methodsTracked =
+                buildMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
+
+        List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
+        List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
+        LibraryImpactDrainResult drainResult = testRunResult.getLibraryImpactDrainResult();
+        if (drainResult != null && drainResult.hasDrainedBatches()) {
+            drainedMethodKeys = new ArrayList<>(drainResult.getDrainedBatchKeys());
+            drainedForcedKeys = new ArrayList<>(drainResult.getDrainedForcedBatchKeys());
+        }
+
+        List<TrackedLibrary> librariesToPersist =
+                collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
+
+        dataStore.persistSealedRunData(new SealedRunData(tiaData, methodsTracked,
+                drainedMethodKeys, drainedForcedKeys, librariesToPersist));
     }
 
     /**
@@ -164,33 +219,6 @@ public class TestRunnerService {
         dataStore.persistTestRunHistoryEntry(entry);
         log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
                 entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
-    }
-
-    /**
-     *
-     * @param tiaData the Tia DB
-     * @param commitValue the new commit value the test run was executed against
-     * @param branch the VCS branch the run targeted, stamped alongside the commit value
-     * @param updateDBMapping should the test to source code mapping be updated in the DB for the test run
-     * @param updateDBStats should the test stats be updated for the test run
-     * @param testStats the stats for the test run
-     * @param allTestsRun {@code true} when Tia ignored zero suites this run, routing the duration
-     *                    into the all-tests-run average instead of the selected-run average
-     */
-    private void updateTiaCoreData(final TiaData tiaData, final String commitValue, final String branch,
-                                   final boolean updateDBMapping, final boolean updateDBStats, final TestStats testStats,
-                                   final boolean allTestsRun){
-        if (updateDBMapping) {
-            tiaData.setCommitValue(commitValue);
-            tiaData.setBranch(branch);
-            tiaData.setLastUpdated(Instant.now());
-        }
-
-        if (updateDBStats){
-            tiaData.incrementStats(testStats, allTestsRun);
-        }
-
-        dataStore.persistCoreData(tiaData);
     }
 
     /**
@@ -295,17 +323,21 @@ public class TestRunnerService {
     }
 
     /**
-     * Note, make sure this method is called after updateTestSuiteMapping. It relies on querying the DB for the list of
-     * updated source class method ids.
+     * Build the method catalogue to write at the seal. Note this must be called after the suite
+     * mapping has been persisted - it queries the data store for the updated set of source class
+     * method ids.
      *
-     * @param tiaData the Tia DB
-     * @param methodTrackersFromTestRun a map of all source code methods that were covered by any of the test suites executed in the test run
+     * @param tiaData the Tia DB, updated in place with the resulting catalogue
+     * @param methodTrackersFromTestRun all source code methods covered by any test suite executed
+     *                                  in this run
+     * @return the catalogue to persist, keyed by method id
      */
-    private void updateMethodsTracked(final TiaData tiaData, final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun){
+    private Map<Integer, MethodImpactTracker> buildMethodsTracked(final TiaData tiaData,
+                                                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun){
         Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
         Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun);
         tiaData.setMethodsTracked(updatedMethodTrackers);
-        dataStore.persistSourceMethods(updatedMethodTrackers);
+        return updatedMethodTrackers;
     }
 
     /**
@@ -325,102 +357,54 @@ public class TestRunnerService {
     }
 
     /**
-     * Apply the library impact drain result after a successful test run. Deletes the drained
-     * stamp rows from the data store and advances each drained library's
-     * {@code last_applied_seq} to the resolved build's sequence and its
-     * {@code mapping_baseline_commit} to this run's sealed commit - for a method-stamp drain, the
-     * drain ran the library's covering suites with coverage, so their method line numbers were
-     * just re-captured at this commit; for a forced-selection drain the advance instead rests on
-     * a pure forced batch implying no tracked-method change in the library (a code change would
-     * have produced a method batch too), and a RUN_ALL forced drain re-running everything anyway.
-     * See the drain-rule and mapping-baseline sections of the library publish-time stamping chapter in {@code WIKI.md}.
+     * Collect the tracked-library rows whose state changes as part of this seal, without writing
+     * them - the caller hands them to the data store inside the seal transaction.
      *
-     * @param drainResult the drain result from test selection, or {@code null} if no drain occurred.
-     * @param commitValue the commit this run seals - the new mapping baseline for drained libraries.
-     */
-    private void applyLibraryImpactDrainResult(final LibraryImpactDrainResult drainResult,
-                                               final String commitValue) {
-        if (drainResult == null || !drainResult.hasDrainedBatches()) {
-            return;
-        }
-
-        deleteDrainedPendingBatches(drainResult);
-        updateAppliedLibraryState(drainResult, commitValue);
-    }
-
-    /**
-     * Delete each drained {@code (groupArtifact, publishSeq)} batch from the pending
-     * impacted-method table, then each drained forced-selection batch from the pending
-     * forced-selection table. The two batch kinds live in separate pending tables and are
-     * drained independently, so both loops run regardless of whether the other found anything.
+     * <p>Two sources contribute. A drained library has its {@code lastAppliedSeq} advanced to the
+     * resolved build's sequence and its {@code mappingBaselineCommit} to this run's commit. An
+     * all-tests run advances every tracked library's baseline, because every suite was just
+     * re-covered. See the mapping-baseline section of the library publish-time stamping chapter
+     * in {@code WIKI.md}.
      *
-     * @param drainResult the drain result carrying the drained method and forced-selection batch keys.
+     * @param drainResult the drain result from test selection, or {@code null} when no drain ran
+     * @param commitValue the commit this run seals - the new mapping baseline
+     * @param allTestsRun {@code true} when Tia ignored zero suites this run
+     * @return the library rows to upsert; empty when nothing changed
      */
-    private void deleteDrainedPendingBatches(final LibraryImpactDrainResult drainResult) {
-        for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedBatchKeys()) {
-            log.info("Deleting drained pending batch: {}", key);
-            dataStore.deletePendingLibraryImpactedMethods(key.getGroupArtifact(), key.getPublishSeq());
-        }
-
-        for (LibraryImpactDrainResult.DrainedBatchKey key : drainResult.getDrainedForcedBatchKeys()) {
-            log.info("Deleting drained forced-selection batch: {}", key);
-            dataStore.deletePendingLibraryForcedSelections(key.getGroupArtifact(), key.getPublishSeq());
-        }
-    }
-
-    /**
-     * Advance each drained library's {@code last_applied_seq} to the sequence of the build the
-     * source project resolved, and its {@code mapping_baseline_commit} to this run's sealed
-     * commit. For a method-stamp drain this is justified because its covering suites just re-ran
-     * with coverage, re-capturing the library's method line numbers at this commit. A
-     * forced-selection drain's rule-selected suites need not cover the library at all, so the
-     * advance there instead rests on a pure forced batch implying no tracked-method change in the
-     * library occurred (a code change would have produced a method batch), and on a RUN_ALL
-     * forced drain re-running the full suite set regardless.
-     *
-     * @param drainResult the drain result carrying the applied sequence per drained library.
-     * @param commitValue the commit this run seals.
-     */
-    private void updateAppliedLibraryState(final LibraryImpactDrainResult drainResult,
-                                           final String commitValue) {
+    private List<TrackedLibrary> collectLibrariesToPersist(final LibraryImpactDrainResult drainResult,
+                                                           final String commitValue,
+                                                           final boolean allTestsRun) {
         Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        Map<String, TrackedLibrary> changed = new LinkedHashMap<>();
 
-        for (Map.Entry<String, Long> entry : drainResult.getAppliedSeqByLibrary().entrySet()) {
-            String groupArtifact = entry.getKey();
-            TrackedLibrary library = trackedLibraries.get(groupArtifact);
-
-            if (library == null) {
-                log.warn("Tracked library '{}' not found during drain cleanup - skipping applied-seq update.",
-                        groupArtifact);
-                continue;
-            }
-
-            library.setLastAppliedSeq(entry.getValue());
-            library.setMappingBaselineCommit(commitValue);
-            dataStore.persistTrackedLibrary(library);
-            log.info("Updated tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
-                    groupArtifact, entry.getValue(), commitValue);
-        }
-    }
-
-    /**
-     * Advance every tracked library's {@code mapping_baseline_commit} to this run's sealed
-     * commit after an all-tests run: every suite ran with coverage, so every library's tracked
-     * method line numbers were just re-captured at this commit. A no-op when no libraries are
-     * tracked. See the mapping-baseline section of the library publish-time stamping chapter in {@code WIKI.md}.
-     *
-     * @param commitValue the commit this run seals.
-     */
-    private void advanceAllMappingBaselines(final String commitValue) {
-        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
-        for (TrackedLibrary library : trackedLibraries.values()) {
-            if (!Objects.equals(library.getMappingBaselineCommit(), commitValue)) {
+        if (drainResult != null && drainResult.hasDrainedBatches()) {
+            for (Map.Entry<String, Long> entry : drainResult.getAppliedSeqByLibrary().entrySet()) {
+                TrackedLibrary library = trackedLibraries.get(entry.getKey());
+                if (library == null) {
+                    log.warn("Tracked library '{}' not found during drain cleanup - skipping applied-seq update.",
+                            entry.getKey());
+                    continue;
+                }
+                library.setLastAppliedSeq(entry.getValue());
                 library.setMappingBaselineCommit(commitValue);
-                dataStore.persistTrackedLibrary(library);
-                log.info("All-tests run - advanced mapping baseline for library '{}' to '{}'.",
-                        library.getGroupArtifact(), commitValue);
+                changed.put(entry.getKey(), library);
+                log.info("Updating tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
+                        entry.getKey(), entry.getValue(), commitValue);
             }
         }
+
+        if (allTestsRun) {
+            for (TrackedLibrary library : trackedLibraries.values()) {
+                if (!Objects.equals(library.getMappingBaselineCommit(), commitValue)) {
+                    library.setMappingBaselineCommit(commitValue);
+                    changed.put(library.getGroupArtifact(), library);
+                    log.info("All-tests run - advancing mapping baseline for library '{}' to '{}'.",
+                            library.getGroupArtifact(), commitValue);
+                }
+            }
+        }
+
+        return new ArrayList<>(changed.values());
     }
 
     /**
