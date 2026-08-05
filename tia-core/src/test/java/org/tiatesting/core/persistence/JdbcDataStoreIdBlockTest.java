@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -150,8 +151,11 @@ class JdbcDataStoreIdBlockTest {
 
         Connection connection = dataStore.getConnection();
 
-        // when / then
-        assertThrows(SQLException.class, () -> dataStore.allocateSourceClassIdBlock(connection, 10),
+        // when
+        Executable seedAttempt = () -> dataStore.allocateSourceClassIdBlock(connection, 10);
+
+        // then
+        assertThrows(SQLException.class, seedAttempt,
                 "a genuine seed failure must propagate rather than being swallowed as a lost race");
         connection.close();
     }

@@ -44,6 +44,12 @@ class TestSelectorUnsealedSuitesTest {
     private JdbcDataStore dataStore;
     private File tempDir;
 
+    /**
+     * Create a temp-directory-backed embedded {@link JdbcDataStore} and bootstrap its schema, so
+     * each test starts from an empty, independent DB rather than sharing state across test methods.
+     *
+     * @throws Exception if the temp directory or the underlying H2 database cannot be created
+     */
     @BeforeEach
     void setUp() throws Exception {
         tempDir = File.createTempFile("tia-unsealed-", "");
@@ -96,9 +102,9 @@ class TestSelectorUnsealedSuitesTest {
      * on {@code updateDBMapping} - an unsealed suite must be force-run on a preview
      * ({@code updateDBMapping=false}, covered above) just as much as on a primary build
      * ({@code updateDBMapping=true}), because either kind of run needs the recaptured coverage.
-     * This pins the {@code true} case so a future {@code if (updateDBMapping)} wrapper around
-     * {@code addUnsealedTests} would be caught here even though the {@code false} case above
-     * would still pass.
+     * Together with the test above, this pins both polarities of {@code updateDBMapping} on the
+     * force-selection call, so a regression that made it conditional on either value would fail
+     * one of the two tests.
      */
     @Test
     void anUnsealedSuiteIsForceSelectedWhenUpdateDBMappingIsTrue() {
