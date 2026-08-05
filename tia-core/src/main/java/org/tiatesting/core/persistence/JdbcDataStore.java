@@ -1538,39 +1538,27 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Read the names of every test suite currently flagged {@code unsealed} in the DB. Used by
-     * {@link #persistTestSuites(Connection, Collection, boolean)} as the source of truth for
-     * "does this suite already have the flag set", independent of whatever value the in-memory
-     * {@link TestSuiteTracker} handed to that call happens to carry.
+     * Upsert the given suites' name/stats rows and, for mapping-update runs, their
+     * suite-to-source-class/method edges, then flag as {@code unsealed} exactly the suites that
+     * had coverage this run. Every suite in {@code testSuites} gets a row write regardless of
+     * whether it ran this time - the caller passes the whole merged suite map - but the edges
+     * (and the unsealed flag, when {@code includeClassMappings} is {@code true}) are only written
+     * for suites with non-empty {@link TestSuiteTracker#getClassesImpacted()}, i.e. suites that
+     * actually have coverage this run.
      *
-     * @param connection the connection to query on
-     * @return the names of the currently-flagged suites; empty when none are flagged
-     * @throws SQLException if the query fails
-     */
-    private Set<String> readUnsealedTestSuiteNames(Connection connection) throws SQLException {
-        Set<String> unsealedNames = new HashSet<>();
-        try (Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery("SELECT " + COL_NAME + " FROM " + TABLE_TIA_TEST_SUITE
-                     + " WHERE " + COL_UNSEALED + " = TRUE")) {
-            while (rs.next()) {
-                unsealedNames.add(rs.getString(COL_NAME));
-            }
-        }
-        return unsealedNames;
-    }
-
-    /**
-     * Upsert the given suites' name/stats rows and, for mapping-update runs, their unsealed flag
-     * and suite-to-source-class/method edges. Every suite in {@code testSuites} gets a row write
-     * regardless of whether it ran this time - the caller passes the whole merged suite map - but
-     * the edges (and the unsealed flag, when {@code includeClassMappings} is {@code true}) are
-     * only written for suites with non-empty {@link TestSuiteTracker#getClassesImpacted()}, i.e.
-     * suites that actually have coverage this run. See the "Persist flow and crash safety"
-     * chapter in {@code WIKI.md}.
+     * <p>{@code unsealed} is deliberately kept out of the upsert's column list: the upsert
+     * touches every suite in {@code testSuites}, including ones with no coverage this run, so if
+     * the flag were part of that write it would need read-modify-write logic to avoid clobbering
+     * a value set by a concurrent writer - and any such logic still leaves a read/write race
+     * across the two separate statements. Instead the flag is set with one targeted
+     * {@code UPDATE ... WHERE name IN (...)} covering only the suites that actually ran, issued
+     * after the suite loop. That statement can only ever set the flag to {@code true}; only the
+     * seal ({@link #clearUnsealedTestSuites(Connection)}) may clear it. See the "Persist flow and
+     * crash safety" chapter in {@code WIKI.md}.
      *
      * @param connection the connection to write on
      * @param testSuites the suites whose rows to persist; a no-op when empty
-     * @param includeClassMappings whether to also write the unsealed flag and delete-and-reinsert
+     * @param includeClassMappings whether to also flag the unsealed suites and delete-and-reinsert
      *                             the per-suite {@code tia_source_class} / {@code tia_source_class_method}
      *                             edges; {@code true} for mapping-update runs, {@code false} for stats-only
      * @throws SQLException if any write fails
@@ -1583,13 +1571,13 @@ public class JdbcDataStore implements DataStore {
 
         // developer_disabled is mapping metadata, maintained on mapping-update runs only.
         // Stats-only runs (includeClassMappings=false) leave the column out of the upsert so
-        // the stored flag is untouched. The column set is constant for the whole call, so the
-        // upsert statement is prepared once and reused (re-bound) per suite.
+        // the stored flag is untouched. unsealed is never part of this column list - see the
+        // javadoc above for why. The column set is constant for the whole call, so the upsert
+        // statement is prepared once and reused (re-bound) per suite.
         List<String> suiteColumns = new ArrayList<>(Arrays.asList(COL_NAME, COL_NUM_RUNS,
                 COL_AVG_RUN_TIME, COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS));
         if (includeClassMappings){
             suiteColumns.add(COL_DEVELOPER_DISABLED);
-            suiteColumns.add(COL_UNSEALED);
         }
         String mergeSql = dialect.upsert(TABLE_TIA_TEST_SUITE, suiteColumns,
                 Collections.singletonList(COL_NAME));
@@ -1601,14 +1589,6 @@ public class JdbcDataStore implements DataStore {
         long[] nextSourceClassId = null;
         PreparedStatement classChunkPs = null;
         PreparedStatement edgeChunkPs = null;
-        // The names currently flagged unsealed in the DB, read once up front so the write below
-        // can OR against the stored value rather than trusting the caller's in-memory flag - the
-        // caller may hand in a freshly-constructed tracker (e.g. a suite merged in from a prior
-        // run) that never carried the DB's value forward. Only the seal (clearUnsealedTestSuites)
-        // may make this flag go from true to false; this lookup is what keeps this write from
-        // being an accidental second way to clear it.
-        Set<String> existingUnsealedSuiteNames = includeClassMappings
-                ? readUnsealedTestSuiteNames(connection) : Collections.emptySet();
         if (includeClassMappings){
             // Reserve exactly the ids this persist needs, in one atomic allocation, so a
             // concurrent writer cannot be handed the same range. See the "Persist flow and crash
@@ -1618,6 +1598,11 @@ public class JdbcDataStore implements DataStore {
             classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
             edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
         }
+
+        // Names of the suites that had coverage this run, collected while iterating so the
+        // unsealed flag can be set afterwards with one targeted statement instead of as part of
+        // the per-suite upsert.
+        List<String> suiteNamesRanThisRun = includeClassMappings ? new ArrayList<>() : Collections.emptyList();
 
         PreparedStatement suitePs = connection.prepareStatement(mergeSql, Statement.RETURN_GENERATED_KEYS);
         try {
@@ -1629,14 +1614,6 @@ public class JdbcDataStore implements DataStore {
                 suitePs.setLong(5, testSuite.getTestStats().getNumFailRuns());
                 if (includeClassMappings){
                     suitePs.setBoolean(6, testSuite.isDeveloperDisabled());
-                    // Flag only the suites whose mapping rows are actually written, matching the
-                    // condition that guards persistTestSuiteClasses below. The existing stored
-                    // flag (and whatever the caller's tracker already carried) is preserved so a
-                    // second consecutive unsealed run does not clear the first.
-                    boolean ranThisRun = !testSuite.getClassesImpacted().isEmpty();
-                    boolean existingFlag = testSuite.isUnsealed()
-                            || existingUnsealedSuiteNames.contains(testSuite.getName());
-                    suitePs.setBoolean(7, existingFlag || ranThisRun);
                 }
 
                 suitePs.executeUpdate();
@@ -1650,12 +1627,51 @@ public class JdbcDataStore implements DataStore {
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
                             testSuite.getClassesImpacted(), classChunkPs, edgeChunkPs, nextSourceClassId);
+                    suiteNamesRanThisRun.add(testSuite.getName());
                 }
             }
         } finally {
             suitePs.close();
             if (classChunkPs != null){ classChunkPs.close(); }
             if (edgeChunkPs != null){ edgeChunkPs.close(); }
+        }
+
+        if (includeClassMappings){
+            flagUnsealedTestSuites(connection, suiteNamesRanThisRun);
+        }
+    }
+
+    /**
+     * Flag the given test suites as {@code unsealed}: their mapping rows were just written by a
+     * run that has not yet sealed its commit value. This is the only statement in
+     * {@link #persistTestSuites(Connection, Collection, boolean)} that touches the column, and it
+     * only ever sets it to {@code true} - clearing it is exclusively the seal's job
+     * ({@link #clearUnsealedTestSuites(Connection)}). Chunked into
+     * {@value #IN_CLAUSE_CHUNK_SIZE}-name statements with bound parameters, matching the other
+     * targeted IN-clause queries in this class; suite names are not trusted input for direct SQL
+     * assembly.
+     *
+     * @param connection the connection to write on
+     * @param suiteNames the names of the suites to flag; a no-op when empty
+     * @throws SQLException if the update fails
+     */
+    private void flagUnsealedTestSuites(Connection connection, List<String> suiteNames) throws SQLException {
+        if (suiteNames.isEmpty()){
+            return;
+        }
+
+        for (int from = 0; from < suiteNames.size(); from += IN_CLAUSE_CHUNK_SIZE){
+            List<String> chunk = suiteNames.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, suiteNames.size()));
+            String placeholders = String.join(", ", Collections.nCopies(chunk.size(), "?"));
+            String sql = "UPDATE " + TABLE_TIA_TEST_SUITE + " SET " + COL_UNSEALED + " = TRUE WHERE "
+                    + COL_NAME + " IN (" + placeholders + ")";
+            try (PreparedStatement ps = connection.prepareStatement(sql)){
+                int paramIndex = 1;
+                for (String name : chunk){
+                    ps.setString(paramIndex++, name);
+                }
+                ps.executeUpdate();
+            }
         }
     }
 
