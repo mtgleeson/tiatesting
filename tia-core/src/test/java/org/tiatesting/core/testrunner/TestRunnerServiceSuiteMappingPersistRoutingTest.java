@@ -186,6 +186,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public Set<String> getTestSuitesFailed() { return delegate.getTestSuitesFailed(); }
         @Override public void persistCoreData(TiaData tiaData) { delegate.persistCoreData(tiaData); }
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
+        @Override public void clearUnsealedTestSuites() { delegate.clearUnsealedTestSuites(); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
         @Override public void persistSealedRunData(SealedRunData sealedRunData) { delegate.persistSealedRunData(sealedRunData); }
 

@@ -318,6 +318,11 @@ class TestRunnerServiceSealOrderTest {
             delegate.persistTestSuitesFailed(testSuitesFailed);
         }
         @Override
+        public void clearUnsealedTestSuites() {
+            callOrder.add("clearUnsealedTestSuites");
+            delegate.clearUnsealedTestSuites();
+        }
+        @Override
         public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) {
             callOrder.add("persistSourceMethods");
             delegate.persistSourceMethods(methodsTracked);

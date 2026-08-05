@@ -173,6 +173,23 @@ public class SerializedDataStore implements DataStore {
         log.info("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * Clear the unsealed flag from every tracked test suite and write the whole file back to
+     * disk. The serialized store has no per-row update, so clearing the flag on the in-memory
+     * suites and rewriting the file is the equivalent of the JDBC stores' targeted
+     * {@code UPDATE ... WHERE unsealed = TRUE}.
+     */
+    @Override
+    public void clearUnsealedTestSuites() {
+        TiaData tiaData = getTiaData(false);
+        for (TestSuiteTracker testSuiteTracker : tiaData.getTestSuitesTracked().values()) {
+            testSuiteTracker.setUnsealed(false);
+        }
+        long startTime = System.currentTimeMillis();
+        writeTiaDataToDisk(tiaData);
+        log.debug("Time to clear the unsealed test suite flags on disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
     @Override
     public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) {
         TiaData tiaData = getTiaData(false);
