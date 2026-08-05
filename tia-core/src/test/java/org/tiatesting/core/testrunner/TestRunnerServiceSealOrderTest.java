@@ -44,7 +44,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Tests wrap an {@link JdbcDataStore} in a recording decorator. Failure-case tests throw from
  * a specific {@code persistX} method and assert the stored commit value didn't move. The
- * happy-path test asserts that {@code persistCoreData} is invoked after every mapping write.
+ * happy-path test asserts that {@code persistSealedRunData} (the seal bundle) is invoked after
+ * every mapping write that precedes it, and that it is the only write that reaches
+ * {@code persistCoreData} - a mapping run never seals via a separate {@code persistCoreData} call.
  */
 class TestRunnerServiceSealOrderTest {
 
@@ -99,30 +101,6 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * Crash while writing the method catalogue must leave the stored commit value at the prior
-     * setting. The catalogue is now written as part of the seal bundle
-     * ({@code persistSealedRunData}), so this simulates the failure at that entry point; the
-     * suite mapping has already updated at this point, and the orphan-skip logic at
-     * {@code TestRunnerService.updateMethodTracker} handles the partial state on the next read.
-     */
-    @Test
-    void crashDuringMethodsTracked_storedCommitValueRemainsPriorValue() {
-        // given
-        RecordingDataStore spy = new RecordingDataStore(dataStore);
-        spy.throwOnPersistSourceMethods = true;
-        TestRunnerService service = new TestRunnerService(spy);
-
-        // when
-        TestRunResult result = makeResult();
-        assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
-
-        // then
-        TiaData reloaded = dataStore.getTiaData(true);
-        assertEquals("prior-commit", reloaded.getCommitValue());
-    }
-
-    /**
      * Crash during the failed-tests write must leave the stored commit value at the prior
      * setting. On recovery, the stale failed-tests set just means previously-failing tests are
      * re-run on the next attempt - self-correcting.
@@ -145,42 +123,44 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * Crash during the library-impact drain cleanup must still leave the stored commit value at
-     * the prior setting. The drain cleanup is now part of the seal bundle
-     * ({@code persistSealedRunData}), so this simulates the failure at that entry point. The
-     * pending library rows remain in the DB; the next run re-drains them - idempotent.
+     * A stats-only run ({@code updateDBMapping=false}) must never advance the stored commit value
+     * and must never reach the seal bundle. {@code sealRun} short-circuits before building the
+     * bundle on this path, writing only the core row via {@code persistCoreData} - there is no
+     * catalogue rewrite and no drain cleanup, matching today's stats-only behaviour. A regression
+     * that routed this path through {@code persistSealedRunData} would clear and re-insert the
+     * whole {@code tia_source_method} catalogue on every stats-only build even though nothing
+     * about the mapping changed.
      */
     @Test
-    void crashDuringLibraryDrain_storedCommitValueRemainsPriorValue() {
-        // given - seed a tracked library + a pending row so the drain has work to do
-        TrackedLibrary lib = new TrackedLibrary("com.example:lib", "/projects/lib", null);
-        dataStore.persistTrackedLibrary(lib);
-        dataStore.persistPendingLibraryImpactedMethods(new PendingLibraryImpactedMethod(
-                "com.example:lib", "1.0.0", 1L, new HashSet<>(java.util.Arrays.asList(10))));
-
-        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
-        drainResult.addDrainedBatch("com.example:lib", 1L);
-        drainResult.setAppliedSeq("com.example:lib", 1L);
-
+    void statsOnlyRun_routesThroughPersistCoreDataNotSealBundle_andCommitValueRemainsPriorValue() {
+        // given
         RecordingDataStore spy = new RecordingDataStore(dataStore);
-        spy.throwOnDeletePendingLibraryImpactedMethods = true;
         TestRunnerService service = new TestRunnerService(spy);
 
         // when
-        TestRunResult result = makeResult(drainResult);
-        assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
+        service.persistTestRunData(false, true, false, "new-commit", "main",
+                System.currentTimeMillis(), makeResult());
 
-        // then
+        // then - the seal bundle is never invoked; the core row goes through persistCoreData instead
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistSealedRunData"),
+                "a stats-only run must not go through the seal bundle");
+        assertEquals(1, Collections.frequency(spy.callOrder, "persistCoreData"),
+                "a stats-only run must write its core row via persistCoreData");
+
+        // and - a non-mapping run must not seal a new commit value
         TiaData reloaded = dataStore.getTiaData(true);
-        assertEquals("prior-commit", reloaded.getCommitValue());
+        assertEquals("prior-commit", reloaded.getCommitValue(),
+                "a non-mapping run must not advance the stored commit value");
     }
 
     /**
      * Happy path: with no injected failure, the stored commit value advances to the new value
      * AND {@code persistSealedRunData} (the seal bundle) is invoked after every write that
      * precedes it. This is the regression-proof for the reorder: if anyone moves the seal bundle
-     * back to the front, this test breaks.
+     * back to the front, this test breaks. It also pins the bundle as the ONLY seal write: on a
+     * mapping run {@code persistSealedRunData} is invoked exactly once and {@code persistCoreData}
+     * exactly zero times, so a regression that added a separate {@code persistCoreData} seal after
+     * the bundle would be caught here rather than only on an aborting run.
      */
     @Test
     void happyPath_persistSealedRunDataInvokedAfterAllMappingWrites() {
@@ -207,6 +187,12 @@ class TestRunnerServiceSealOrderTest {
                 "persistTestSuites must be invoked before the seal. Call order: " + spy.callOrder);
         assertTrue(failedIdx >= 0 && failedIdx < sealIdx,
                 "persistTestSuitesFailed must be invoked before the seal. Call order: " + spy.callOrder);
+
+        // and - the bundle is the single seal write: exactly one seal, zero separate core writes
+        assertEquals(1, Collections.frequency(spy.callOrder, "persistSealedRunData"),
+                "a mapping run must seal exactly once, via the bundle");
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistCoreData"),
+                "a mapping run must not also seal via a separate persistCoreData call");
     }
 
     /**
@@ -290,9 +276,7 @@ class TestRunnerServiceSealOrderTest {
         private final DataStore delegate;
         final List<String> callOrder = new ArrayList<>();
         boolean throwOnPersistTestSuites = false;
-        boolean throwOnPersistSourceMethods = false;
         boolean throwOnPersistTestSuitesFailed = false;
-        boolean throwOnDeletePendingLibraryImpactedMethods = false;
         boolean failInSealBundle;
 
         RecordingDataStore(DataStore delegate) {
@@ -336,9 +320,6 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) {
             callOrder.add("persistSourceMethods");
-            if (throwOnPersistSourceMethods) {
-                throw new RuntimeException("simulated failure in persistSourceMethods");
-            }
             delegate.persistSourceMethods(methodsTracked);
         }
         @Override
@@ -346,12 +327,6 @@ class TestRunnerServiceSealOrderTest {
             callOrder.add("persistSealedRunData");
             if (failInSealBundle) {
                 throw new RuntimeException("simulated failure in persistSealedRunData");
-            }
-            if (throwOnPersistSourceMethods) {
-                throw new RuntimeException("simulated failure writing the method catalogue inside persistSealedRunData");
-            }
-            if (throwOnDeletePendingLibraryImpactedMethods) {
-                throw new RuntimeException("simulated failure in the library drain cleanup inside persistSealedRunData");
             }
             delegate.persistSealedRunData(sealedRunData);
         }
@@ -422,9 +397,6 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public void deletePendingLibraryImpactedMethods(String groupArtifact, long publishSeq) {
             callOrder.add("deletePendingLibraryImpactedMethods");
-            if (throwOnDeletePendingLibraryImpactedMethods) {
-                throw new RuntimeException("simulated failure in deletePendingLibraryImpactedMethods");
-            }
             delegate.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq);
         }
         @Override
