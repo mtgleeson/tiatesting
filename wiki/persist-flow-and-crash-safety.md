@@ -115,11 +115,18 @@ without the suite's coverage actually having been recaptured against the sealed 
   the seal is unconditional, so if that run reaches its seal, the flag is cleared anyway, without
   the suite's coverage having been rewritten. A suite that runs and legitimately returns empty
   coverage has the identical effect: no edge rewrite, but the seal still clears whatever flag was
-  already set. The most likely real-world instance of this escape is a Surefire/Failsafe retry:
-  `persistTestRunData` is called once per retry attempt for JUnit 4 / JUnit 5 (see "One persist per
-  run" above), so attempt 1 can flag suites A and B and then die before sealing; attempt 2 retries
-  only suite A, runs it, and reaches its own seal, which clears both A's and B's flags
-  unconditionally, even though B's coverage was never recaptured on any retry attempt.
+  already set.
+
+  A Surefire/Failsafe retry is **not** an instance of this escape, despite `persistTestRunData`
+  running once per attempt (see "One persist per run" above). The suite trackers are shared across
+  attempts: `SharedTestRunData` is a `private static final` field on `TiaLauncherSessionListener`,
+  so its `testSuiteTrackers` map lives for the JVM, and JUnit 4 gets the same effect because
+  Surefire reuses the same `TiaJunit4Listener` instance across re-runs. That sharing exists so a
+  re-run - which only covers the retried subset - cannot overwrite a suite's mapping with that
+  subset. It has the side effect of keeping every suite the earlier attempt covered in the later
+  attempt's persist, so those suites are re-written and re-flagged, and the seal that follows clears
+  their flags legitimately. The escape would apply to a retry in a *fresh* JVM, where the statics
+  are new - but that is the multi-fork case already documented below under "Multi-fork persist".
 - The clear is deliberately unscoped - `UPDATE tia_test_suite SET unsealed = FALSE WHERE unsealed = TRUE`,
   not restricted to the suites this run touched. With a single sequential test run this is harmless
   (every flag it clears is one this run's own edge write just re-accounted for). With multiple
@@ -151,10 +158,18 @@ that suite's edges and flag. A crash landing in the narrow window between those 
 the `MERGE` for a brand-new suite commits but before its `persistTestSuiteClasses` transaction opens
 or commits - leaves that suite tracked with zero source-class edges and `unsealed = FALSE` (the
 column's default), rather than flagged. From then on it reads identically to a suite Tia has always
-found no coverage for, and stays that way until it next produces coverage and its mapping is
-written. This is pre-existing (not introduced by the work that added the flag) and the window is
-tiny, but it is a genuine counterexample to "exactly the suites that ran are flagged" - a
-brand-new suite killed in that window is left tracked and unflagged instead.
+found no coverage for: no diff can select it, because nothing maps to it, and it is not flagged, so
+`getTestsToIgnore` puts it in the ignore list on every run. It stays there until its own test file
+changes, it enters the failed-suite set, a static rule or library forced-selection names it, or an
+all-tests run happens. Before the crash it was *untracked*, and an untracked suite always runs -
+so the effect of the partial write is to move it from always-run to always-ignored.
+
+The flag cannot cover this case by construction. Keeping `unsealed` out of the suite-row upsert is
+precisely what makes the persist path physically unable to write `FALSE` (see above), so it cannot
+be set in the same statement as the `MERGE`; setting it in a separate statement would add a round
+trip per suite to the persist path. This is pre-existing (not introduced by the work that added the
+flag) and the window is one statement wide, but it is a genuine counterexample to "exactly the
+suites that ran are flagged".
 
 **`SerializedDataStore` implements `clearUnsealedTestSuites()`, but nothing ever sets the flag
 there.** The `unsealed = TRUE` write lives in `JdbcDataStore.persistTestSuiteClasses` only; the
