@@ -109,13 +109,30 @@ without the suite's coverage actually having been recaptured against the sealed 
 
 - `persistTestSuiteClasses` only runs for suites with non-empty `classesImpacted` - i.e. suites that
   actually executed and produced coverage this run. A suite that was force-selected (by this same
-  flag, by the failed-suite set, or by a library forced-selection) but then discovered and filtered
-  back out - a `--tests` filter, a tag filter, a fail-fast abort - never reaches
-  `persistTestSuiteClasses`, so its flag is untouched by step 1. But `clearUnsealedTestSuites` in
-  the seal is unconditional, so if that run reaches its seal, the flag is cleared anyway, without
-  the suite's coverage having been rewritten. A suite that runs and legitimately returns empty
-  coverage has the identical effect: no edge rewrite, but the seal still clears whatever flag was
-  already set.
+  flag, by the failed-suite set, or by a library forced-selection) but then filtered back out never
+  reaches `persistTestSuiteClasses`, so its edges are not rewritten. But `clearUnsealedTestSuites`
+  in the seal is unconditional, so if that run reaches its seal the flag is cleared anyway, leaving
+  the suite with the crashed run's mapping rows, no flag, and a stored commit that claims they are
+  current. A suite that runs and legitimately returns empty coverage has the identical effect: no
+  edge rewrite, but the seal still clears whatever flag was already set.
+
+  The filters that actually cause this are the ones Tia cannot see:
+
+  - **Tag and group filters** - JUnit 5 `includeTags` / `excludeTags`, Surefire `<groups>`, TestNG
+    groups. Nothing checks these, so Tia stays enabled, persists and seals as normal. This is the
+    likeliest real-world instance, because tag filters are routine in CI.
+  - **Filters configured in the build file rather than on the command line** - Surefire
+    `<includes>` / `<excludes>`, or a Gradle `test { filter { ... } }` block.
+  - **Fail-fast aborts** - the run stops early and suites past that point never execute, but the
+    listener still reaches its persist and its seal.
+
+  An explicit **command-line** test filter is *not* an instance of this escape, because Tia disables
+  itself entirely rather than running a filtered selection: `AbstractTiaAgentMojo` and both
+  `TiaTestExecutionListener` and `TiaJunit4Listener` check `System.getProperty("test")` for Maven's
+  `-Dtest`, and `TiaSpockGitGradlePluginTestExtension` checks
+  `DefaultTestFilter.getCommandLineIncludePatterns()` for Gradle's `--tests`. When disabled, the
+  listener returns before persisting, so there is no seal and therefore no clear - the flag survives
+  and the next full run still force-runs the suite.
 
   A Surefire/Failsafe retry is **not** an instance of this escape, despite `persistTestRunData`
   running once per attempt (see "One persist per run" above). The suite trackers are shared across
