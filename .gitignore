@@ -107,3 +107,7 @@ fabric.properties
 
 # Claude Code local settings and state
 .claude/
+
+ # Local planning/design docs - transient working documents, not part of the repo.
+ # The durable reference is WIKI.md / wiki/.
+docs/
