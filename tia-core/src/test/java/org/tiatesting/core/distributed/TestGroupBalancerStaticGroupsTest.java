@@ -2,13 +2,16 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,6 +36,16 @@ class TestGroupBalancerStaticGroupsTest {
             map.put((String) nameThenWeight[i], ((Number) nameThenWeight[i + 1]).longValue());
         }
         return map;
+    }
+
+    /**
+     * Build the nine-suite weight fixture (weights 9,7,6,5,4,3,3,2,1) used by the invariant tests
+     * that check every suite is placed and group numbers line up with their index.
+     *
+     * @return the nine-suite weight map
+     */
+    private static Map<String, Long> nineSuiteFixture() {
+        return weights("A", 9, "B", 7, "C", 6, "D", 5, "E", 4, "F", 3, "G", 3, "H", 2, "I", 1);
     }
 
     /**
@@ -135,8 +148,9 @@ class TestGroupBalancerStaticGroupsTest {
     }
 
     /**
-     * Verify static groups always report the target as met and never as clamped, since neither a
-     * target nor a ceiling applies when the caller fixed the count.
+     * Verify static groups always report the target as met, never as clamped, and never as a
+     * single suite exceeding the target, since none of a target, a ceiling, or a target-relative
+     * comparison applies when the caller fixed the count.
      */
     @Test
     void shouldReportTargetMetAndNotClampedForStaticGroups() {
@@ -148,7 +162,53 @@ class TestGroupBalancerStaticGroupsTest {
 
         // then
         assertTrue(result.isTargetMet());
-        assertTrue(!result.isClampedToMaxGroups());
+        assertFalse(result.isClampedToMaxGroups());
+        assertFalse(result.isSingleSuiteExceedsTarget());
+    }
+
+    /**
+     * Verify every suite in the input map appears in exactly one output group, with no suite
+     * dropped or duplicated. A regression here means selected tests silently never run on any
+     * runner, so it is checked directly against the input key set rather than trusted from the
+     * group count alone.
+     */
+    @Test
+    void shouldAssignEveryInputSuiteToExactlyOneGroup() {
+        // given
+        Map<String, Long> suiteWeights = nineSuiteFixture();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4);
+
+        // then
+        List<String> assignedSuiteNames = new ArrayList<>();
+        for (SuiteGroup group : result.getGroups()) {
+            assignedSuiteNames.addAll(group.getSuiteNames());
+        }
+        assertEquals(suiteWeights.size(), assignedSuiteNames.size(),
+                "every suite should be assigned exactly once, with none dropped or duplicated");
+        assertEquals(suiteWeights.keySet(), new HashSet<>(assignedSuiteNames),
+                "the assigned suites must match the input suites exactly");
+    }
+
+    /**
+     * Verify each group's reported group number equals its index in the returned groups list.
+     * Stage 4 keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
+     * silently misfile a group's suites under the wrong runner.
+     */
+    @Test
+    void shouldReportGroupNumberEqualToItsIndexInTheGroupsList() {
+        // given
+        Map<String, Long> suiteWeights = nineSuiteFixture();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4);
+
+        // then
+        for (int i = 0; i < result.getGroups().size(); i++) {
+            assertEquals(i, result.getGroups().get(i).getGroupNumber(),
+                    "group at index " + i + " should report that index as its group number");
+        }
     }
 
     /**
