@@ -79,6 +79,29 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_BLOCK_NAME = "block_name";
     private static final String COL_NEXT_VALUE = "next_value";
     private static final String ID_BLOCK_SOURCE_CLASS = TABLE_TIA_SOURCE_CLASS;
+    private static final String TABLE_TIA_DISTRIBUTED_RUN = "tia_distributed_run";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP = TABLE_TIA_DISTRIBUTED_RUN + "_group";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE = TABLE_TIA_DISTRIBUTED_RUN_GROUP + "_suite";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE = TABLE_TIA_DISTRIBUTED_RUN + "_method_stage";
+    private static final String COL_RUN_ID = "run_id";
+    private static final String COL_STATUS = "status";
+    private static final String COL_GROUP_COUNT = "group_count";
+    private static final String COL_TARGET_RUN_TIME_MS = "target_run_time_ms";
+    private static final String COL_ESTIMATED_TOTAL_MS = "estimated_total_ms";
+    private static final String COL_CREATED_AT = "created_at";
+    private static final String COL_SEALED_BY = "sealed_by";
+    private static final String COL_SEALED_AT = "sealed_at";
+    private static final String COL_DRAIN_RESULT = "drain_result";
+    private static final String COL_GROUP_NUMBER = "group_number";
+    private static final String COL_RUNNER_KEY = "runner_key";
+    private static final String COL_CLAIMED_AT = "claimed_at";
+    private static final String COL_COMPLETED_AT = "completed_at";
+    private static final String COL_ESTIMATED_MS = "estimated_ms";
+    private static final String COL_ACTUAL_DURATION_MS = "actual_duration_ms";
+    private static final String COL_SUITES_RAN = "suites_ran";
+    private static final String COL_SUITES_FAILED = "suites_failed";
+    private static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
+    private static final String IDX_DISTRIBUTED_RUN_BRANCH = "idx_distributed_run_branch";
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
     // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
@@ -2754,6 +2777,121 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Build the DDL for the {@code tia_distributed_run} table, which holds one row per logical
+     * distributed build. The row is inserted {@code OPEN} in the same transaction as its groups,
+     * so a runner never observes a half-written plan.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the run table
+     */
+    private String buildCreateDistributedRunTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
+                + COL_BRANCH + " VARCHAR(255) NOT NULL, "
+                + COL_COMMIT_VALUE + " VARCHAR(255) NOT NULL, "
+                + COL_STATUS + " VARCHAR(16) NOT NULL, "
+                + COL_GROUP_COUNT + " INT NOT NULL, "
+                + COL_TARGET_RUN_TIME_MS + " BIGINT, "
+                + COL_ESTIMATED_TOTAL_MS + " BIGINT NOT NULL, "
+                + COL_CREATED_AT + " BIGINT NOT NULL, "
+                + COL_SEALED_BY + " VARCHAR(255), "
+                + COL_SEALED_AT + " BIGINT, "
+                + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ")";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_distributed_run_group} table, one row per runner slice.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the group table
+     */
+    private String buildCreateDistributedRunGroupTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_GROUP_NUMBER + " INT NOT NULL, "
+                + COL_STATUS + " VARCHAR(16) NOT NULL, "
+                + COL_RUNNER_KEY + " VARCHAR(255), "
+                + COL_CLAIMED_AT + " BIGINT, "
+                + COL_COMPLETED_AT + " BIGINT, "
+                + COL_ESTIMATED_MS + " BIGINT NOT NULL, "
+                + COL_ACTUAL_DURATION_MS + " BIGINT, "
+                + COL_SUITES_RAN + " INT DEFAULT 0, "
+                + COL_SUITES_FAILED + " INT DEFAULT 0, "
+                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + "))";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_distributed_run_group_suite} table, which records which
+     * suites belong to which group.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the group-suite table
+     */
+    private String buildCreateDistributedRunGroupSuiteTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_GROUP_NUMBER + " INT NOT NULL, "
+                + COL_TEST_SUITE_NAME + " VARCHAR(500) NOT NULL, "
+                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + "))";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_distributed_run_method_stage} table. Runners stage their
+     * method trackers here so the sealer can write the method catalogue once, after the barrier.
+     * Created in stage 1 so the schema is a single migration; nothing reads or writes it until
+     * the catalogue staging work.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the method staging table
+     */
+    private String buildCreateDistributedRunMethodStageTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_ID + " INT NOT NULL, "
+                + COL_METHOD_NAME + " VARCHAR(2000), "
+                + COL_LINE_NUMBER_START + " INT, "
+                + COL_LINE_NUMBER_END + " INT, "
+                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
+    }
+
+    /**
+     * Build the DDL for the index backing group lookups by status within one run. Both the claim
+     * query and the barrier check filter one run's groups by status, and the composite primary
+     * key leads with {@code run_id} but has no status component.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the group status index
+     */
+    private String buildCreateDistributedRunGroupStatusIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + IDX_DISTRIBUTED_RUN_GROUP_STATUS + " ON "
+                + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " (" + COL_RUN_ID + ", " + COL_STATUS + ")";
+    }
+
+    /**
+     * Build the DDL for the index backing the supersede sweep, which finds unsealed runs for a
+     * branch when a newer build plans a run.
+     *
+     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the branch index
+     */
+    private String buildCreateDistributedRunBranchIndexSql() {
+        return "CREATE INDEX IF NOT EXISTS " + IDX_DISTRIBUTED_RUN_BRANCH + " ON "
+                + TABLE_TIA_DISTRIBUTED_RUN + " (" + COL_BRANCH + ", " + COL_STATUS + ")";
+    }
+
+    /**
+     * Ensure the four distributed-run tables and their indexes exist. Idempotent via
+     * {@code CREATE TABLE/INDEX IF NOT EXISTS}, so it both creates them on a new database and
+     * backfills them onto a database created before distributed runs existed.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if any DDL statement fails
+     */
+    private void ensureDistributedRunTablesExist(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(buildCreateDistributedRunTableSql());
+        statement.executeUpdate(buildCreateDistributedRunGroupTableSql());
+        statement.executeUpdate(buildCreateDistributedRunGroupSuiteTableSql());
+        statement.executeUpdate(buildCreateDistributedRunMethodStageTableSql());
+        statement.executeUpdate(buildCreateDistributedRunGroupStatusIndexSql());
+        statement.executeUpdate(buildCreateDistributedRunBranchIndexSql());
+    }
+
+    /**
      * Migration: ensure the {@code tia_core.all_tests_run_time} and {@code tia_core.num_all_tests_runs}
      * columns exist on an already-populated DB created before the all-tests-run stats were added.
      * Idempotent via {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to 0.
@@ -2799,6 +2937,7 @@ public class JdbcDataStore implements DataStore {
         ensureTestSuiteUnsealedColumnExists(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
         ensureIdBlockTableExists(connection);
+        ensureDistributedRunTablesExist(connection);
 
         schemaEnsured = true;
         return dbExisted;
