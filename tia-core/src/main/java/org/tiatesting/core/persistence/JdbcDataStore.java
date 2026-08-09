@@ -1753,6 +1753,135 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>Written as one upsert batch via {@link SqlDialect#upsert}, keyed on {@code (run_id, id)}:
+     * several runners can stage overlapping method ids concurrently (two runners covering the same
+     * changed method independently), and a plain {@code INSERT} would fail on the composite
+     * primary key the second time the same id is staged. The whole batch commits as one
+     * transaction, so a failure partway through leaves the previously-staged rows untouched rather
+     * than half of this call's rows landing and half not.
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} before starting the transaction, since staging can
+     * be the first call any caller makes on a freshly created per-branch schema. It must run before
+     * {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
+     * transaction would silently break the atomicity this method depends on.
+     *
+     * <p>The rollback catches {@link Exception} rather than {@link SQLException} deliberately: an
+     * unchecked exception that escaped without rolling back would leave the run's staged rows
+     * incomplete, which is exactly the silent under-selection failure the staging table exists to
+     * avoid.
+     *
+     * @param runId the distributed run to stage under
+     * @param methodsTracked the trackers this runner observed, keyed by method id; may be empty
+     */
+    @Override
+    public void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked) {
+        List<String> columns = Arrays.asList(COL_RUN_ID, COL_ID, COL_METHOD_NAME,
+                COL_LINE_NUMBER_START, COL_LINE_NUMBER_END);
+        List<String> keyColumns = Arrays.asList(COL_RUN_ID, COL_ID);
+        String sql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE, columns, keyColumns);
+
+        Connection connection = getConnection();
+        try {
+            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
+            // it inside the transaction would silently break atomicity.
+            ensureSchema(connection);
+            connection.setAutoCommit(false);
+            try {
+                if (!methodsTracked.isEmpty()) {
+                    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                        for (Map.Entry<Integer, MethodImpactTracker> entry : methodsTracked.entrySet()) {
+                            MethodImpactTracker tracker = entry.getValue();
+                            statement.setString(1, runId);
+                            statement.setInt(2, entry.getKey());
+                            statement.setString(3, tracker.getMethodName());
+                            statement.setInt(4, tracker.getLineNumberStart());
+                            statement.setInt(5, tracker.getLineNumberEnd());
+                            statement.addBatch();
+                        }
+                        statement.executeBatch();
+                    }
+                }
+                connection.commit();
+            } catch (Exception e) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException closeFailure) {
+                throw new TiaPersistenceException(closeFailure);
+            }
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first call
+     * any caller makes on a freshly created per-branch schema and the staging table is otherwise
+     * only created there.
+     *
+     * @param runId the distributed run to read
+     * @return the staged trackers keyed by method id, empty if nothing was staged
+     */
+    @Override
+    public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(final String runId) {
+        String sql = "SELECT " + COL_ID + ", " + COL_METHOD_NAME + ", " + COL_LINE_NUMBER_START + ", "
+                + COL_LINE_NUMBER_END + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE
+                + " WHERE " + COL_RUN_ID + " = ?";
+        Map<Integer, MethodImpactTracker> staged = new HashMap<>();
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        MethodImpactTracker tracker = new MethodImpactTracker(
+                                resultSet.getString(COL_METHOD_NAME),
+                                resultSet.getInt(COL_LINE_NUMBER_START),
+                                resultSet.getInt(COL_LINE_NUMBER_END));
+                        staged.put(resultSet.getInt(COL_ID), tracker);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return staged;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} before deleting, since this can be the first call
+     * any caller makes on a freshly created per-branch schema.
+     *
+     * @param runId the distributed run to clear; deleting an unknown run is a no-op
+     */
+    @Override
+    public void deleteStagedMethodTrackers(final String runId) {
+        String sql = "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " WHERE " + COL_RUN_ID + " = ?";
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                statement.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
      * Group flat pending rows from a result set into batches keyed by
      * {@code (groupArtifact, stampVersion)}.
      *
