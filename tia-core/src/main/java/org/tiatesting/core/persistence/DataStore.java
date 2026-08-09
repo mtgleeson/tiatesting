@@ -1,5 +1,8 @@
 package org.tiatesting.core.persistence;
 
+import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -344,4 +347,38 @@ public interface DataStore extends AutoCloseable {
      * @return the test-run history list (empty when no rows have been persisted yet)
      */
     List<TestRunHistoryEntry> readTestRunHistory();
+
+    /**
+     * Write a complete distributed run plan - the run row, its group rows and its suite
+     * assignment - in a single transaction, so a runner reading the plan never observes it
+     * partially written.
+     *
+     * @param plan the validated plan to persist
+     */
+    void persistDistributedRunPlan(final DistributedRunPlan plan);
+
+    /**
+     * Read a distributed run by its CI-supplied identifier.
+     *
+     * @param runId the run identifier
+     * @return the run, or null if no run is planned under that id
+     */
+    DistributedRun readDistributedRun(final String runId);
+
+    /**
+     * Read every group of a distributed run, ordered by group number.
+     *
+     * @param runId the run identifier
+     * @return the run's groups in group-number order, empty if the run is unknown
+     */
+    List<DistributedRunGroup> readDistributedRunGroups(final String runId);
+
+    /**
+     * Read the suite names assigned to one group of a distributed run, ordered by name.
+     *
+     * @param runId the run identifier
+     * @param groupNumber the group's zero-based index within the run
+     * @return the group's suite names in name order, empty if the group is unknown
+     */
+    List<String> readDistributedRunGroupSuites(final String runId, final int groupNumber);
 }
