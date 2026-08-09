@@ -5,6 +5,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunGroupStatus;
+import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
@@ -1449,6 +1454,218 @@ public class JdbcDataStore implements DataStore {
         }
 
         return history;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>All three tables are written under one transaction. The rollback catches
+     * {@link Exception} rather than {@link SQLException} deliberately: an unchecked exception
+     * that escaped without rolling back would leave a run row whose groups are missing, and a
+     * runner reading that plan would find nothing to claim and exit as a no-op - the build would
+     * go green having run no tests.
+     *
+     * @param plan the validated plan to persist
+     */
+    @Override
+    public void persistDistributedRunPlan(final DistributedRunPlan plan) {
+        String runSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN + " ("
+                + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
+                + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
+                + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
+                + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
+                + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
+                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
+                + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
+
+        DistributedRun run = plan.getRun();
+        try (Connection connection = getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement statement = connection.prepareStatement(runSql)) {
+                    statement.setString(1, run.getRunId());
+                    statement.setString(2, run.getBranch());
+                    statement.setString(3, run.getCommitValue());
+                    statement.setString(4, run.getStatus().name());
+                    statement.setInt(5, run.getGroupCount());
+                    setNullableLong(statement, 6, run.getTargetRunTimeMs());
+                    statement.setLong(7, run.getEstimatedTotalMs());
+                    statement.setLong(8, run.getCreatedAtMs());
+                    statement.setString(9, run.getSealedBy());
+                    setNullableLong(statement, 10, run.getSealedAtMs());
+                    statement.executeUpdate();
+                }
+                try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
+                    for (DistributedRunGroup group : plan.getGroups()) {
+                        statement.setString(1, group.getRunId());
+                        statement.setInt(2, group.getGroupNumber());
+                        statement.setString(3, group.getStatus().name());
+                        statement.setString(4, group.getRunnerKey());
+                        setNullableLong(statement, 5, group.getClaimedAtMs());
+                        setNullableLong(statement, 6, group.getCompletedAtMs());
+                        statement.setLong(7, group.getEstimatedMs());
+                        setNullableLong(statement, 8, group.getActualDurationMs());
+                        statement.setInt(9, group.getSuitesRan());
+                        statement.setInt(10, group.getSuitesFailed());
+                        statement.addBatch();
+                    }
+                    statement.executeBatch();
+                }
+                try (PreparedStatement statement = connection.prepareStatement(suiteSql)) {
+                    for (Map.Entry<Integer, List<String>> entry : plan.getSuitesByGroup().entrySet()) {
+                        for (String suiteName : entry.getValue()) {
+                            statement.setString(1, run.getRunId());
+                            statement.setInt(2, entry.getKey());
+                            statement.setString(3, suiteName);
+                            statement.addBatch();
+                        }
+                    }
+                    statement.executeBatch();
+                }
+                connection.commit();
+            } catch (Exception e) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * Bind a nullable long parameter, using {@code setNull} with {@link Types#BIGINT} when the
+     * value is absent so both vendors store a real SQL NULL rather than zero.
+     *
+     * @param statement the statement to bind on
+     * @param index the one-based parameter index
+     * @param value the value to bind, or null
+     * @throws SQLException if binding fails
+     */
+    private static void setNullableLong(PreparedStatement statement, int index, Long value)
+            throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.BIGINT);
+        } else {
+            statement.setLong(index, value);
+        }
+    }
+
+    /**
+     * Read a nullable long column, distinguishing SQL NULL from zero via
+     * {@link ResultSet#wasNull()}.
+     *
+     * @param resultSet the result set positioned on the row
+     * @param column the column name
+     * @return the value, or null if the column was SQL NULL
+     * @throws SQLException if the column cannot be read
+     */
+    private static Long getNullableLong(ResultSet resultSet, String column) throws SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @param runId the run identifier
+     * @return the run, or null if no run is planned under that id
+     */
+    @Override
+    public DistributedRun readDistributedRun(final String runId) {
+        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " WHERE " + COL_RUN_ID + " = ?";
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, runId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return null;
+                }
+                return new DistributedRun(
+                        resultSet.getString(COL_RUN_ID),
+                        resultSet.getString(COL_BRANCH),
+                        resultSet.getString(COL_COMMIT_VALUE),
+                        DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
+                        resultSet.getInt(COL_GROUP_COUNT),
+                        getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
+                        resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
+                        resultSet.getLong(COL_CREATED_AT),
+                        resultSet.getString(COL_SEALED_BY),
+                        getNullableLong(resultSet, COL_SEALED_AT));
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @param runId the run identifier
+     * @return the run's groups in group-number order, empty if the run is unknown
+     */
+    @Override
+    public List<DistributedRunGroup> readDistributedRunGroups(final String runId) {
+        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " WHERE " + COL_RUN_ID
+                + " = ? ORDER BY " + COL_GROUP_NUMBER;
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, runId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    groups.add(new DistributedRunGroup(
+                            resultSet.getString(COL_RUN_ID),
+                            resultSet.getInt(COL_GROUP_NUMBER),
+                            DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
+                            resultSet.getString(COL_RUNNER_KEY),
+                            getNullableLong(resultSet, COL_CLAIMED_AT),
+                            getNullableLong(resultSet, COL_COMPLETED_AT),
+                            resultSet.getLong(COL_ESTIMATED_MS),
+                            getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
+                            resultSet.getInt(COL_SUITES_RAN),
+                            resultSet.getInt(COL_SUITES_FAILED)));
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return groups;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @param runId the run identifier
+     * @param groupNumber the group's zero-based index within the run
+     * @return the group's suite names in name order, empty if the group is unknown
+     */
+    @Override
+    public List<String> readDistributedRunGroupSuites(final String runId, final int groupNumber) {
+        String sql = "SELECT " + COL_TEST_SUITE_NAME + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? ORDER BY "
+                + COL_TEST_SUITE_NAME;
+        List<String> suiteNames = new ArrayList<>();
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, runId);
+            statement.setInt(2, groupNumber);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    suiteNames.add(resultSet.getString(COL_TEST_SUITE_NAME));
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return suiteNames;
     }
 
     /**

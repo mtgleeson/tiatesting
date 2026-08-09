@@ -4,6 +4,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -480,5 +483,55 @@ class TestRunnerServiceSealOrderTest {
         }
         @Override
         public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
+
+        /**
+         * Unsupported on this fake: this test suite never exercises distributed run plans, so a
+         * silently-succeeding stub would let a future change start using distributed operations
+         * from a non-distributed path without any test noticing.
+         *
+         * @param plan ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistDistributedRunPlan(DistributedRunPlan plan) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public DistributedRun readDistributedRun(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<DistributedRunGroup> readDistributedRunGroups(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<String> readDistributedRunGroupSuites(String runId, int groupNumber) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
     }
 }
