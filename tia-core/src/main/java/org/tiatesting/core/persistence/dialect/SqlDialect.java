@@ -14,6 +14,15 @@ public interface SqlDialect {
     String identityColumnDefinition();
 
     /**
+     * The DDL type name for a variable-length binary column. The two vendors share no spelling:
+     * H2 has {@code BLOB} and no {@code BYTEA}, Postgres has {@code BYTEA} and neither
+     * {@code BLOB} nor {@code VARBINARY}.
+     *
+     * @return the vendor-specific binary column type name
+     */
+    String binaryColumnType();
+
+    /**
      * Build a parameterised upsert (insert-or-update) statement.
      * @param table the target table
      * @param columns all inserted columns, in bind order
