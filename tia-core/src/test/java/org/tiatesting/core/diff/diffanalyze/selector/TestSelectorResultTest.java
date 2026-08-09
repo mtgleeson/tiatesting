@@ -40,7 +40,7 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L);
+                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L, false);
 
         // then
         assertSame(testsToRun, result.getTestsToRun());
@@ -49,5 +49,26 @@ class TestSelectorResultTest {
         assertSame(withoutStats, result.getSelectedTestsWithoutStats());
         assertEquals(medianRunTimeMsAppliedToMissing, result.getMedianRunTimeMsAppliedToMissing());
         assertSame(perTestRunTimes, result.getSelectedTestRunTimesMs());
+        assertEquals(false, result.isRunAllTests());
+    }
+
+    /**
+     * Verifies that {@code runAllTests} round-trips through the constructor to its getter, since
+     * this is the flag {@link org.tiatesting.core.distributed.DistributedRunPlanner#plan} relies
+     * on to refuse planning against a selection that means "run everything" rather than "nothing
+     * was impacted".
+     */
+    @Test
+    void constructor_setsRunAllTestsTrue(){
+        // given
+        Set<String> testsToRun = new HashSet<>();
+        Set<String> testsToIgnore = new HashSet<>();
+
+        // when
+        TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, true);
+
+        // then
+        assertEquals(true, result.isRunAllTests());
     }
 }

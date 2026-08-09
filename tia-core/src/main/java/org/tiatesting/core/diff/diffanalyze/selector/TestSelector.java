@@ -92,7 +92,7 @@ public class TestSelector {
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap(),
-                    tiaCore.getTestStats().getAllTestsRunTime(), 0L);
+                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, true);
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
@@ -119,7 +119,7 @@ public class TestSelector {
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
                 estimate.getSelectedTestRunTimesMs(),
-                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getMappingOverheadMs());
+                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getMappingOverheadMs(), false);
     }
 
     /**

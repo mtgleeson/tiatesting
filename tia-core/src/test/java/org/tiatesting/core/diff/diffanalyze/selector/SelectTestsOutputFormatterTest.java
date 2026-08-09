@@ -355,7 +355,7 @@ class SelectTestsOutputFormatterTest {
                                                   Map<String, Long> perTestRunTimes, long allTestsRunTimeMs,
                                                   long mappingOverheadMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
-                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs, mappingOverheadMs);
+                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs, mappingOverheadMs, false);
     }
 
     /**
