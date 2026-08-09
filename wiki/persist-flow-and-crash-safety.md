@@ -217,7 +217,7 @@ id space - ids carry no meaning beyond identity.
 
 ### Failure-mode taxonomy
 
-#### A. Crash *before* the seal (in step 1 or 2)
+#### Pre-seal crash: mapping ahead of the commit (crash in step 1 or 2)
 
 The stored commit value remains the **prior** value. The mapping tables may be:
 
@@ -250,7 +250,7 @@ happens next differs by what kind of data is ahead:
   coverage against whatever commit that next run seals - subject to the narrowing caveats above,
   not a hard guarantee.
 
-#### B. Crash *after* the seal (during or after step 4)
+#### Post-seal crash: commit ahead of the trailing writes (crash during or after step 4)
 
 The commit value advanced to the new value, the catalogue and library baselines are consistent with
 it, and every suite flagged unsealed as of this run's own edge writes has been cleared. The only
@@ -260,7 +260,7 @@ whenever it next persists.
 
 ### Self-recovery and orphan handling
 
-The "partially updated, orphan rows" state described in category A is real for edges written in step
+The "partially updated, orphan rows" state described under a pre-seal crash is real for edges written in step
 1 whose corresponding `tia_source_method` catalogue entry does not yet exist on disk - for example a
 first mapping run that crashes after some suites' edges are written but before the seal's catalogue
 rewrite runs at all. The orphan-skip in `TestRunnerService.updateMethodTracker` exists specifically
