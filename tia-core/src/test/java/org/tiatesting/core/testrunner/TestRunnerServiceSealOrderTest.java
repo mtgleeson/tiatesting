@@ -544,5 +544,40 @@ class TestRunnerServiceSealOrderTest {
         public List<DistributedRun> readAllDistributedRuns() {
             throw new UnsupportedOperationException("not used by this test");
         }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param methodsTracked ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void deleteStagedMethodTrackers(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
     }
 }

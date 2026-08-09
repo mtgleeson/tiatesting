@@ -447,6 +447,47 @@ public class SerializedDataStore implements DataStore {
     }
 
     /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param methodsTracked ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void deleteStagedMethodTrackers(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
      * Read the serialized Tia data file from disk.
      * If the file on disk doesn't exist then create a new {@link TiaData} object
      *
