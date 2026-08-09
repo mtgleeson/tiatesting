@@ -144,4 +144,24 @@ class TestGroupBalancerWeightingTest {
         // then
         assertTrue(thrown.getMessage().contains("overhead"), thrown.getMessage());
     }
+
+    /**
+     * Verify a null run time is rejected with a message naming the offending suite, rather than
+     * surfacing a bare NullPointerException from unboxing deep inside the weighting arithmetic.
+     * Not reachable from Tia's own run-time estimate today, but a caller supplying a hand-built
+     * map should get a diagnosable error rather than a stack trace with no suite name in it.
+     */
+    @Test
+    void shouldRejectANullRunTimeNamingTheSuite() {
+        // given
+        Map<String, Long> perSuiteRunTimes = new HashMap<>();
+        perSuiteRunTimes.put("A", null);
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> TestGroupBalancer.suiteWeights(perSuiteRunTimes, 0L, false));
+
+        // then
+        assertTrue(thrown.getMessage().contains("A"), thrown.getMessage());
+    }
 }

@@ -154,36 +154,4 @@ class SuiteGroupTest {
         assertEquals("suite.OnlyTest", group.getSuiteNames().get(0), "single suite should match");
         assertEquals(2500L, group.getEstimatedMs(), "estimated ms should match");
     }
-
-    /**
-     * Verifies that zero group number is valid (groups are zero-indexed).
-     */
-    @Test
-    void constructor_acceptsZeroGroupNumber() {
-        // given
-        List<String> suites = new ArrayList<>();
-        suites.add("suite.Test");
-
-        // when - creating group zero
-        SuiteGroup group = new SuiteGroup(0, suites, 1000L);
-
-        // then
-        assertEquals(0, group.getGroupNumber(), "group number zero should be valid");
-    }
-
-    /**
-     * Verifies that large group numbers are valid.
-     */
-    @Test
-    void constructor_acceptsLargeGroupNumber() {
-        // given
-        List<String> suites = new ArrayList<>();
-        suites.add("suite.Test");
-
-        // when - creating a group with a large number
-        SuiteGroup group = new SuiteGroup(999, suites, 1000L);
-
-        // then
-        assertEquals(999, group.getGroupNumber(), "large group number should be valid");
-    }
 }

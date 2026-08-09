@@ -54,6 +54,7 @@ public final class TestGroupBalancer {
             throw new IllegalArgumentException(
                     "mapping overhead must not be negative, was " + totalMappingOverheadMs);
         }
+        requireNoNullWeights(perSuiteRunTimesMs);
         Map<String, Long> weights = new HashMap<>();
         if (perSuiteRunTimesMs.isEmpty()) {
             return weights;
@@ -85,6 +86,7 @@ public final class TestGroupBalancer {
         if (groupCount < 1) {
             throw new IllegalArgumentException("groupCount must be at least 1, was " + groupCount);
         }
+        requireNoNullWeights(suiteWeightsMs);
         List<List<String>> groupSuites = new ArrayList<>(groupCount);
         long[] groupWeights = new long[groupCount];
         for (int i = 0; i < groupCount; i++) {
@@ -102,7 +104,7 @@ public final class TestGroupBalancer {
             groupWeights[lightest] += suiteWeightsMs.get(suiteName);
         }
 
-        return new GroupingResult(toSuiteGroups(groupSuites, groupWeights), true, false);
+        return new GroupingResult(toSuiteGroups(groupSuites, groupWeights), true, false, false);
     }
 
     /**
@@ -120,13 +122,26 @@ public final class TestGroupBalancer {
      * time and reports {@code targetMet == false} rather than failing.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
-     * @param targetRunTimeMs the wall-clock test run time to aim for, in ms
-     * @param maxGroups an optional ceiling on the group count, or null for no ceiling
-     * @return the grouping, reporting whether the target was met and whether the ceiling bound it
+     * @param targetRunTimeMs the wall-clock test run time to aim for, in ms; must not be negative
+     * @param maxGroups an optional ceiling on the group count, or null for no ceiling; if
+     *                  supplied, must be at least 1
+     * @return the grouping, reporting whether the target was met, whether the ceiling bound it,
+     *         and whether a single suite alone was heavier than the target
+     * @throws IllegalArgumentException if {@code targetRunTimeMs} is negative, or if
+     *                                  {@code maxGroups} is non-null and below 1
      */
     public static GroupingResult balanceForTargetRunTime(final Map<String, Long> suiteWeightsMs,
                                                          final long targetRunTimeMs,
                                                          final Integer maxGroups) {
+        if (targetRunTimeMs < 0) {
+            throw new IllegalArgumentException(
+                    "targetRunTimeMs must not be negative, was " + targetRunTimeMs);
+        }
+        if (maxGroups != null && maxGroups < 1) {
+            throw new IllegalArgumentException("maxGroups must be at least 1, was " + maxGroups);
+        }
+        requireNoNullWeights(suiteWeightsMs);
+
         if (suiteWeightsMs.isEmpty()) {
             return balanceIntoGroups(suiteWeightsMs, 1);
         }
@@ -137,6 +152,10 @@ public final class TestGroupBalancer {
                 heaviestSuiteMs = weight;
             }
         }
+        // A single suite longer than the whole target is the one fact both the capacity floor
+        // below and the caller's diagnostics need, so it is derived once here and threaded
+        // through rather than being re-derived from the weight map a second time.
+        boolean singleSuiteExceedsTarget = heaviestSuiteMs > targetRunTimeMs;
         // A suite longer than the whole target puts the target out of reach no matter how many
         // groups are used, so pack to the achievable floor instead: same makespan, fewer runners.
         long capacityMs = Math.max(targetRunTimeMs, heaviestSuiteMs);
@@ -148,7 +167,7 @@ public final class TestGroupBalancer {
         GroupingResult packing;
         if (groupCount == bins.size()) {
             packing = new GroupingResult(toSuiteGroups(bins, weighGroups(bins, suiteWeightsMs)),
-                    false, clampedToMaxGroups);
+                    false, clampedToMaxGroups, singleSuiteExceedsTarget);
             // FFD fills groups to capacity; LPT spreads them. Same group count either way, so
             // take whichever finishes sooner. It is not always LPT - see the nine-suite case.
             GroupingResult rebalanced = balanceIntoGroups(suiteWeightsMs, groupCount);
@@ -163,7 +182,8 @@ public final class TestGroupBalancer {
         }
 
         boolean targetMet = packing.getHeaviestGroupMs() <= targetRunTimeMs;
-        return new GroupingResult(packing.getGroups(), targetMet, clampedToMaxGroups);
+        return new GroupingResult(packing.getGroups(), targetMet, clampedToMaxGroups,
+                singleSuiteExceedsTarget);
     }
 
     /**
@@ -233,7 +253,7 @@ public final class TestGroupBalancer {
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name
      * @return the suite names in the order they should be assigned
      */
-    static List<String> sortedByWeightDescending(final Map<String, Long> suiteWeightsMs) {
+    private static List<String> sortedByWeightDescending(final Map<String, Long> suiteWeightsMs) {
         List<String> names = new ArrayList<>(suiteWeightsMs.keySet());
         Collections.sort(names, new Comparator<String>() {
             @Override
@@ -259,5 +279,25 @@ public final class TestGroupBalancer {
             groups.add(new SuiteGroup(i, groupSuites.get(i), groupWeights[i]));
         }
         return groups;
+    }
+
+    /**
+     * Reject a null weight before any comparison or arithmetic in this class touches it.
+     * Unboxing a null {@code Long} throws a bare {@link NullPointerException} that gives no clue
+     * which suite is at fault; this turns that into a message naming the suite, checked once at
+     * the entry point of each public method rather than scattered across the comparator and the
+     * packing loops that would otherwise hit it.
+     *
+     * @param weightsMs weight in ms keyed by suite name, checked for null values
+     * @throws IllegalArgumentException if any value in the map is null, naming the suite it
+     *                                  belongs to
+     */
+    private static void requireNoNullWeights(final Map<String, Long> weightsMs) {
+        for (Map.Entry<String, Long> entry : weightsMs.entrySet()) {
+            if (entry.getValue() == null) {
+                throw new IllegalArgumentException(
+                        "weight must not be null for suite: " + entry.getKey());
+            }
+        }
     }
 }

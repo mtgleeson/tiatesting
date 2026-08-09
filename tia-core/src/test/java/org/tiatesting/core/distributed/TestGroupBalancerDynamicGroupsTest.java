@@ -2,12 +2,17 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -113,7 +118,10 @@ class TestGroupBalancerDynamicGroupsTest {
      * Verify that when one suite is longer than the whole target, the capacity rises to that
      * suite's weight rather than staying at the unreachable target. Packing to the target would
      * scatter the remaining suites over an extra runner for no gain: the build takes 15 either
-     * way, so the cheaper plan is the correct one.
+     * way, so the cheaper plan is the correct one. Also verifies that this exact situation - one
+     * suite alone longer than the target - is surfaced through singleSuiteExceedsTarget, which is
+     * what lets stage 4 explain the miss instead of leaving the user to raise a ceiling that will
+     * never help.
      */
     @Test
     void shouldNotSpendExtraGroupsChasingATargetASingleSuiteAlreadyExceeds() {
@@ -129,6 +137,27 @@ class TestGroupBalancerDynamicGroupsTest {
         assertEquals(15L, result.getHeaviestGroupMs());
         assertFalse(result.isTargetMet());
         assertFalse(result.isClampedToMaxGroups());
+        assertTrue(result.isSingleSuiteExceedsTarget());
+    }
+
+    /**
+     * Verify singleSuiteExceedsTarget stays false when the target is missed for an unrelated
+     * reason - here, a maxGroups ceiling below what the target needs - even though every other
+     * suite individually fits within the target. This proves the flag tracks its own specific
+     * cause rather than becoming a generic "target missed" restatement of clampedToMaxGroups.
+     */
+    @Test
+    void shouldNotReportSingleSuiteExceedsTargetWhenEverySuiteFitsWithinTheTarget() {
+        // given
+        Map<String, Long> suiteWeights = nineSuites();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3);
+
+        // then
+        assertFalse(result.isTargetMet());
+        assertTrue(result.isClampedToMaxGroups());
+        assertFalse(result.isSingleSuiteExceedsTarget());
     }
 
     /**
@@ -235,16 +264,26 @@ class TestGroupBalancerDynamicGroupsTest {
 
     /**
      * Verify the same inputs always produce the same plan, including group membership, since two
-     * runners must never be able to derive different groupings.
+     * runners must never be able to derive different groupings. Supplies the same entries through
+     * two structurally different maps - a LinkedHashMap in its natural insertion order and a
+     * HashMap built by inserting the same entries in reverse - because the real risk this test
+     * guards against is a plan that leaks the caller's map iteration order, which calling the
+     * balancer twice with one shared map instance cannot detect.
      */
     @Test
     void shouldProduceAnIdenticalPlanOnRepeatedCalls() {
         // given
-        Map<String, Long> suiteWeights = nineSuites();
+        Map<String, Long> firstMap = nineSuites();
+        List<String> suiteNamesReversed = new ArrayList<>(firstMap.keySet());
+        Collections.reverse(suiteNamesReversed);
+        Map<String, Long> secondMap = new HashMap<>();
+        for (String suiteName : suiteNamesReversed) {
+            secondMap.put(suiteName, firstMap.get(suiteName));
+        }
 
         // when
-        GroupingResult first = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
-        GroupingResult second = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult first = TestGroupBalancer.balanceForTargetRunTime(firstMap, 10L, null);
+        GroupingResult second = TestGroupBalancer.balanceForTargetRunTime(secondMap, 10L, null);
 
         // then
         assertEquals(first.getGroupCount(), second.getGroupCount());
@@ -252,5 +291,104 @@ class TestGroupBalancerDynamicGroupsTest {
             assertEquals(first.getGroups().get(i).getSuiteNames(),
                     second.getGroups().get(i).getSuiteNames());
         }
+    }
+
+    /**
+     * Verify every suite in the input map appears in exactly one output group, with no suite
+     * dropped or duplicated. A regression here means selected tests silently never run on any
+     * runner, so it is checked directly against the input key set rather than trusted from the
+     * group count alone.
+     */
+    @Test
+    void shouldAssignEveryInputSuiteToExactlyOneGroup() {
+        // given
+        Map<String, Long> suiteWeights = nineSuites();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+
+        // then
+        List<String> assignedSuiteNames = new ArrayList<>();
+        for (SuiteGroup group : result.getGroups()) {
+            assignedSuiteNames.addAll(group.getSuiteNames());
+        }
+        assertEquals(suiteWeights.size(), assignedSuiteNames.size(),
+                "every suite should be assigned exactly once, with none dropped or duplicated");
+        assertEquals(suiteWeights.keySet(), new HashSet<>(assignedSuiteNames),
+                "the assigned suites must match the input suites exactly");
+    }
+
+    /**
+     * Verify each group's reported group number equals its index in the returned groups list.
+     * Stage 4 keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
+     * silently misfile a group's suites under the wrong runner.
+     */
+    @Test
+    void shouldReportGroupNumberEqualToItsIndexInTheGroupsList() {
+        // given
+        Map<String, Long> suiteWeights = nineSuites();
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+
+        // then
+        for (int i = 0; i < result.getGroups().size(); i++) {
+            assertEquals(i, result.getGroups().get(i).getGroupNumber(),
+                    "group at index " + i + " should report that index as its group number");
+        }
+    }
+
+    /**
+     * Verify a non-positive maxGroups is rejected for a non-empty selection, naming the parameter
+     * the caller actually passed rather than surfacing "groupCount" from two frames down inside
+     * balanceIntoGroups.
+     */
+    @Test
+    void shouldRejectAMaxGroupsBelowOneForANonEmptySelection() {
+        // given
+        Map<String, Long> suiteWeights = weights("A", 5);
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0));
+
+        // then
+        assertTrue(thrown.getMessage().contains("maxGroups"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a non-positive maxGroups is rejected for an empty selection too, so the same invalid
+     * input does not silently succeed with one group merely because the empty-selection early
+     * return skipped validation.
+     */
+    @Test
+    void shouldRejectAMaxGroupsBelowOneEvenForAnEmptySelection() {
+        // given
+        Map<String, Long> suiteWeights = new HashMap<>();
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0));
+
+        // then
+        assertTrue(thrown.getMessage().contains("maxGroups"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a negative targetRunTimeMs is rejected rather than silently collapsing capacity to
+     * the heaviest suite and reporting an unexplained targetMet == false, which is what would
+     * otherwise happen after a unit-conversion slip such as passing seconds where ms is expected.
+     */
+    @Test
+    void shouldRejectANegativeTargetRunTime() {
+        // given
+        Map<String, Long> suiteWeights = weights("A", 5);
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, -1L, null));
+
+        // then
+        assertTrue(thrown.getMessage().contains("targetRunTimeMs"), thrown.getMessage());
     }
 }
