@@ -221,6 +221,34 @@ class DistributedRunPlanTest {
     }
 
     /**
+     * Verifies construction fails, and names the offending group, when the suite map has an
+     * entry for a group number that was not declared in the group list. Without this check the
+     * constructor silently drops that entry - since {@code copiedSuites} is only ever populated
+     * by iterating the declared groups, an undeclared key in {@code suitesByGroup} is never read
+     * and its suites vanish rather than being persisted or rejected, which would leave a real
+     * suite unclaimed by any runner.
+     */
+    @Test
+    void shouldRejectSuiteMapEntryForAnUndeclaredGroup() {
+        // given
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
+        List<DistributedRunGroup> groups = Arrays.asList(
+                DistributedRunGroup.pending("run-1", 0, 200L),
+                DistributedRunGroup.pending("run-1", 1, 100L));
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList("com.example.ATest"));
+        suites.put(1, Arrays.asList("com.example.BTest"));
+        suites.put(2, Arrays.asList("com.example.CTest"));
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> new DistributedRunPlan(run, groups, suites));
+
+        // then
+        assertTrue(thrown.getMessage().contains("group 2"), thrown.getMessage());
+    }
+
+    /**
      * Verifies a group is allowed to have zero suites, since the number of runnable groups can
      * legitimately be smaller than the configured group count when the selected test set is
      * small - such a group must still round-trip as present-but-empty rather than being

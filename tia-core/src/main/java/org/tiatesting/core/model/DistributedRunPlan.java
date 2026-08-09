@@ -15,6 +15,11 @@ import java.util.Set;
  *
  * <p>Consistency is validated at construction, because an inconsistent plan is a planner defect
  * and is far cheaper to diagnose there than as a runner claiming a group with no suites.
+ *
+ * <p>Unlike {@link DistributedRun} and {@link DistributedRunGroup}, this class does not implement
+ * {@code Serializable}. It is a transient write bundle assembled in memory for the duration of a
+ * single {@code persistDistributedRunPlan} call and is never itself persisted, cached, or sent
+ * across a process boundary as an object - only the value objects it carries are.
  */
 public final class DistributedRunPlan {
 
@@ -28,8 +33,11 @@ public final class DistributedRunPlan {
      * @param run the run being planned; its group count must match the group list size
      * @param groups one entry per group, numbered 0 to groupCount-1
      * @param suitesByGroup suite names keyed by group number; every group must have an entry,
-     *                      possibly empty, and no suite may appear under two groups
-     * @throws IllegalArgumentException if the group count, group list and suite map disagree
+     *                      possibly empty, and no suite may appear under two groups; every key
+     *                      must correspond to a declared group
+     * @throws IllegalArgumentException if the group count, group list and suite map disagree, if
+     *         any declared group has no suite entry, if any suite is assigned to more than one
+     *         group, or if {@code suitesByGroup} has an entry for a group that was not declared
      */
     public DistributedRunPlan(DistributedRun run, List<DistributedRunGroup> groups,
                               Map<Integer, List<String>> suitesByGroup) {
@@ -53,6 +61,13 @@ public final class DistributedRunPlan {
             }
             copiedSuites.put(group.getGroupNumber(),
                     Collections.unmodifiableList(new ArrayList<>(suites)));
+        }
+        for (Integer suppliedGroup : suitesByGroup.keySet()) {
+            if (!copiedSuites.containsKey(suppliedGroup)) {
+                throw new IllegalArgumentException("suitesByGroup has an entry for group "
+                        + suppliedGroup + " of run " + run.getRunId()
+                        + " which is not one of the declared groups");
+            }
         }
         this.run = run;
         this.groups = Collections.unmodifiableList(new ArrayList<>(groups));
