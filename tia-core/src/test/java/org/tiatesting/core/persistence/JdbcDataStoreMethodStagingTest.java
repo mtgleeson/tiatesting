@@ -4,12 +4,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -257,6 +269,252 @@ class JdbcDataStoreMethodStagingTest {
             assertEquals("com/example/A.foo.()V", read.get(101).getMethodName());
         } finally {
             freshDataStore.close();
+        }
+    }
+
+    /**
+     * Verify that {@link JdbcDataStore#persistStagedMethodTrackers(String, Map)} writes method ids
+     * to the database in ascending order regardless of the order the caller's map iterates them in.
+     * This is the property the deadlock fix depends on: two distributed runners staging the same
+     * overlapping ids from differently-ordered maps must still take Postgres row locks in the same
+     * sequence, or the two runners' upsert transactions can deadlock and abort the run. The write
+     * order is captured via a recording {@link ConnectionProvider} that wraps every
+     * {@link PreparedStatement} bind of the id column (parameter index 2), since reading the rows
+     * back does not reliably reflect write order - a {@code SELECT} with no {@code ORDER BY} can
+     * come back in primary-key order irrespective of insertion order, which would let this test pass
+     * even without the fix.
+     *
+     * @throws Exception if the temp directory for the recording store cannot be created
+     */
+    @Test
+    void shouldWriteMethodIdsInAscendingOrderRegardlessOfMapIterationOrder() throws Exception {
+        // given
+        File orderTempDir = File.createTempFile("tia-method-stage-order-", "");
+        orderTempDir.delete();
+        orderTempDir.mkdirs();
+        RecordingConnectionProvider recordingConnectionProvider = new RecordingConnectionProvider(
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(orderTempDir.getAbsolutePath())));
+        JdbcDataStore recordingDataStore = new JdbcDataStore(new H2Dialect(), recordingConnectionProvider,
+                BranchSchema.schemaName("test"));
+
+        // a LinkedHashMap's iteration order is its insertion order, so populating one map ascending
+        // and the other descending gives two maps with the same ids but deliberately opposite
+        // natural iteration order - standing in for two runners whose HashMaps happened to bucket
+        // the same ids in opposite order.
+        Map<Integer, MethodImpactTracker> idsInsertedAscending = new LinkedHashMap<>();
+        idsInsertedAscending.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
+        idsInsertedAscending.put(202, new MethodImpactTracker("com/example/B.bar.()V", 30, 45));
+
+        Map<Integer, MethodImpactTracker> idsInsertedDescending = new LinkedHashMap<>();
+        idsInsertedDescending.put(202, new MethodImpactTracker("com/example/B.bar.()V", 30, 45));
+        idsInsertedDescending.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
+
+        try {
+            // when
+            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedAscending);
+            List<Integer> writeOrderForAscendingInput =
+                    new ArrayList<>(recordingConnectionProvider.recordedMethodIdWriteOrder());
+            recordingConnectionProvider.recordedMethodIdWriteOrder().clear();
+
+            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedDescending);
+            List<Integer> writeOrderForDescendingInput =
+                    new ArrayList<>(recordingConnectionProvider.recordedMethodIdWriteOrder());
+
+            // then
+            assertEquals(Arrays.asList(101, 202), writeOrderForAscendingInput);
+            assertEquals(Arrays.asList(101, 202), writeOrderForDescendingInput);
+        } finally {
+            recordingDataStore.close();
+        }
+    }
+
+    /**
+     * {@link ConnectionProvider} wrapper used only by
+     * {@link #shouldWriteMethodIdsInAscendingOrderRegardlessOfMapIterationOrder()} to make the JDBC
+     * bind order of the staging upsert observable. Every connection it hands out is a dynamic proxy
+     * that records the value bound to the id column (parameter index 2 of the staging upsert) on
+     * every {@link PreparedStatement} it prepares, in the order those binds happen, while delegating
+     * every other call straight through to a real H2 connection.
+     */
+    private static final class RecordingConnectionProvider implements ConnectionProvider {
+
+        private final ConnectionProvider delegate;
+        private final List<Integer> recordedMethodIdWriteOrder = new ArrayList<>();
+
+        /**
+         * Wrap a real connection provider so every connection it subsequently hands out has its
+         * {@code PreparedStatement} id-column binds recorded.
+         *
+         * @param delegate the real connection provider to wrap
+         */
+        RecordingConnectionProvider(ConnectionProvider delegate) {
+            this.delegate = delegate;
+        }
+
+        /**
+         * Open a real connection via the delegate, then wrap it in a recording proxy so any
+         * {@code PreparedStatement} it prepares has its id-column binds captured.
+         *
+         * @return a proxied connection that records id-column bind order
+         * @throws SQLException if the delegate fails to open the underlying connection
+         */
+        @Override
+        public Connection get() throws SQLException {
+            Connection real = delegate.get();
+            return (Connection) Proxy.newProxyInstance(
+                    Connection.class.getClassLoader(),
+                    new Class<?>[] {Connection.class},
+                    new ConnectionRecordingHandler(real, recordedMethodIdWriteOrder));
+        }
+
+        /**
+         * Delegate to the wrapped provider's JDBC URL, unchanged.
+         *
+         * @return the delegate's JDBC URL
+         */
+        @Override
+        public String jdbcUrl() {
+            return delegate.jdbcUrl();
+        }
+
+        /**
+         * Delegate to the wrapped provider's connection summary, unchanged.
+         *
+         * @return the delegate's connection summary
+         */
+        @Override
+        public String connectionSummary() {
+            return delegate.connectionSummary();
+        }
+
+        /**
+         * Delegate shutdown to the wrapped provider so the embedded H2 file lock is released.
+         */
+        @Override
+        public void close() {
+            delegate.close();
+        }
+
+        /**
+         * The method ids bound to the staging upsert's id parameter, in the order the binds
+         * happened, across every {@code PreparedStatement} prepared by connections this provider has
+         * handed out. The caller is expected to clear this between the two writes under test.
+         *
+         * @return the mutable list of recorded id binds, in bind order
+         */
+        List<Integer> recordedMethodIdWriteOrder() {
+            return recordedMethodIdWriteOrder;
+        }
+    }
+
+    /**
+     * {@link InvocationHandler} behind {@link RecordingConnectionProvider}'s proxy connections.
+     * Delegates every call to a real connection, and additionally wraps the result of
+     * {@code prepareStatement} in a {@link PreparedStatementRecordingHandler} so binds on the
+     * returned statement are captured too.
+     */
+    private static final class ConnectionRecordingHandler implements InvocationHandler {
+
+        private final Connection delegate;
+        private final List<Integer> recordedMethodIdWriteOrder;
+
+        /**
+         * Build the handler around a real connection and the shared list its prepared statements
+         * should record id-column binds into.
+         *
+         * @param delegate the real connection to delegate every call to
+         * @param recordedMethodIdWriteOrder the shared list to append id-column binds to
+         */
+        ConnectionRecordingHandler(Connection delegate, List<Integer> recordedMethodIdWriteOrder) {
+            this.delegate = delegate;
+            this.recordedMethodIdWriteOrder = recordedMethodIdWriteOrder;
+        }
+
+        /**
+         * Invoke the given method on the real connection, then, if it was {@code prepareStatement},
+         * wrap the resulting statement in a recording proxy before returning it.
+         *
+         * @param proxy the proxy instance the method was called on (unused)
+         * @param method the {@link Connection} method being invoked
+         * @param args the arguments passed to that method
+         * @return the real connection's result, or a recording-wrapped {@link PreparedStatement}
+         * @throws Throwable whatever the delegated call threw
+         */
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            Object result = invokeDelegate(delegate, method, args);
+            if ("prepareStatement".equals(method.getName()) && result instanceof PreparedStatement) {
+                return Proxy.newProxyInstance(
+                        PreparedStatement.class.getClassLoader(),
+                        new Class<?>[] {PreparedStatement.class},
+                        new PreparedStatementRecordingHandler((PreparedStatement) result, recordedMethodIdWriteOrder));
+            }
+            return result;
+        }
+    }
+
+    /**
+     * {@link InvocationHandler} behind the recording proxy returned for a prepared statement.
+     * Records every value bound to the staging upsert's id parameter (index 2) in call order, then
+     * delegates every call, recorded or not, to the real statement.
+     */
+    private static final class PreparedStatementRecordingHandler implements InvocationHandler {
+
+        // The staging upsert binds columns in order (run_id, id, method_name, line_start, line_end),
+        // so the id column is always parameter index 2 - see persistStagedMethodTrackers.
+        private static final int METHOD_ID_PARAMETER_INDEX = 2;
+
+        private final PreparedStatement delegate;
+        private final List<Integer> recordedMethodIdWriteOrder;
+
+        /**
+         * Build the handler around a real prepared statement and the shared list its id-column
+         * binds should be appended to.
+         *
+         * @param delegate the real prepared statement to delegate every call to
+         * @param recordedMethodIdWriteOrder the shared list to append id-column binds to
+         */
+        PreparedStatementRecordingHandler(PreparedStatement delegate, List<Integer> recordedMethodIdWriteOrder) {
+            this.delegate = delegate;
+            this.recordedMethodIdWriteOrder = recordedMethodIdWriteOrder;
+        }
+
+        /**
+         * Record the bound value when the call is {@code setInt} on the id parameter, then invoke
+         * the real statement regardless of which method was called.
+         *
+         * @param proxy the proxy instance the method was called on (unused)
+         * @param method the {@link PreparedStatement} method being invoked
+         * @param args the arguments passed to that method
+         * @return the real statement's result
+         * @throws Throwable whatever the delegated call threw
+         */
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            if ("setInt".equals(method.getName()) && args != null && args.length == 2
+                    && METHOD_ID_PARAMETER_INDEX == (Integer) args[0]) {
+                recordedMethodIdWriteOrder.add((Integer) args[1]);
+            }
+            return invokeDelegate(delegate, method, args);
+        }
+    }
+
+    /**
+     * Invoke a method reflectively on a delegate object, unwrapping the
+     * {@link InvocationTargetException} reflection wraps checked exceptions in so callers see the
+     * original exception (e.g. a real {@link SQLException}) rather than a reflection artifact.
+     *
+     * @param delegate the object to invoke the method on
+     * @param method the method to invoke
+     * @param args the arguments to invoke it with
+     * @return whatever the delegate's method returns
+     * @throws Throwable the exception the delegate's method threw, or the method's normal return
+     */
+    private static Object invokeDelegate(Object delegate, Method method, Object[] args) throws Throwable {
+        try {
+            return method.invoke(delegate, args);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
         }
     }
 }

@@ -1772,6 +1772,19 @@ public class JdbcDataStore implements DataStore {
      * incomplete, which is exactly the silent under-selection failure the staging table exists to
      * avoid.
      *
+     * <p>The batch loop iterates the method ids in ascending order rather than the caller-supplied
+     * map's own iteration order. Row locks within the upsert are taken in the order rows are
+     * written, and a plain {@code HashMap}'s iteration order depends on its capacity, which depends
+     * on how many entries that particular runner happened to observe - so two runners staging the
+     * same two ids can genuinely visit them in opposite order. When that happens under Postgres,
+     * each runner holds the lock the other wants and waits for the lock it holds to be released,
+     * which Postgres detects and resolves by aborting one transaction; under server-mode H2 the same
+     * conflict surfaces as a lock-wait timeout instead. Sorting to one global order before the loop
+     * means every runner takes the shared rows' locks in the same sequence, so the second runner to
+     * reach a contended row simply waits for the first to commit rather than the two deadlocking
+     * against each other. This is not an optional tidiness pass - removing the sort reintroduces the
+     * deadlock.
+     *
      * @param runId the distributed run to stage under
      * @param methodsTracked the trackers this runner observed, keyed by method id; may be empty
      */
@@ -1781,6 +1794,9 @@ public class JdbcDataStore implements DataStore {
                 COL_LINE_NUMBER_START, COL_LINE_NUMBER_END);
         List<String> keyColumns = Arrays.asList(COL_RUN_ID, COL_ID);
         String sql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE, columns, keyColumns);
+        // Ascending-id order, not the caller's map order: see the deadlock-avoidance note on this
+        // method's javadoc above.
+        Map<Integer, MethodImpactTracker> orderedMethodsTracked = new TreeMap<>(methodsTracked);
 
         Connection connection = getConnection();
         try {
@@ -1789,9 +1805,9 @@ public class JdbcDataStore implements DataStore {
             ensureSchema(connection);
             connection.setAutoCommit(false);
             try {
-                if (!methodsTracked.isEmpty()) {
+                if (!orderedMethodsTracked.isEmpty()) {
                     try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                        for (Map.Entry<Integer, MethodImpactTracker> entry : methodsTracked.entrySet()) {
+                        for (Map.Entry<Integer, MethodImpactTracker> entry : orderedMethodsTracked.entrySet()) {
                             MethodImpactTracker tracker = entry.getValue();
                             statement.setString(1, runId);
                             statement.setInt(2, entry.getKey());
