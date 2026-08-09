@@ -1,0 +1,169 @@
+package org.tiatesting.core.distributed;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Verifies {@link DistributedRunPlanSummary}'s two renderings. {@link
+ * DistributedRunPlanSummary#toJson()} is a published contract a CI pipeline parses to decide how
+ * many jobs to start, so its field order, shape and escaping are locked down with exact-string
+ * assertions rather than loose substring checks. {@link
+ * DistributedRunPlanSummary#toConsoleSummary()} has no machine consumer, so it is checked only
+ * for the facts it must mention.
+ */
+class DistributedRunPlanSummaryTest {
+
+    /**
+     * Verifies the full {@code tia-run-plan.json} document for a dynamic-groups plan against an
+     * exact expected string, locking down field order and shape as well as content. This is the
+     * regression guard for the published contract: a CI pipeline's {@code jq} script depends on
+     * these exact field names appearing in this exact order.
+     */
+    @Test
+    void toJson_dynamicGroupsPlan_producesExactDocument() {
+        // given - a dynamic-groups plan matching the design spec's worked sample
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L, 412);
+
+        // when
+        String json = summary.toJson();
+
+        // then - every field, in the exact order and shape the spec fixes
+        String expected = "{\n"
+                + "  \"runId\": \"gh-1284471\",\n"
+                + "  \"branch\": \"main\",\n"
+                + "  \"commit\": \"87a5110\",\n"
+                + "  \"groupCount\": 5,\n"
+                + "  \"avgGroupMs\": 1380000,\n"
+                + "  \"targetMs\": 1500000,\n"
+                + "  \"targetMet\": true,\n"
+                + "  \"clampedToMaxGroups\": false,\n"
+                + "  \"singleSuiteExceedsTarget\": false,\n"
+                + "  \"totalEstimatedMs\": 6900000,\n"
+                + "  \"selectedSuiteCount\": 412\n"
+                + "}";
+        assertEquals(expected, json);
+    }
+
+    /**
+     * Verifies that {@code targetMs} is rendered as JSON {@code null}, not {@code 0}, when the
+     * plan is in static groups mode. A rendered {@code 0} would read as an (impossible) target of
+     * zero ms rather than the absence of a target, so this distinction matters to any pipeline
+     * script that reads the field.
+     */
+    @Test
+    void toJson_staticGroupsMode_rendersTargetMsAsJsonNull() {
+        // given - a static-groups plan, which has no target run time
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 4, null, true, false, false, 4000000L, 300);
+
+        // when
+        String json = summary.toJson();
+
+        // then - targetMs is the bare JSON literal null, not a quoted string or a zero
+        assertTrue(json.contains("\"targetMs\": null,"),
+                "targetMs should render as the JSON null literal in static groups mode: " + json);
+    }
+
+    /**
+     * Verifies that a branch name containing both a double quote and a backslash produces a
+     * document where those characters are escaped, and asserts the exact escaped output rather
+     * than merely that no exception was thrown. An unescaped quote or backslash would terminate
+     * the JSON string early and break the user's {@code jq} parsing of the file.
+     */
+    @Test
+    void toJson_branchWithQuoteAndBackslash_producesEscapedOutput() {
+        // given - a branch name with a literal double quote and a literal backslash
+        String branchWithSpecialChars = "feature/say-\"hi\"\\ok";
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", branchWithSpecialChars, "87a5110", 5, 1500000L, true, false, false,
+                6900000L, 412);
+
+        // when
+        String json = summary.toJson();
+
+        // then - the quote and backslash are both escaped in the JSON output
+        assertTrue(json.contains("\"branch\": \"feature/say-\\\"hi\\\"\\\\ok\","),
+                "branch value should be escaped for embedding in a JSON string: " + json);
+    }
+
+    /**
+     * Verifies that {@code avgGroupMs} is the total estimated time divided by the group count,
+     * for a case where the division is inexact, confirming the summary reports the balancer's
+     * actual output rather than a rounded or hardcoded figure.
+     */
+    @Test
+    void getAvgGroupMs_dividesTotalByGroupCount() {
+        // given - a total that does not divide evenly by the group count
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1", "main", "abc123", 3, 1000L, true, false, false, 1000L, 10);
+
+        // when
+        long avgGroupMs = summary.getAvgGroupMs();
+
+        // then - integer division of 1000 / 3
+        assertEquals(333L, avgGroupMs, "avgGroupMs should be totalEstimatedMs / groupCount");
+    }
+
+    /**
+     * Verifies that {@code avgGroupMs} is zero, not a division-by-zero failure, when the group
+     * count is zero. An empty selection legitimately produces zero groups, and the summary must
+     * still be constructible and reportable in that case.
+     */
+    @Test
+    void getAvgGroupMs_zeroGroupCount_doesNotDivideByZero() {
+        // given - a plan with no groups at all (an empty selection)
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, 0L, 0);
+
+        // when
+        long avgGroupMs = summary.getAvgGroupMs();
+
+        // then - zero, not an exception
+        assertEquals(0L, avgGroupMs, "avgGroupMs should be 0 when groupCount is 0");
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} mentions both the group
+     * count and that the target was met, since these are the two headline facts a developer
+     * reading build output needs at a glance.
+     */
+    @Test
+    void toConsoleSummary_targetMet_mentionsGroupCountAndMetStatus() {
+        // given - a plan whose target was met
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L, 412);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+
+        // then - the group count and a positive met status both appear
+        assertTrue(consoleSummary.contains("5"),
+                "console summary should mention the group count: " + consoleSummary);
+        assertTrue(consoleSummary.contains("met") && !consoleSummary.contains("not met"),
+                "console summary should say the target was met: " + consoleSummary);
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} reports a not-met target
+     * distinctly from a met one, so a developer scanning build output cannot mistake one state for
+     * the other.
+     */
+    @Test
+    void toConsoleSummary_targetNotMet_mentionsGroupCountAndNotMetStatus() {
+        // given - a plan whose target was not met
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, 16000000L, 900);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+
+        // then - the group count and a "not met" status both appear
+        assertTrue(consoleSummary.contains("8"),
+                "console summary should mention the group count: " + consoleSummary);
+        assertTrue(consoleSummary.contains("not met"),
+                "console summary should say the target was not met: " + consoleSummary);
+    }
+}
