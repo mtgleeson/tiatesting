@@ -1459,11 +1459,15 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>All three tables are written under one transaction. The rollback catches
-     * {@link Exception} rather than {@link SQLException} deliberately: an unchecked exception
-     * that escaped without rolling back would leave a run row whose groups are missing, and a
-     * runner reading that plan would find nothing to claim and exit as a no-op - the build would
-     * go green having run no tests.
+     * <p>Clears all four distributed tables before inserting, so the plan tables hold exactly one
+     * run. Tia isolates each branch in its own schema, so every row cleared belongs to this
+     * branch's previous build - sealed or abandoned - and this is the only retention mechanism
+     * the distributed tables have.
+     *
+     * <p>All of it runs under one transaction. The rollback catches {@link Exception} rather than
+     * {@link SQLException} deliberately: an unchecked exception that escaped without rolling back
+     * would leave the tables cleared but the new plan unwritten, so every runner would find
+     * nothing to claim and exit successfully - a green build that ran no tests.
      *
      * @param plan the validated plan to persist
      */
@@ -1483,9 +1487,21 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
 
         DistributedRun run = plan.getRun();
-        try (Connection connection = getConnection()) {
+        Connection connection = getConnection();
+        try {
             connection.setAutoCommit(false);
             try {
+                String[] tablesToClear = {
+                        TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
+                        TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
+                        TABLE_TIA_DISTRIBUTED_RUN_GROUP,
+                        TABLE_TIA_DISTRIBUTED_RUN
+                };
+                try (Statement clearStatement = connection.createStatement()) {
+                    for (String table : tablesToClear) {
+                        clearStatement.executeUpdate(dialect.clearTableTransactionallySql(table));
+                    }
+                }
                 try (PreparedStatement statement = connection.prepareStatement(runSql)) {
                     statement.setString(1, run.getRunId());
                     statement.setString(2, run.getBranch());
@@ -1537,6 +1553,12 @@ public class JdbcDataStore implements DataStore {
             }
         } catch (Exception e) {
             throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException closeFailure) {
+                throw new TiaPersistenceException(closeFailure);
+            }
         }
     }
 
@@ -1666,6 +1688,37 @@ public class JdbcDataStore implements DataStore {
             throw new TiaPersistenceException(e);
         }
         return suiteNames;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @return the runs currently planned, most recently created first, empty if there are none
+     */
+    @Override
+    public List<DistributedRun> readAllDistributedRuns() {
+        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
+        List<DistributedRun> runs = new ArrayList<>();
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                runs.add(new DistributedRun(
+                        resultSet.getString(COL_RUN_ID),
+                        resultSet.getString(COL_BRANCH),
+                        resultSet.getString(COL_COMMIT_VALUE),
+                        DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
+                        resultSet.getInt(COL_GROUP_COUNT),
+                        getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
+                        resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
+                        resultSet.getLong(COL_CREATED_AT),
+                        resultSet.getString(COL_SEALED_BY),
+                        getNullableLong(resultSet, COL_SEALED_AT)));
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return runs;
     }
 
     /**

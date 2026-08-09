@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -152,6 +153,8 @@ class JdbcDataStoreDistributedPlanTest {
         assertEquals(50000L, groups.get(0).getEstimatedMs());
         assertNull(groups.get(0).getRunnerKey());
         assertNull(groups.get(0).getClaimedAtMs());
+        assertNull(groups.get(0).getCompletedAtMs());
+        assertNull(groups.get(0).getActualDurationMs());
     }
 
     /**
@@ -210,5 +213,126 @@ class JdbcDataStoreDistributedPlanTest {
 
         // then
         assertNull(read.getTargetRunTimeMs());
+    }
+
+    /**
+     * Verify that writing a second plan clears every trace of the first: the old run id no longer
+     * resolves, its groups and suites are gone, and only the new run's rows remain. This is the
+     * core retention behaviour - the plan tables hold exactly one run because Tia isolates each
+     * branch in its own schema, so nothing needs to be filtered on write, only cleared.
+     *
+     * @throws Exception if a row-count query fails
+     */
+    @Test
+    void shouldClearThePreviousRunWhenANewPlanIsWritten() throws Exception {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+
+        // when
+        dataStore.persistDistributedRunPlan(samplePlan("run-2"));
+
+        // then
+        assertNull(dataStore.readDistributedRun("run-1"));
+        assertTrue(dataStore.readDistributedRunGroups("run-1").isEmpty());
+        assertTrue(dataStore.readDistributedRunGroupSuites("run-1", 0).isEmpty());
+        assertEquals(1L, countRows("tia_distributed_run"));
+        assertEquals(2L, countRows("tia_distributed_run_group"));
+        assertEquals(3L, countRows("tia_distributed_run_group_suite"));
+        assertEquals("run-2", dataStore.readDistributedRun("run-2").getRunId());
+    }
+
+    /**
+     * Verify that leftover rows in {@code tia_distributed_run_method_stage} - simulating a
+     * previous build that staged methods and then crashed before sealing - are swept away by the
+     * next plan write. This table is roughly the size of {@code tia_source_method}, so leaked
+     * staging rows from abandoned runs would be real, unbounded growth if the clear missed it.
+     *
+     * @throws Exception if the direct insert or a row-count query fails
+     */
+    @Test
+    void shouldClearLeftoverMethodStagingRowsFromAnAbandonedRun() throws Exception {
+        // given
+        // simulate a previous build that staged methods and then died before sealing
+        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO tia_distributed_run_method_stage "
+                    + "(run_id, id, method_name, line_number_start, line_number_end) "
+                    + "VALUES ('run-1', 42, 'com.example.A.foo()V', 10, 20)");
+        }
+        assertEquals(1L, countRows("tia_distributed_run_method_stage"));
+
+        // when
+        dataStore.persistDistributedRunPlan(samplePlan("run-2"));
+
+        // then
+        assertEquals(0L, countRows("tia_distributed_run_method_stage"));
+    }
+
+    /**
+     * Verify that {@link DataStore#readAllDistributedRuns()} surfaces a planned run before it gets
+     * cleared, since this is what lets the planner (a later stage) log a warning naming groups
+     * that never completed rather than have an abandoned run vanish silently.
+     */
+    @Test
+    void shouldReturnEveryPlannedRunSoThePlannerCanWarnBeforeClearing() {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+
+        // when
+        List<DistributedRun> all = dataStore.readAllDistributedRuns();
+
+        // then
+        assertEquals(1, all.size());
+        assertEquals("run-1", all.get(0).getRunId());
+    }
+
+    /**
+     * Verify that a fresh schema with no plan ever written returns an empty list rather than null
+     * or throwing, so a caller can iterate the result unconditionally.
+     */
+    @Test
+    void shouldReturnNoRunsOnAFreshDatabase() {
+        // given
+        // setUp bootstrapped an empty schema
+
+        // when
+        List<DistributedRun> all = dataStore.readAllDistributedRuns();
+
+        // then
+        assertTrue(all.isEmpty());
+    }
+
+    /**
+     * Verify that when the new plan's insert fails partway through, the previous plan is left
+     * fully intact rather than partially cleared. This is the test that catches the clear running
+     * outside the write transaction: an oversized suite name (the suite-name column is
+     * VARCHAR(500)) fails the insert after the clear has already run, so only a single transaction
+     * wrapping both the clear and the inserts can guarantee the old plan survives.
+     *
+     * @throws Exception if reading back the surviving plan fails
+     */
+    @Test
+    void shouldLeaveThePreviousPlanIntactWhenANewPlanWriteFails() throws Exception {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        StringBuilder oversizedName = new StringBuilder();
+        for (int i = 0; i < 60; i++) {
+            oversizedName.append("com.example.VeryLongSuiteName");
+        }
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList(oversizedName.toString()));
+        DistributedRunPlan badPlan = new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending("run-bad", 0, 10L)), suites);
+
+        // when
+        assertThrows(TiaPersistenceException.class, () -> dataStore.persistDistributedRunPlan(badPlan));
+
+        // then
+        // the clear must have rolled back too, not just the failed inserts
+        assertEquals("run-1", dataStore.readDistributedRun("run-1").getRunId());
+        assertEquals(2, dataStore.readDistributedRunGroups("run-1").size());
+        assertEquals(1L, countRows("tia_distributed_run"));
     }
 }
