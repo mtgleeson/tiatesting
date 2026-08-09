@@ -533,5 +533,16 @@ class TestRunnerServiceSealOrderTest {
         public List<String> readDistributedRunGroupSuites(String runId, int groupNumber) {
             throw new UnsupportedOperationException("not used by this test");
         }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<DistributedRun> readAllDistributedRuns() {
+            throw new UnsupportedOperationException("not used by this test");
+        }
     }
 }

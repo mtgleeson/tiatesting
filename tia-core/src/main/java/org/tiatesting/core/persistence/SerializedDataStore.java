@@ -434,6 +434,19 @@ public class SerializedDataStore implements DataStore {
     }
 
     /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public List<DistributedRun> readAllDistributedRuns() {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
      * Read the serialized Tia data file from disk.
      * If the file on disk doesn't exist then create a new {@link TiaData} object
      *

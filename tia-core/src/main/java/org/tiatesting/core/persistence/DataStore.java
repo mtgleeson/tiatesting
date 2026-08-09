@@ -381,4 +381,14 @@ public interface DataStore extends AutoCloseable {
      * @return the group's suite names in name order, empty if the group is unknown
      */
     List<String> readDistributedRunGroupSuites(final String runId, final int groupNumber);
+
+    /**
+     * Read every distributed run currently held in the plan tables. Because Tia isolates each
+     * branch in its own schema and each plan write clears the previous run, this normally returns
+     * at most one row - the previous build's run, which the planner inspects so it can warn about
+     * groups that never completed before clearing them.
+     *
+     * @return the runs currently planned, most recently created first, empty if there are none
+     */
+    List<DistributedRun> readAllDistributedRuns();
 }
