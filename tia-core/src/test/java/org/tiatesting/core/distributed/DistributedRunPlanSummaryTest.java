@@ -25,7 +25,8 @@ class DistributedRunPlanSummaryTest {
     void toJson_dynamicGroupsPlan_producesExactDocument() {
         // given - a dynamic-groups plan matching the design spec's worked sample
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L, 412);
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                1450000L, 412);
 
         // when
         String json = summary.toJson();
@@ -37,6 +38,7 @@ class DistributedRunPlanSummaryTest {
                 + "  \"commit\": \"87a5110\",\n"
                 + "  \"groupCount\": 5,\n"
                 + "  \"avgGroupMs\": 1380000,\n"
+                + "  \"heaviestGroupMs\": 1450000,\n"
                 + "  \"targetMs\": 1500000,\n"
                 + "  \"targetMet\": true,\n"
                 + "  \"clampedToMaxGroups\": false,\n"
@@ -57,7 +59,8 @@ class DistributedRunPlanSummaryTest {
     void toJson_staticGroupsMode_rendersTargetMsAsJsonNull() {
         // given - a static-groups plan, which has no target run time
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 4, null, true, false, false, 4000000L, 300);
+                "gh-1284471", "main", "87a5110", 4, null, true, false, false, 4000000L,
+                1050000L, 300);
 
         // when
         String json = summary.toJson();
@@ -79,7 +82,7 @@ class DistributedRunPlanSummaryTest {
         String branchWithSpecialChars = "feature/say-\"hi\"\\ok";
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", branchWithSpecialChars, "87a5110", 5, 1500000L, true, false, false,
-                6900000L, 412);
+                6900000L, 1450000L, 412);
 
         // when
         String json = summary.toJson();
@@ -98,7 +101,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_dividesTotalByGroupCount() {
         // given - a total that does not divide evenly by the group count
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 3, 1000L, true, false, false, 1000L, 10);
+                "gh-1", "main", "abc123", 3, 1000L, true, false, false, 1000L, 400L, 10);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -116,7 +119,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_zeroGroupCount_doesNotDivideByZero() {
         // given - a plan with no groups at all (an empty selection)
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, 0L, 0);
+                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, 0L, 0L, 0);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -134,7 +137,8 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_targetMet_mentionsGroupCountAndMetStatus() {
         // given - a plan whose target was met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L, 412);
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                1450000L, 412);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -155,7 +159,8 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_targetNotMet_mentionsGroupCountAndNotMetStatus() {
         // given - a plan whose target was not met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, 16000000L, 900);
+                "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, 16000000L,
+                2200000L, 900);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -165,5 +170,67 @@ class DistributedRunPlanSummaryTest {
                 "console summary should mention the group count: " + consoleSummary);
         assertTrue(consoleSummary.contains("not met"),
                 "console summary should say the target was not met: " + consoleSummary);
+    }
+
+    /**
+     * Verifies that {@code heaviestGroupMs} round-trips through the constructor to its getter
+     * unchanged - it is a value the balancer already computed, not derived here the way {@code
+     * avgGroupMs} is.
+     */
+    @Test
+    void getHeaviestGroupMs_returnsConstructorValue() {
+        // given - a plan whose heaviest group is well above the average
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                1450000L, 412);
+
+        // when
+        long heaviestGroupMs = summary.getHeaviestGroupMs();
+
+        // then
+        assertEquals(1450000L, heaviestGroupMs);
+    }
+
+    /**
+     * Verifies that {@code heaviestGroupMs} appears in the published JSON document as its own
+     * field distinct from {@code avgGroupMs}, so a pipeline can read it to set a job timeout - the
+     * motivating case this field exists for, since {@code avgGroupMs} understates the wall clock
+     * exactly when the packing is uneven.
+     */
+    @Test
+    void toJson_includesHeaviestGroupMsDistinctFromAvgGroupMs() {
+        // given - a plan whose heaviest group is heavier than the average group
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                1450000L, 412);
+
+        // when
+        String json = summary.toJson();
+
+        // then
+        assertTrue(json.contains("\"heaviestGroupMs\": 1450000,"),
+                "JSON should contain the heaviestGroupMs field: " + json);
+        assertTrue(json.contains("\"avgGroupMs\": 1380000,"),
+                "JSON should still contain the distinct avgGroupMs field: " + json);
+    }
+
+    /**
+     * Verifies that the console summary block names the heaviest group time, not just the
+     * average, so a developer reading build output sees the wall-clock figure a job timeout
+     * should be set from.
+     */
+    @Test
+    void toConsoleSummary_mentionsHeaviestGroupTime() {
+        // given - a plan whose heaviest group is heavier than the average group
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                1450000L, 412);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+
+        // then
+        assertTrue(consoleSummary.contains("1450000"),
+                "console summary should mention the heaviest group time: " + consoleSummary);
     }
 }

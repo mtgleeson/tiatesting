@@ -7,15 +7,21 @@ import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
+import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.persistence.BranchSchema;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,6 +31,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -83,7 +90,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, false);
     }
 
     /**
@@ -94,7 +101,20 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, false);
+    }
+
+    /**
+     * Build a selection that signals "no stored mapping yet" - both {@code testsToRun} and
+     * {@code testsToIgnore} empty, {@code runAllTests} true - the shape
+     * {@link org.tiatesting.core.diff.diffanalyze.selector.TestSelector#selectTestsToIgnore}
+     * returns on a fresh branch with nothing tracked yet.
+     *
+     * @return a selection with {@code runAllTests} true
+     */
+    private static TestSelectorResult runAllTestsSelection() {
+        return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, true);
     }
 
     /**
@@ -280,6 +300,197 @@ class DistributedRunPlannerTest {
         for (DistributedRunGroup group : groups) {
             assertTrue(dataStore.readDistributedRunGroupSuites("run-empty", group.getGroupNumber()).isEmpty());
         }
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanner#plan} refuses to plan a selection that carries
+     * {@code runAllTests == true} - the shape {@code TestSelector.selectTestsToIgnore} returns on
+     * a fresh branch with no stored mapping - rather than silently persisting N empty groups that
+     * would invert the whole feature (every runner deriving an empty ignore list and running the
+     * full suite). The message must tell the user what to do about it.
+     */
+    @Test
+    void plan_selectionWithRunAllTests_throwsNamingTheFix() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-fresh-branch", 3, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = runAllTestsSelection();
+
+        // when
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> planner.plan(selection, "main", "commit-1", false, 1L));
+
+        // then - nothing was persisted, and the message tells the user what to do
+        assertNull(dataStore.readDistributedRun("run-fresh-branch"));
+        assertTrue(ex.getMessage().contains("non-distributed"),
+                "message should tell the user to run a non-distributed build first, was: "
+                        + ex.getMessage());
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanner#balance} weights and balances a selection exactly
+     * as {@link DistributedRunPlanner#plan} would, without needing a distributed run id - the
+     * select-tests grouping preview's entry point - and, critically, persists nothing: the
+     * datastore has no runs before or after the call.
+     */
+    @Test
+    void balance_producesGroupingWithoutPersistingAnything() {
+        // given
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 2, null, null);
+
+        // then - a valid grouping was produced ...
+        assertEquals(2, result.getGroupCount());
+        assertEquals(selection.getSelectedTestRunTimesMs().values().stream().mapToLong(Long::longValue).sum(),
+                result.getTotalEstimatedMs());
+        // ... and nothing was persisted
+        assertTrue(dataStore.readAllDistributedRuns().isEmpty());
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanner#balance} rejects a call that supplies neither or
+     * both of {@code groupCount} and {@code targetRunTimeMs}, the same mutually-exclusive-mode
+     * rule {@link DistributedRunConfig#validated} enforces, since this method validates that shape
+     * itself rather than requiring a validated config.
+     */
+    @Test
+    void balance_neitherGroupCountNorTargetRunTime_throws() {
+        // given
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when / then
+        assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunPlanner.balance(selection, false, null, null, null));
+    }
+
+    /**
+     * Verifies the ordering {@link DistributedRunPlanner#plan} depends on: {@link
+     * DataStore#readAllDistributedRuns()} must be called before {@link
+     * DataStore#persistDistributedRunPlan} in the same {@code plan()} call, because the persist
+     * clears the previous run's rows in the same transaction - once it runs, the evidence the read
+     * exists to find is gone. Uses a dynamic-proxy {@link DataStore} wrapper that records the order
+     * the two methods are invoked in, rather than a log-capture harness, since the ordering (not
+     * the log text) is what {@code warnAboutIncompletePreviousRuns} exists to get right.
+     *
+     * <p>Bite-checked by temporarily moving the {@code warnAboutIncompletePreviousRuns()} call in
+     * {@link DistributedRunPlanner#plan} to below {@code dataStore.persistDistributedRunPlan(...)}
+     * and re-running this test: it failed, as expected, before the change was reverted.
+     */
+    @Test
+    void plan_readsAllDistributedRunsBeforePersisting() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-order", 2, null, null, null);
+        List<String> callOrder = new ArrayList<>();
+        DataStore recordingDataStore = recordingDataStore(dataStore, callOrder);
+        DistributedRunPlanner planner = new DistributedRunPlanner(recordingDataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-order", false, 1L);
+
+        // then
+        assertEquals(2, callOrder.size(), "expected exactly one read and one persist call: " + callOrder);
+        assertEquals("readAllDistributedRuns", callOrder.get(0));
+        assertEquals("persistDistributedRunPlan", callOrder.get(1));
+    }
+
+    /**
+     * Wrap a {@link DataStore} in a JDK dynamic proxy that forwards every call to {@code delegate}
+     * unchanged, but first appends the method name to {@code callOrder} for the two methods {@link
+     * DistributedRunPlanner#plan}'s ordering guarantee is about - {@code readAllDistributedRuns}
+     * and {@code persistDistributedRunPlan}.
+     *
+     * @param delegate the real data store to forward every call to
+     * @param callOrder the list to append recorded method names to, in call order
+     * @return a {@link DataStore} proxy that behaves exactly like {@code delegate} but records
+     *         call order for the two methods named above
+     */
+    private static DataStore recordingDataStore(DataStore delegate, List<String> callOrder) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String name = method.getName();
+            if (name.equals("readAllDistributedRuns") || name.equals("persistDistributedRunPlan")) {
+                callOrder.add(name);
+            }
+            try {
+                return method.invoke(delegate, args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+        };
+        return (DataStore) Proxy.newProxyInstance(DataStore.class.getClassLoader(),
+                new Class<?>[] { DataStore.class }, handler);
+    }
+
+    /**
+     * Verifies that a previous run which reached {@code SEALED} needs no warning at all - {@link
+     * DistributedRunPlanner#incompleteGroupsToWarnAbout} returns {@code null} - regardless of what
+     * its groups' statuses are, since a sealed run completed cleanly and left no abandoned work
+     * behind.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
+        // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
+        DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
+                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L);
+        List<DistributedRunGroup> groups = Collections.singletonList(
+                DistributedRunGroup.pending("run-sealed", 0, 1000L));
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(sealedRun, groups);
+
+        // then
+        assertNull(result, "a sealed run should need no warning at all");
+    }
+
+    /**
+     * Verifies the finding this method exists to fix: a previous run whose every group reached
+     * {@code COMPLETED} but whose own status is still {@code OPEN} - the sealer died after the
+     * last group finished - must still be warned about, with an empty (non-null) incomplete-group
+     * list, distinct from both the sealed case (no warning) and the incomplete-groups case (a
+     * populated list).
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
+        // given - every group COMPLETED, but the run itself never reached SEALED
+        DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
+                "runner-1", 1L, 2L, 1000L, 900L, 5, 0));
+        groups.add(new DistributedRunGroup("run-unsealed", 1, DistributedRunGroupStatus.COMPLETED,
+                "runner-2", 1L, 2L, 1000L, 950L, 4, 0));
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(unsealedRun, groups);
+
+        // then - warned about (non-null), but with nothing incomplete to name
+        assertTrue(result != null && result.isEmpty(),
+                "an unsealed run with every group completed should return an empty, non-null list");
+    }
+
+    /**
+     * Verifies the pre-existing case is unaffected by the finding 4 fix: a previous run with at
+     * least one group that never reached {@code COMPLETED} still returns a populated list naming
+     * it, regardless of the run's own status.
+     */
+    @Test
+    void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
+        // given - one COMPLETED group, one still PENDING
+        DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
+                "runner-1", 1L, 2L, 1000L, 900L, 5, 0));
+        groups.add(DistributedRunGroup.pending("run-incomplete", 1, 1000L));
+
+        // when
+        List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(openRun, groups);
+
+        // then
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).contains("group 1"), "should name the incomplete group: " + result);
+        assertTrue(result.get(0).contains("PENDING"), "should name its status: " + result);
     }
 
 }

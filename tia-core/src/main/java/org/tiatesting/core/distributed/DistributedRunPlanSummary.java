@@ -26,6 +26,7 @@ public final class DistributedRunPlanSummary {
     private final boolean clampedToMaxGroups;
     private final boolean singleSuiteExceedsTarget;
     private final long totalEstimatedMs;
+    private final long heaviestGroupMs;
     private final int selectedSuiteCount;
 
     /**
@@ -44,13 +45,17 @@ public final class DistributedRunPlanSummary {
      * @param singleSuiteExceedsTarget whether a single suite's weight alone exceeds {@code
      *                                 targetMs}, so no group count could have met it
      * @param totalEstimatedMs the summed estimated run time of every group, in ms
+     * @param heaviestGroupMs the weight of the heaviest group in ms - the run's expected
+     *                        wall-clock test time, since the groups execute in parallel; unlike
+     *                        {@code avgGroupMs} this reflects uneven packing, which is exactly the
+     *                        case a pipeline setting a job timeout needs to know about
      * @param selectedSuiteCount the number of test suites selected for this run, across all
      *                           groups
      */
     public DistributedRunPlanSummary(String runId, String branch, String commit, int groupCount,
                                       Long targetMs, boolean targetMet, boolean clampedToMaxGroups,
                                       boolean singleSuiteExceedsTarget, long totalEstimatedMs,
-                                      int selectedSuiteCount) {
+                                      long heaviestGroupMs, int selectedSuiteCount) {
         this.runId = runId;
         this.branch = branch;
         this.commit = commit;
@@ -60,6 +65,7 @@ public final class DistributedRunPlanSummary {
         this.clampedToMaxGroups = clampedToMaxGroups;
         this.singleSuiteExceedsTarget = singleSuiteExceedsTarget;
         this.totalEstimatedMs = totalEstimatedMs;
+        this.heaviestGroupMs = heaviestGroupMs;
         this.selectedSuiteCount = selectedSuiteCount;
         this.avgGroupMs = groupCount == 0 ? 0L : totalEstimatedMs / groupCount;
     }
@@ -100,6 +106,13 @@ public final class DistributedRunPlanSummary {
     /** @return the summed estimated run time of every group, in ms */
     public long getTotalEstimatedMs() { return totalEstimatedMs; }
 
+    /**
+     * @return the weight of the heaviest group in ms - the run's expected wall-clock test time,
+     *         since the groups execute in parallel. Understates nothing that {@code avgGroupMs}
+     *         would hide when the packing is uneven
+     */
+    public long getHeaviestGroupMs() { return heaviestGroupMs; }
+
     /** @return the number of test suites selected for this run, across all groups */
     public int getSelectedSuiteCount() { return selectedSuiteCount; }
 
@@ -121,6 +134,7 @@ public final class DistributedRunPlanSummary {
         json.append("  \"commit\": \"").append(escapeJsonString(commit)).append("\",\n");
         json.append("  \"groupCount\": ").append(groupCount).append(",\n");
         json.append("  \"avgGroupMs\": ").append(avgGroupMs).append(",\n");
+        json.append("  \"heaviestGroupMs\": ").append(heaviestGroupMs).append(",\n");
         json.append("  \"targetMs\": ").append(targetMs == null ? "null" : targetMs.toString()).append(",\n");
         json.append("  \"targetMet\": ").append(targetMet).append(",\n");
         json.append("  \"clampedToMaxGroups\": ").append(clampedToMaxGroups).append(",\n");
@@ -187,7 +201,8 @@ public final class DistributedRunPlanSummary {
         summary.append("Distributed run plan for ").append(runId)
                 .append(" (branch ").append(branch).append(", commit ").append(commit).append(")\n");
         summary.append("  Groups: ").append(groupCount)
-                .append(", average ").append(avgGroupMs).append("ms per group\n");
+                .append(", average ").append(avgGroupMs)
+                .append("ms per group, heaviest ").append(heaviestGroupMs).append("ms\n");
         if (targetMs == null) {
             summary.append("  Target: none (static group count)\n");
         } else {
@@ -217,6 +232,7 @@ public final class DistributedRunPlanSummary {
     public String toString() {
         return "DistributedRunPlanSummary{runId=" + runId + ", branch=" + branch
                 + ", commit=" + commit + ", groupCount=" + groupCount + ", avgGroupMs=" + avgGroupMs
+                + ", heaviestGroupMs=" + heaviestGroupMs
                 + ", targetMs=" + targetMs + ", targetMet=" + targetMet
                 + ", clampedToMaxGroups=" + clampedToMaxGroups
                 + ", singleSuiteExceedsTarget=" + singleSuiteExceedsTarget

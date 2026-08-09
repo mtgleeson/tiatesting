@@ -278,4 +278,39 @@ class DistributedRunConfigTest {
         // then
         assertEquals("runner-abc-1234-99", config.getRunnerKey());
     }
+
+    /**
+     * Verifies that a runId surrounded by whitespace is trimmed before being stored, so a runner
+     * that trims the same CI-supplied environment variable finds a matching value in the shared
+     * datastore rather than being defeated by leading/trailing spaces neither side intended.
+     */
+    @Test
+    void validated_runIdWithSurroundingWhitespace_isTrimmed() {
+        // given - a runId with leading and trailing spaces
+        String runId = "  gh-123  ";
+
+        // when
+        DistributedRunConfig config = DistributedRunConfig.validated(runId, 3, null, null, null);
+
+        // then
+        assertEquals("gh-123", config.getRunId());
+    }
+
+    /**
+     * Verifies that a runnerKey surrounded by whitespace is trimmed before being stored, the same
+     * as {@code runId}, so a runner deriving its own key from a trimmed environment variable
+     * matches the stored value.
+     */
+    @Test
+    void validated_runnerKeyWithSurroundingWhitespace_isTrimmed() {
+        // given - a runnerKey with leading and trailing spaces
+        String runnerKey = "  runner-abc-1234-99  ";
+
+        // when
+        DistributedRunConfig config =
+                DistributedRunConfig.validated("run-6", 3, null, null, runnerKey);
+
+        // then
+        assertEquals("runner-abc-1234-99", config.getRunnerKey());
+    }
 }

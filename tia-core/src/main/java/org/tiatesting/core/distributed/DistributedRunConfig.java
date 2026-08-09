@@ -84,7 +84,8 @@ public final class DistributedRunConfig {
      * @param runnerKey an optional per-runner identity value ({@code tiaDistributedRunnerKey});
      *                  not validated or used by this class or by the planner, since it is read
      *                  only by stage 5's claim protocol
-     * @return a validated, immutable config bundle
+     * @return a validated, immutable config bundle, with {@code runId} and (if supplied) {@code
+     *         runnerKey} trimmed of leading and trailing whitespace
      * @throws IllegalArgumentException if {@code runId} is null or blank; if neither or both of
      *                                  {@code groupCount} and {@code targetRunTimeMs} are set; if
      *                                  {@code groupCount} is set and below 1; if {@code
@@ -98,6 +99,8 @@ public final class DistributedRunConfig {
         if (runId == null || runId.trim().isEmpty()) {
             throw new IllegalArgumentException("tiaRunId must be set");
         }
+        runId = runId.trim();
+        runnerKey = runnerKey == null ? null : runnerKey.trim();
 
         boolean groupCountSet = groupCount != null;
         boolean targetRunTimeSet = targetRunTimeMs != null;

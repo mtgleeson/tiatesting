@@ -36,6 +36,8 @@ public class TestSelectorResult {
 
     private final long mappingOverheadMs;
 
+    private final boolean runAllTests;
+
     /**
      * Construct a {@link TestSelectorResult}.
      *
@@ -62,6 +64,13 @@ public class TestSelectorResult {
      *                          selected suites (per-suite coverage capture + amortised whole-run
      *                          costs). Added to {@code estimatedRunTimeMs} only when the run being
      *                          estimated will collect coverage; {@code 0} when not derivable
+     * @param runAllTests {@code true} only when no mapping is stored yet for the tracked branch
+     *                    and every test must run because Tia has nothing to select against;
+     *                    {@code false} for a normal selection. Both {@code testsToRun} and
+     *                    {@code testsToIgnore} are empty in the {@code true} case, which is why
+     *                    this flag exists - an empty {@code testsToRun} means "nothing impacted"
+     *                    only when this is {@code false}; when it is {@code true} it means the
+     *                    opposite, "everything must run"
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
@@ -69,7 +78,8 @@ public class TestSelectorResult {
                                Set<String> selectedTestsWithoutStats,
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
-                               long allTestsRunTimeMs, long mappingOverheadMs) {
+                               long allTestsRunTimeMs, long mappingOverheadMs,
+                               boolean runAllTests) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -79,6 +89,7 @@ public class TestSelectorResult {
         this.selectedTestRunTimesMs = selectedTestRunTimesMs;
         this.allTestsRunTimeMs = allTestsRunTimeMs;
         this.mappingOverheadMs = mappingOverheadMs;
+        this.runAllTests = runAllTests;
     }
 
     /**
@@ -154,6 +165,18 @@ public class TestSelectorResult {
      */
     public long getMappingOverheadMs() {
         return mappingOverheadMs;
+    }
+
+    /**
+     * @return {@code true} only when no mapping is stored yet for the tracked branch and every
+     *         test had to be selected because Tia has nothing to select against; {@code false}
+     *         for a normal selection. An empty {@link #getTestsToRun()} means "nothing impacted"
+     *         only when this is {@code false} - callers that treat an empty {@code testsToRun} as
+     *         "run nothing" must check this flag first, since a {@code true} value means the
+     *         opposite: everything must run
+     */
+    public boolean isRunAllTests() {
+        return runAllTests;
     }
 
     @Override
