@@ -3,6 +3,7 @@ package org.tiatesting.core.distributed;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +25,47 @@ import java.util.Map;
 public final class TestGroupBalancer {
 
     private TestGroupBalancer() { }
+
+    /**
+     * Derive the per-suite weights the balancer packs by, from the run-time estimate Tia already
+     * computes for the selection.
+     *
+     * <p>The supplied per-suite times come from the existing selection estimate and already carry
+     * the median fallback for suites that have never recorded a run, so nothing is recomputed
+     * here. The only addition is the mapping overhead: the cost of JaCoCo coverage capture plus
+     * the amortised whole-run costs that no per-suite average includes. That is supplied as a
+     * total for the whole selection, matching what the estimate reports, and divided back out
+     * here. It is added only for runs that collect coverage, since a run with mapping updates off
+     * does not pay it.
+     *
+     * @param perSuiteRunTimesMs estimated run time in ms per suite, median fallback already
+     *                           applied; may be empty
+     * @param totalMappingOverheadMs the mapping overhead in ms for the whole selection, not per
+     *                               suite; must not be negative
+     * @param collectingCoverage whether this run will collect coverage and therefore pay the
+     *                           mapping overhead
+     * @return a new map of weights in ms keyed by suite name; the supplied map is not modified
+     * @throws IllegalArgumentException if {@code totalMappingOverheadMs} is negative
+     */
+    public static Map<String, Long> suiteWeights(final Map<String, Long> perSuiteRunTimesMs,
+                                                 final long totalMappingOverheadMs,
+                                                 final boolean collectingCoverage) {
+        if (totalMappingOverheadMs < 0) {
+            throw new IllegalArgumentException(
+                    "mapping overhead must not be negative, was " + totalMappingOverheadMs);
+        }
+        Map<String, Long> weights = new HashMap<>();
+        if (perSuiteRunTimesMs.isEmpty()) {
+            return weights;
+        }
+        long overheadPerSuiteMs = collectingCoverage
+                ? totalMappingOverheadMs / perSuiteRunTimesMs.size()
+                : 0L;
+        for (Map.Entry<String, Long> entry : perSuiteRunTimesMs.entrySet()) {
+            weights.put(entry.getKey(), entry.getValue() + overheadPerSuiteMs);
+        }
+        return weights;
+    }
 
     /**
      * Split the suites into exactly {@code groupCount} groups, minimising the heaviest group.

@@ -7,9 +7,11 @@ import java.util.List;
 /**
  * The outcome of balancing a selection into groups: the groups themselves plus the two facts a
  * caller needs to explain the outcome to a user. {@code targetMet} answers "is this build going
- * to come in under the target", and {@code clampedToMaxGroups} distinguishes the two reasons it
- * might not: the configured group ceiling was too low, or a single suite is longer than the whole
- * target and no amount of splitting can help.
+ * to come in under the target". {@code clampedToMaxGroups} answers a separate question - whether
+ * the configured group ceiling limited the group count - and is not the only reason
+ * {@code targetMet} can be false: a single suite longer than the whole target also misses it, and
+ * that can happen whether or not the ceiling also bound the count, so the two flags can be true
+ * together.
  */
 public final class GroupingResult {
 
