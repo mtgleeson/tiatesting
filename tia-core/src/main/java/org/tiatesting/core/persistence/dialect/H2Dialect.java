@@ -11,6 +11,9 @@ public final class H2Dialect implements SqlDialect {
     /** {@inheritDoc} H2 uses {@code AUTO_INCREMENT}. */
     @Override public String identityColumnDefinition() { return "BIGINT AUTO_INCREMENT PRIMARY KEY"; }
 
+    /** {@inheritDoc} H2 uses {@code BLOB}, which needs no declared length. */
+    @Override public String binaryColumnType() { return "BLOB"; }
+
     /**
      * {@inheritDoc} H2 uses {@code MERGE INTO ... KEY(...) VALUES (...)}.
      */
