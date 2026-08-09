@@ -106,7 +106,6 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SUITES_RAN = "suites_ran";
     private static final String COL_SUITES_FAILED = "suites_failed";
     private static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
-    private static final String IDX_DISTRIBUTED_RUN_BRANCH = "idx_distributed_run_branch";
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
     // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
@@ -1469,6 +1468,11 @@ public class JdbcDataStore implements DataStore {
      * would leave the tables cleared but the new plan unwritten, so every runner would find
      * nothing to claim and exit successfully - a green build that ran no tests.
      *
+     * <p>Calls {@link #ensureSchema(Connection)} before starting the transaction, since this can
+     * be the first call any caller makes on a freshly created per-branch schema. It must run
+     * before {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
+     * transaction would silently break the atomicity this method depends on.
+     *
      * @param plan the validated plan to persist
      */
     @Override
@@ -1489,6 +1493,9 @@ public class JdbcDataStore implements DataStore {
         DistributedRun run = plan.getRun();
         Connection connection = getConnection();
         try {
+            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
+            // it inside the transaction would silently break atomicity.
+            ensureSchema(connection);
             connection.setAutoCommit(false);
             try {
                 String[] tablesToClear = {
@@ -1597,30 +1604,36 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
+     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * call any caller makes on a freshly created per-branch schema and the distributed-run
+     * tables are otherwise only created there.
+     *
      * @param runId the run identifier
      * @return the run, or null if no run is planned under that id
      */
     @Override
     public DistributedRun readDistributedRun(final String runId) {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " WHERE " + COL_RUN_ID + " = ?";
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, runId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    return null;
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (!resultSet.next()) {
+                        return null;
+                    }
+                    return new DistributedRun(
+                            resultSet.getString(COL_RUN_ID),
+                            resultSet.getString(COL_BRANCH),
+                            resultSet.getString(COL_COMMIT_VALUE),
+                            DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
+                            resultSet.getInt(COL_GROUP_COUNT),
+                            getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
+                            resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
+                            resultSet.getLong(COL_CREATED_AT),
+                            resultSet.getString(COL_SEALED_BY),
+                            getNullableLong(resultSet, COL_SEALED_AT));
                 }
-                return new DistributedRun(
-                        resultSet.getString(COL_RUN_ID),
-                        resultSet.getString(COL_BRANCH),
-                        resultSet.getString(COL_COMMIT_VALUE),
-                        DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
-                        resultSet.getInt(COL_GROUP_COUNT),
-                        getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
-                        resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
-                        resultSet.getLong(COL_CREATED_AT),
-                        resultSet.getString(COL_SEALED_BY),
-                        getNullableLong(resultSet, COL_SEALED_AT));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1630,6 +1643,10 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
+     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * call any caller makes on a freshly created per-branch schema and the distributed-run
+     * tables are otherwise only created there.
+     *
      * @param runId the run identifier
      * @return the run's groups in group-number order, empty if the run is unknown
      */
@@ -1638,22 +1655,24 @@ public class JdbcDataStore implements DataStore {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " WHERE " + COL_RUN_ID
                 + " = ? ORDER BY " + COL_GROUP_NUMBER;
         List<DistributedRunGroup> groups = new ArrayList<>();
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, runId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    groups.add(new DistributedRunGroup(
-                            resultSet.getString(COL_RUN_ID),
-                            resultSet.getInt(COL_GROUP_NUMBER),
-                            DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
-                            resultSet.getString(COL_RUNNER_KEY),
-                            getNullableLong(resultSet, COL_CLAIMED_AT),
-                            getNullableLong(resultSet, COL_COMPLETED_AT),
-                            resultSet.getLong(COL_ESTIMATED_MS),
-                            getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
-                            resultSet.getInt(COL_SUITES_RAN),
-                            resultSet.getInt(COL_SUITES_FAILED)));
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        groups.add(new DistributedRunGroup(
+                                resultSet.getString(COL_RUN_ID),
+                                resultSet.getInt(COL_GROUP_NUMBER),
+                                DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
+                                resultSet.getString(COL_RUNNER_KEY),
+                                getNullableLong(resultSet, COL_CLAIMED_AT),
+                                getNullableLong(resultSet, COL_COMPLETED_AT),
+                                resultSet.getLong(COL_ESTIMATED_MS),
+                                getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
+                                resultSet.getInt(COL_SUITES_RAN),
+                                resultSet.getInt(COL_SUITES_FAILED)));
+                    }
                 }
             }
         } catch (SQLException e) {
@@ -1665,6 +1684,10 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
+     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * call any caller makes on a freshly created per-branch schema and the distributed-run
+     * tables are otherwise only created there.
+     *
      * @param runId the run identifier
      * @param groupNumber the group's zero-based index within the run
      * @return the group's suite names in name order, empty if the group is unknown
@@ -1675,13 +1698,15 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? ORDER BY "
                 + COL_TEST_SUITE_NAME;
         List<String> suiteNames = new ArrayList<>();
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, runId);
-            statement.setInt(2, groupNumber);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    suiteNames.add(resultSet.getString(COL_TEST_SUITE_NAME));
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                statement.setInt(2, groupNumber);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        suiteNames.add(resultSet.getString(COL_TEST_SUITE_NAME));
+                    }
                 }
             }
         } catch (SQLException e) {
@@ -1693,27 +1718,33 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
+     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * call any caller makes on a freshly created per-branch schema and the distributed-run
+     * tables are otherwise only created there.
+     *
      * @return the runs currently planned, most recently created first, empty if there are none
      */
     @Override
     public List<DistributedRun> readAllDistributedRuns() {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
         List<DistributedRun> runs = new ArrayList<>();
-        try (Connection connection = getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                runs.add(new DistributedRun(
-                        resultSet.getString(COL_RUN_ID),
-                        resultSet.getString(COL_BRANCH),
-                        resultSet.getString(COL_COMMIT_VALUE),
-                        DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
-                        resultSet.getInt(COL_GROUP_COUNT),
-                        getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
-                        resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
-                        resultSet.getLong(COL_CREATED_AT),
-                        resultSet.getString(COL_SEALED_BY),
-                        getNullableLong(resultSet, COL_SEALED_AT)));
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    runs.add(new DistributedRun(
+                            resultSet.getString(COL_RUN_ID),
+                            resultSet.getString(COL_BRANCH),
+                            resultSet.getString(COL_COMMIT_VALUE),
+                            DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
+                            resultSet.getInt(COL_GROUP_COUNT),
+                            getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
+                            resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
+                            resultSet.getLong(COL_CREATED_AT),
+                            resultSet.getString(COL_SEALED_BY),
+                            getNullableLong(resultSet, COL_SEALED_AT)));
+                }
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -3133,32 +3164,27 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Build the DDL for the index backing the supersede sweep, which finds unsealed runs for a
-     * branch when a newer build plans a run.
-     *
-     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the branch index
-     */
-    private String buildCreateDistributedRunBranchIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS " + IDX_DISTRIBUTED_RUN_BRANCH + " ON "
-                + TABLE_TIA_DISTRIBUTED_RUN + " (" + COL_BRANCH + ", " + COL_STATUS + ")";
-    }
-
-    /**
-     * Ensure the four distributed-run tables and their indexes exist. Idempotent via
+     * Ensure the four distributed-run tables and the group-status index exist. Idempotent via
      * {@code CREATE TABLE/INDEX IF NOT EXISTS}, so it both creates them on a new database and
      * backfills them onto a database created before distributed runs existed.
+     *
+     * <p>All five DDL statements are batched onto one {@link Statement} and sent with a single
+     * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
+     * or Postgres connection this collapses what would otherwise be five wire round trips - paid on
+     * every build whether or not distributed runs are in use - into one.
      *
      * @param connection the connection to issue the DDL on
      * @throws SQLException if any DDL statement fails
      */
     private void ensureDistributedRunTablesExist(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(buildCreateDistributedRunTableSql());
-        statement.executeUpdate(buildCreateDistributedRunGroupTableSql());
-        statement.executeUpdate(buildCreateDistributedRunGroupSuiteTableSql());
-        statement.executeUpdate(buildCreateDistributedRunMethodStageTableSql());
-        statement.executeUpdate(buildCreateDistributedRunGroupStatusIndexSql());
-        statement.executeUpdate(buildCreateDistributedRunBranchIndexSql());
+        try (Statement statement = connection.createStatement()) {
+            statement.addBatch(buildCreateDistributedRunTableSql());
+            statement.addBatch(buildCreateDistributedRunGroupTableSql());
+            statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
+            statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
+            statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
+            statement.executeBatch();
+        }
     }
 
     /**
