@@ -168,6 +168,58 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaVcsClientName;
 
     /**
+     * Whether this build participates in a distributed test run: the tests Tia selects are split
+     * into groups and persisted to a shared database instead of all running in this one build.
+     * Distributed runs require a shared datastore ({@link #tiaDBUrl}) and {@link
+     * #tiaCheckLocalChanges} disabled - see {@code DistributedRunPreconditions} in {@code tia-core}.
+     */
+    @Parameter(property = "tiaDistributed")
+    boolean tiaDistributed;
+
+    /**
+     * The shared identifier every runner in a distributed test run must agree on, so each runner
+     * finds the same run's rows in the shared database. Required when {@link #tiaDistributed} is
+     * enabled; typically the CI pipeline's build or run id.
+     */
+    @Parameter(property = "tiaRunId")
+    String tiaRunId;
+
+    /**
+     * The fixed number of groups to split a distributed run's selected tests into. Mutually
+     * exclusive with {@link #tiaDistributedTargetRunTime} - exactly one of the two must be set.
+     * Boxed rather than a primitive {@code int} so an unset value is distinguishable from a
+     * deliberate {@code 0}, which {@code DistributedRunConfig} relies on to tell "not configured"
+     * apart from a configured value of zero.
+     */
+    @Parameter(property = "tiaDistributedGroupCount")
+    Integer tiaDistributedGroupCount;
+
+    /**
+     * The target wall-clock run time, in milliseconds, a distributed run should balance groups to
+     * meet. Mutually exclusive with {@link #tiaDistributedGroupCount} - exactly one of the two
+     * must be set. Boxed for the same "unset vs. zero" reason as {@link
+     * #tiaDistributedGroupCount}.
+     */
+    @Parameter(property = "tiaDistributedTargetRunTime")
+    Long tiaDistributedTargetRunTime;
+
+    /**
+     * An optional ceiling on the number of groups a distributed run may be split into when
+     * balancing for {@link #tiaDistributedTargetRunTime}. Meaningless - and rejected - alongside a
+     * fixed {@link #tiaDistributedGroupCount}. Boxed so "no ceiling configured" is distinguishable
+     * from a configured ceiling of zero.
+     */
+    @Parameter(property = "tiaDistributedMaxGroups")
+    Integer tiaDistributedMaxGroups;
+
+    /**
+     * An optional per-runner identity value used by the distributed run's claim protocol to tell
+     * concurrent runners apart. Falls back to {@code runId + hostname + pid} when not supplied.
+     */
+    @Parameter(property = "tiaDistributedRunnerKey")
+    String tiaDistributedRunnerKey;
+
+    /**
      * Static test selection rules. Each rule maps a regex over the repo-relative paths of
      * changed files to a set of test suites that should be force-run regardless of dynamic
      * coverage-based selection. Rules are additive: their selected suites are unioned into
@@ -311,6 +363,52 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public boolean isTiaCheckLocalChanges() {
         return tiaCheckLocalChanges;
+    }
+
+    /**
+     * @return whether this build participates in a distributed test run
+     */
+    public boolean isTiaDistributed() {
+        return tiaDistributed;
+    }
+
+    /**
+     * @return the configured distributed run id, or {@code null} if not set
+     */
+    public String getTiaRunId() {
+        return tiaRunId;
+    }
+
+    /**
+     * @return the configured fixed group count for a distributed run, or {@code null} to use a
+     *         target run time instead
+     */
+    public Integer getTiaDistributedGroupCount() {
+        return tiaDistributedGroupCount;
+    }
+
+    /**
+     * @return the configured target wall-clock run time in ms for a distributed run, or {@code
+     *         null} to use a fixed group count instead
+     */
+    public Long getTiaDistributedTargetRunTime() {
+        return tiaDistributedTargetRunTime;
+    }
+
+    /**
+     * @return the configured ceiling on the group count for a distributed run, or {@code null}
+     *         for no ceiling
+     */
+    public Integer getTiaDistributedMaxGroups() {
+        return tiaDistributedMaxGroups;
+    }
+
+    /**
+     * @return the configured per-runner identity value for a distributed run, or {@code null} to
+     *         let the claim protocol derive one
+     */
+    public String getTiaDistributedRunnerKey() {
+        return tiaDistributedRunnerKey;
     }
 
     public String getTiaVcsServerUri() {

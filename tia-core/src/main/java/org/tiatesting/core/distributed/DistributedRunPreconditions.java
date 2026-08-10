@@ -44,6 +44,10 @@ public final class DistributedRunPreconditions {
      * @throws IllegalStateException if the resolved datastore is embedded H2, naming server-mode H2
      *         and Postgres as the options and {@code tiaDBUrl} as the property that selects them;
      *         or if {@code checkLocalChanges} is true, naming {@code tiaCheckLocalChanges}
+     * @throws IllegalArgumentException if {@link DataStoreFactory#isSharedDatabase(String, String)}
+     *         cannot resolve a dialect for {@code dbUrl}/{@code dialectOverride} - see
+     *         {@link DataStoreFactory#fromConfig}; this class does not catch it, so it propagates
+     *         to the caller unchanged
      */
     public static void check(final String dbUrl, final String dialectOverride, final boolean checkLocalChanges) {
         if (!DataStoreFactory.isSharedDatabase(dbUrl, dialectOverride)) {
