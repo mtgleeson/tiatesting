@@ -48,6 +48,18 @@ class AbstractSelectTestsMojoTest {
     }
 
     /**
+     * Build a seed selection - no stored mapping exists yet for the tracked branch, so {@code
+     * runAllTests} is true and both {@code testsToRun} and {@code testsToIgnore} are empty, per
+     * {@link TestSelectorResult#isRunAllTests()}.
+     *
+     * @return a selection with {@code runAllTests} true and no selected or ignored tests
+     */
+    private static TestSelectorResult seedSelection() {
+        return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(), null,
+                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, true);
+    }
+
+    /**
      * Verifies finding 1's fix: a distributed grouping shape {@link
      * org.tiatesting.core.distributed.DistributedRunPlanner#balance} rejects (here, both a fixed
      * group count and a max-group ceiling - the exact shared-parent-pom mistake finding 1
@@ -113,6 +125,47 @@ class AbstractSelectTestsMojoTest {
         // then
         assertTrue(printed.contains("Distributed run grouping preview (not persisted):"),
                 "expected the ordinary preview block, got: " + printed);
+        assertFalse(printed.contains("skipped"), "no skip notice expected, got: " + printed);
+    }
+
+    /**
+     * Verifies the carried-over Task 1 fix at the {@code execute()} branch this class tests
+     * indirectly: {@link AbstractSelectTestsMojo#printDistributedRunPreviewIfConfigured} still
+     * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
+     * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection
+     * shape {@code execute()} passes on the "all (no stored mapping for this branch yet)" branch.
+     * {@link org.tiatesting.core.distributed.DistributedRunPlanner#balance} collapses a seed
+     * selection to a single empty group regardless of the configured group count, so this also
+     * proves that collapse reaches the console unchanged.
+     */
+    @Test
+    void printDistributedRunPreviewIfConfigured_seedSelection_printsSeedRunPreview() {
+        // given a mojo configured with a distributed grouping shape, previewing a seed selection
+        TestMojo mojo = new TestMojo();
+        mojo.tiaDistributedGroupCount = 2;
+
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        String printed;
+        try {
+            System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
+
+            // when
+            mojo.printDistributedRunPreviewIfConfigured(seedSelection());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            System.setOut(originalOut);
+            printed = new String(captured.toByteArray(), StandardCharsets.UTF_8);
+        }
+
+        // then
+        assertTrue(printed.contains("Distributed run grouping preview (not persisted):"),
+                "expected the preview block, got: " + printed);
+        assertTrue(printed.contains("Seed run: no stored mapping exists yet for this branch"),
+                "expected the seed-run notice, got: " + printed);
+        assertTrue(printed.contains("Groups: 1"), "expected the single collapsed group, got: " + printed);
+        assertFalse(printed.contains("Target:"), "a seed run has no target verdict to print: " + printed);
         assertFalse(printed.contains("skipped"), "no skip notice expected, got: " + printed);
     }
 }

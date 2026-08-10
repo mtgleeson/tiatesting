@@ -393,6 +393,30 @@ public interface DataStore extends AutoCloseable {
     List<DistributedRun> readAllDistributedRuns();
 
     /**
+     * Claim exactly one {@code PENDING} group of a distributed run for the calling runner, so no
+     * two runners ever end up running the same group and no group is ever left unclaimed while
+     * groups remain. No runner is told its group number in advance - it claims one, and this is
+     * the operation that decides which.
+     *
+     * <p>First checks whether this runner key already holds a group in this run (a CI job retry
+     * re-claiming its own group after a crash or restart) and returns that group unchanged if so,
+     * without attempting a new claim. Otherwise repeatedly reads the lowest-numbered {@code
+     * PENDING} group and attempts a single-row compare-and-swap update guarded by {@code status =
+     * 'PENDING'}: two runners racing for the same candidate both attempt that update, the database
+     * serialises them, and only one sees a row affected. The loser observes zero rows affected and
+     * retries against whatever is now the lowest-numbered {@code PENDING} group. See the "Group
+     * assignment" chapter in {@code WIKI.md} for the full protocol.
+     *
+     * @param runId the distributed run to claim a group from
+     * @param runnerKey the calling runner's stable identity; must be stable across CI job retries
+     *                  for the retry-reclaims-its-own-group behaviour to apply
+     * @param claimedAtMs UTC epoch millis to record as the claim time
+     * @return the claimed group (freshly claimed, or the one this runner key already held), or
+     *         {@code null} when the run has no group left to claim
+     */
+    DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey, final long claimedAtMs);
+
+    /**
      * Stage the method trackers one runner observed, so the sealer can rebuild the method
      * catalogue after the barrier from the union of every runner's observations. In a distributed
      * run no single process holds the whole run's trackers, which is what this table replaces.

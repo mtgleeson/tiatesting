@@ -549,6 +549,20 @@ class TestRunnerServiceSealOrderTest {
          * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
          *
          * @param runId ignored
+         * @param runnerKey ignored
+         * @param claimedAtMs ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public DistributedRunGroup claimNextPendingGroup(String runId, String runnerKey, long claimedAtMs) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
          * @param methodsTracked ignored
          * @throws UnsupportedOperationException always
          */

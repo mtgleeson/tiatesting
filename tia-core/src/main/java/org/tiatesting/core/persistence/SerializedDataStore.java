@@ -451,6 +451,22 @@ public class SerializedDataStore implements DataStore {
      * file-backed store is not.
      *
      * @param runId ignored
+     * @param runnerKey ignored
+     * @param claimedAtMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public DistributedRunGroup claimNextPendingGroup(String runId, String runnerKey, long claimedAtMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
      * @param methodsTracked ignored
      * @throws UnsupportedOperationException always
      */
