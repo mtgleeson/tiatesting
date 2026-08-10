@@ -13,12 +13,18 @@ package org.tiatesting.core.distributed;
  * groups mode - {@link DistributedRunConfig#isStaticGroups()} - because a fixed group count has
  * no target run time to report; it is rendered as JSON {@code null}, never {@code 0}, since zero
  * would read as an (impossible) target of zero rather than the absence of one.
+ *
+ * <p>{@code seedRun} is true exactly when the plan was collapsed to a single empty group because
+ * no stored mapping existed yet for this branch - see {@link DistributedRunPlanner#plan}. A
+ * pipeline reading {@code tia-run-plan.json} can use it to explain why it only received one job
+ * despite the configured group count.
  */
 public final class DistributedRunPlanSummary {
 
     private final String runId;
     private final String branch;
     private final String commit;
+    private final boolean seedRun;
     private final int groupCount;
     private final long avgGroupMs;
     private final Long targetMs;
@@ -51,11 +57,14 @@ public final class DistributedRunPlanSummary {
      *                        case a pipeline setting a job timeout needs to know about
      * @param selectedSuiteCount the number of test suites selected for this run, across all
      *                           groups
+     * @param seedRun whether this plan was collapsed to a single empty group because no stored
+     *                mapping existed yet for this branch, rather than balanced from the selection
      */
     public DistributedRunPlanSummary(String runId, String branch, String commit, int groupCount,
                                       Long targetMs, boolean targetMet, boolean clampedToMaxGroups,
                                       boolean singleSuiteExceedsTarget, long totalEstimatedMs,
-                                      long heaviestGroupMs, int selectedSuiteCount) {
+                                      long heaviestGroupMs, int selectedSuiteCount,
+                                      boolean seedRun) {
         this.runId = runId;
         this.branch = branch;
         this.commit = commit;
@@ -67,6 +76,7 @@ public final class DistributedRunPlanSummary {
         this.totalEstimatedMs = totalEstimatedMs;
         this.heaviestGroupMs = heaviestGroupMs;
         this.selectedSuiteCount = selectedSuiteCount;
+        this.seedRun = seedRun;
         this.avgGroupMs = groupCount == 0 ? 0L : totalEstimatedMs / groupCount;
     }
 
@@ -117,6 +127,14 @@ public final class DistributedRunPlanSummary {
     public int getSelectedSuiteCount() { return selectedSuiteCount; }
 
     /**
+     * @return whether this plan was collapsed to a single empty group because no stored mapping
+     *         existed yet for this branch, rather than balanced from the selection; when true,
+     *         {@link #getGroupCount()} is always 1 regardless of the configured group count or
+     *         target run time
+     */
+    public boolean isSeedRun() { return seedRun; }
+
+    /**
      * Render this summary as the {@code tia-run-plan.json} document a CI pipeline parses to
      * decide how many jobs to start. There is no JSON library on this project's classpath, so the
      * document is built by hand; {@code runId}, {@code branch} and {@code commit} come from user
@@ -132,6 +150,7 @@ public final class DistributedRunPlanSummary {
         json.append("  \"runId\": \"").append(escapeJsonString(runId)).append("\",\n");
         json.append("  \"branch\": \"").append(escapeJsonString(branch)).append("\",\n");
         json.append("  \"commit\": \"").append(escapeJsonString(commit)).append("\",\n");
+        json.append("  \"seedRun\": ").append(seedRun).append(",\n");
         json.append("  \"groupCount\": ").append(groupCount).append(",\n");
         json.append("  \"avgGroupMs\": ").append(avgGroupMs).append(",\n");
         json.append("  \"heaviestGroupMs\": ").append(heaviestGroupMs).append(",\n");
@@ -198,28 +217,37 @@ public final class DistributedRunPlanSummary {
      * explanation once the real plan is persisted.
      *
      * @return a multi-line human-readable summary naming the run, its groups, and whether the
-     *         target was met
+     *         target was met; when {@link #isSeedRun()} is true, names that instead of the target
+     *         verdict, since a seed run has no target to report
      */
     public String toConsoleSummary() {
         StringBuilder summary = new StringBuilder();
         summary.append("Distributed run plan for ").append(runId)
                 .append(" (branch ").append(branch).append(", commit ").append(commit).append(")\n");
+        if (seedRun) {
+            summary.append("  Seed run: no stored mapping exists yet for this branch, so this ")
+                    .append("plan has one group covering the whole suite - the configured group ")
+                    .append("count and target run time were ignored. Running it will record the ")
+                    .append("mapping; the next build will plan normally.\n");
+        }
         summary.append("  Groups: ").append(groupCount)
                 .append(", average ").append(avgGroupMs)
                 .append("ms per group, heaviest ").append(heaviestGroupMs).append("ms\n");
-        if (targetMs == null) {
-            summary.append("  Target: none (static group count)\n");
-        } else {
-            summary.append("  Target: ").append(targetMs).append("ms - ")
-                    .append(targetMet ? "met" : "not met").append("\n");
-            if (!targetMet) {
-                if (clampedToMaxGroups) {
-                    summary.append("    reason: ").append(DistributedRunMissReasons.MAX_GROUPS_LIMITING)
-                            .append("\n");
-                }
-                if (singleSuiteExceedsTarget) {
-                    summary.append("    reason: ").append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET)
-                            .append("\n");
+        if (!seedRun) {
+            if (targetMs == null) {
+                summary.append("  Target: none (static group count)\n");
+            } else {
+                summary.append("  Target: ").append(targetMs).append("ms - ")
+                        .append(targetMet ? "met" : "not met").append("\n");
+                if (!targetMet) {
+                    if (clampedToMaxGroups) {
+                        summary.append("    reason: ").append(DistributedRunMissReasons.MAX_GROUPS_LIMITING)
+                                .append("\n");
+                    }
+                    if (singleSuiteExceedsTarget) {
+                        summary.append("    reason: ").append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET)
+                                .append("\n");
+                    }
                 }
             }
         }
@@ -237,7 +265,8 @@ public final class DistributedRunPlanSummary {
     @Override
     public String toString() {
         return "DistributedRunPlanSummary{runId=" + runId + ", branch=" + branch
-                + ", commit=" + commit + ", groupCount=" + groupCount + ", avgGroupMs=" + avgGroupMs
+                + ", commit=" + commit + ", seedRun=" + seedRun + ", groupCount=" + groupCount
+                + ", avgGroupMs=" + avgGroupMs
                 + ", heaviestGroupMs=" + heaviestGroupMs
                 + ", targetMs=" + targetMs + ", targetMet=" + targetMet
                 + ", clampedToMaxGroups=" + clampedToMaxGroups

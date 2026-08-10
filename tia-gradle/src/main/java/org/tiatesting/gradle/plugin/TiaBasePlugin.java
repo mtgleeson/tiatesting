@@ -180,7 +180,13 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 String lineSep = System.lineSeparator();
 
                 System.out.println("Selected tests to run: ");
-                if (testsToRun.isEmpty()){
+                if (result.isRunAllTests()) {
+                    // No stored mapping for this branch yet: every test runs. testsToRun is empty
+                    // in this case (see TestSelectorResult#isRunAllTests), so it is checked first
+                    // and reported distinctly from "nothing selected" below.
+                    System.out.println("all (no stored mapping for this branch yet)");
+                    printDistributedRunPreviewIfConfigured(result, lineSep);
+                } else if (testsToRun.isEmpty()){
                     System.out.println("none");
                 } else {
                     System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
@@ -237,7 +243,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             GroupingResult grouping = DistributedRunPlanner.balance(selection,
                     Boolean.TRUE.equals(getUpdateDBMapping()), groupCount, targetRunTimeMs,
                     getDistributedMaxGroups());
-            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, lineSep));
+            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs,
+                    selection.isRunAllTests(), lineSep));
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
         }
