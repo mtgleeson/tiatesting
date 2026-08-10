@@ -102,6 +102,37 @@ public final class DistributedRunConfig {
         runId = runId.trim();
         runnerKey = runnerKey == null ? null : runnerKey.trim();
 
+        validateGroupingShape(groupCount, targetRunTimeMs, maxGroups);
+
+        return new DistributedRunConfig(runId, groupCount, targetRunTimeMs, maxGroups, runnerKey);
+    }
+
+    /**
+     * Validate the grouping-shape rules shared by {@link #validated} and {@link
+     * DistributedRunPlanner#balance}: exactly one of {@code groupCount} or {@code targetRunTimeMs}
+     * must be set, a set {@code groupCount} must be at least 1, a set {@code targetRunTimeMs} must
+     * be positive, and a set {@code maxGroups} must be at least 1 and only supplied alongside a set
+     * {@code targetRunTimeMs}. Package-private and static so the one caller that cannot build a
+     * full {@link DistributedRunConfig} - {@link DistributedRunPlanner#balance}, the {@code
+     * select-tests} grouping preview's entry point, which has no run id to build one with - checks
+     * the exact same shape a real plan would, rather than a narrower, differently-worded rule of
+     * its own that could let a config through the preview only for the real plan to then reject it.
+     *
+     * @param groupCount the fixed number of groups to split into ({@code
+     *                    tiaDistributedGroupCount}), or null to use a target run time instead
+     * @param targetRunTimeMs the target wall-clock run time in ms ({@code
+     *                        tiaDistributedTargetRunTime}), or null to use a fixed group count
+     *                        instead
+     * @param maxGroups an optional ceiling on the group count ({@code tiaDistributedMaxGroups}),
+     *                  or null for no ceiling; only meaningful alongside {@code targetRunTimeMs}
+     * @throws IllegalArgumentException if neither or both of {@code groupCount} and {@code
+     *                                  targetRunTimeMs} are set; if {@code groupCount} is set and
+     *                                  below 1; if {@code targetRunTimeMs} is set and not positive;
+     *                                  if {@code maxGroups} is set and below 1; or if {@code
+     *                                  maxGroups} is set together with a fixed {@code groupCount}
+     */
+    static void validateGroupingShape(final Integer groupCount, final Long targetRunTimeMs,
+                                       final Integer maxGroups) {
         boolean groupCountSet = groupCount != null;
         boolean targetRunTimeSet = targetRunTimeMs != null;
         if (!groupCountSet && !targetRunTimeSet) {
@@ -132,8 +163,6 @@ public final class DistributedRunConfig {
                     "tiaDistributedMaxGroups only applies alongside tiaDistributedTargetRunTime; "
                             + "it cannot be combined with a fixed tiaDistributedGroupCount");
         }
-
-        return new DistributedRunConfig(runId, groupCount, targetRunTimeMs, maxGroups, runnerKey);
     }
 
     /** @return the distributed run's shared identifier */

@@ -106,26 +106,61 @@ class TiaDistPlanTaskTest {
      * failure paths above, which never reach VCS-dependent selection logic.
      */
     private static final class StubVCSReader implements VCSReader {
+
+        /**
+         * @return the fixed branch name {@code "main"}, sufficient for the precondition failure
+         *         paths above, which never reach VCS-dependent selection logic
+         */
         @Override public String getBranchName() { return "main"; }
+
+        /**
+         * @return the fixed head commit {@code "head-1"}
+         */
         @Override public String getHeadCommit() { return "head-1"; }
 
+        /**
+         * Report no diffs at all, since the precondition failure paths above never reach the
+         * selection logic that would consume them.
+         *
+         * @param baseChangeNum unused by this stub
+         * @param sourceFilesDirs unused by this stub
+         * @param testFilesDirs unused by this stub
+         * @param checkLocalChanges unused by this stub
+         * @return an empty set
+         */
         @Override
         public Set<SourceFileDiffContext> getDiffFiles(String baseChangeNum, List<String> sourceFilesDirs,
                                                         List<String> testFilesDirs, boolean checkLocalChanges) {
             return new HashSet<>();
         }
 
+        /**
+         * No-op: this stub returns no diffs from {@link #getDiffFiles}, so there is never anything
+         * to load content for.
+         *
+         * @param diffs unused by this stub
+         * @param baseChangeNum unused by this stub
+         * @param checkLocalChanges unused by this stub
+         */
         @Override
         public void loadContentForDiffs(Collection<SourceFileDiffContext> diffs, String baseChangeNum,
                                          boolean checkLocalChanges) {
             // no-op: this stub returns no diffs
         }
 
+        /**
+         * @param baseChangeNum unused by this stub
+         * @param checkLocalChanges unused by this stub
+         * @return an empty set - no changed file paths
+         */
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return Collections.emptySet();
         }
 
+        /**
+         * No-op: this stub holds no resources to release.
+         */
         @Override public void close() { }
     }
 }

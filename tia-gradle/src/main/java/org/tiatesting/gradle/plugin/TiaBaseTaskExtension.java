@@ -27,7 +27,9 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private File reportOutputDir;
+    private String buildDir;
     private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
+    private Boolean distributed;
     private String runId;
     private Integer distributedGroupCount;
     private Long distributedTargetRunTime;
@@ -229,6 +231,28 @@ public class TiaBaseTaskExtension {
     }
 
     /**
+     * @return the configured directory the {@code tia-dist-plan} task writes {@code
+     *         tia-run-plan.json} under, or {@code null} to use {@link TiaBasePlugin#getTiaBuildDir()}'s
+     *         default of {@code <project build dir>/tia} - the Gradle analog of the Maven goal's
+     *         {@code tiaBuildDir} property
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getBuildDir() {
+        return buildDir;
+    }
+
+    /**
+     * @param buildDir the directory the distributed run plan file is written under; {@code null}
+     *                 (the default) falls back to {@code <project build dir>/tia}, mirroring the
+     *                 Maven goal's {@code tiaBuildDir} parameter and its {@code
+     *                 ${project.build.directory}/tia} default
+     */
+    public void setBuildDir(String buildDir) {
+        this.buildDir = buildDir;
+    }
+
+    /**
      * Static test selection rules. Each rule maps a regex over the repo-relative paths of
      * changed files to a set of test suites that should be force-run regardless of dynamic
      * coverage-based selection. Rules are additive: their selected suites are unioned into
@@ -261,6 +285,29 @@ public class TiaBaseTaskExtension {
         this.staticTestSelectionRules = (staticTestSelectionRules != null)
                 ? staticTestSelectionRules
                 : Collections.emptyList();
+    }
+
+    /**
+     * @return whether this build participates in a distributed test run: the tests Tia selects are
+     *         split into groups and persisted to a shared database instead of all running in this
+     *         one build. Mirrors the Maven {@code tiaDistributed} parameter (see {@code
+     *         AbstractTiaMojo#isTiaDistributed()}); stage 5's claim protocol on the test-task side
+     *         branches on this master switch.
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public Boolean getDistributed() {
+        return distributed;
+    }
+
+    /**
+     * @param distributed whether this build participates in a distributed test run; distributed
+     *                    runs also require a shared datastore ({@link #getDbUrl()}) and {@link
+     *                    #getCheckLocalChanges()} disabled - see {@code DistributedRunPreconditions}
+     *                    in {@code tia-core}
+     */
+    public void setDistributed(Boolean distributed) {
+        this.distributed = distributed;
     }
 
     /**

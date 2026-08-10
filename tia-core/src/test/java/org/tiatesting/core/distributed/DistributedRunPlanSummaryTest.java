@@ -2,6 +2,8 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -232,5 +234,55 @@ class DistributedRunPlanSummaryTest {
         // then
         assertTrue(consoleSummary.contains("1450000"),
                 "console summary should mention the heaviest group time: " + consoleSummary);
+    }
+
+    /**
+     * Verifies finding 5's fix: the console summary's max-groups miss reason names the exact same
+     * wording {@link DistributedRunPreviewFormatter#formatPreview} uses for its "lever:" line for
+     * the identical grouping outcome, so a developer who saw a miss explained in the {@code
+     * select-tests} preview sees the identical explanation once {@code tia-dist-plan} persists the
+     * real plan - the spec's "prints the same" requirement, extended to the miss reasons.
+     */
+    @Test
+    void toConsoleSummary_maxGroupsMissReason_matchesPreviewFormatterWording() {
+        // given - a plan summary and a preview grouping result that both report the same miss
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1", "main", "abc123", 2, 6000L, false, true, false, 18000L, 9000L, 2);
+        GroupingResult preview = new GroupingResult(Collections.singletonList(
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, "\n");
+
+        // then - the console summary's "reason:" line and the preview's "lever:" line name the
+        // identical explanatory text, just prefixed differently
+        assertTrue(consoleSummary.contains("reason: " + DistributedRunMissReasons.MAX_GROUPS_LIMITING),
+                "console summary should use the shared max-groups wording: " + consoleSummary);
+        assertTrue(previewText.contains("lever: " + DistributedRunMissReasons.MAX_GROUPS_LIMITING),
+                "preview should use the shared max-groups wording: " + previewText);
+    }
+
+    /**
+     * Verifies finding 5's fix for the second miss reason: the console summary's single-suite miss
+     * reason names the exact same wording the preview formatter uses.
+     */
+    @Test
+    void toConsoleSummary_singleSuiteMissReason_matchesPreviewFormatterWording() {
+        // given - a plan summary and a preview grouping result that both report the same miss
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1", "main", "abc123", 1, 6000L, false, false, true, 9000L, 9000L, 1);
+        GroupingResult preview = new GroupingResult(Collections.singletonList(
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, "\n");
+
+        // then
+        assertTrue(consoleSummary.contains("reason: " + DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET),
+                "console summary should use the shared single-suite wording: " + consoleSummary);
+        assertTrue(previewText.contains("lever: " + DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET),
+                "preview should use the shared single-suite wording: " + previewText);
     }
 }

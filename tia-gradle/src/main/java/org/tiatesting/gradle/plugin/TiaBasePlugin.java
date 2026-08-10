@@ -210,23 +210,37 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * have, and previewing against an embedded database - which a real distributed run would
      * reject - is a legitimate thing to want here since nothing is written.
      *
+     * <p>{@code tia-select-tests} is a read-only task every developer runs, often against a shared
+     * convention plugin's distributed-run properties that developer did not set and may not even
+     * be aware of; a misconfiguration in those properties (for example both {@link
+     * #getDistributedGroupCount()} and {@link #getDistributedTargetRunTime()} set) must not throw
+     * out of this task's {@code doLast} closure and abort the build. {@link
+     * DistributedRunPlanner#balance} throws {@link IllegalArgumentException} for every way the
+     * grouping shape can be invalid, so that is caught here and printed as a skip notice instead of
+     * propagating - the real {@code tia-dist-plan} task is still the one place a bad configuration
+     * fails the build.
+     *
      * @param selection the test selection already computed by {@link #createSelectTestsTask()},
      *                   whose selected suites and their estimated run times are what the preview
      *                   balances
      * @param lineSep the line separator to use between lines, matching the rest of this task's
      *                output
      */
-    private void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection, final String lineSep) {
+    void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection, final String lineSep) {
         Integer groupCount = getDistributedGroupCount();
         Long targetRunTimeMs = getDistributedTargetRunTime();
         if (groupCount == null && targetRunTimeMs == null) {
             return;
         }
 
-        GroupingResult grouping = DistributedRunPlanner.balance(selection,
-                Boolean.TRUE.equals(getUpdateDBMapping()), groupCount, targetRunTimeMs,
-                getDistributedMaxGroups());
-        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, lineSep));
+        try {
+            GroupingResult grouping = DistributedRunPlanner.balance(selection,
+                    Boolean.TRUE.equals(getUpdateDBMapping()), groupCount, targetRunTimeMs,
+                    getDistributedMaxGroups());
+            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, lineSep));
+        } catch (IllegalArgumentException e) {
+            System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
+        }
     }
 
     /**
@@ -452,6 +466,14 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
+     * @return whether this build participates in a distributed test run - the master switch
+     *         stage 5's claim protocol branches on, on the test-task side
+     */
+    public Boolean getDistributed() {
+        return tiaTaskExtension.getDistributed();
+    }
+
+    /**
      * @return the configured distributed run's shared identifier, or {@code null} if not
      *         configured
      */
@@ -492,16 +514,22 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
-     * Resolve the directory the {@code tia-dist-plan} task writes {@code tia-run-plan.json} under,
-     * defaulting to {@code <project build dir>/tia} - the Gradle analog of the Maven goal's {@code
-     * tiaBuildDir} default of {@code ${project.build.directory}/tia}. Not independently
-     * configurable via the {@code tia { ... }} extension, since a plan file's location tracking
-     * the project's own build directory is the behaviour every other Tia output (reports, in
-     * {@link #getReportOutputDir()}) already follows.
+     * Resolve the directory the {@code tia-dist-plan} task writes {@code tia-run-plan.json} under.
+     * Defaults to {@code <project build dir>/tia} - the Gradle analog of the Maven goal's {@code
+     * tiaBuildDir} default of {@code ${project.build.directory}/tia} - but is overridable via the
+     * {@code tia { buildDir = ... } } extension property, the Gradle analog of Maven's {@code
+     * -DtiaBuildDir=...}. This lever matters on a multi-project build where the plugin is applied
+     * to a subproject: a CI pipeline that looks for the plan file at a fixed path needs to be able
+     * to point it somewhere predictable, the same way the Maven side already can via {@code
+     * tiaBuildDir}.
      *
      * @return the absolute path of the directory the distributed run plan file is written under
      */
     public String getTiaBuildDir() {
+        String configured = tiaTaskExtension.getBuildDir();
+        if (configured != null && !configured.trim().isEmpty()) {
+            return configured;
+        }
         return project.getLayout().getBuildDirectory().getAsFile().get().getPath()
                 + File.separator + "tia";
     }

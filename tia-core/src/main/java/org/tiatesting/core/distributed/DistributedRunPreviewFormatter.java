@@ -53,12 +53,12 @@ public final class DistributedRunPreviewFormatter {
                     .append(result.isTargetMet() ? "met" : "not met");
             if (!result.isTargetMet()) {
                 if (result.isClampedToMaxGroups()) {
-                    preview.append(lineSep).append("    lever: the configured max group count is "
-                            + "limiting the group count - raising it may help");
+                    preview.append(lineSep).append("    lever: ")
+                            .append(DistributedRunMissReasons.MAX_GROUPS_LIMITING);
                 }
                 if (result.isSingleSuiteExceedsTarget()) {
-                    preview.append(lineSep).append("    lever: a single suite is longer than the "
-                            + "whole target, so no group count can fix it");
+                    preview.append(lineSep).append("    lever: ")
+                            .append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET);
                 }
             }
         }

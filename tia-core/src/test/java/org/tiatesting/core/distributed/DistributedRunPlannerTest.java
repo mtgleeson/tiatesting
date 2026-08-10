@@ -366,6 +366,73 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verifies finding 1's fix directly: {@link DistributedRunPlanner#balance} now rejects
+     * {@code maxGroups} combined with a fixed {@code groupCount} - a shape {@link
+     * org.tiatesting.core.distributed.TestGroupBalancer} alone never checked - because it shares
+     * {@link DistributedRunConfig#validateGroupingShape} with {@link DistributedRunConfig#validated}.
+     * Before the fix, a {@code select-tests} preview with this exact misconfiguration would render
+     * happily while the real {@code tia-dist-plan} goal failed on the same input.
+     */
+    @Test
+    void balance_maxGroupsWithFixedGroupCount_throwsNamingBothProperties() {
+        // given
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunPlanner.balance(selection, false, 4, null, 8));
+
+        // then
+        assertTrue(ex.getMessage().contains("tiaDistributedMaxGroups"),
+                "message should name tiaDistributedMaxGroups, was: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("tiaDistributedGroupCount"),
+                "message should name tiaDistributedGroupCount, was: " + ex.getMessage());
+    }
+
+    /**
+     * Verifies that a {@code groupCount} below 1 is rejected by {@link DistributedRunPlanner#balance}
+     * with a message naming the user-facing property {@code tiaDistributedGroupCount}, not the
+     * generic internal message {@link org.tiatesting.core.distributed.TestGroupBalancer} would have
+     * produced, since the shared shape check now runs before the balancer is ever reached.
+     */
+    @Test
+    void balance_groupCountBelowOne_throwsNamingTiaDistributedGroupCount() {
+        // given
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunPlanner.balance(selection, false, 0, null, null));
+
+        // then
+        assertTrue(ex.getMessage().contains("tiaDistributedGroupCount"),
+                "message should name tiaDistributedGroupCount, was: " + ex.getMessage());
+    }
+
+    /**
+     * Verifies the heart of finding 1: {@link DistributedRunPlanner#balance} (the preview's entry
+     * point) and {@link DistributedRunConfig#validated} (the real plan's entry point) reject the
+     * exact same invalid shape - both groupCount and targetRunTimeMs set - with the exact same
+     * message, so a preview can never say a configuration is fine when the real plan would then
+     * reject it.
+     */
+    @Test
+    void balance_and_validated_agreeOnBothSetErrorMessage() {
+        // given - both groupCount and targetRunTimeMs set, the exact preview-vs-plan mismatch
+        // finding 1 describes
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when
+        IllegalArgumentException fromBalance = assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunPlanner.balance(selection, false, 4, 60000L, null));
+        IllegalArgumentException fromValidated = assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunConfig.validated("run-1", 4, 60000L, null, null));
+
+        // then - both entry points produce the exact same message
+        assertEquals(fromValidated.getMessage(), fromBalance.getMessage());
+    }
+
+    /**
      * Verifies the ordering {@link DistributedRunPlanner#plan} depends on: {@link
      * DataStore#readAllDistributedRuns()} must be called before {@link
      * DataStore#persistDistributedRunPlan} in the same {@code plan()} call, because the persist
