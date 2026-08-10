@@ -3,6 +3,9 @@ package org.tiatesting.maven;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedRunPlanner;
+import org.tiatesting.core.distributed.DistributedRunPreviewFormatter;
+import org.tiatesting.core.distributed.GroupingResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
@@ -18,6 +21,12 @@ import java.util.Set;
  * Note: this previews the selected tests but doesn't actually run them - selection runs with
  * {@code updateDBMapping=false} so library reconcile and pending-stamp persistence are skipped.
  * Drain analysis still runs (read-only) so the preview matches what the agent mojo would select.
+ *
+ * <p>When {@link #getTiaDistributedGroupCount()} or {@link #getTiaDistributedTargetRunTime()} is
+ * configured, the selected tests are also previewed as a distributed run grouping - see
+ * {@link #printDistributedRunPreviewIfConfigured(TestSelectorResult)}. That preview calls {@link
+ * DistributedRunPlanner#balance} directly rather than {@link DistributedRunPlanner#plan}, so
+ * nothing is persisted and a developer machine without a {@code tiaRunId} can still see it.
  */
 public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     @Override
@@ -46,8 +55,40 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
                 // Include the mapping overhead in the estimate when the actual run being previewed
                 // will collect coverage (the configured updateDBMapping).
                 System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n", isTiaUpdateDBMapping()));
+                printDistributedRunPreviewIfConfigured(result);
             }
         }
+    }
+
+    /**
+     * Print the distributed run grouping preview when the user has configured a distributed run
+     * group count or target run time, so a developer previewing {@code select-tests} can see how
+     * the selection would be split across runners without creating an actual plan. A user who has
+     * not configured either property sees no change at all in this command's output - {@link
+     * #getTiaDistributedGroupCount()} and {@link #getTiaDistributedTargetRunTime()} are both
+     * {@code null} unless explicitly set, so this method is a no-op for every non-distributed
+     * build.
+     *
+     * <p>Calls {@link DistributedRunPlanner#balance}, never {@link DistributedRunPlanner#plan} -
+     * {@code plan} persists a claimable run to the shared database, which a preview must not do.
+     * It also does not build a {@code DistributedRunConfig} or call {@code
+     * DistributedRunPreconditions.check}: a config requires a {@code tiaRunId} this command does
+     * not have, and previewing against an embedded database - which a real distributed run would
+     * reject - is a legitimate thing to want here since nothing is written.
+     *
+     * @param selection the test selection already computed by {@link #execute()}, whose selected
+     *                   suites and their estimated run times are what the preview balances
+     */
+    private void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection) {
+        Integer groupCount = getTiaDistributedGroupCount();
+        Long targetRunTimeMs = getTiaDistributedTargetRunTime();
+        if (groupCount == null && targetRunTimeMs == null) {
+            return;
+        }
+
+        GroupingResult grouping = DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
+                groupCount, targetRunTimeMs, getTiaDistributedMaxGroups());
+        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, "\n"));
     }
 
     /**

@@ -1,4 +1,4 @@
-package org.tiatesting.maven;
+package org.tiatesting.core.distributed;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -7,11 +7,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Writes the distributed run plan JSON document to {@code <tiaBuildDir>/tia-run-plan.json}.
- * Extracted out of {@link AbstractTiaDistPlanMojo} so the three properties that matter for this
- * write - parent-directory creation, an explicit UTF-8 charset, and surfacing any failure to the
- * caller rather than swallowing it - can be exercised directly by a unit test instead of through
- * a Maven mojo invocation.
+ * Writes the distributed run plan JSON document to {@code <tiaBuildDir>/tia-run-plan.json}. Lives
+ * in {@code tia-core} - rather than the Maven plugin module it was first written for - so both the
+ * Maven {@code tia-dist-plan} goal and the Gradle {@code tia-dist-plan} task call this one
+ * implementation instead of each writing the file themselves; the three properties that matter for
+ * this write - parent-directory creation, an explicit UTF-8 charset, and surfacing any failure to
+ * the caller rather than swallowing it - are exercised directly by a unit test rather than through
+ * either build tool's plugin invocation.
  */
 public final class DistributedRunPlanWriter {
 

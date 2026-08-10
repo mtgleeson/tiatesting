@@ -1,4 +1,4 @@
-package org.tiatesting.maven;
+package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

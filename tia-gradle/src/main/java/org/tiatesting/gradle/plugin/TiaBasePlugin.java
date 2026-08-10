@@ -18,6 +18,9 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedRunPlanner;
+import org.tiatesting.core.distributed.DistributedRunPreviewFormatter;
+import org.tiatesting.core.distributed.GroupingResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -57,7 +60,27 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createHistoryTask();
         createLibraryPublishesTask();
         createLibraryPendingMethodsTask();
+        createDistPlanTask();
         hookPublishStampTasks();
+    }
+
+    /**
+     * Register the {@code tia-dist-plan} task - plans a distributed test run by running the same
+     * test selection a normal build would, then splitting the selected suites into groups
+     * persisted to the shared database so a CI pipeline can fan out one job per group. Mirrors the
+     * Maven {@code tia-dist-plan} goal's sequence exactly: both call {@link
+     * org.tiatesting.core.distributed.DistributedRunPreconditions#check}, build a {@code
+     * DistributedRunConfig}, run selection, hand it to {@link
+     * org.tiatesting.core.distributed.DistributedRunPlanner#plan}, and write the result via {@link
+     * org.tiatesting.core.distributed.DistributedRunPlanWriter} - the same writer class the Maven
+     * goal uses, so the two build tools cannot drift on the file's format. Registered like {@link
+     * #createHistoryTask()} and {@link #createLibraryPublishesTask()}: a dedicated task class with
+     * its dependencies injected at registration time rather than resolved at plugin-apply time.
+     */
+    public void createDistPlanTask() {
+        project.getTasks().register("tia-dist-plan", TiaDistPlanTask.class, task -> {
+            task.setPlugin(this);
+        });
     }
 
     /**
@@ -165,9 +188,45 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     // previewed will collect coverage (the configured updateDBMapping).
                     System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep,
                             Boolean.TRUE.equals(getUpdateDBMapping())));
+                    printDistributedRunPreviewIfConfigured(result, lineSep);
                 }
             }
         });
+    }
+
+    /**
+     * Print the distributed run grouping preview when the user has configured a distributed run
+     * group count or target run time in the {@code tia { ... }} extension, so a developer running
+     * {@code tia-select-tests} can see how the selection would be split across runners without
+     * creating an actual plan. A user who has not configured either property sees no change at all
+     * in this task's output - {@link #getDistributedGroupCount()} and {@link
+     * #getDistributedTargetRunTime()} are both {@code null} unless explicitly set, so this method
+     * is a no-op for every non-distributed build.
+     *
+     * <p>Calls {@link DistributedRunPlanner#balance}, never {@link DistributedRunPlanner#plan} -
+     * {@code plan} persists a claimable run to the shared database, which a preview must not do.
+     * It also does not build a {@code DistributedRunConfig} or call {@code
+     * DistributedRunPreconditions.check}: a config requires a {@code tia.runId} this task does not
+     * have, and previewing against an embedded database - which a real distributed run would
+     * reject - is a legitimate thing to want here since nothing is written.
+     *
+     * @param selection the test selection already computed by {@link #createSelectTestsTask()},
+     *                   whose selected suites and their estimated run times are what the preview
+     *                   balances
+     * @param lineSep the line separator to use between lines, matching the rest of this task's
+     *                output
+     */
+    private void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection, final String lineSep) {
+        Integer groupCount = getDistributedGroupCount();
+        Long targetRunTimeMs = getDistributedTargetRunTime();
+        if (groupCount == null && targetRunTimeMs == null) {
+            return;
+        }
+
+        GroupingResult grouping = DistributedRunPlanner.balance(selection,
+                Boolean.TRUE.equals(getUpdateDBMapping()), groupCount, targetRunTimeMs,
+                getDistributedMaxGroups());
+        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, lineSep));
     }
 
     /**
@@ -390,6 +449,61 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public String getSourceLibs() {
         return tiaTaskExtension.getSourceLibs();
+    }
+
+    /**
+     * @return the configured distributed run's shared identifier, or {@code null} if not
+     *         configured
+     */
+    public String getRunId() {
+        return tiaTaskExtension.getRunId();
+    }
+
+    /**
+     * @return the configured fixed group count for a distributed run, or {@code null} to use a
+     *         target run time instead
+     */
+    public Integer getDistributedGroupCount() {
+        return tiaTaskExtension.getDistributedGroupCount();
+    }
+
+    /**
+     * @return the configured target wall-clock run time in ms for a distributed run, or {@code
+     *         null} to use a fixed group count instead
+     */
+    public Long getDistributedTargetRunTime() {
+        return tiaTaskExtension.getDistributedTargetRunTime();
+    }
+
+    /**
+     * @return the configured ceiling on the group count for a distributed run, or {@code null}
+     *         for no ceiling
+     */
+    public Integer getDistributedMaxGroups() {
+        return tiaTaskExtension.getDistributedMaxGroups();
+    }
+
+    /**
+     * @return the configured per-runner identity value for a distributed run, or {@code null} to
+     *         let the claim protocol derive one
+     */
+    public String getDistributedRunnerKey() {
+        return tiaTaskExtension.getDistributedRunnerKey();
+    }
+
+    /**
+     * Resolve the directory the {@code tia-dist-plan} task writes {@code tia-run-plan.json} under,
+     * defaulting to {@code <project build dir>/tia} - the Gradle analog of the Maven goal's {@code
+     * tiaBuildDir} default of {@code ${project.build.directory}/tia}. Not independently
+     * configurable via the {@code tia { ... }} extension, since a plan file's location tracking
+     * the project's own build directory is the behaviour every other Tia output (reports, in
+     * {@link #getReportOutputDir()}) already follows.
+     *
+     * @return the absolute path of the directory the distributed run plan file is written under
+     */
+    public String getTiaBuildDir() {
+        return project.getLayout().getBuildDirectory().getAsFile().get().getPath()
+                + File.separator + "tia";
     }
 
     public String getSourceProjectDir() {
