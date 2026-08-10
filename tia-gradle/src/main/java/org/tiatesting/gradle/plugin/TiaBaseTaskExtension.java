@@ -28,6 +28,11 @@ public class TiaBaseTaskExtension {
     private Boolean checkLocalChanges;
     private File reportOutputDir;
     private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
+    private String runId;
+    private Integer distributedGroupCount;
+    private Long distributedTargetRunTime;
+    private Integer distributedMaxGroups;
+    private String distributedRunnerKey;
 
     @Input
     public String getProjectDir() {
@@ -256,6 +261,103 @@ public class TiaBaseTaskExtension {
         this.staticTestSelectionRules = (staticTestSelectionRules != null)
                 ? staticTestSelectionRules
                 : Collections.emptyList();
+    }
+
+    /**
+     * @return the configured distributed run's shared identifier, or {@code null} if not
+     *         configured. Required by the {@code tia-dist-plan} task; read but not required by the
+     *         {@code tia-select-tests} grouping preview, which has no run id to report.
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getRunId() {
+        return runId;
+    }
+
+    /**
+     * @param runId the distributed run's shared identifier ({@code tia.runId}); every runner in
+     *              the distributed run must agree on it to find each other's rows in the shared
+     *              datastore
+     */
+    public void setRunId(String runId) {
+        this.runId = runId;
+    }
+
+    /**
+     * @return the configured fixed number of groups to split a distributed run's selected tests
+     *         into, or {@code null} to use a target run time instead
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public Integer getDistributedGroupCount() {
+        return distributedGroupCount;
+    }
+
+    /**
+     * @param distributedGroupCount the fixed number of groups to split into; mutually exclusive
+     *                              with {@link #setDistributedTargetRunTime(Long)} - exactly one
+     *                              of the two must be set for a real distributed run, though
+     *                              either alone is enough to enable the {@code tia-select-tests}
+     *                              grouping preview
+     */
+    public void setDistributedGroupCount(Integer distributedGroupCount) {
+        this.distributedGroupCount = distributedGroupCount;
+    }
+
+    /**
+     * @return the configured target wall-clock run time in ms for a distributed run, or {@code
+     *         null} to use a fixed group count instead
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public Long getDistributedTargetRunTime() {
+        return distributedTargetRunTime;
+    }
+
+    /**
+     * @param distributedTargetRunTime the target wall-clock run time in ms; mutually exclusive
+     *                                 with {@link #setDistributedGroupCount(Integer)} - exactly
+     *                                 one of the two must be set for a real distributed run
+     */
+    public void setDistributedTargetRunTime(Long distributedTargetRunTime) {
+        this.distributedTargetRunTime = distributedTargetRunTime;
+    }
+
+    /**
+     * @return the configured ceiling on the group count for a distributed run, or {@code null}
+     *         for no ceiling. Only meaningful alongside {@link #getDistributedTargetRunTime()}.
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public Integer getDistributedMaxGroups() {
+        return distributedMaxGroups;
+    }
+
+    /**
+     * @param distributedMaxGroups an optional ceiling on the group count; only meaningful
+     *                             alongside a configured target run time, since a ceiling on a
+     *                             fixed group count would be either a no-op or a contradiction
+     */
+    public void setDistributedMaxGroups(Integer distributedMaxGroups) {
+        this.distributedMaxGroups = distributedMaxGroups;
+    }
+
+    /**
+     * @return the configured per-runner identity value for a distributed run, or {@code null} to
+     *         let the claim protocol derive one from the run id, hostname and process id
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getDistributedRunnerKey() {
+        return distributedRunnerKey;
+    }
+
+    /**
+     * @param distributedRunnerKey an optional per-runner identity value; not validated or used by
+     *                             this class, since it is read only by the claim protocol
+     */
+    public void setDistributedRunnerKey(String distributedRunnerKey) {
+        this.distributedRunnerKey = distributedRunnerKey;
     }
 
 }
