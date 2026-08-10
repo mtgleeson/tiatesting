@@ -146,24 +146,27 @@ public final class DistributedRunCoordinator {
         readRunOrThrow();
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(config.getRunId());
-        boolean groupExists = false;
+        List<String> mySuites = null;
         Set<String> testsToIgnore = new HashSet<>(trackedSuiteNames);
         for (DistributedRunGroup group : groups) {
+            List<String> groupSuites = dataStore.readDistributedRunGroupSuites(config.getRunId(),
+                    group.getGroupNumber());
             if (group.getGroupNumber() == groupNumber) {
-                groupExists = true;
+                // Held rather than re-read after the loop: this group's suites are read here
+                // anyway, and re-reading them would be a second query returning the same rows.
+                mySuites = groupSuites;
             }
-            testsToIgnore.addAll(dataStore.readDistributedRunGroupSuites(config.getRunId(),
-                    group.getGroupNumber()));
+            testsToIgnore.addAll(groupSuites);
         }
 
-        if (!groupExists) {
+        if (mySuites == null) {
             throw new IllegalArgumentException("Distributed run '" + config.getRunId()
                     + "' has no group " + groupNumber + " - it was planned with " + groups.size()
                     + " group(s). A runner cannot derive an ignore list for a group that is not "
                     + "in the plan.");
         }
 
-        testsToIgnore.removeAll(dataStore.readDistributedRunGroupSuites(config.getRunId(), groupNumber));
+        testsToIgnore.removeAll(mySuites);
         return testsToIgnore;
     }
 
