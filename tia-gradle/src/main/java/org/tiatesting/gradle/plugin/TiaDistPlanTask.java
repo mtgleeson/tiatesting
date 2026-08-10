@@ -71,9 +71,10 @@ public class TiaDistPlanTask extends DefaultTask {
         System.out.println("Planning a distributed Tia test run:");
 
         boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
+        boolean tiaEnabled = Boolean.TRUE.equals(plugin.getEnabled());
         DistributedRunConfig config;
         try {
-            DistributedRunPreconditions.check(plugin.getDbUrl(), plugin.getDbDialect(), checkLocalChanges);
+            DistributedRunPreconditions.check(tiaEnabled, plugin.getDbUrl(), plugin.getDbDialect(), checkLocalChanges);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
                     plugin.getDistributedRunnerKey());

@@ -48,7 +48,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
 
         DistributedRunConfig config;
         try {
-            DistributedRunPreconditions.check(getTiaDBUrl(), getTiaDBDialect(), isTiaCheckLocalChanges());
+            DistributedRunPreconditions.check(isTiaEnabled(), getTiaDBUrl(), getTiaDBDialect(), isTiaCheckLocalChanges());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
                     getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
                     getTiaDistributedRunnerKey());
