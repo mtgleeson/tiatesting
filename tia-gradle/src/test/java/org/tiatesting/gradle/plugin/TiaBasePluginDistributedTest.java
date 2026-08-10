@@ -54,6 +54,18 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
+     * Build a seed selection - no stored mapping exists yet for the tracked branch, so {@code
+     * runAllTests} is true and both {@code testsToRun} and {@code testsToIgnore} are empty, per
+     * {@link TestSelectorResult#isRunAllTests()}.
+     *
+     * @return a selection with {@code runAllTests} true and no selected or ignored tests
+     */
+    private static TestSelectorResult seedSelection() {
+        return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(), null,
+                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, true);
+    }
+
+    /**
      * Verifies finding 2's fix: {@link TiaBasePlugin#getTiaBuildDir()} falls back to {@code
      * <project build dir>/tia} when {@code tia.buildDir} is not configured, matching the
      * pre-existing hardcoded behaviour so nothing breaks for projects that never set the property.
@@ -200,6 +212,48 @@ class TiaBasePluginDistributedTest {
         String printed = new String(captured.toByteArray(), StandardCharsets.UTF_8);
         assertTrue(printed.contains("Distributed run grouping preview (not persisted):"),
                 "expected the ordinary preview block, got: " + printed);
+        assertFalse(printed.contains("skipped"), "no skip notice expected, got: " + printed);
+    }
+
+    /**
+     * Verifies the carried-over Task 1 fix at the Gradle {@code createSelectTestsTask} branch this
+     * class tests indirectly: {@link TiaBasePlugin#printDistributedRunPreviewIfConfigured} still
+     * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
+     * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection
+     * shape {@code createSelectTestsTask} passes on the "all (no stored mapping for this branch
+     * yet)" branch. {@link org.tiatesting.core.distributed.DistributedRunPlanner#balance}
+     * collapses a seed selection to a single empty group regardless of the configured group count,
+     * so this also proves that collapse reaches the console unchanged on the Gradle side.
+     */
+    @Test
+    void printDistributedRunPreviewIfConfigured_seedSelection_printsSeedRunPreview(@TempDir File projectDir) {
+        // given a plugin configured with a distributed grouping shape, previewing a seed selection
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setDistributedGroupCount(2);
+
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        try {
+            System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
+
+            // when
+            plugin.printDistributedRunPreviewIfConfigured(seedSelection(), "\n");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            System.setOut(originalOut);
+        }
+
+        // then
+        String printed = new String(captured.toByteArray(), StandardCharsets.UTF_8);
+        assertTrue(printed.contains("Distributed run grouping preview (not persisted):"),
+                "expected the preview block, got: " + printed);
+        assertTrue(printed.contains("Seed run: no stored mapping exists yet for this branch"),
+                "expected the seed-run notice, got: " + printed);
+        assertTrue(printed.contains("Groups: 1"), "expected the single collapsed group, got: " + printed);
+        assertFalse(printed.contains("Target:"), "a seed run has no target verdict to print: " + printed);
         assertFalse(printed.contains("skipped"), "no skip notice expected, got: " + printed);
     }
 }

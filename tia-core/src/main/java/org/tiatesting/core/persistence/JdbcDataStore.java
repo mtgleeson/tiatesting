@@ -1661,17 +1661,7 @@ public class JdbcDataStore implements DataStore {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
-                        groups.add(new DistributedRunGroup(
-                                resultSet.getString(COL_RUN_ID),
-                                resultSet.getInt(COL_GROUP_NUMBER),
-                                DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
-                                resultSet.getString(COL_RUNNER_KEY),
-                                getNullableLong(resultSet, COL_CLAIMED_AT),
-                                getNullableLong(resultSet, COL_COMPLETED_AT),
-                                resultSet.getLong(COL_ESTIMATED_MS),
-                                getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
-                                resultSet.getInt(COL_SUITES_RAN),
-                                resultSet.getInt(COL_SUITES_FAILED)));
+                        groups.add(mapGroupRow(resultSet));
                     }
                 }
             }
@@ -1750,6 +1740,164 @@ public class JdbcDataStore implements DataStore {
             throw new TiaPersistenceException(e);
         }
         return runs;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} before the first read, since claiming can be the
+     * first call any caller makes on a freshly created per-branch schema.
+     *
+     * <p>Deliberately does not wrap the reads and the compare-and-swap update in one transaction:
+     * the safety property does not come from transaction isolation, it comes from the {@code status
+     * = 'PENDING'} predicate on the single-row update in step 2 below, which the database always
+     * evaluates against the latest committed row regardless of what transaction issued it. Wrapping
+     * the loop in a transaction would only add lock contention between racing runners without
+     * changing the outcome.
+     *
+     * <p>Follows the exact three-step protocol from the "Group assignment" chapter in {@code
+     * WIKI.md}: (0) return the group this runner key already holds, if any; (1) read the
+     * lowest-numbered {@code PENDING} group number; (2) attempt a single-row update guarded by
+     * {@code status = 'PENDING'} - rowcount 1 means this runner won it, rowcount 0 means another
+     * runner won it first and step 1 is retried. The retry loop is bounded by the run's total group
+     * count: every failed attempt permanently removes one group from the candidate pool for this
+     * runner (a group that lost {@code PENDING} status never regains it), so no single runner can
+     * ever need more attempts than there are groups. A bound violation therefore means the group
+     * table is not converging as expected rather than ordinary contention, and is reported as a
+     * {@link TiaPersistenceException} rather than spinning forever.
+     *
+     * @param runId the distributed run to claim a group from
+     * @param runnerKey the calling runner's stable identity
+     * @param claimedAtMs UTC epoch millis to record as the claim time
+     * @return the claimed group, or {@code null} when the run has no group left to claim
+     */
+    @Override
+    public DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey,
+                                                      final long claimedAtMs) {
+        String claimedByRunnerSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_RUNNER_KEY + " = ?";
+        String countGroupsSql = "SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ?";
+        String minPendingSql = "SELECT MIN(" + COL_GROUP_NUMBER + ") FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_STATUS + " = ?";
+        String claimSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
+                + COL_RUNNER_KEY + " = ?, " + COL_CLAIMED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND "
+                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ?";
+        String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
+
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+
+            // Step 0: a runner key that already holds a group in this run is a CI job retry
+            // re-claiming its own group - return it unchanged rather than attempting a new claim.
+            try (PreparedStatement statement = connection.prepareStatement(claimedByRunnerSql)) {
+                statement.setString(1, runId);
+                statement.setString(2, runnerKey);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (resultSet.next()) {
+                        return mapGroupRow(resultSet);
+                    }
+                }
+            }
+
+            int groupCount;
+            try (PreparedStatement statement = connection.prepareStatement(countGroupsSql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    resultSet.next();
+                    groupCount = resultSet.getInt(1);
+                }
+            }
+            if (groupCount == 0) {
+                // Either the run id is unknown, or (should never happen) it was planned with no
+                // groups at all - either way there is nothing to claim.
+                return null;
+            }
+
+            for (int attempt = 0; attempt < groupCount; attempt++) {
+                // Step 1: the lowest-numbered PENDING group is always the next candidate, so every
+                // runner converges on the same claim order rather than fanning out unpredictably.
+                Integer candidateGroupNumber;
+                try (PreparedStatement statement = connection.prepareStatement(minPendingSql)) {
+                    statement.setString(1, runId);
+                    statement.setString(2, DistributedRunGroupStatus.PENDING.name());
+                    try (ResultSet resultSet = statement.executeQuery()) {
+                        resultSet.next();
+                        int value = resultSet.getInt(1);
+                        candidateGroupNumber = resultSet.wasNull() ? null : value;
+                    }
+                }
+                if (candidateGroupNumber == null) {
+                    // Every group has already been claimed by some runner.
+                    return null;
+                }
+
+                // Step 2: the compare-and-swap. The status = 'PENDING' predicate on this single-row
+                // update is the entire safety mechanism - two runners racing for the same candidate
+                // both attempt this update, the database serialises them, and only one sees rowcount
+                // 1. The loser (rowcount 0) falls through to retry step 1.
+                int rowsUpdated;
+                try (PreparedStatement statement = connection.prepareStatement(claimSql)) {
+                    statement.setString(1, DistributedRunGroupStatus.CLAIMED.name());
+                    statement.setString(2, runnerKey);
+                    statement.setLong(3, claimedAtMs);
+                    statement.setString(4, runId);
+                    statement.setInt(5, candidateGroupNumber);
+                    statement.setString(6, DistributedRunGroupStatus.PENDING.name());
+                    rowsUpdated = statement.executeUpdate();
+                }
+
+                if (rowsUpdated == 1) {
+                    try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
+                        statement.setString(1, runId);
+                        statement.setInt(2, candidateGroupNumber);
+                        try (ResultSet resultSet = statement.executeQuery()) {
+                            resultSet.next();
+                            return mapGroupRow(resultSet);
+                        }
+                    }
+                }
+                // rowsUpdated == 0: another runner won the candidate group between this attempt's
+                // step 1 read and its step 2 update - loop back and re-read the current minimum.
+            }
+
+            throw new TiaPersistenceException("claimNextPendingGroup for run '" + runId
+                    + "' did not converge within " + groupCount
+                    + " attempt(s), its natural bound (the run's total group count). Every failed "
+                    + "attempt should permanently remove one group from the candidate pool, so this "
+                    + "means the group table is not converging as expected rather than ordinary "
+                    + "claim contention.");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * Build a {@link DistributedRunGroup} from the current row of a {@code SELECT *} against
+     * {@link #TABLE_TIA_DISTRIBUTED_RUN_GROUP}. Shared by {@link #claimNextPendingGroup} and
+     * {@link #readDistributedRunGroups} so the two cannot drift apart on how a group row maps. It
+     * also means the group returned after a successful claim (or an already-claimed lookup) is read
+     * back from the table rather than reconstructed field-by-field from what the caller asked for -
+     * the estimated time, suites-ran and suites-failed columns are not part of the claim call's
+     * inputs and must come from the stored row.
+     *
+     * @param resultSet the result set, positioned on the row to map
+     * @return the mapped group
+     * @throws SQLException if a column cannot be read
+     */
+    private static DistributedRunGroup mapGroupRow(ResultSet resultSet) throws SQLException {
+        return new DistributedRunGroup(
+                resultSet.getString(COL_RUN_ID),
+                resultSet.getInt(COL_GROUP_NUMBER),
+                DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
+                resultSet.getString(COL_RUNNER_KEY),
+                getNullableLong(resultSet, COL_CLAIMED_AT),
+                getNullableLong(resultSet, COL_COMPLETED_AT),
+                resultSet.getLong(COL_ESTIMATED_MS),
+                getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
+                resultSet.getInt(COL_SUITES_RAN),
+                resultSet.getInt(COL_SUITES_FAILED));
     }
 
     /**
