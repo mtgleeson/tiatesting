@@ -63,6 +63,31 @@ public final class DataStoreFactory {
     }
 
     /**
+     * Report whether the datastore {@code fromConfig} would build for these settings is one every
+     * runner in a distributed test run could reach concurrently. Mirrors {@code fromConfig}'s own
+     * resolution exactly - the dialect comes from {@link SqlDialectRegistry#forUrl(String, String)}
+     * and H2 runs embedded exactly when {@code dbUrl} is blank - so the two cannot drift apart: a
+     * datastore is shared unless the resolved dialect is H2 and {@code dbUrl} is blank, since that
+     * is the only combination {@code fromConfig} treats as an embedded, file-on-disk H2 database
+     * private to whichever process opened it. Every other combination (a server-mode H2 URL, a
+     * Postgres URL, or a blank URL paired with an explicit non-H2 override) resolves to a
+     * networked database every runner can reach.
+     *
+     * @param dbUrl          server-mode JDBC URL, or {@code null}/blank for embedded mode
+     * @param dialectOverride an explicit dialect id (e.g. {@code "h2"}), or {@code null}/blank to
+     *                        infer the dialect from {@code dbUrl}
+     * @return true if the resolved datastore is reachable by more than one process; false only for
+     *         embedded H2
+     * @throws IllegalArgumentException if the dialect cannot be resolved (see
+     *         {@link SqlDialectRegistry#forUrl(String, String)})
+     */
+    public static boolean isSharedDatabase(final String dbUrl, final String dialectOverride) {
+        SqlDialect dialect = SqlDialectRegistry.forUrl(dbUrl, dialectOverride);
+        boolean blankUrl = dbUrl == null || dbUrl.trim().isEmpty();
+        return !("h2".equals(dialect.id()) && blankUrl);
+    }
+
+    /**
      * Guard against opening a non-H2 connection when its JDBC driver was never added to the
      * classpath, which otherwise surfaces as an opaque {@code No suitable driver found} SQLException
      * from deep inside {@link java.sql.DriverManager}. H2 is bundled with Tia so it never reaches
