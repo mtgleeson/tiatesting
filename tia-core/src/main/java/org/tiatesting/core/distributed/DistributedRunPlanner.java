@@ -55,9 +55,12 @@ public final class DistributedRunPlanner {
      * since distributing "run everything" across runners is meaningless; (2) warns about any
      * previous run's groups that never reached {@code COMPLETED}, since the persist step below
      * clears them; (3) weights the selection's suites and balances them into groups via {@link
-     * #balance}; (4) projects the result onto the persisted {@link DistributedRunPlan} types; (5)
-     * persists the plan, which clears the previous run's rows in the same transaction; and (6)
-     * returns a summary of what was persisted.
+     * #balance}; (4) warns if the configured target run time was missed - deliberately done here
+     * rather than inside {@link #balance}, since {@code balance} is also the {@code select-tests}
+     * preview's entry point and a preview that logs "planning did not meet its target" would claim
+     * a plan was created when nothing was; (5) projects the result onto the persisted {@link
+     * DistributedRunPlan} types; (6) persists the plan, which clears the previous run's rows in the
+     * same transaction; and (7) returns a summary of what was persisted.
      *
      * @param selection the test selection to split across runners; its {@code testsToRun} is what
      *                  the persisted plan's suite count is checked against
@@ -91,6 +94,7 @@ public final class DistributedRunPlanner {
 
         GroupingResult result = balance(selection, collectingCoverage, config.getGroupCount(),
                 config.getTargetRunTimeMs(), config.getMaxGroups());
+        warnIfTargetMissed(result, config.getTargetRunTimeMs());
 
         DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs);
         int selectedSuiteCount = countSuites(runPlan);
@@ -110,18 +114,20 @@ public final class DistributedRunPlanner {
     }
 
     /**
-     * Weight a selection's suites and balance them into groups, warning if a configured target
-     * run time was missed - the whole grouping decision {@link #plan} makes before it persists
-     * anything. Exposed as a separate, static, non-persisting method so a caller that does not
-     * want to create a plan - the {@code select-tests} grouping preview being the motivating case
-     * - can see the group count and average group time the balancer would choose without a
-     * distributed run id, which a preview does not have and {@link DistributedRunConfig} would
-     * otherwise force it to supply.
+     * Weight a selection's suites and balance them into groups - the whole grouping decision
+     * {@link #plan} makes before it persists anything, minus the target-missed warning, which
+     * {@link #plan} logs itself rather than this method (see its javadoc for why). Exposed as a
+     * separate, static, non-persisting method so a caller that does not want to create a plan -
+     * the {@code select-tests} grouping preview being the motivating case - can see the group
+     * count and average group time the balancer would choose without a distributed run id, which
+     * a preview does not have and {@link DistributedRunConfig} would otherwise force it to supply.
      *
      * <p>Mirrors {@link DistributedRunConfig}'s group-count / target-run-time mode exactly (one of
      * {@code groupCount} or {@code targetRunTimeMs} must be set, {@code maxGroups} only applies
-     * alongside {@code targetRunTimeMs}) but validates that shape itself rather than requiring a
-     * validated config, since building one requires a run id this method must not need.
+     * alongside {@code targetRunTimeMs}) by delegating to {@link
+     * DistributedRunConfig#validateGroupingShape} - the same check {@link
+     * DistributedRunConfig#validated} runs - rather than a check of its own, so a config the
+     * preview accepts can never be one the real plan then rejects.
      *
      * @param selection the test selection to balance; its per-suite run-time estimate and mapping
      *                  overhead drive the weights the balancer packs by
@@ -133,29 +139,26 @@ public final class DistributedRunPlanner {
      *                        count instead
      * @param maxGroups an optional ceiling on the group count, used only alongside {@code
      *                  targetRunTimeMs}; null for no ceiling
-     * @return the balancer's grouping result; nothing is persisted
+     * @return the balancer's grouping result; nothing is persisted and nothing is logged
      * @throws IllegalArgumentException if neither or both of {@code groupCount} and {@code
-     *                                  targetRunTimeMs} are set
+     *                                  targetRunTimeMs} are set; if {@code groupCount} is set and
+     *                                  below 1; if {@code targetRunTimeMs} is set and not positive;
+     *                                  if {@code maxGroups} is set and below 1; or if {@code
+     *                                  maxGroups} is set together with a fixed {@code groupCount} -
+     *                                  see {@link DistributedRunConfig#validateGroupingShape}
      */
     public static GroupingResult balance(TestSelectorResult selection, boolean collectingCoverage,
                                           Integer groupCount, Long targetRunTimeMs,
                                           Integer maxGroups) {
-        if ((groupCount == null) == (targetRunTimeMs == null)) {
-            throw new IllegalArgumentException(
-                    "exactly one of groupCount or targetRunTimeMs must be set");
-        }
+        DistributedRunConfig.validateGroupingShape(groupCount, targetRunTimeMs, maxGroups);
 
         Map<String, Long> weights = TestGroupBalancer.suiteWeights(
                 selection.getSelectedTestRunTimesMs(), selection.getMappingOverheadMs(),
                 collectingCoverage);
 
-        GroupingResult result = groupCount != null
+        return groupCount != null
                 ? TestGroupBalancer.balanceIntoGroups(weights, groupCount)
                 : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups);
-
-        warnIfTargetMissed(result, targetRunTimeMs);
-
-        return result;
     }
 
     /**
@@ -227,7 +230,9 @@ public final class DistributedRunPlanner {
      * Log a WARN when the balancer could not meet the configured target run time, naming which
      * configuration lever - or levers, since both can apply at once - would help close the gap.
      * Static-groups mode always reports {@code targetMet == true} since it has no target to miss,
-     * so this is a no-op in that mode.
+     * so this is a no-op in that mode. Called only from {@link #plan}, never from {@link #balance}:
+     * a preview that logs this WARN would claim planning happened when nothing was persisted, which
+     * is exactly what the preview's "(not persisted)" header exists to make clear it did not.
      *
      * @param result the balancer's outcome for this plan
      * @param targetRunTimeMs the configured target run time in ms; only read when {@code result}

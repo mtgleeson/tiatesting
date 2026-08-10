@@ -76,19 +76,32 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
      * not have, and previewing against an embedded database - which a real distributed run would
      * reject - is a legitimate thing to want here since nothing is written.
      *
+     * <p>{@code select-tests} is a read-only command every developer runs, often against a shared
+     * parent pom's distributed-run properties that developer did not set and may not even be aware
+     * of; a misconfiguration in those properties (for example both {@link
+     * #getTiaDistributedGroupCount()} and {@link #getTiaDistributedTargetRunTime()} set) must not
+     * abort this command. {@link DistributedRunPlanner#balance} throws {@link
+     * IllegalArgumentException} for every way the grouping shape can be invalid, so that is caught
+     * here and printed as a skip notice instead of propagating - the real {@code tia-dist-plan}
+     * goal is still the one place a bad configuration fails the build.
+     *
      * @param selection the test selection already computed by {@link #execute()}, whose selected
      *                   suites and their estimated run times are what the preview balances
      */
-    private void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection) {
+    void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection) {
         Integer groupCount = getTiaDistributedGroupCount();
         Long targetRunTimeMs = getTiaDistributedTargetRunTime();
         if (groupCount == null && targetRunTimeMs == null) {
             return;
         }
 
-        GroupingResult grouping = DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
-                groupCount, targetRunTimeMs, getTiaDistributedMaxGroups());
-        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, "\n"));
+        try {
+            GroupingResult grouping = DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
+                    groupCount, targetRunTimeMs, getTiaDistributedMaxGroups());
+            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, "\n"));
+        } catch (IllegalArgumentException e) {
+            System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
+        }
     }
 
     /**

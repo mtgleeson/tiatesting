@@ -191,7 +191,11 @@ public final class DistributedRunPlanSummary {
     /**
      * Render this summary as the short human-readable block stage 4b prints to the console
      * alongside writing {@link #toJson()}. Unlike the JSON document, this text has no consumer
-     * other than a human reading build output, so its wording is free to evolve.
+     * other than a human reading build output, so most of its wording is free to evolve - except
+     * the two target-miss reason lines, which share their exact text with {@link
+     * DistributedRunPreviewFormatter#formatPreview} via {@link DistributedRunMissReasons}, so a
+     * developer who saw a miss explained in the {@code select-tests} preview sees the identical
+     * explanation once the real plan is persisted.
      *
      * @return a multi-line human-readable summary naming the run, its groups, and whether the
      *         target was met
@@ -210,10 +214,12 @@ public final class DistributedRunPlanSummary {
                     .append(targetMet ? "met" : "not met").append("\n");
             if (!targetMet) {
                 if (clampedToMaxGroups) {
-                    summary.append("    reason: clamped to the configured max group count\n");
+                    summary.append("    reason: ").append(DistributedRunMissReasons.MAX_GROUPS_LIMITING)
+                            .append("\n");
                 }
                 if (singleSuiteExceedsTarget) {
-                    summary.append("    reason: a single suite alone exceeds the target\n");
+                    summary.append("    reason: ").append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET)
+                            .append("\n");
                 }
             }
         }

@@ -70,9 +70,9 @@ public class TiaDistPlanTask extends DefaultTask {
     public void run() {
         System.out.println("Planning a distributed Tia test run:");
 
+        boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
         DistributedRunConfig config;
         try {
-            boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
             DistributedRunPreconditions.check(plugin.getDbUrl(), plugin.getDbDialect(), checkLocalChanges);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
@@ -96,9 +96,11 @@ public class TiaDistPlanTask extends DefaultTask {
             StaticTestSelectionConfig staticMappingConfig = plugin.buildStaticTestSelectionConfig();
             boolean updateDBMapping = Boolean.TRUE.equals(plugin.getUpdateDBMapping());
             // checkLocalChanges is already guaranteed false here - DistributedRunPreconditions.check
-            // above rejects checkLocalChanges=true before this point is reached.
+            // above rejects checkLocalChanges=true before this point is reached. Passed through as
+            // the same resolved value (not a literal false) so this stays in lockstep with the
+            // Maven goal's isTiaCheckLocalChanges() if that precondition is ever relaxed.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, false, libraryConfig, staticMappingConfig, updateDBMapping);
+                    testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
