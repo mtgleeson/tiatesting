@@ -49,7 +49,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
 
         // when the preview is formatted with no target run time
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
 
         // then it reports the groups and weights and states no target applies
         assertTrue(preview.contains("Groups: 2, average 1500ms per group, heaviest 2000ms"));
@@ -67,7 +67,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {5000L, 4000L}, true, false, false);
 
         // when the preview is formatted against that target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
 
         // then it reports the target as met and names no lever
         assertTrue(preview.contains("Target: 6000ms - met"));
@@ -84,7 +84,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L, 9000L}, false, true, false);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
 
         // then it reports the target as not met and names the max-groups lever only
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -102,7 +102,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L}, false, false, true);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
 
         // then it reports the target as not met and names the single-suite lever only
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -120,7 +120,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L, 9000L}, false, true, true);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
 
         // then it reports the target as not met and names both levers
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -138,7 +138,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L}, true, false, false);
 
         // when the preview is formatted
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
 
         // then it starts with a blank line before the header
         assertTrue(preview.startsWith("\n\nDistributed run grouping preview (not persisted):"));
@@ -160,5 +160,60 @@ class DistributedRunPreviewFormatterTest {
                 Arrays.asList(result.getGroups().get(0).getGroupNumber(),
                         result.getGroups().get(1).getGroupNumber(),
                         result.getGroups().get(2).getGroupNumber()));
+    }
+
+    /**
+     * Verify that a preview of a seed run - the shape {@link DistributedRunPlanner#balance}
+     * produces for a selection with no stored mapping yet - shows exactly one group and names it
+     * as a seed run, regardless of the configured target run time.
+     */
+    @Test
+    void seedRunPreviewShowsOneGroupAndNamesSeedRun() {
+        // given the single-empty-group result a seed run always produces
+        GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
+
+        // when the preview is formatted as a seed run against a configured target
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, true, "\n");
+
+        // then it names the seed run and reports exactly one group
+        assertTrue(preview.contains("Seed run:"),
+                "preview should name the seed run explicitly: " + preview);
+        assertTrue(preview.contains("Groups: 1"),
+                "preview should report exactly one group: " + preview);
+    }
+
+    /**
+     * Verify that a seed-run preview omits the target verdict entirely, since {@link
+     * DistributedRunPlanner#balance} always reports a trivially-met target for a seed run and
+     * printing it as if real balancing happened against the configured target would be misleading.
+     */
+    @Test
+    void seedRunPreviewOmitsTargetVerdict() {
+        // given the single-empty-group result a seed run always produces
+        GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
+
+        // when the preview is formatted as a seed run against a configured target
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, true, "\n");
+
+        // then no target verdict is printed
+        assertFalse(preview.contains("Target:"),
+                "seed-run preview should not print a target verdict: " + preview);
+    }
+
+    /**
+     * Verify that a non-seed preview never mentions "Seed run", so the two cases stay visually
+     * distinct in build output.
+     */
+    @Test
+    void nonSeedRunPreviewDoesNotMentionSeedRun() {
+        // given an ordinary, non-seed grouping result
+        GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
+
+        // when the preview is formatted as a non-seed run
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
+
+        // then it does not mention a seed run
+        assertFalse(preview.contains("Seed run:"),
+                "non-seed preview should not mention a seed run: " + preview);
     }
 }

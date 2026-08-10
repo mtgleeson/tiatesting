@@ -48,7 +48,13 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             Set<String> testsToRun = result.getTestsToRun();
             System.out.println("Selected tests to run: ");
 
-            if (testsToRun.isEmpty()){
+            if (result.isRunAllTests()) {
+                // No stored mapping for this branch yet: every test runs. testsToRun is empty in
+                // this case (see TestSelectorResult#isRunAllTests), so it is checked first and
+                // reported distinctly from "nothing selected" below.
+                System.out.println("all (no stored mapping for this branch yet)");
+                printDistributedRunPreviewIfConfigured(result);
+            } else if (testsToRun.isEmpty()){
                 System.out.println("none");
             } else {
                 System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
@@ -98,7 +104,8 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         try {
             GroupingResult grouping = DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
                     groupCount, targetRunTimeMs, getTiaDistributedMaxGroups());
-            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs, "\n"));
+            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs,
+                    selection.isRunAllTests(), "\n"));
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
         }

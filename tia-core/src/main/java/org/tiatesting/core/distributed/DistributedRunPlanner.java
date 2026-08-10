@@ -11,6 +11,7 @@ import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.persistence.DataStore;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,43 +52,44 @@ public final class DistributedRunPlanner {
     /**
      * Turn a test selection into a persisted, claimable distributed run plan.
      *
-     * <p>Runs, in order: (1) refuses to plan when {@code selection} carries no stored mapping,
-     * since distributing "run everything" across runners is meaningless; (2) warns about any
-     * previous run's groups that never reached {@code COMPLETED}, since the persist step below
-     * clears them; (3) weights the selection's suites and balances them into groups via {@link
-     * #balance}; (4) warns if the configured target run time was missed - deliberately done here
-     * rather than inside {@link #balance}, since {@code balance} is also the {@code select-tests}
-     * preview's entry point and a preview that logs "planning did not meet its target" would claim
-     * a plan was created when nothing was; (5) projects the result onto the persisted {@link
-     * DistributedRunPlan} types; (6) persists the plan, which clears the previous run's rows in the
-     * same transaction; and (7) returns a summary of what was persisted.
+     * <p>Runs, in order: (1) when {@code selection} carries no stored mapping for this branch,
+     * logs why this build is a <b>seed run</b> - see {@link #logSeedRun} - since {@link #balance}
+     * collapses that case to a single empty group regardless of the configured group count or
+     * target run time; (2) warns about any previous run's groups that never reached {@code
+     * COMPLETED}, since the persist step below clears them; (3) weights the selection's suites and
+     * balances them into groups via {@link #balance}; (4) warns if the configured target run time
+     * was missed - deliberately done here rather than inside {@link #balance}, since {@code
+     * balance} is also the {@code select-tests} preview's entry point and a preview that logs
+     * "planning did not meet its target" would claim a plan was created when nothing was; (5)
+     * projects the result onto the persisted {@link DistributedRunPlan} types; (6) persists the
+     * plan, which clears the previous run's rows in the same transaction; and (7) returns a
+     * summary of what was persisted.
      *
      * @param selection the test selection to split across runners; its {@code testsToRun} is what
      *                  the persisted plan's suite count is checked against
      * @param branch the VCS branch the run is planned against
      * @param commitValue the VCS commit the run is planned against
      * @param collectingCoverage whether this run will collect coverage, and therefore pay the
-     *                           per-suite mapping overhead when weighting suites for balancing
+     *                           per-suite mapping overhead when weighting suites for balancing;
+     *                           also read by {@link #logSeedRun} to warn when a seed run will not
+     *                           actually record the mapping it exists to seed
      * @param createdAtMs the UTC epoch millis to record as the plan's creation time; supplied by
      *                    the caller rather than read from the clock here, so tests can assert the
      *                    persisted value exactly instead of tolerating whatever the clock said
      * @return a summary of the persisted plan, suitable for writing to {@code tia-run-plan.json}
-     *         and the console
-     * @throws IllegalStateException if {@code selection.isRunAllTests()} is true, meaning there is
-     *                                no stored mapping for this branch yet; or if the number of
-     *                                suites carried by the persisted plan does not equal {@code
-     *                                selection.getTestsToRun().size()} - meaning suites were lost
-     *                                while building the plan and the build would otherwise
-     *                                silently skip them
+     *         and the console; {@link DistributedRunPlanSummary#isSeedRun()} is true exactly when
+     *         {@code selection.isRunAllTests()} was true
+     * @throws IllegalStateException if the number of suites carried by the persisted plan does not
+     *                                equal {@code selection.getTestsToRun().size()} - meaning
+     *                                suites were lost while building the plan and the build would
+     *                                otherwise silently skip them
      */
     public DistributedRunPlanSummary plan(TestSelectorResult selection, String branch,
                                            String commitValue, boolean collectingCoverage,
                                            long createdAtMs) {
-        if (selection.isRunAllTests()) {
-            throw new IllegalStateException("distributed run '" + config.getRunId()
-                    + "' has no stored mapping for this branch yet, so there is nothing to split "
-                    + "across runners. Run one non-distributed build first to seed the mapping, "
-                    + "then retry the distributed run.");
+        boolean seedRun = selection.isRunAllTests();
+        if (seedRun) {
+            logSeedRun(collectingCoverage);
         }
 
         warnAboutIncompletePreviousRuns();
@@ -110,7 +112,35 @@ public final class DistributedRunPlanner {
         return new DistributedRunPlanSummary(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), runPlan.getRun().getTargetRunTimeMs(), result.isTargetMet(),
                 result.isClampedToMaxGroups(), result.isSingleSuiteExceedsTarget(),
-                result.getTotalEstimatedMs(), result.getHeaviestGroupMs(), selectedSuiteCount);
+                result.getTotalEstimatedMs(), result.getHeaviestGroupMs(), selectedSuiteCount,
+                seedRun);
+    }
+
+    /**
+     * Log at INFO why this build's plan is a seed run: no stored mapping exists yet for this
+     * branch, so {@link #balance} collapses the plan to a single group with the whole suite,
+     * ignoring the configured group count and target run time entirely - there is no suite-level
+     * information yet to split or balance. Also logs a WARN naming {@code tiaUpdateDBMapping} when
+     * {@code collectingCoverage} is false, since a seed run that does not collect coverage writes
+     * no mapping, leaving every subsequent build stuck repeating the same seed run indefinitely.
+     *
+     * @param collectingCoverage whether this run will collect coverage and therefore write the
+     *                           mapping the seed run exists to produce
+     */
+    private void logSeedRun(boolean collectingCoverage) {
+        log.info("Distributed run '{}' has no stored mapping for this branch yet, so this build "
+                        + "is a seed run: one group with the whole suite, ignoring the configured "
+                        + "group count and target run time - there is nothing yet to split or "
+                        + "balance. It will run every test and record the mapping; the next build "
+                        + "will use the configured group count.",
+                config.getRunId());
+        if (!collectingCoverage) {
+            log.warn("Distributed run '{}' is a seed run, but tiaUpdateDBMapping is false, so "
+                            + "this run will not write the mapping it exists to seed - the next "
+                            + "build will be another seed run, and so on, until "
+                            + "tiaUpdateDBMapping is enabled.",
+                    config.getRunId());
+        }
     }
 
     /**
@@ -129,16 +159,25 @@ public final class DistributedRunPlanner {
      * DistributedRunConfig#validated} runs - rather than a check of its own, so a config the
      * preview accepts can never be one the real plan then rejects.
      *
+     * <p>When {@code selection.isRunAllTests()} is true - no stored mapping exists yet for this
+     * branch - this method short-circuits to {@link #seedGroupingResult()}: a single group with an
+     * empty suite list, regardless of {@code groupCount} or {@code targetRunTimeMs}. There is
+     * genuinely nothing to split or balance in that case, since the selection carries no suite
+     * names and no run times. The grouping shape is still validated first, so a misconfigured
+     * {@code groupCount} / {@code targetRunTimeMs} combination is still reported even on a seed
+     * run, ahead of the build that will actually need it corrected.
+     *
      * @param selection the test selection to balance; its per-suite run-time estimate and mapping
-     *                  overhead drive the weights the balancer packs by
+     *                  overhead drive the weights the balancer packs by, unless {@link
+     *                  TestSelectorResult#isRunAllTests()} is true, in which case they are ignored
      * @param collectingCoverage whether the previewed or planned run will collect coverage, and
      *                           therefore pay the per-suite mapping overhead when weighting suites
      * @param groupCount the fixed number of groups to split into, or null to balance for a target
-     *                    run time instead
+     *                    run time instead; ignored on a seed run
      * @param targetRunTimeMs the target wall-clock run time in ms, or null to use a fixed group
-     *                        count instead
+     *                        count instead; ignored on a seed run
      * @param maxGroups an optional ceiling on the group count, used only alongside {@code
-     *                  targetRunTimeMs}; null for no ceiling
+     *                  targetRunTimeMs}; null for no ceiling; ignored on a seed run
      * @return the balancer's grouping result; nothing is persisted and nothing is logged
      * @throws IllegalArgumentException if neither or both of {@code groupCount} and {@code
      *                                  targetRunTimeMs} are set; if {@code groupCount} is set and
@@ -152,6 +191,10 @@ public final class DistributedRunPlanner {
                                           Integer maxGroups) {
         DistributedRunConfig.validateGroupingShape(groupCount, targetRunTimeMs, maxGroups);
 
+        if (selection.isRunAllTests()) {
+            return seedGroupingResult();
+        }
+
         Map<String, Long> weights = TestGroupBalancer.suiteWeights(
                 selection.getSelectedTestRunTimesMs(), selection.getMappingOverheadMs(),
                 collectingCoverage);
@@ -159,6 +202,21 @@ public final class DistributedRunPlanner {
         return groupCount != null
                 ? TestGroupBalancer.balanceIntoGroups(weights, groupCount)
                 : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups);
+    }
+
+    /**
+     * Build the single-group, empty-suite result a seed run always plans: exactly one group with
+     * no suites and an estimated time of zero, with every target-related flag reporting success
+     * trivially, since a seed run has no target to miss. Shared by {@link #plan} and {@link
+     * #balance} so the persisted plan and the {@code select-tests} preview can never disagree
+     * about what a seed run looks like.
+     *
+     * @return a {@link GroupingResult} with exactly one empty group
+     */
+    private static GroupingResult seedGroupingResult() {
+        List<SuiteGroup> groups = Collections.singletonList(
+                new SuiteGroup(0, Collections.<String>emptyList(), 0L));
+        return new GroupingResult(groups, true, false, false);
     }
 
     /**

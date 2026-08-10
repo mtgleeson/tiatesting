@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -303,28 +304,150 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verifies that {@link DistributedRunPlanner#plan} refuses to plan a selection that carries
-     * {@code runAllTests == true} - the shape {@code TestSelector.selectTestsToIgnore} returns on
-     * a fresh branch with no stored mapping - rather than silently persisting N empty groups that
-     * would invert the whole feature (every runner deriving an empty ignore list and running the
-     * full suite). The message must tell the user what to do about it.
+     * Verifies task 1's core fix: planning a selection with {@code runAllTests == true} - the
+     * shape {@code TestSelector.selectTestsToIgnore} returns on a fresh branch with no stored
+     * mapping - persists exactly one group with an empty suite list, ignoring the configured
+     * group count entirely, rather than throwing or silently persisting N empty groups. Asserts
+     * the persisted plan directly, not only the summary, since a runner claims its group from the
+     * database, not from the summary or its JSON.
      */
     @Test
-    void plan_selectionWithRunAllTests_throwsNamingTheFix() {
-        // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-fresh-branch", 3, null, null, null);
+    void plan_seedSelection_plansExactlyOneEmptyGroupIgnoringConfiguredGroupCount() {
+        // given a config asking for 8 groups, but a selection with no stored mapping yet
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed", 8, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
 
         // when
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> planner.plan(selection, "main", "commit-1", false, 1L));
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed", true, 1L);
 
-        // then - nothing was persisted, and the message tells the user what to do
-        assertNull(dataStore.readDistributedRun("run-fresh-branch"));
-        assertTrue(ex.getMessage().contains("non-distributed"),
-                "message should tell the user to run a non-distributed build first, was: "
-                        + ex.getMessage());
+        // then - the summary reports exactly one group and a seed run
+        assertEquals(1, summary.getGroupCount());
+        assertTrue(summary.isSeedRun());
+        assertEquals(0, summary.getSelectedSuiteCount());
+
+        // and - the persisted plan itself carries exactly one group with an empty suite list,
+        // which is what a runner actually claims from
+        DistributedRun readRun = dataStore.readDistributedRun("run-seed");
+        assertEquals(1, readRun.getGroupCount());
+        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed");
+        assertEquals(1, groups.size());
+        assertEquals(DistributedRunGroupStatus.PENDING, groups.get(0).getStatus());
+        assertTrue(dataStore.readDistributedRunGroupSuites("run-seed", 0).isEmpty());
+    }
+
+    /**
+     * Verifies that a seed run ignores the configured target run time too, not only a fixed group
+     * count: planning against a dynamic-groups config with a target small enough that it would
+     * normally force several groups still plans exactly one, both in the summary and in the
+     * persisted plan.
+     */
+    @Test
+    void plan_seedSelection_plansExactlyOneGroupIgnoringConfiguredTargetRunTime() {
+        // given a dynamic-groups config with a target so small it would normally force many groups
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target", null, 1000L, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = runAllTestsSelection();
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-target", true, 1L);
+
+        // then
+        assertEquals(1, summary.getGroupCount());
+        assertTrue(summary.isSeedRun());
+        DistributedRun readRun = dataStore.readDistributedRun("run-seed-target");
+        assertEquals(1, readRun.getGroupCount());
+        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target");
+        assertEquals(1, groups.size());
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanSummary#isSeedRun()} is false for an ordinary,
+     * non-seed plan, so a pipeline reading the summary or {@code tia-run-plan.json} can rely on
+     * the flag to distinguish the two cases.
+     */
+    @Test
+    void plan_nonSeedSelection_reportsSeedRunFalse() {
+        // given an ordinary selection with a stored mapping
+        DistributedRunConfig config = DistributedRunConfig.validated("run-not-seed", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = threeSuiteSelection();
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-not-seed", false, 1L);
+
+        // then
+        assertFalse(summary.isSeedRun());
+    }
+
+    /**
+     * Verifies that {@code seedRun} reaches {@code tia-run-plan.json}: a seed run's summary
+     * renders the field as JSON {@code true}, the signal a pipeline needs to explain why it only
+     * received one job despite the configured group count.
+     */
+    @Test
+    void plan_seedSelection_jsonReportsSeedRunTrue() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-json", 5, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = runAllTestsSelection();
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-json", true, 1L);
+
+        // then
+        assertTrue(summary.toJson().contains("\"seedRun\": true,"));
+    }
+
+    /**
+     * Verifies that a seed run still succeeds - does not throw, and still persists a valid
+     * one-group plan - when {@code collectingCoverage} is false, the condition under which {@link
+     * DistributedRunPlanner} logs a WARN naming {@code tiaUpdateDBMapping} because that run will
+     * not actually write the mapping the seed run exists to seed. The WARN text itself is not
+     * asserted here since no log-capture harness exists in this test tree, matching this class's
+     * existing convention of checking only the resulting behaviour for its other WARN condition
+     * ({@link #shouldClearThePreviousRunAndLeaveOnlyTheNewOnePresent}); only the behaviour that
+     * the seed plan still persists correctly is checked.
+     */
+    @Test
+    void plan_seedSelectionWithoutCollectingCoverage_stillPersistsAValidSeedPlan() {
+        // given a seed selection and collectingCoverage=false, the condition that triggers the
+        // WARN naming tiaUpdateDBMapping
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-no-coverage", 3, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = runAllTestsSelection();
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main",
+                "commit-seed-no-coverage", false, 1L);
+
+        // then - the plan still succeeds and is still a one-group seed run
+        assertTrue(summary.isSeedRun());
+        assertEquals(1, summary.getGroupCount());
+        DistributedRun readRun = dataStore.readDistributedRun("run-seed-no-coverage");
+        assertEquals(1, readRun.getGroupCount());
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanner#balance} - the {@code select-tests} preview's
+     * entry point - collapses a seed selection to the same single empty group {@link
+     * DistributedRunPlanner#plan} would persist, so the preview and the real plan can never
+     * disagree about what a seed run looks like.
+     */
+    @Test
+    void balance_seedSelection_producesOneEmptyGroup() {
+        // given a selection with no stored mapping yet, and a group count that would otherwise
+        // apply
+        TestSelectorResult selection = runAllTestsSelection();
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, true, 8, null, null);
+
+        // then
+        assertEquals(1, result.getGroupCount());
+        assertTrue(result.getGroups().get(0).getSuiteNames().isEmpty());
+        assertTrue(result.isTargetMet());
+        assertEquals(0L, result.getTotalEstimatedMs());
     }
 
     /**
