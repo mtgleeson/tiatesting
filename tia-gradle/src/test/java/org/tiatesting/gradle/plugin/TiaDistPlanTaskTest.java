@@ -21,10 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for {@link TiaDistPlanTask} and its registration by {@link TiaBasePlugin}. Both
- * preconditions checked before {@link org.tiatesting.core.distributed.DistributedRunPreconditions#check}
+ * Tests for {@link TiaDistPlanTask} and its registration by {@link TiaBasePlugin}. The
+ * preconditions checked by {@link org.tiatesting.core.distributed.DistributedRunPreconditions#check}
  * and {@link org.tiatesting.core.distributed.DistributedRunConfig#validated} run before any
- * datastore is opened, so both failure paths are exercised here without a real database - the same
+ * datastore is opened, so each failure path is exercised here without a real database - the same
  * reason the Maven goal's equivalent checks run first.
  */
 class TiaDistPlanTaskTest {
@@ -56,6 +56,31 @@ class TiaDistPlanTaskTest {
     }
 
     /**
+     * Verify that running the task with Tia disabled fails fast with a {@link GradleException}
+     * naming {@code tiaEnabled}, even though the rest of the configuration (a server-mode URL and
+     * a run id) would otherwise be valid - the disabled-Tia rule is checked first, before the
+     * shared-database rule, and before any datastore is opened.
+     */
+    @Test
+    void rejectsDisabledTiaBeforeOpeningAnything(@TempDir File projectDir) {
+        // given a project with an otherwise-valid distributed-run configuration but Tia disabled
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        project.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(false);
+        ext.setDbUrl("jdbc:h2:tcp://h2host:9092/tiadb");
+        ext.setRunId("run-1");
+        ext.setDistributedGroupCount(4);
+
+        // when the task runs
+        TiaDistPlanTask task = (TiaDistPlanTask) project.getTasks().getByName("tia-dist-plan");
+
+        // then it fails with the disabled-Tia precondition message, not the shared-database one
+        GradleException e = assertThrows(GradleException.class, task::run);
+        assertTrue(e.getMessage().contains("tiaEnabled"));
+    }
+
+    /**
      * Verify that running the task against an embedded H2 datastore (no {@code dbUrl} configured)
      * fails fast with a {@link GradleException} naming the shared-database requirement, before any
      * datastore is opened - the case a developer forgetting to configure a server-mode database
@@ -67,6 +92,7 @@ class TiaDistPlanTaskTest {
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply(TestPlugin.class);
         TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(true);
         ext.setRunId("run-1");
         ext.setDistributedGroupCount(4);
 
@@ -90,6 +116,7 @@ class TiaDistPlanTaskTest {
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply(TestPlugin.class);
         TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(true);
         ext.setDbUrl("jdbc:h2:tcp://h2host:9092/tiadb");
         ext.setDistributedGroupCount(4);
 
