@@ -36,6 +36,13 @@ import java.util.List;
  * DistributedRunPlanWriter} - the same writer class the Maven goal uses, so the file's format
  * cannot drift between the two build tools.
  *
+ * <p>The selection this task runs is a real one, so it performs the library-impact drain - deleting
+ * pending rows and advancing sequences - before the plan is built. That drain cannot be repeated,
+ * and repeating it per-runner would race, so its outcome must outlive this process. It does: the
+ * {@link TestSelectorResult} handed to {@link DistributedRunPlanner#plan} carries the drain result,
+ * and the planner stores it on the persisted run row. Nothing extra is passed alongside the
+ * selection deliberately, since a second copy of the same value could disagree with it.
+ *
  * <p>Implemented as a {@link DefaultTask} subclass, like {@link TiaHistoryTask} and {@link
  * TiaLibraryPublishesTask}, with its one dependency - the owning {@link TiaBasePlugin}, which
  * exposes every configuration getter and helper this task needs - injected at registration time

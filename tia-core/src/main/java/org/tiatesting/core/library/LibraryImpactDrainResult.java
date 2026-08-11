@@ -88,6 +88,35 @@ public class LibraryImpactDrainResult implements Serializable {
     }
 
     /**
+     * Value equality across every drained batch, forced batch and applied sequence, so a drain
+     * result that has been serialized - to the fork handoff file, or to the {@code drain_result}
+     * column of a distributed run row - can be asserted equal to the one it was written from.
+     *
+     * @param o the object to compare against
+     * @return true if o is a LibraryImpactDrainResult carrying identical drained batches, drained
+     *         forced batches and applied sequences
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) { return true; }
+        if (o == null || getClass() != o.getClass()) { return false; }
+        LibraryImpactDrainResult that = (LibraryImpactDrainResult) o;
+        return drainedBatchKeys.equals(that.drainedBatchKeys)
+                && drainedForcedBatchKeys.equals(that.drainedForcedBatchKeys)
+                && appliedSeqByLibrary.equals(that.appliedSeqByLibrary);
+    }
+
+    /**
+     * Hash consistent with {@link #equals}.
+     *
+     * @return the hash code
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(drainedBatchKeys, drainedForcedBatchKeys, appliedSeqByLibrary);
+    }
+
+    /**
      * Identifies a single pending batch that was drained: {@code (groupArtifact, publishSeq)}.
      */
     public static class DrainedBatchKey implements Serializable {
@@ -107,6 +136,31 @@ public class LibraryImpactDrainResult implements Serializable {
 
         public long getPublishSeq() {
             return publishSeq;
+        }
+
+        /**
+         * Value equality on the library and publish sequence the key identifies, so two lists of
+         * drained batch keys compare equal when they name the same batches in the same order.
+         *
+         * @param o the object to compare against
+         * @return true if o is a DrainedBatchKey naming the same library and publish sequence
+         */
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) { return true; }
+            if (o == null || getClass() != o.getClass()) { return false; }
+            DrainedBatchKey that = (DrainedBatchKey) o;
+            return publishSeq == that.publishSeq && Objects.equals(groupArtifact, that.groupArtifact);
+        }
+
+        /**
+         * Hash consistent with {@link #equals}.
+         *
+         * @return the hash code
+         */
+        @Override
+        public int hashCode() {
+            return Objects.hash(groupArtifact, publishSeq);
         }
 
         @Override

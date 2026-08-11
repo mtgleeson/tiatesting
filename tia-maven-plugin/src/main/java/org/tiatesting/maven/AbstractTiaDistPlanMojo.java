@@ -33,6 +33,13 @@ import java.util.List;
  * mojo passes that flag straight through rather than introducing a second name for the same
  * concept.
  *
+ * <p>The selection this goal runs is a real one, so it performs the library-impact drain - deleting
+ * pending rows and advancing sequences - before the plan is built. That drain cannot be repeated,
+ * and repeating it per-runner would race, so its outcome must outlive this process. It does: the
+ * {@link TestSelectorResult} handed to {@link DistributedRunPlanner#plan} carries the drain result,
+ * and the planner stores it on the persisted run row. Nothing extra is passed alongside the
+ * selection deliberately, since a second copy of the same value could disagree with it.
+ *
  * <p>The goal's sequence is: validate the distributed-run preconditions and configuration; open
  * the datastore and run the selection exactly as {@link AbstractSelectTestsMojo} does, but with
  * {@code updateDBMapping} set to the real run's {@link #isTiaUpdateDBMapping()} rather than always
