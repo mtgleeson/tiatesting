@@ -313,4 +313,66 @@ class DistributedRunConfigTest {
         // then
         assertEquals("runner-abc-1234-99", config.getRunnerKey());
     }
+
+    /**
+     * Verifies that a runner config needs no grouping properties at all. How the build was split is
+     * decided once by the planner and is already recorded in the plan the runner claims from, so
+     * requiring a group count or target run time here would force every runner job to repeat
+     * configuration only the planning job uses. {@code validated} rejects exactly this input, which
+     * is what makes the separate factory worth having.
+     */
+    @Test
+    void forRunner_noGroupingPropertiesSupplied_isAccepted() {
+        // given
+        String runId = "run-runner-1";
+
+        // when
+        DistributedRunConfig config = DistributedRunConfig.forRunner(runId, "runner-7");
+
+        // then
+        assertEquals("run-runner-1", config.getRunId());
+        assertEquals("runner-7", config.getRunnerKey());
+        assertNull(config.getGroupCount());
+        assertNull(config.getTargetRunTimeMs());
+        assertNull(config.getMaxGroups());
+        assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunConfig.validated(runId, null, null, null, "runner-7"));
+    }
+
+    /**
+     * Verifies that a runner still cannot proceed without a run id, since the run id is what
+     * locates the plan it claims from - without one there is nothing to claim against.
+     */
+    @Test
+    void forRunner_blankRunId_isRejected() {
+        // given
+        String blankRunId = "   ";
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunConfig.forRunner(blankRunId, "runner-7"));
+
+        // then
+        assertTrue(thrown.getMessage().contains("tiaRunId"),
+                "the message must name the property to fix, was: " + thrown.getMessage());
+    }
+
+    /**
+     * Verifies that a runner key is trimmed and an absent one stays null, so the coordinator's
+     * "no configured key, derive one" branch is reached by a null rather than by a blank string
+     * that would be recorded as a runner identity.
+     */
+    @Test
+    void forRunner_runnerKeyIsTrimmedAndNullStaysNull() {
+        // given
+        String paddedRunnerKey = "  runner-9  ";
+
+        // when
+        DistributedRunConfig trimmed = DistributedRunConfig.forRunner("run-1", paddedRunnerKey);
+        DistributedRunConfig absent = DistributedRunConfig.forRunner("run-1", null);
+
+        // then
+        assertEquals("runner-9", trimmed.getRunnerKey());
+        assertNull(absent.getRunnerKey());
+    }
 }
