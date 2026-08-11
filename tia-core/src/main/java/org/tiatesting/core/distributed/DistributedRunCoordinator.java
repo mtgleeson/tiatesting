@@ -131,18 +131,25 @@ public final class DistributedRunCoordinator {
      * union is empty and so is the result, so the single runner runs the whole suite and records
      * the mapping the next build plans from.
      *
-     * @param groupNumber the group this runner claimed, whose suites are the ones it will run
+     * <p>A surplus runner needs no special case either, only an explicit one: passing a null group
+     * number subtracts nothing, so the union itself is the ignore list and the runner executes
+     * nothing. Null rather than a sentinel number so the "no group in the plan" check below keeps
+     * its meaning - an unknown group number is a bug that must fail, while claiming no group at all
+     * is a legitimate state a caller has to be able to say out loud.
+     *
+     * @param groupNumber the group this runner claimed, whose suites are the ones it will run, or
+     *                    null when it claimed none and must therefore run nothing
      * @param trackedSuiteNames every suite Tia currently has a mapping for; not modified
      * @return the suite names this runner must not execute; a new mutable set owned by the caller
      * @throws IllegalStateException if no run is planned under the configured run id - with no plan
      *                                to read, the union would be empty and the runner would run
      *                                every tracked suite, duplicating the whole build
-     * @throws IllegalArgumentException if the plan has no group with that number - left unchecked
-     *                                   it would subtract nothing, so the runner would ignore every
-     *                                   suite in the plan and run none of them while still
-     *                                   reporting success
+     * @throws IllegalArgumentException if a non-null {@code groupNumber} is not in the plan - left
+     *                                   unchecked it would subtract nothing, so the runner would
+     *                                   ignore every suite in the plan and run none of them while
+     *                                   still reporting success
      */
-    public Set<String> deriveTestsToIgnore(final int groupNumber, final Set<String> trackedSuiteNames) {
+    public Set<String> deriveTestsToIgnore(final Integer groupNumber, final Set<String> trackedSuiteNames) {
         readRunOrThrow();
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(config.getRunId());
@@ -151,12 +158,16 @@ public final class DistributedRunCoordinator {
         for (DistributedRunGroup group : groups) {
             List<String> groupSuites = dataStore.readDistributedRunGroupSuites(config.getRunId(),
                     group.getGroupNumber());
-            if (group.getGroupNumber() == groupNumber) {
+            if (groupNumber != null && group.getGroupNumber() == groupNumber) {
                 // Held rather than re-read after the loop: this group's suites are read here
                 // anyway, and re-reading them would be a second query returning the same rows.
                 mySuites = groupSuites;
             }
             testsToIgnore.addAll(groupSuites);
+        }
+
+        if (groupNumber == null) {
+            return testsToIgnore;
         }
 
         if (mySuites == null) {
