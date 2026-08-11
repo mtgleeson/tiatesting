@@ -150,15 +150,14 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L,
-                drainResult);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
-        return new DistributedRunPlan(run, groups, suites);
+        return new DistributedRunPlan(run, groups, suites, drainResult);
     }
 
     /**
@@ -209,16 +208,17 @@ class JdbcDataStoreDistributedPlanTest {
         // when
         dataStore.persistDistributedRunPlan(plan);
         DistributedRun read = dataStore.readDistributedRun("run-drain");
+        LibraryImpactDrainResult readDrain = dataStore.readDistributedRunDrainResult("run-drain");
 
         // then
         assertEquals(plan.getRun(), read);
-        assertEquals(2, read.getDrainResult().getDrainedBatchKeys().size());
-        assertEquals("com.example:lib", read.getDrainResult().getDrainedBatchKeys().get(0).getGroupArtifact());
-        assertEquals(1L, read.getDrainResult().getDrainedBatchKeys().get(0).getPublishSeq());
-        assertEquals(2L, read.getDrainResult().getDrainedBatchKeys().get(1).getPublishSeq());
-        assertEquals(1, read.getDrainResult().getDrainedForcedBatchKeys().size());
-        assertEquals(7L, read.getDrainResult().getDrainedForcedBatchKeys().get(0).getPublishSeq());
-        assertEquals(Long.valueOf(2L), read.getDrainResult().getAppliedSeqByLibrary().get("com.example:lib"));
+        assertEquals(2, readDrain.getDrainedBatchKeys().size());
+        assertEquals("com.example:lib", readDrain.getDrainedBatchKeys().get(0).getGroupArtifact());
+        assertEquals(1L, readDrain.getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(2L, readDrain.getDrainedBatchKeys().get(1).getPublishSeq());
+        assertEquals(1, readDrain.getDrainedForcedBatchKeys().size());
+        assertEquals(7L, readDrain.getDrainedForcedBatchKeys().get(0).getPublishSeq());
+        assertEquals(Long.valueOf(2L), readDrain.getAppliedSeqByLibrary().get("com.example:lib"));
     }
 
     /**
@@ -233,30 +233,55 @@ class JdbcDataStoreDistributedPlanTest {
 
         // when
         dataStore.persistDistributedRunPlan(plan);
-        DistributedRun read = dataStore.readDistributedRun("run-nodrain");
 
         // then
-        assertNull(read.getDrainResult());
+        assertNull(dataStore.readDistributedRunDrainResult("run-nodrain"));
     }
 
     /**
-     * Verify that {@link DataStore#readAllDistributedRuns()} carries the drain result too, not just
-     * the by-id read. A caller that finds the previous run through the list read - which is how the
-     * planner already surfaces a run that never sealed - must see the same drain result the by-id
-     * read would return, otherwise the cleanup it can apply depends on which read it happened to use.
+     * The reason the drain result is read on its own rather than as part of the run row: a stored
+     * blob that cannot be deserialized - one written by a planner running a different Tia version,
+     * say - must not break the run-row read. Every runner in the build reads that row to claim a
+     * group and none of them look at the drain result, so decoding it there would fail the entire
+     * build over a value only the sealer needs. Plants an undecodable blob and asserts the split:
+     * the run row still reads, and only the dedicated drain read fails.
+     *
+     * @throws Exception if the corrupting update cannot be applied
      */
     @Test
-    void shouldCarryTheDrainResultOnTheListReadAsWell() {
+    void shouldStillReadTheRunRowWhenTheStoredDrainResultCannotBeDeserialized() throws Exception {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-drain", sampleDrainResult()));
+        dataStore.persistDistributedRunPlan(samplePlan("run-corrupt", sampleDrainResult()));
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE tia_distributed_run SET drain_result = X'00010203' "
+                    + "WHERE run_id = 'run-corrupt'");
+        }
 
         // when
-        List<DistributedRun> all = dataStore.readAllDistributedRuns();
+        DistributedRun read = dataStore.readDistributedRun("run-corrupt");
 
         // then
-        assertEquals(1, all.size());
-        assertEquals(dataStore.readDistributedRun("run-drain"), all.get(0));
-        assertEquals(2, all.get(0).getDrainResult().getDrainedBatchKeys().size());
+        assertEquals("run-corrupt", read.getRunId());
+        assertThrows(TiaPersistenceException.class,
+                () -> dataStore.readDistributedRunDrainResult("run-corrupt"));
+    }
+
+    /**
+     * Verify that asking for the drain result of a run that was never planned returns null rather
+     * than throwing, so a sealer reading a cleared run cannot mistake "no such run" for a
+     * persistence failure.
+     */
+    @Test
+    void shouldReadBackANullDrainResultForAnUnknownRun() {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", sampleDrainResult()));
+
+        // when
+        LibraryImpactDrainResult read = dataStore.readDistributedRunDrainResult("no-such-run");
+
+        // then
+        assertNull(read);
     }
 
     /**
@@ -329,11 +354,11 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L, null);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
-                Arrays.asList(DistributedRunGroup.pending("run-static", 0, 10L)), suites);
+                Arrays.asList(DistributedRunGroup.pending("run-static", 0, 10L)), suites, null);
 
         // when
         dataStore.persistDistributedRunPlan(plan);
@@ -448,11 +473,11 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L, null);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,
-                Arrays.asList(DistributedRunGroup.pending("run-bad", 0, 10L)), suites);
+                Arrays.asList(DistributedRunGroup.pending("run-bad", 0, 10L)), suites, null);
 
         // when
         assertThrows(TiaPersistenceException.class, () -> dataStore.persistDistributedRunPlan(badPlan));

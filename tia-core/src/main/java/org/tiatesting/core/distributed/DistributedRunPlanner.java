@@ -337,15 +337,15 @@ public final class DistributedRunPlanner {
      * @param commitValue the VCS commit the run is planned against
      * @param createdAtMs the UTC epoch millis to record as the plan's creation time
      * @param drainResult the library-impact drain the selection already performed, carried onto the
-     *                    run row so it survives this process exiting, or null if nothing was drained
+     *                    write bundle so it survives this process exiting, or null if nothing was
+     *                    drained
      * @return the validated plan, ready to persist
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
                                             long createdAtMs, LibraryImpactDrainResult drainResult) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
-                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs,
-                drainResult);
+                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
@@ -355,7 +355,7 @@ public final class DistributedRunPlanner {
             suitesByGroup.put(suiteGroup.getGroupNumber(), suiteGroup.getSuiteNames());
         }
 
-        return new DistributedRunPlan(run, groups, suitesByGroup);
+        return new DistributedRunPlan(run, groups, suitesByGroup, drainResult);
     }
 
     /**

@@ -413,6 +413,20 @@ public class SerializedDataStore implements DataStore {
      * @throws UnsupportedOperationException always
      */
     @Override
+    public LibraryImpactDrainResult readDistributedRunDrainResult(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
     public List<DistributedRunGroup> readDistributedRunGroups(String runId) {
         throw new UnsupportedOperationException(
                 "Distributed test runs require a shared database (server-mode H2 or Postgres)");

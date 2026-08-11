@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -508,6 +509,15 @@ class TestRunnerServiceSealOrderTest {
         public DistributedRun readDistributedRun(String runId) {
             throw new UnsupportedOperationException("not used by this test");
         }
+
+        /**
+         * Not used by this fake; distributed runs are not exercised here.
+         *
+         * @param runId ignored
+         * @return always null
+         */
+        @Override
+        public LibraryImpactDrainResult readDistributedRunDrainResult(String runId) { return null; }
 
         /**
          * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.

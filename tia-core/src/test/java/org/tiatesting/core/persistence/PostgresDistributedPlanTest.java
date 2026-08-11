@@ -115,13 +115,13 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldRoundTripAPlanOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 60000L, 90000L, 1234L, null);
+        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 60000L, 90000L, 1234L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
         DistributedRunPlan plan = new DistributedRunPlan(run, Arrays.asList(
                 DistributedRunGroup.pending("pg-run-1", 0, 50000L),
-                DistributedRunGroup.pending("pg-run-1", 1, 40000L)), suites);
+                DistributedRunGroup.pending("pg-run-1", 1, 40000L)), suites, null);
 
         // when
         postgresStore.persistDistributedRunPlan(plan);
@@ -143,11 +143,11 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldPreserveNullTargetRunTimeOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, null, 10L, 7L, null);
+        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, null, 10L, 7L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
-                Arrays.asList(DistributedRunGroup.pending("pg-run-2", 0, 10L)), suites));
+                Arrays.asList(DistributedRunGroup.pending("pg-run-2", 0, 10L)), suites, null));
 
         // when
         DistributedRun read = postgresStore.readDistributedRun("pg-run-2");
@@ -170,22 +170,22 @@ class PostgresDistributedPlanTest {
         drainResult.addDrainedBatch("com.example:lib", 1L);
         drainResult.addDrainedForcedBatch("com.example:other", 7L);
         drainResult.setAppliedSeq("com.example:lib", 2L);
-        DistributedRun run = DistributedRun.open("pg-run-drain", BRANCH, "commit-1", 1, null, 10L, 7L,
-                drainResult);
+        DistributedRun run = DistributedRun.open("pg-run-drain", BRANCH, "commit-1", 1, null, 10L, 7L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
 
         // when
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
-                Arrays.asList(DistributedRunGroup.pending("pg-run-drain", 0, 10L)), suites));
+                Arrays.asList(DistributedRunGroup.pending("pg-run-drain", 0, 10L)), suites, drainResult));
         DistributedRun read = postgresStore.readDistributedRun("pg-run-drain");
+        LibraryImpactDrainResult readDrain = postgresStore.readDistributedRunDrainResult("pg-run-drain");
 
         // then
         assertEquals(run, read);
-        assertEquals(1, read.getDrainResult().getDrainedBatchKeys().size());
-        assertEquals("com.example:lib", read.getDrainResult().getDrainedBatchKeys().get(0).getGroupArtifact());
-        assertEquals(1, read.getDrainResult().getDrainedForcedBatchKeys().size());
-        assertEquals(Long.valueOf(2L), read.getDrainResult().getAppliedSeqByLibrary().get("com.example:lib"));
+        assertEquals(1, readDrain.getDrainedBatchKeys().size());
+        assertEquals("com.example:lib", readDrain.getDrainedBatchKeys().get(0).getGroupArtifact());
+        assertEquals(1, readDrain.getDrainedForcedBatchKeys().size());
+        assertEquals(Long.valueOf(2L), readDrain.getAppliedSeqByLibrary().get("com.example:lib"));
     }
 
     /**
@@ -197,18 +197,17 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldPreserveANullDrainResultOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-nodrain", BRANCH, "commit-1", 1, null, 10L, 7L,
-                null);
+        DistributedRun run = DistributedRun.open("pg-run-nodrain", BRANCH, "commit-1", 1, null, 10L, 7L);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
-                Arrays.asList(DistributedRunGroup.pending("pg-run-nodrain", 0, 10L)), suites));
+                Arrays.asList(DistributedRunGroup.pending("pg-run-nodrain", 0, 10L)), suites, null));
 
         // when
-        DistributedRun read = postgresStore.readDistributedRun("pg-run-nodrain");
+        LibraryImpactDrainResult read = postgresStore.readDistributedRunDrainResult("pg-run-nodrain");
 
         // then
-        assertNull(read.getDrainResult());
+        assertNull(read);
     }
 
     /**
@@ -225,13 +224,13 @@ class PostgresDistributedPlanTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, null, 10L, 7L, null),
-                Arrays.asList(DistributedRunGroup.pending("pg-run-3", 0, 10L)), suites));
+                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, null, 10L, 7L),
+                Arrays.asList(DistributedRunGroup.pending("pg-run-3", 0, 10L)), suites, null));
 
         // when
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, null, 10L, 8L, null),
-                Arrays.asList(DistributedRunGroup.pending("pg-run-4", 0, 10L)), suites));
+                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, null, 10L, 8L),
+                Arrays.asList(DistributedRunGroup.pending("pg-run-4", 0, 10L)), suites, null));
 
         // then
         assertNull(postgresStore.readDistributedRun("pg-run-3"));

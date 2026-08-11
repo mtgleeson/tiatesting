@@ -28,7 +28,7 @@ class DistributedRunPlanTest {
      * @return a plan with groups 0 and 1, each holding one suite
      */
     private static DistributedRunPlan validPlan() {
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending("run-1", 0, 200L));
         groups.add(DistributedRunGroup.pending("run-1", 1, 100L));
@@ -39,7 +39,7 @@ class DistributedRunPlanTest {
         List<String> groupOneSuites = new ArrayList<>();
         groupOneSuites.add("com.example.BTest");
         suites.put(1, groupOneSuites);
-        return new DistributedRunPlan(run, groups, suites);
+        return new DistributedRunPlan(run, groups, suites, null);
     }
 
     /**
@@ -69,7 +69,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectGroupCountThatDisagreesWithGroupList() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 3, null, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 3, null, 300L, 5L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L));
         Map<Integer, List<String>> suites = new HashMap<>();
@@ -77,7 +77,7 @@ class DistributedRunPlanTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new DistributedRunPlan(run, groups, suites));
+                () -> new DistributedRunPlan(run, groups, suites, null));
 
         // then
         assertTrue(thrown.getMessage().contains("groupCount"), thrown.getMessage());
@@ -91,7 +91,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteMapWithNoEntryForAGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -100,7 +100,7 @@ class DistributedRunPlanTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new DistributedRunPlan(run, groups, suites));
+                () -> new DistributedRunPlan(run, groups, suites, null));
 
         // then
         assertTrue(thrown.getMessage().contains("no suite assignment for group 1"),
@@ -115,7 +115,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteAssignedToMoreThanOneGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -125,7 +125,7 @@ class DistributedRunPlanTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new DistributedRunPlan(run, groups, suites));
+                () -> new DistributedRunPlan(run, groups, suites, null));
 
         // then
         assertTrue(thrown.getMessage().contains("com.example.ATest"), thrown.getMessage());
@@ -196,7 +196,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldNotBeAffectedByMutatingTheOriginalInputsAfterConstruction() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending("run-1", 0, 200L));
         groups.add(DistributedRunGroup.pending("run-1", 1, 100L));
@@ -207,7 +207,7 @@ class DistributedRunPlanTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, groupZeroSuites);
         suites.put(1, groupOneSuites);
-        DistributedRunPlan plan = new DistributedRunPlan(run, groups, suites);
+        DistributedRunPlan plan = new DistributedRunPlan(run, groups, suites, null);
 
         // when
         groups.add(DistributedRunGroup.pending("run-1", 9, 1L));
@@ -231,7 +231,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteMapEntryForAnUndeclaredGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -242,7 +242,7 @@ class DistributedRunPlanTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new DistributedRunPlan(run, groups, suites));
+                () -> new DistributedRunPlan(run, groups, suites, null));
 
         // then
         assertTrue(thrown.getMessage().contains("group 2"), thrown.getMessage());
@@ -257,7 +257,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldAllowAnEmptyGroupWhenSelectionIsSmallerThanTheGroupCount() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, null);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 0L));
@@ -266,7 +266,7 @@ class DistributedRunPlanTest {
         suites.put(1, new ArrayList<String>());
 
         // when
-        DistributedRunPlan plan = new DistributedRunPlan(run, groups, suites);
+        DistributedRunPlan plan = new DistributedRunPlan(run, groups, suites, null);
 
         // then
         assertTrue(plan.getSuitesByGroup().get(1).isEmpty());

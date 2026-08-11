@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence;
 
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -363,13 +364,29 @@ public interface DataStore extends AutoCloseable {
     void persistDistributedRunPlan(final DistributedRunPlan plan);
 
     /**
-     * Read a distributed run by its CI-supplied identifier, including the library-impact drain
-     * result recorded when it was planned.
+     * Read a distributed run by its CI-supplied identifier. Does not carry the plan's drain result;
+     * ask {@link #readDistributedRunDrainResult} for that.
      *
      * @param runId the run identifier
      * @return the run, or null if no run is planned under that id
      */
     DistributedRun readDistributedRun(final String runId);
+
+    /**
+     * Read the library-impact drain result recorded when the run was planned, so the sealer can
+     * apply the cleanup that drain still owes. The drain deleted pending rows and advanced
+     * sequences before the plan was built and cannot be repeated, so this is its only record.
+     *
+     * <p>Separate from {@link #readDistributedRun} on purpose. The value is a Java-serialized blob
+     * that only the sealer consumes, while every runner in the build reads the run row to claim its
+     * group. Folding it into that read would make a blob no runner looks at - one written by a
+     * planner on a different Tia version, say - fail every claim in the build rather than only the
+     * cleanup that needs it.
+     *
+     * @param runId the run identifier
+     * @return the drain result, or null if the run drained nothing or no run is planned under that id
+     */
+    LibraryImpactDrainResult readDistributedRunDrainResult(final String runId);
 
     /**
      * Read every group of a distributed run, ordered by group number.

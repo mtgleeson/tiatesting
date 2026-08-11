@@ -9,6 +9,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryMetadataReader;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -465,6 +466,15 @@ class TestSelectorUpdateDBMappingGateTest {
         public DistributedRun readDistributedRun(String runId) {
             throw new UnsupportedOperationException("not used by this test");
         }
+
+        /**
+         * Not used by this fake; distributed runs are not exercised here.
+         *
+         * @param runId ignored
+         * @return always null
+         */
+        @Override
+        public LibraryImpactDrainResult readDistributedRunDrainResult(String runId) { return null; }
 
         /**
          * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
