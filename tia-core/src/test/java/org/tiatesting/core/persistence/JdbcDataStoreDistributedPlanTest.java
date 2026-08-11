@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -127,7 +128,7 @@ class JdbcDataStoreDistributedPlanTest {
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(freshTempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test"));
         try {
-            DistributedRunPlan plan = samplePlan("run-1");
+            DistributedRunPlan plan = samplePlan("run-1", null);
 
             // when
             freshDataStore.persistDistributedRunPlan(plan);
@@ -144,10 +145,13 @@ class JdbcDataStoreDistributedPlanTest {
      * Build a two-group plan with three suites for use across the read/write tests.
      *
      * @param runId the run identifier to plan under
+     * @param drainResult the library-impact drain the plan performed, or null when the plan drained
+     *                    nothing
      * @return a valid plan, unsaved
      */
-    private static DistributedRunPlan samplePlan(String runId) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L);
+    private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L,
+                drainResult);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -164,7 +168,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldRoundTripAPlannedRun() {
         // given
-        DistributedRunPlan plan = samplePlan("run-1");
+        DistributedRunPlan plan = samplePlan("run-1", null);
 
         // when
         dataStore.persistDistributedRunPlan(plan);
@@ -175,6 +179,87 @@ class JdbcDataStoreDistributedPlanTest {
     }
 
     /**
+     * Build the drain result a plan that drained library impact would carry: two drained batches,
+     * one drained forced-selection batch and one applied sequence, so the round-trip assertions
+     * cover every collection the drain result holds rather than a single field.
+     *
+     * @return a populated drain result, unsaved
+     */
+    private static LibraryImpactDrainResult sampleDrainResult() {
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch("com.example:lib", 1L);
+        drainResult.addDrainedBatch("com.example:lib", 2L);
+        drainResult.addDrainedForcedBatch("com.example:other", 7L);
+        drainResult.setAppliedSeq("com.example:lib", 2L);
+        return drainResult;
+    }
+
+    /**
+     * Verify that the library-impact drain the plan already performed survives the round trip into
+     * the run row. The plan's selection deletes pending rows and advances sequences before the plan
+     * is written, and that drain cannot be repeated: if the run row does not carry the drain result,
+     * no later runner or sealer can reconstruct which batches to delete, and the cleanup is lost for
+     * good.
+     */
+    @Test
+    void shouldRoundTripTheDrainResultThePlanPerformed() {
+        // given
+        DistributedRunPlan plan = samplePlan("run-drain", sampleDrainResult());
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-drain");
+
+        // then
+        assertEquals(plan.getRun(), read);
+        assertEquals(2, read.getDrainResult().getDrainedBatchKeys().size());
+        assertEquals("com.example:lib", read.getDrainResult().getDrainedBatchKeys().get(0).getGroupArtifact());
+        assertEquals(1L, read.getDrainResult().getDrainedBatchKeys().get(0).getPublishSeq());
+        assertEquals(2L, read.getDrainResult().getDrainedBatchKeys().get(1).getPublishSeq());
+        assertEquals(1, read.getDrainResult().getDrainedForcedBatchKeys().size());
+        assertEquals(7L, read.getDrainResult().getDrainedForcedBatchKeys().get(0).getPublishSeq());
+        assertEquals(Long.valueOf(2L), read.getDrainResult().getAppliedSeqByLibrary().get("com.example:lib"));
+    }
+
+    /**
+     * Verify that a plan carrying no drain result - the normal case, since library impact analysis
+     * is optional - reads back a null drain result rather than an empty instance or a failure, so a
+     * later stage can use the null check as the "nothing to clean up" signal.
+     */
+    @Test
+    void shouldReadBackANullDrainResultWhenThePlanDrainedNothing() {
+        // given
+        DistributedRunPlan plan = samplePlan("run-nodrain", null);
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-nodrain");
+
+        // then
+        assertNull(read.getDrainResult());
+    }
+
+    /**
+     * Verify that {@link DataStore#readAllDistributedRuns()} carries the drain result too, not just
+     * the by-id read. A caller that finds the previous run through the list read - which is how the
+     * planner already surfaces a run that never sealed - must see the same drain result the by-id
+     * read would return, otherwise the cleanup it can apply depends on which read it happened to use.
+     */
+    @Test
+    void shouldCarryTheDrainResultOnTheListReadAsWell() {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-drain", sampleDrainResult()));
+
+        // when
+        List<DistributedRun> all = dataStore.readAllDistributedRuns();
+
+        // then
+        assertEquals(1, all.size());
+        assertEquals(dataStore.readDistributedRun("run-drain"), all.get(0));
+        assertEquals(2, all.get(0).getDrainResult().getDrainedBatchKeys().size());
+    }
+
+    /**
      * Verify that the groups of a persisted plan are read back ordered by group number - the
      * order the claim protocol (a later stage) depends on - and that a freshly-planned group's
      * PENDING fields (status, no runner, no claim timestamp) survive the round trip.
@@ -182,7 +267,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldRoundTripGroupsInGroupNumberOrder() {
         // given
-        DistributedRunPlan plan = samplePlan("run-1");
+        DistributedRunPlan plan = samplePlan("run-1", null);
         dataStore.persistDistributedRunPlan(plan);
 
         // when
@@ -208,7 +293,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldRoundTripSuiteAssignment() {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
 
         // when
         List<String> groupZero = dataStore.readDistributedRunGroupSuites("run-1", 0);
@@ -226,7 +311,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldReturnNullForAnUnknownRun() {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
 
         // when
         DistributedRun read = dataStore.readDistributedRun("run-does-not-exist");
@@ -244,7 +329,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -269,10 +354,10 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldClearThePreviousRunWhenANewPlanIsWritten() throws Exception {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
 
         // when
-        dataStore.persistDistributedRunPlan(samplePlan("run-2"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-2", null));
 
         // then
         assertNull(dataStore.readDistributedRun("run-1"));
@@ -296,7 +381,7 @@ class JdbcDataStoreDistributedPlanTest {
     void shouldClearLeftoverMethodStagingRowsFromAnAbandonedRun() throws Exception {
         // given
         // simulate a previous build that staged methods and then died before sealing
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
         try (Connection connection = dataStore.getConnection();
              Statement statement = connection.createStatement()) {
             statement.executeUpdate("INSERT INTO tia_distributed_run_method_stage "
@@ -306,7 +391,7 @@ class JdbcDataStoreDistributedPlanTest {
         assertEquals(1L, countRows("tia_distributed_run_method_stage"));
 
         // when
-        dataStore.persistDistributedRunPlan(samplePlan("run-2"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-2", null));
 
         // then
         assertEquals(0L, countRows("tia_distributed_run_method_stage"));
@@ -320,7 +405,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldReturnEveryPlannedRunSoThePlannerCanWarnBeforeClearing() {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
 
         // when
         List<DistributedRun> all = dataStore.readAllDistributedRuns();
@@ -358,12 +443,12 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldLeaveThePreviousPlanIntactWhenANewPlanWriteFails() throws Exception {
         // given
-        dataStore.persistDistributedRunPlan(samplePlan("run-1"));
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
         StringBuilder oversizedName = new StringBuilder();
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

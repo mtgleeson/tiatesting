@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -114,7 +115,7 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldRoundTripAPlanOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 60000L, 90000L, 1234L);
+        DistributedRun run = DistributedRun.open("pg-run-1", BRANCH, "commit-1", 2, 60000L, 90000L, 1234L, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.BTest", "com.example.ATest"));
         suites.put(1, Arrays.asList("com.example.CTest"));
@@ -142,7 +143,7 @@ class PostgresDistributedPlanTest {
     @Test
     void shouldPreserveNullTargetRunTimeOnPostgres() {
         // given
-        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, null, 10L, 7L);
+        DistributedRun run = DistributedRun.open("pg-run-2", BRANCH, "commit-1", 1, null, 10L, 7L, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
@@ -153,6 +154,61 @@ class PostgresDistributedPlanTest {
 
         // then
         assertNull(read.getTargetRunTimeMs());
+    }
+
+    /**
+     * Verify that the library-impact drain the plan already performed round-trips through the
+     * Postgres {@code BYTEA} column. The drain deletes pending rows and advances sequences before
+     * the plan is written and cannot be repeated, so this is the dialect that matters most: a
+     * binary bind that worked on H2's {@code BLOB} but not on {@code BYTEA} would lose the cleanup
+     * permanently on exactly the databases distributed runs require.
+     */
+    @Test
+    void shouldRoundTripTheDrainResultOnPostgres() {
+        // given
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch("com.example:lib", 1L);
+        drainResult.addDrainedForcedBatch("com.example:other", 7L);
+        drainResult.setAppliedSeq("com.example:lib", 2L);
+        DistributedRun run = DistributedRun.open("pg-run-drain", BRANCH, "commit-1", 1, null, 10L, 7L,
+                drainResult);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList("com.example.ATest"));
+
+        // when
+        postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending("pg-run-drain", 0, 10L)), suites));
+        DistributedRun read = postgresStore.readDistributedRun("pg-run-drain");
+
+        // then
+        assertEquals(run, read);
+        assertEquals(1, read.getDrainResult().getDrainedBatchKeys().size());
+        assertEquals("com.example:lib", read.getDrainResult().getDrainedBatchKeys().get(0).getGroupArtifact());
+        assertEquals(1, read.getDrainResult().getDrainedForcedBatchKeys().size());
+        assertEquals(Long.valueOf(2L), read.getDrainResult().getAppliedSeqByLibrary().get("com.example:lib"));
+    }
+
+    /**
+     * Verify that a plan carrying no drain result reads back a null drain result on Postgres rather
+     * than an empty instance or a driver error, since binding SQL NULL to a {@code BYTEA} column and
+     * reading it back is handled differently enough by the Postgres driver from H2's to be worth
+     * proving separately.
+     */
+    @Test
+    void shouldPreserveANullDrainResultOnPostgres() {
+        // given
+        DistributedRun run = DistributedRun.open("pg-run-nodrain", BRANCH, "commit-1", 1, null, 10L, 7L,
+                null);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList("com.example.ATest"));
+        postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending("pg-run-nodrain", 0, 10L)), suites));
+
+        // when
+        DistributedRun read = postgresStore.readDistributedRun("pg-run-nodrain");
+
+        // then
+        assertNull(read.getDrainResult());
     }
 
     /**
@@ -169,12 +225,12 @@ class PostgresDistributedPlanTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, null, 10L, 7L),
+                DistributedRun.open("pg-run-3", BRANCH, "commit-1", 1, null, 10L, 7L, null),
                 Arrays.asList(DistributedRunGroup.pending("pg-run-3", 0, 10L)), suites));
 
         // when
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, null, 10L, 8L),
+                DistributedRun.open("pg-run-4", BRANCH, "commit-2", 1, null, 10L, 8L, null),
                 Arrays.asList(DistributedRunGroup.pending("pg-run-4", 0, 10L)), suites));
 
         // then

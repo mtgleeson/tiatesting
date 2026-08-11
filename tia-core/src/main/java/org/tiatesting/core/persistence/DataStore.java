@@ -353,12 +353,18 @@ public interface DataStore extends AutoCloseable {
      * assignment - in a single transaction, so a runner reading the plan never observes it
      * partially written.
      *
+     * <p>Includes the library-impact drain result the plan's own test selection already performed.
+     * That drain deleted pending rows and advanced sequences before the plan was built and cannot
+     * be repeated, so storing it here is what lets the run's outstanding cleanup outlive the
+     * planning process.
+     *
      * @param plan the validated plan to persist
      */
     void persistDistributedRunPlan(final DistributedRunPlan plan);
 
     /**
-     * Read a distributed run by its CI-supplied identifier.
+     * Read a distributed run by its CI-supplied identifier, including the library-impact drain
+     * result recorded when it was planned.
      *
      * @param runId the run identifier
      * @return the run, or null if no run is planned under that id

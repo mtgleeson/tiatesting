@@ -1,5 +1,7 @@
 package org.tiatesting.core.model;
 
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+
 import java.io.Serializable;
 import java.util.Objects;
 
@@ -20,6 +22,7 @@ public final class DistributedRun implements Serializable {
     private final long createdAtMs;
     private final String sealedBy;
     private final Long sealedAtMs;
+    private final LibraryImpactDrainResult drainResult;
 
     /**
      * Full constructor, used by the read path so a persisted row round-trips exactly.
@@ -34,11 +37,13 @@ public final class DistributedRun implements Serializable {
      * @param createdAtMs UTC epoch millis when the plan was written
      * @param sealedBy runner key of the runner that performed the seal, or null if not sealed
      * @param sealedAtMs UTC epoch millis of the seal, or null if not sealed
+     * @param drainResult the library-impact drain the plan's own test selection already performed,
+     *                    or null if it drained nothing
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, Long targetRunTimeMs,
                           long estimatedTotalMs, long createdAtMs, String sealedBy,
-                          Long sealedAtMs) {
+                          Long sealedAtMs, LibraryImpactDrainResult drainResult) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
@@ -49,6 +54,7 @@ public final class DistributedRun implements Serializable {
         this.createdAtMs = createdAtMs;
         this.sealedBy = sealedBy;
         this.sealedAtMs = sealedAtMs;
+        this.drainResult = drainResult;
     }
 
     /**
@@ -61,13 +67,16 @@ public final class DistributedRun implements Serializable {
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
+     * @param drainResult the library-impact drain the plan's own test selection already performed,
+     *                    or null if it drained nothing
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
                                       int groupCount, Long targetRunTimeMs,
-                                      long estimatedTotalMs, long createdAtMs) {
+                                      long estimatedTotalMs, long createdAtMs,
+                                      LibraryImpactDrainResult drainResult) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
-                groupCount, targetRunTimeMs, estimatedTotalMs, createdAtMs, null, null);
+                groupCount, targetRunTimeMs, estimatedTotalMs, createdAtMs, null, null, drainResult);
     }
 
     /** @return the CI-supplied run identifier */
@@ -101,6 +110,17 @@ public final class DistributedRun implements Serializable {
     public Long getSealedAtMs() { return sealedAtMs; }
 
     /**
+     * The library-impact drain the plan's own test selection performed before the plan was written.
+     * That drain deleted pending stamp rows and advanced publish sequences, and it cannot be run a
+     * second time - running it per-runner would race - so this is the only record of the cleanup
+     * the run still owes. See the drain-rule section of the library publish-time stamping chapter
+     * in {@code WIKI.md}.
+     *
+     * @return the drain the plan performed, or null if it drained nothing
+     */
+    public LibraryImpactDrainResult getDrainResult() { return drainResult; }
+
+    /**
      * Value equality across every field, so a persisted row can be asserted equal to the object
      * it was written from.
      *
@@ -121,7 +141,8 @@ public final class DistributedRun implements Serializable {
                 && status == that.status
                 && Objects.equals(targetRunTimeMs, that.targetRunTimeMs)
                 && Objects.equals(sealedBy, that.sealedBy)
-                && Objects.equals(sealedAtMs, that.sealedAtMs);
+                && Objects.equals(sealedAtMs, that.sealedAtMs)
+                && Objects.equals(drainResult, that.drainResult);
     }
 
     /**
@@ -132,7 +153,7 @@ public final class DistributedRun implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(runId, branch, commitValue, status, groupCount, targetRunTimeMs,
-                estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs);
+                estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, drainResult);
     }
 
     /**

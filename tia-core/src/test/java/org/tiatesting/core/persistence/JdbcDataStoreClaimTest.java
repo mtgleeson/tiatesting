@@ -85,7 +85,7 @@ class JdbcDataStoreClaimTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", groupCount, null,
-                1000L * groupCount, 1234L);
+                1000L * groupCount, 1234L, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites));
         return groups;
     }
@@ -213,7 +213,7 @@ class JdbcDataStoreClaimTest {
             Map<Integer, List<String>> suites = new HashMap<>();
             suites.put(0, Arrays.asList("com.example.ATest"));
             freshDataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                    DistributedRun.open("run-1", "main", "commit-1", 1, null, 1000L, 1234L), groups, suites));
+                    DistributedRun.open("run-1", "main", "commit-1", 1, null, 1000L, 1234L, null), groups, suites));
 
             // when
             DistributedRunGroup claimed = freshDataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);

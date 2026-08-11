@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -95,6 +96,24 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Build the same three-suite selection as {@link #threeSuiteSelection()} but carrying a
+     * library-impact drain result, so tests can assert what the planner does with the drain the
+     * selection already performed.
+     *
+     * @param drainResult the drain outcome the selection performed before the planner was called
+     * @return a selection with three suites and the supplied drain result attached
+     */
+    private static TestSelectorResult selectionWithDrainResult(LibraryImpactDrainResult drainResult) {
+        Map<String, Long> runTimes = new HashMap<>();
+        runTimes.put("com.example.ATest", 30000L);
+        runTimes.put("com.example.BTest", 20000L);
+        runTimes.put("com.example.CTest", 10000L);
+        Set<String> testsToRun = new HashSet<>(runTimes.keySet());
+        return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, false);
+    }
+
+    /**
      * Build a selection with no suites at all, so tests can verify the planner produces a valid
      * (if trivial) plan rather than failing on an empty build.
      *
@@ -156,6 +175,49 @@ class DistributedRunPlannerTest {
         assertEquals(selection.getTestsToRun(), allSuites);
         assertEquals(2, summary.getGroupCount());
         assertNull(summary.getTargetMs());
+    }
+
+    /**
+     * Verify that the library-impact drain the selection already performed is persisted on the run
+     * row. The selection handed to {@link DistributedRunPlanner#plan} has already deleted the
+     * pending rows and advanced the sequences by the time the planner sees it, and that drain
+     * cannot be repeated, so the plan row is the only place the cleanup can survive the plan
+     * process exiting.
+     */
+    @Test
+    void shouldPersistTheDrainResultTheSelectionAlreadyPerformed() {
+        // given
+        LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
+        drainResult.addDrainedBatch("com.example:lib", 4L);
+        drainResult.setAppliedSeq("com.example:lib", 4L);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-drain", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(selectionWithDrainResult(drainResult), "main", "commit-1", false, 111222L);
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-drain");
+        assertEquals(drainResult, readRun.getDrainResult());
+    }
+
+    /**
+     * Verify that a selection carrying no drain result - the normal case, since library impact
+     * analysis is optional - leaves the run row's drain result null rather than an empty instance,
+     * so the null check remains a usable "nothing was drained" signal for the stage that applies
+     * the cleanup.
+     */
+    @Test
+    void shouldPersistANullDrainResultWhenTheSelectionDrainedNothing() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-nodrain", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 111222L);
+
+        // then
+        assertNull(dataStore.readDistributedRun("run-nodrain").getDrainResult());
     }
 
     /**
@@ -622,7 +684,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L);
+                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L, null);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -644,7 +706,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0));
@@ -668,7 +730,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0));

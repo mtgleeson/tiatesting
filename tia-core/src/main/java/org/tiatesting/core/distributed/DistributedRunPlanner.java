@@ -3,6 +3,7 @@ package org.tiatesting.core.distributed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -61,12 +62,20 @@ public final class DistributedRunPlanner {
      * was missed - deliberately done here rather than inside {@link #balance}, since {@code
      * balance} is also the {@code select-tests} preview's entry point and a preview that logs
      * "planning did not meet its target" would claim a plan was created when nothing was; (5)
-     * projects the result onto the persisted {@link DistributedRunPlan} types; (6) persists the
-     * plan, which clears the previous run's rows in the same transaction; and (7) returns a
-     * summary of what was persisted.
+     * projects the result onto the persisted {@link DistributedRunPlan} types, carrying the
+     * selection's library-impact drain result onto the run row; (6) persists the plan, which clears
+     * the previous run's rows in the same transaction; and (7) returns a summary of what was
+     * persisted.
+     *
+     * <p>Step (5) is why the drain result matters here: {@code selection} was produced by a real
+     * {@code TestSelector.selectTestsToIgnore} call, which has already drained the pending library
+     * impact - deleting pending rows and advancing sequences - before this method is entered. That
+     * drain cannot be repeated, and repeating it per-runner would race, so the plan row is the only
+     * place its outstanding cleanup can survive this process exiting.
      *
      * @param selection the test selection to split across runners; its {@code testsToRun} is what
-     *                  the persisted plan's suite count is checked against
+     *                  the persisted plan's suite count is checked against, and its library-impact
+     *                  drain result is stored on the run row for the stage that applies the cleanup
      * @param branch the VCS branch the run is planned against
      * @param commitValue the VCS commit the run is planned against
      * @param collectingCoverage whether this run will collect coverage, and therefore pay the
@@ -98,7 +107,8 @@ public final class DistributedRunPlanner {
                 config.getTargetRunTimeMs(), config.getMaxGroups());
         warnIfTargetMissed(result, config.getTargetRunTimeMs());
 
-        DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs);
+        DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs,
+                selection.getLibraryImpactDrainResult());
         int selectedSuiteCount = countSuites(runPlan);
         if (selectedSuiteCount != selection.getTestsToRun().size()) {
             throw new IllegalStateException("distributed run '" + config.getRunId()
@@ -326,13 +336,16 @@ public final class DistributedRunPlanner {
      * @param branch the VCS branch the run is planned against
      * @param commitValue the VCS commit the run is planned against
      * @param createdAtMs the UTC epoch millis to record as the plan's creation time
+     * @param drainResult the library-impact drain the selection already performed, carried onto the
+     *                    run row so it survives this process exiting, or null if nothing was drained
      * @return the validated plan, ready to persist
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
-                                            long createdAtMs) {
+                                            long createdAtMs, LibraryImpactDrainResult drainResult) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
-                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs);
+                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs,
+                drainResult);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();

@@ -4,6 +4,7 @@ package org.tiatesting.core.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
@@ -23,6 +24,7 @@ import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
+import java.io.IOException;
 import java.sql.*;
 import java.util.*;
 
@@ -1480,8 +1482,8 @@ public class JdbcDataStore implements DataStore {
         String runSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN + " ("
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
-                + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
@@ -1520,6 +1522,7 @@ public class JdbcDataStore implements DataStore {
                     statement.setLong(8, run.getCreatedAtMs());
                     statement.setString(9, run.getSealedBy());
                     setNullableLong(statement, 10, run.getSealedAtMs());
+                    setDrainResult(statement, 11, run.getDrainResult());
                     statement.executeUpdate();
                 }
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
@@ -1588,6 +1591,76 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Bind the run's library-impact drain result as a binary parameter, serialized with the same
+     * {@link LibraryImpactDrainResultSerializer} encoding the Maven plugin-to-fork handoff file
+     * uses, so the drain a plan already performed is stored exactly once and in one form. A run
+     * that drained nothing binds SQL NULL rather than a serialized empty object, so the read side
+     * can treat null as "nothing to clean up".
+     *
+     * @param statement the statement to bind on
+     * @param index the one-based parameter index
+     * @param drainResult the drain result to store, or null if nothing was drained
+     * @throws SQLException if binding fails
+     * @throws IOException if the drain result cannot be serialized - deliberately not swallowed,
+     *                     since the drain cannot be repeated and storing nothing would lose its
+     *                     cleanup permanently
+     */
+    private static void setDrainResult(PreparedStatement statement, int index,
+                                       LibraryImpactDrainResult drainResult)
+            throws SQLException, IOException {
+        if (drainResult == null) {
+            statement.setNull(index, Types.VARBINARY);
+        } else {
+            statement.setBytes(index, LibraryImpactDrainResultSerializer.toBytes(drainResult));
+        }
+    }
+
+    /**
+     * Read the library-impact drain result stored on a run row, deserializing the binary column
+     * written by {@link #setDrainResult}.
+     *
+     * @param resultSet the result set positioned on the run row
+     * @return the stored drain result, or null if the column was SQL NULL
+     * @throws SQLException if the column cannot be read
+     * @throws TiaPersistenceException if the stored bytes cannot be deserialized, since a caller
+     *                                 silently given no drain result would skip cleanup that
+     *                                 nothing else can reconstruct
+     */
+    private static LibraryImpactDrainResult getDrainResult(ResultSet resultSet) throws SQLException {
+        byte[] bytes = resultSet.getBytes(COL_DRAIN_RESULT);
+        try {
+            return LibraryImpactDrainResultSerializer.fromBytes(bytes);
+        } catch (IOException | ClassNotFoundException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * Build a {@link DistributedRun} from the current row of a {@code SELECT *} against
+     * {@code tia_distributed_run}. Shared by {@link #readDistributedRun} and
+     * {@link #readAllDistributedRuns} so the two cannot drift apart on how a run row maps - in
+     * particular so both carry the stored drain result rather than only the by-id read.
+     *
+     * @param resultSet the result set, positioned on a run row
+     * @return the run the row describes
+     * @throws SQLException if any column cannot be read
+     */
+    private static DistributedRun mapRunRow(ResultSet resultSet) throws SQLException {
+        return new DistributedRun(
+                resultSet.getString(COL_RUN_ID),
+                resultSet.getString(COL_BRANCH),
+                resultSet.getString(COL_COMMIT_VALUE),
+                DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
+                resultSet.getInt(COL_GROUP_COUNT),
+                getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
+                resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
+                resultSet.getLong(COL_CREATED_AT),
+                resultSet.getString(COL_SEALED_BY),
+                getNullableLong(resultSet, COL_SEALED_AT),
+                getDrainResult(resultSet));
+    }
+
+    /**
      * Read a nullable long column, distinguishing SQL NULL from zero via
      * {@link ResultSet#wasNull()}.
      *
@@ -1622,17 +1695,7 @@ public class JdbcDataStore implements DataStore {
                     if (!resultSet.next()) {
                         return null;
                     }
-                    return new DistributedRun(
-                            resultSet.getString(COL_RUN_ID),
-                            resultSet.getString(COL_BRANCH),
-                            resultSet.getString(COL_COMMIT_VALUE),
-                            DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
-                            resultSet.getInt(COL_GROUP_COUNT),
-                            getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
-                            resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
-                            resultSet.getLong(COL_CREATED_AT),
-                            resultSet.getString(COL_SEALED_BY),
-                            getNullableLong(resultSet, COL_SEALED_AT));
+                    return mapRunRow(resultSet);
                 }
             }
         } catch (SQLException e) {
@@ -1723,17 +1786,7 @@ public class JdbcDataStore implements DataStore {
             try (PreparedStatement statement = connection.prepareStatement(sql);
                  ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    runs.add(new DistributedRun(
-                            resultSet.getString(COL_RUN_ID),
-                            resultSet.getString(COL_BRANCH),
-                            resultSet.getString(COL_COMMIT_VALUE),
-                            DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
-                            resultSet.getInt(COL_GROUP_COUNT),
-                            getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
-                            resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
-                            resultSet.getLong(COL_CREATED_AT),
-                            resultSet.getString(COL_SEALED_BY),
-                            getNullableLong(resultSet, COL_SEALED_AT)));
+                    runs.add(mapRunRow(resultSet));
                 }
             }
         } catch (SQLException e) {
