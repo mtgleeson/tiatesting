@@ -93,8 +93,8 @@ class DistributedRunCoordinatorTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), null,
-                1000L * groups.size(), 5000L, null);
-        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup));
+                1000L * groups.size(), 5000L);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
     /**

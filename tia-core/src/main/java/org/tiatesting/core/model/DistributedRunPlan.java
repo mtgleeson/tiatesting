@@ -1,5 +1,7 @@
 package org.tiatesting.core.model;
 
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,6 +28,7 @@ public final class DistributedRunPlan {
     private final DistributedRun run;
     private final List<DistributedRunGroup> groups;
     private final Map<Integer, List<String>> suitesByGroup;
+    private final LibraryImpactDrainResult drainResult;
 
     /**
      * Bundle a run with its groups and suite assignment, validating that the three agree.
@@ -35,12 +38,15 @@ public final class DistributedRunPlan {
      * @param suitesByGroup suite names keyed by group number; every group must have an entry,
      *                      possibly empty, and no suite may appear under two groups; every key
      *                      must correspond to a declared group
+     * @param drainResult the library-impact drain the plan's own test selection already performed,
+     *                    stored so the sealer can apply its cleanup; null if nothing was drained
      * @throws IllegalArgumentException if the group count, group list and suite map disagree, if
      *         any declared group has no suite entry, if any suite is assigned to more than one
      *         group, or if {@code suitesByGroup} has an entry for a group that was not declared
      */
     public DistributedRunPlan(DistributedRun run, List<DistributedRunGroup> groups,
-                              Map<Integer, List<String>> suitesByGroup) {
+                              Map<Integer, List<String>> suitesByGroup,
+                              LibraryImpactDrainResult drainResult) {
         if (run.getGroupCount() != groups.size()) {
             throw new IllegalArgumentException("run groupCount " + run.getGroupCount()
                     + " does not match the number of groups supplied (" + groups.size() + ")");
@@ -72,7 +78,27 @@ public final class DistributedRunPlan {
         this.run = run;
         this.groups = Collections.unmodifiableList(new ArrayList<>(groups));
         this.suitesByGroup = Collections.unmodifiableMap(copiedSuites);
+        this.drainResult = drainResult;
     }
+
+    /**
+     * The library-impact drain the plan's own test selection performed before the plan was written.
+     * That drain deleted pending stamp rows and advanced publish sequences, and it cannot be run a
+     * second time - running it per-runner would race - so this is the only record of the cleanup
+     * the run still owes. See the drain-rule section of the library publish-time stamping chapter
+     * in {@code WIKI.md}.
+     *
+     * <p>It lives on the write bundle rather than on {@link DistributedRun} deliberately. Only the
+     * sealer consumes it, whereas every runner in the build reads the run row to claim a group, and
+     * the drain result is a Java-serialized blob. Carrying it on the run row would make every one of
+     * those claims deserialize it, so a blob the runners never look at - one written by a planner on
+     * a different Tia version, say - would fail the whole build at claim time instead of only the
+     * cleanup that actually needs it. Readers that want it ask
+     * {@code DataStore.readDistributedRunDrainResult} for it by name.
+     *
+     * @return the drain the plan performed, or null if it drained nothing
+     */
+    public LibraryImpactDrainResult getDrainResult() { return drainResult; }
 
     /** @return the run this plan describes */
     public DistributedRun getRun() { return run; }

@@ -1522,7 +1522,7 @@ public class JdbcDataStore implements DataStore {
                     statement.setLong(8, run.getCreatedAtMs());
                     statement.setString(9, run.getSealedBy());
                     setNullableLong(statement, 10, run.getSealedAtMs());
-                    setDrainResult(statement, 11, run.getDrainResult());
+                    setDrainResult(statement, 11, plan.getDrainResult());
                     statement.executeUpdate();
                 }
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
@@ -1638,8 +1638,13 @@ public class JdbcDataStore implements DataStore {
     /**
      * Build a {@link DistributedRun} from the current row of a {@code SELECT *} against
      * {@code tia_distributed_run}. Shared by {@link #readDistributedRun} and
-     * {@link #readAllDistributedRuns} so the two cannot drift apart on how a run row maps - in
-     * particular so both carry the stored drain result rather than only the by-id read.
+     * {@link #readAllDistributedRuns} so the two cannot drift apart on how a run row maps.
+     *
+     * <p>Deliberately does not decode the {@code drain_result} blob. Every runner in the build
+     * reads a run row to claim its group, and only the sealer consumes the drain result, so
+     * decoding it here would make a blob the runners never look at - one written by a planner on a
+     * different Tia version, say - fail every claim in the build. {@link
+     * #readDistributedRunDrainResult} decodes it for the one caller that wants it.
      *
      * @param resultSet the result set, positioned on a run row
      * @return the run the row describes
@@ -1656,8 +1661,7 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
                 resultSet.getLong(COL_CREATED_AT),
                 resultSet.getString(COL_SEALED_BY),
-                getNullableLong(resultSet, COL_SEALED_AT),
-                getDrainResult(resultSet));
+                getNullableLong(resultSet, COL_SEALED_AT));
     }
 
     /**
@@ -1684,6 +1688,38 @@ public class JdbcDataStore implements DataStore {
      * @param runId the run identifier
      * @return the run, or null if no run is planned under that id
      */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reads and decodes the {@code drain_result} blob on its own rather than as part of
+     * {@link #readDistributedRun}, so that the Java deserialization it performs is paid, and can
+     * fail, only for the sealer that actually applies the cleanup - never for the runners that
+     * merely read the run row to claim a group.
+     *
+     * @param runId the run identifier
+     * @return the drain result stored with the plan, or null if the run drained nothing or no run
+     *         is planned under that id
+     */
+    @Override
+    public LibraryImpactDrainResult readDistributedRunDrainResult(final String runId) {
+        String sql = "SELECT " + COL_DRAIN_RESULT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
+                + " WHERE " + COL_RUN_ID + " = ?";
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (!resultSet.next()) {
+                        return null;
+                    }
+                    return getDrainResult(resultSet);
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
     @Override
     public DistributedRun readDistributedRun(final String runId) {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " WHERE " + COL_RUN_ID + " = ?";
