@@ -108,6 +108,35 @@ public final class DistributedRunConfig {
     }
 
     /**
+     * Validate and build the config a <em>runner</em> needs, which is only the run id it claims
+     * from and the identity it claims under.
+     *
+     * <p>Deliberately does not ask for the grouping properties {@link #validated} requires. How the
+     * build was split is decided once, by {@code tia-dist-plan}, and is already recorded in the
+     * plan the runner is about to claim from; a runner neither reads those values nor could act on
+     * them. Requiring them here would do two unhelpful things: force every runner job to repeat
+     * configuration that only the planning job uses, and accept a value that disagrees with the one
+     * the plan was actually built with while silently ignoring it. See the "Group assignment"
+     * chapter in {@code WIKI.md}.
+     *
+     * @param runId the distributed run's shared identifier ({@code tiaRunId}); must not be null or
+     *              blank, since it is what locates the plan this runner claims from
+     * @param runnerKey an optional stable per-runner identity ({@code tiaDistributedRunnerKey});
+     *                  when null the coordinator derives one, at the cost of a retried CI job no
+     *                  longer re-claiming the group its first attempt held
+     * @return a validated, immutable config carrying no grouping shape, with {@code runId} and (if
+     *         supplied) {@code runnerKey} trimmed of leading and trailing whitespace
+     * @throws IllegalArgumentException if {@code runId} is null or blank
+     */
+    public static DistributedRunConfig forRunner(String runId, String runnerKey) {
+        if (runId == null || runId.trim().isEmpty()) {
+            throw new IllegalArgumentException("tiaRunId must be set");
+        }
+        return new DistributedRunConfig(runId.trim(), null, null, null,
+                runnerKey == null ? null : runnerKey.trim());
+    }
+
+    /**
      * Validate the grouping-shape rules shared by {@link #validated} and {@link
      * DistributedRunPlanner#balance}: exactly one of {@code groupCount} or {@code targetRunTimeMs}
      * must be set, a set {@code groupCount} must be at least 1, a set {@code targetRunTimeMs} must

@@ -216,9 +216,11 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         try {
             DistributedRunPreconditions.check(isTiaEnabled(), getTiaDBUrl(), getTiaDBDialect(),
                     isTiaCheckLocalChanges());
-            return DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
-                    getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
-                    getTiaDistributedRunnerKey());
+            // forRunner, not validated: how the build was split is the planner's decision and is
+            // already recorded in the plan being claimed from. Requiring the grouping properties
+            // here would make every runner job repeat configuration only the planning job uses, and
+            // would accept a value disagreeing with the plan's while silently ignoring it.
+            return DistributedRunConfig.forRunner(getTiaRunId(), getTiaDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new MojoExecutionException("Distributed run configuration is invalid: "
                     + e.getMessage(), e);
