@@ -333,6 +333,28 @@ class DistributedRunCoordinatorTest {
     }
 
     /**
+     * Verify a null group number - the surplus runner that claimed nothing - ignores every planned
+     * and every tracked suite, subtracting nothing. The surplus case is not a special rule but the
+     * general one with an empty set of owned suites, and it is deliberately spelled as an explicit
+     * null so that an unknown group number stays an error rather than silently meaning "run
+     * nothing".
+     */
+    @Test
+    void shouldIgnoreEverySuiteWhenNoGroupWasClaimed() {
+        // given
+        persistPlan("run-noclaim", "commit-1", twoGroupAssignment());
+        DistributedRunCoordinator coordinator = coordinator("run-noclaim", "runner-a");
+        Set<String> tracked = new HashSet<>(Arrays.asList("com.example.ATest", "com.example.DTest"));
+
+        // when
+        Set<String> ignored = coordinator.deriveTestsToIgnore(null, tracked);
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest",
+                "com.example.CTest", "com.example.DTest")), ignored);
+    }
+
+    /**
      * Verify deriving an ignore list for a run that has no run row throws rather than returning a
      * list. The same straggler that must not claim quietly must not silently derive an ignore list
      * either - with no plan to read, the union would be empty and the runner would run everything
