@@ -99,7 +99,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
 
         // when
         service.persistTestRunData(false, false, true, "new-commit", "main",
-                System.currentTimeMillis(), result);
+                System.currentTimeMillis(), result, null);
 
         // then - neither persistTestSuites nor persistTestSuiteStatsOnly was invoked
         assertEquals(0, spy.persistTestSuitesCallCount,
@@ -120,7 +120,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
 
         // when - stats on, mapping off
         service.persistTestRunData(false, true, false, "new-commit", "main",
-                System.currentTimeMillis(), result);
+                System.currentTimeMillis(), result, null);
 
         // then - stats-only path was used, full path was not
         assertEquals(1, spy.persistTestSuiteStatsOnlyCallCount,
@@ -140,7 +140,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
 
         // when - mapping on (stats can be either; here also on)
         service.persistTestRunData(true, true, false, "new-commit", "main",
-                System.currentTimeMillis(), result);
+                System.currentTimeMillis(), result, null);
 
         // then - full path was used, stats-only was not
         assertEquals(1, spy.persistTestSuitesCallCount,
