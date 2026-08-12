@@ -134,7 +134,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
 
         // when
-        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, 9000L);
+        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         assertTrue(sealed, "the last runner to finish must win the election and seal");
@@ -165,7 +165,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -192,7 +192,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -216,7 +216,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "release-1", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "release-1", true, false, false, 9000L);
 
         // then
         TiaData reloaded = dataStore.getTiaCore();
@@ -249,7 +249,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty(),
@@ -276,7 +276,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         assertTrue(dataStore.readStagedMethodTrackers(RUN_ID).isEmpty(),
@@ -296,7 +296,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         DistributedRun run = dataStore.readDistributedRun(RUN_ID);
@@ -322,7 +322,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner cannot seal while another group is still running");
@@ -345,11 +345,11 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
         persistPlan(RUN_ID, 2, null);
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
-        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, 9000L));
+        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, false, false, 9000L));
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("other-commit", "other-branch", true, 9500L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("other-commit", "other-branch", true, false, false, 9500L);
 
         // then
         assertFalse(sealed, "exactly one runner may seal a run");
@@ -377,7 +377,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner whose run no longer exists must not seal");
@@ -401,7 +401,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", false, false, false, 9000L);
 
         // then
         assertTrue(sealed, "the elected runner still finishes the run");

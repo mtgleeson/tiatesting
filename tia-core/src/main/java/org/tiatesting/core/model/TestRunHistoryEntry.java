@@ -122,6 +122,50 @@ public final class TestRunHistoryEntry implements Serializable {
     }
 
     /**
+     * Factory for the one row a distributed build writes, produced by the runner that sealed it
+     * rather than by each runner. The duration is the serial-equivalent time - the sum of every
+     * group's test time - so it means the same thing as a single-host row's duration and savings
+     * computed from it stay comparable; the wall clock the build actually took is carried
+     * separately. See the "Stats and history" material in the distributed test runs chapter of
+     * {@code WIKI.md}.
+     *
+     * @param branch            VCS branch the build targeted
+     * @param commit            VCS commit / changelist the build ran against
+     * @param runId             the distributed run this row summarises
+     * @param runTimestampMs    UTC epoch millis when the build's run was planned, shared by every
+     *                          runner in it
+     * @param numSuitesRan      number of suites the build executed across every group
+     * @param numSuitesIgnored  number of tracked suites the build did not run, which is Tia's
+     *                          selection decision for the build as a whole
+     * @param numSuitesFailed   number of suites with at least one failed test across every group
+     * @param serialDurationMs  the serial-equivalent test-execution time (ms): the sum of every
+     *                          group's time
+     * @param updatedDbMapping  whether the build persisted updates to the Tia mapping DB
+     * @param timeSavingsMs     time Tia saved this build versus running the full suite (ms),
+     *                          measured against the serial-equivalent duration
+     * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
+     * @param wallClockMs       the build's wall-clock test time (ms): its slowest group
+     * @param groupCount        the number of groups the build was split across
+     * @return a new entry carrying the build-level figures and the three distributed fields
+     */
+    public static TestRunHistoryEntry createForDistributedRun(String branch, String commit,
+                                                              String runId, long runTimestampMs,
+                                                              int numSuitesRan, int numSuitesIgnored,
+                                                              int numSuitesFailed,
+                                                              long serialDurationMs,
+                                                              boolean updatedDbMapping,
+                                                              long timeSavingsMs, int savingsPercent,
+                                                              long wallClockMs, int groupCount) {
+        // The run id joins the seed so two builds planned in the same millisecond against the same
+        // branch and commit - a CI system replanning a retried build - cannot collide onto one row.
+        String id = uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs
+                + "|" + nullSafe(runId));
+        return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
+                numSuitesIgnored, numSuitesFailed, serialDurationMs, updatedDbMapping, timeSavingsMs,
+                savingsPercent, runId, Long.valueOf(wallClockMs), Integer.valueOf(groupCount));
+    }
+
+    /**
      * Compute the deterministic id for a {@code (branch, commit, runTimestampMs)} triple.
      * Exposed package-private for unit tests; otherwise reach it via {@link #create}.
      *
@@ -131,10 +175,29 @@ public final class TestRunHistoryEntry implements Serializable {
      * @return a UUID v3 (MD5-based) string derived from the triple
      */
     static String deriveId(String branch, String commit, long runTimestampMs) {
-        String seed = (branch == null ? "" : branch) + "|"
-                + (commit == null ? "" : commit) + "|"
-                + runTimestampMs;
+        return uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs);
+    }
+
+    /**
+     * Hash a seed string into the UUID v3 (MD5-based) form the entry ids use, so every id in the
+     * table is produced the same way whichever factory built the row.
+     *
+     * @param seed the seed string to hash
+     * @return the derived UUID as a string
+     */
+    private static String uuidFrom(String seed) {
         return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /**
+     * Coalesce a null seed component to the empty string, so a null branch or commit hashes
+     * consistently rather than as the literal {@code "null"}.
+     *
+     * @param value the possibly-null seed component
+     * @return {@code value}, or {@code ""} when it is null
+     */
+    private static String nullSafe(String value) {
+        return value == null ? "" : value;
     }
 
     /** @return the deterministic entry id (UUID v3 derived from branch|commit|timestamp) */
