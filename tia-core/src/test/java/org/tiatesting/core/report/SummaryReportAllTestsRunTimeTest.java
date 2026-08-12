@@ -48,8 +48,10 @@ class SummaryReportAllTestsRunTimeTest {
      */
     private static List<TestRunHistoryEntry> history() {
         return Arrays.asList(
-                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 180_000L, 99),
-                new TestRunHistoryEntry("2", 0L, "main", "c2", 5, 0, 0, ALL_TESTS_RUN_TIME, false, 0L, 0));
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 180_000L, 99,
+                        null, null, null),
+                new TestRunHistoryEntry("2", 0L, "main", "c2", 5, 0, 0, ALL_TESTS_RUN_TIME, false, 0L, 0,
+                        null, null, null));
     }
 
     /**
@@ -140,7 +142,8 @@ class SummaryReportAllTestsRunTimeTest {
         tiaData.getTestStats().setAllTestsRunTime(0L);
         tiaData.getTestStats().setNumAllTestsRuns(0L);
         tiaData.setTestRunHistory(Collections.singletonList(
-                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 0L, 0)));
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 0L, 0,
+                        null, null, null)));
         TextSummaryReport report = new TextSummaryReport("txt", tempDir);
 
         // when

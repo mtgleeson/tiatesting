@@ -440,6 +440,73 @@ public interface DataStore extends AutoCloseable {
     DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey, final long claimedAtMs);
 
     /**
+     * Record that a runner finished its group, recording the measured duration and suite counters
+     * the sealer later aggregates into the build's single history row. Conditional on the group
+     * still being {@code CLAIMED} <strong>by this runner key</strong>, and this condition is not a
+     * defensive nicety - it is the straggler protection.
+     *
+     * <p>A {@code null} return means the claim is no longer live: the runner's run was superseded
+     * and its plan tables cleared by a newer build's plan write, or another runner holds the group,
+     * or the group was already completed. The caller <strong>must</strong> treat that as "write
+     * nothing": a runner from a superseded build that persisted its suites anyway would leave
+     * mapping rows from an old commit under the commit a newer build already sealed. See the
+     * "Straggler protection" material in the distributed test runs chapter of {@code WIKI.md}.
+     *
+     * <p>Callers must make this the last write of the runner's persist. Completing a group is what
+     * releases the barrier in {@link #electSealer}, so a group marked complete before its suite
+     * mapping rows are written would let the sealer rebuild the method catalogue from an edge set
+     * that is still missing them - silent under-selection on the next build.
+     *
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @param runnerKey the calling runner's stable identity; must match the key that claimed the
+     *                  group or nothing is written
+     * @param completedAtMs UTC epoch millis to record as the completion time
+     * @param actualDurationMs measured test-execution time of this group, in ms
+     * @param suitesRan number of suites the runner executed
+     * @param suitesFailed number of this group's suites with at least one failed test
+     * @return the updated group, or {@code null} when this runner's claim is no longer live
+     */
+    DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
+                                      final long completedAtMs, final long actualDurationMs,
+                                      final int suitesRan, final int suitesFailed);
+
+    /**
+     * The barrier: atomically elect the calling runner as the run's one and only sealer, but only
+     * once every group of the run has reached {@code COMPLETED} and no other runner has already
+     * been elected. Exactly one caller can ever see {@code true} for a given run.
+     *
+     * <p>The all-groups-complete condition is what makes the sealer's catalogue rebuild correct.
+     * The rebuild takes the distinct method ids off the suite-to-method edge table wholesale and
+     * any id that query omits is dropped, while each runner writes only its own suites' edges - so
+     * running it while a group is still going drops the methods reachable only from that group's
+     * suites, making them invisible to the next build's diff.
+     *
+     * <p><strong>A {@code false} return means do nothing at all, and the caller must not read
+     * anything first to "check why".</strong> {@code false} covers both "another runner won" and
+     * "my run no longer exists", and the row count is the only thing that distinguishes winning
+     * from having been superseded. A straggler sealer from a superseded run that proceeded anyway
+     * would find the staging table empty (the superseding plan write cleared it), resolve every
+     * method id from disk instead, and silently drop from the catalogue every id the disk catalogue
+     * lacks - the exact under-selection the staging table exists to prevent.
+     *
+     * @param runId the distributed run to elect a sealer for
+     * @param runnerKey the calling runner's stable identity, recorded as the sealer when it wins
+     * @param sealedAtMs UTC epoch millis to record as the election time
+     * @return {@code true} when this runner won the election and must perform the seal,
+     *         {@code false} when it must do nothing
+     */
+    boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs);
+
+    /**
+     * Move a distributed run to {@code SEALED}, its terminal state, once its elected sealer has
+     * written the catalogue and the commit value. Marking an unknown run is a no-op.
+     *
+     * @param runId the distributed run to mark sealed
+     */
+    void markDistributedRunSealed(final String runId);
+
+    /**
      * Stage the method trackers one runner observed, so the sealer can rebuild the method
      * catalogue after the barrier from the union of every runner's observations. In a distributed
      * run no single process holds the whole run's trackers, which is what this table replaces.

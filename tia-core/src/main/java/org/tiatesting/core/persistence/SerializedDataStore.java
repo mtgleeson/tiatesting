@@ -481,6 +481,57 @@ public class SerializedDataStore implements DataStore {
      * file-backed store is not.
      *
      * @param runId ignored
+     * @param groupNumber ignored
+     * @param runnerKey ignored
+     * @param completedAtMs ignored
+     * @param actualDurationMs ignored
+     * @param suitesRan ignored
+     * @param suitesFailed ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public DistributedRunGroup completeGroup(String runId, int groupNumber, String runnerKey,
+                                             long completedAtMs, long actualDurationMs,
+                                             int suitesRan, int suitesFailed) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param runnerKey ignored
+     * @param sealedAtMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public boolean electSealer(String runId, String runnerKey, long sealedAtMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void markDistributedRunSealed(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
      * @param methodsTracked ignored
      * @throws UnsupportedOperationException always
      */

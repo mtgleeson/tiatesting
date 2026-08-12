@@ -21,7 +21,8 @@ class ReportUtilsTest {
      * the rest are filler.
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0);
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0,
+                null, null, null);
     }
 
     /**

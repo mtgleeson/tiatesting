@@ -31,11 +31,20 @@ public final class TestRunHistoryEntry implements Serializable {
     private final boolean updatedDbMapping;
     private final long timeSavingsMs;
     private final int savingsPercent;
+    private final String runId;
+    private final Long wallClockMs;
+    private final Integer groupCount;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
      * stored on disk is round-tripped exactly. New entries should normally be created via
      * {@link #create} which derives the id.
+     *
+     * <p>The last three parameters describe a distributed build and are null for a single-host
+     * run. {@code durationMs} keeps the same meaning in both modes - the serial-equivalent
+     * test-execution time, which for a distributed build is the sum of every group's time - so
+     * savings stay comparable across the two. See the "Stats and history" material in the
+     * distributed test runs chapter of {@code WIKI.md}.
      *
      * @param id deterministic entry id
      * @param runTimestampMs UTC epoch millis when the run started
@@ -55,11 +64,17 @@ public final class TestRunHistoryEntry implements Serializable {
      *                      all-tests runs or when no baseline existed
      * @param savingsPercent {@code timeSavingsMs} as a percentage of the full-suite baseline; {@code 0}
      *                       for all-tests runs or when no baseline existed
+     * @param runId the distributed run this row summarises, or null for a single-host run
+     * @param wallClockMs the distributed build's wall-clock test time - the slowest group's
+     *                    duration - or null for a single-host run
+     * @param groupCount the number of groups the distributed build was split across, or null for a
+     *                   single-host run
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
                                long durationMs, boolean updatedDbMapping,
-                               long timeSavingsMs, int savingsPercent) {
+                               long timeSavingsMs, int savingsPercent,
+                               String runId, Long wallClockMs, Integer groupCount) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -71,11 +86,16 @@ public final class TestRunHistoryEntry implements Serializable {
         this.updatedDbMapping = updatedDbMapping;
         this.timeSavingsMs = timeSavingsMs;
         this.savingsPercent = savingsPercent;
+        this.runId = runId;
+        this.wallClockMs = wallClockMs;
+        this.groupCount = groupCount;
     }
 
     /**
-     * Factory that derives the entry's id from {@code branch|commit|runTimestampMs} so two
-     * persists of the same logical run produce the same row.
+     * Factory for a single-host run that derives the entry's id from
+     * {@code branch|commit|runTimestampMs} so two persists of the same logical run produce the same
+     * row. Leaves the three distributed fields null, which is what makes a non-distributed history
+     * row indistinguishable from one written before distributed runs existed.
      *
      * @param branch            VCS branch the run targeted
      * @param commit            VCS HEAD commit / changelist the run targeted
@@ -88,7 +108,7 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
      * @param timeSavingsMs     time Tia saved this run versus running the full suite (ms)
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
-     * @return a new entry with a deterministic id
+     * @return a new entry with a deterministic id and no distributed-run fields
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
                                              int numSuitesRan, int numSuitesIgnored,
@@ -98,7 +118,7 @@ public final class TestRunHistoryEntry implements Serializable {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent);
+                savingsPercent, null, null, null);
     }
 
     /**
@@ -158,6 +178,20 @@ public final class TestRunHistoryEntry implements Serializable {
 
     /** @return {@link #getTimeSavingsMs()} as a percentage of the full-suite baseline; {@code 0} when none */
     public int getSavingsPercent() { return savingsPercent; }
+
+    /** @return the distributed run this row summarises, or null when the run was single-host */
+    public String getRunId() { return runId; }
+
+    /**
+     * @return the distributed build's wall-clock test time in ms (the slowest group's duration),
+     *         or null when the run was single-host. Deliberately not the primary duration:
+     *         reporting it as such would conflate Tia's selection savings with the parallelism the
+     *         CI system provided
+     */
+    public Long getWallClockMs() { return wallClockMs; }
+
+    /** @return the number of groups the distributed build was split across, or null when single-host */
+    public Integer getGroupCount() { return groupCount; }
 
     @Override
     public boolean equals(Object o) {
