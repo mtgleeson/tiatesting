@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.distributed.DistributedForkProperties;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -68,7 +70,28 @@ public class TiaJunit4Listener extends RunListener {
     private final String branch;
     private long testRunStartTime;
     private final TestStats testRunStats = new TestStats();
+    /*
+    The distributed run this JVM is one runner of, or null for an ordinary single-host build.
+    Resolved once here from the properties the build plugin forwarded through the fork properties
+    file; JUnit4 reuses this listener instance across Surefire retries, so every attempt persists
+    under the same run, runner identity and group the claim recorded.
+     */
+    private final DistributedRunnerContext distributedRunnerContext;
 
+    /**
+     * Build the listener for this test JVM: read the update flags and the selected/ignored suite
+     * lists the agent published, open the datastore, and resolve whether this JVM is one runner of
+     * a distributed build.
+     *
+     * <p>The distributed context is resolved here rather than at persist time because it is what
+     * decides which persist flow runs. Resolving it to null when the build really is distributed
+     * would put this runner on the single-host path, where it rebuilds the method catalogue from
+     * an edge set holding only its own group's suites and stamps the commit - dropping every method
+     * only the other groups reach, and silently under-selecting on the next build.
+     *
+     * @param vcsReader the VCS reader for the workspace under test; supplies the branch and head
+     *                  commit, and is closed here
+     */
     public TiaJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
@@ -90,6 +113,9 @@ public class TiaJunit4Listener extends RunListener {
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
+        // Null for every ordinary build, whose persist is therefore exactly the one it always took.
+        this.distributedRunnerContext = enabled
+                ? DistributedForkProperties.contextFromSystemProperties() : null;
         vcsReader.close();
         setSelectedTests();
         setIgnoredTestSuiteCount();
@@ -316,10 +342,12 @@ public class TiaJunit4Listener extends RunListener {
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
                 suitesFinishedThisAttempt.size());
-        // No distributed runner context: this listener persists as a single host, so the persist
-        // takes the ordinary flow - suite mapping, failed set, seal and history row.
+        // Null context on an ordinary build, which persists as a single host - suite mapping,
+        // failed set, seal and history row. A distributed runner instead persists only its own
+        // share and completes its group, and seals the build only if it turns out to be the last
+        // runner to finish.
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
-                headCommit, branch, testRunStartTime, testRunResult, null);
+                headCommit, branch, testRunStartTime, testRunResult, distributedRunnerContext);
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.

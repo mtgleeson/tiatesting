@@ -8,7 +8,10 @@ import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.distributed.DistributedForkProperties;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -412,6 +415,116 @@ class AbstractTiaAgentMojoDistributedTest {
         assertNull(forkProperties.getProperty("tiaDistributedRunnerKey"));
         assertNull(forkProperties.getProperty("tiaDistributedGroupNumber"));
         assertEquals("true", forkProperties.getProperty("tiaEnabled"));
+    }
+
+    /**
+     * Verify the fork properties this goal writes are enough for the forked test JVM to resolve the
+     * distributed runner context its persist runs under - the same values, through the same file,
+     * that the Tia agent republishes as system properties before any listener constructs.
+     *
+     * <p>Asserted end to end rather than property by property because the failure it guards against
+     * is silent: a fork that resolved no context would persist as a single host, rebuild the method
+     * catalogue from an edge set holding only its own group's suites, and stamp the commit while the
+     * other runners were still going.
+     *
+     * @throws Exception if the goal fails or the properties file cannot be read
+     */
+    @Test
+    void shouldHandTheForkedJvmEnoughToResolveItsDistributedRunnerContext() throws Exception {
+        // given
+        persistPlan("run-8", PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = runnerWithKey("run-8", "runner-a");
+        mojo.execute();
+
+        // when - the agent's premain publishes the file, and the listener resolves its context
+        DistributedRunnerContext context = resolveContextInAFork();
+
+        // then
+        assertNotNull(context, "a distributed fork must resolve a context, never fall through to "
+                + "the single-host path");
+        assertTrue(context.isClaimed());
+        assertEquals("run-8", context.getRunId());
+        assertEquals("runner-a", context.getRunnerKey());
+        assertEquals(Integer.valueOf(0), context.getGroupNumber());
+    }
+
+    /**
+     * Verify a surplus runner's fork resolves a context holding no group rather than no context.
+     * A null there would put it on the single-host path, where it would seal a build whose other
+     * runners are still running.
+     *
+     * @throws Exception if the goal fails or the properties file cannot be read
+     */
+    @Test
+    void shouldLeaveASurplusRunnersForkWithAGrouplessContext() throws Exception {
+        // given - every group already claimed by other runners
+        persistPlan("run-9", PLAN_COMMIT, twoGroupAssignment());
+        runnerWithKey("run-9", "runner-a").execute();
+        runnerWithKey("run-9", "runner-b").execute();
+        runnerWithKey("run-9", "runner-c").execute();
+
+        // when
+        DistributedRunnerContext context = resolveContextInAFork();
+
+        // then
+        assertNotNull(context, "a surplus runner is still a distributed runner");
+        assertFalse(context.isClaimed(), "a surplus runner holds no group");
+        assertEquals("runner-c", context.getRunnerKey());
+    }
+
+    /**
+     * Verify an ordinary build's fork resolves no context at all, so its persist takes exactly the
+     * single-host flow it always took.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldLeaveANonDistributedForkWithNoRunnerContext() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-10", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+        mojo.writeForkPropertiesFile(null);
+
+        // when
+        DistributedRunnerContext context = resolveContextInAFork();
+
+        // then
+        assertNull(context, "an ordinary build's fork must stay on the single-host persist");
+    }
+
+    /**
+     * Replay what the forked test JVM does with the file this goal wrote: the Tia agent publishes
+     * its entries as system properties at {@code premain} time, then the Tia test listener resolves
+     * the distributed runner context from them. The four managed properties are cleared first
+     * because the agent's publish deliberately does not override an already-set value, and this
+     * test JVM is long-lived.
+     *
+     * @return the context the forked JVM's listener would persist under, or null when the build is
+     *         not distributed
+     * @throws IOException if the fork properties file cannot be read
+     */
+    private DistributedRunnerContext resolveContextInAFork() throws IOException {
+        String[] managed = {DistributedForkProperties.PROP_DISTRIBUTED,
+                DistributedForkProperties.PROP_RUN_ID, DistributedForkProperties.PROP_RUNNER_KEY,
+                DistributedForkProperties.PROP_GROUP_NUMBER};
+        Map<String, String> saved = new LinkedHashMap<>();
+        for (String key : managed) {
+            saved.put(key, System.getProperty(key));
+            System.clearProperty(key);
+        }
+        try {
+            ForkSystemProperties.applyToSystemProperties(
+                    buildDir.toPath().resolve("fork.properties").toString());
+            return DistributedForkProperties.contextFromSystemProperties();
+        } finally {
+            for (Map.Entry<String, String> entry : saved.entrySet()) {
+                if (entry.getValue() == null) {
+                    System.clearProperty(entry.getKey());
+                } else {
+                    System.setProperty(entry.getKey(), entry.getValue());
+                }
+            }
+        }
     }
 
     /**

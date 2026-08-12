@@ -1,5 +1,6 @@
 package org.tiatesting.spock.distributed;
 
+import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 
@@ -29,14 +30,19 @@ import java.util.Map;
  */
 public final class DistributedRunSystemProperties {
 
-    /** System property carrying the distributed-run master switch. */
-    public static final String PROP_DISTRIBUTED = "tiaDistributed";
+    /**
+     * System property carrying the distributed-run master switch. Taken from
+     * {@link DistributedForkProperties} rather than spelled out again: Maven forwards the same
+     * three values to its forked test JVM, and a Gradle build that named one of them differently
+     * would leave a runner silently taking the single-host path.
+     */
+    public static final String PROP_DISTRIBUTED = DistributedForkProperties.PROP_DISTRIBUTED;
 
     /** System property carrying the shared identifier of the run to claim from. */
-    public static final String PROP_RUN_ID = "tiaRunId";
+    public static final String PROP_RUN_ID = DistributedForkProperties.PROP_RUN_ID;
 
     /** System property carrying this runner's identity, absent to let the claim derive one. */
-    public static final String PROP_RUNNER_KEY = "tiaDistributedRunnerKey";
+    public static final String PROP_RUNNER_KEY = DistributedForkProperties.PROP_RUNNER_KEY;
 
     private DistributedRunSystemProperties() {
     }
