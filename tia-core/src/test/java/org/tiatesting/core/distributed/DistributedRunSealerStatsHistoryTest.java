@@ -91,10 +91,12 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * Close the store so embedded H2 releases its file lock, then remove the temp directory.
+     * Drop anything a test recorded for its runner's JVM exit, then close the store so embedded H2
+     * releases its file lock, then remove the temp directory.
      */
     @AfterEach
     void tearDown() {
+        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -176,13 +178,15 @@ class DistributedRunSealerStatsHistoryTest {
         DistributedRunnerContext firstRunner = claim(RUN_ID, RUNNER_A);
         DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
 
-        // when
+        // when - each runner persists and then its JVM exits
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
+        DistributedRunCompletion.completePendingCompletions();
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
+        DistributedRunCompletion.completePendingCompletions();
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();

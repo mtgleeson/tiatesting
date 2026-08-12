@@ -168,6 +168,68 @@ class DistributedRunnerPersistTest {
     }
 
     /**
+     * A rejected completion says which of its causes actually happened. The run being superseded -
+     * a newer build's plan write having cleared these rows - is the case a reader must be able to
+     * tell apart from the others, since it is the only one that is business as usual for a
+     * straggler and not a sign of something wrong with the run.
+     */
+    @Test
+    void aRejectedCompletionReportsThatTheRunWasSuperseded() {
+        // given
+        persistPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        persistPlan("run-2", 1);
+
+        // when
+        String description = persistFor(0).describeRejectedCompletion();
+
+        // then
+        assertTrue(description.contains("superseded"),
+                "a completion rejected because the run's rows are gone must say so, was: " + description);
+    }
+
+    /**
+     * A completion rejected because another runner now holds the group names that runner, so the
+     * log points at the identity that took it rather than leaving a reader to guess.
+     */
+    @Test
+    void aRejectedCompletionNamesTheRunnerThatNowHoldsTheGroup() {
+        // given
+        persistPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, "runner-b", 5000L);
+
+        // when
+        String description = persistFor(0).describeRejectedCompletion();
+
+        // then
+        assertTrue(description.contains("runner-b"),
+                "a completion rejected because another runner holds the group must name it, was: "
+                        + description);
+    }
+
+    /**
+     * A completion rejected because this same runner key already completed the group says exactly
+     * that, rather than reporting a supersession that did not happen. The two look identical from
+     * the guarded write's row count and only the group row tells them apart.
+     */
+    @Test
+    void aRejectedCompletionReportsAGroupThisRunnerAlreadyCompleted() {
+        // given
+        persistPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        assertNotNull(persistFor(0).completeGroup(1000L, 2, 0, 6000L));
+
+        // when
+        String description = persistFor(0).describeRejectedCompletion();
+
+        // then
+        assertTrue(description.contains("already"),
+                "a group this runner already completed must be reported as such, was: " + description);
+        assertFalse(description.contains("superseded"),
+                "a group this runner completed normally was not superseded, was: " + description);
+    }
+
+    /**
      * A surplus runner's context is rejected at construction: it holds no group, so there is
      * nothing for it to verify, stage or complete, and quietly accepting one would mean a caller
      * had asked for writes that cannot be keyed to any group.

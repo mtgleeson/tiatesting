@@ -29,7 +29,9 @@ import java.util.Map;
  *   <li>{@link #completeGroup(long, int, int, long)} is the <b>last</b> write the runner makes,
  *       because completing the group is what releases that barrier. A group marked complete ahead
  *       of its own mapping rows would let the sealer rebuild the catalogue from an edge set still
- *       missing them - silent under-selection on the next build.</li>
+ *       missing them - silent under-selection on the next build. "Last" means last for the whole
+ *       test JVM rather than for one test plan, which is why the completion is made by
+ *       {@link DistributedRunCompletion} at JVM exit and not by the persist that stages.</li>
  * </ol>
  *
  * <p>See the distributed test runs chapter in {@code WIKI.md} for the full lifecycle these three
@@ -127,13 +129,16 @@ public final class DistributedRunnerPersist {
     /**
      * Mark this runner's group complete, recording the measurements the sealer aggregates into the
      * build's single history row. Must be the caller's last write, since it is what releases the
-     * barrier the sealer's catalogue rebuild waits on.
+     * barrier the sealer's catalogue rebuild waits on - which is why it is called once for the test
+     * JVM, from {@link DistributedRunCompletion}, and not once per finished test plan.
      *
      * <p>A null return is the straggler protection firing late: the claim died between
      * {@link #claimIsLive()} and here, so the mapping writes in between went to a run that no
      * longer exists. Nothing further can be done about those rows from here, but the group stays
      * incomplete, so this run can never elect a sealer and can never advance the stored commit -
-     * which is what keeps the superseding build's commit stamp honest.
+     * which is what keeps the superseding build's commit stamp honest. The failure log names which
+     * of the causes it was, read back from the group row by
+     * {@link #describeRejectedCompletion()}.
      *
      * @param actualDurationMs this runner's measured test-execution time, in ms, on the same clock
      *                         a single-host run records its duration on, so the sealer's aggregate
@@ -150,11 +155,11 @@ public final class DistributedRunnerPersist {
                 actualDurationMs, suitesRan, suitesFailed);
 
         if (completed == null) {
-            log.error("Distributed run '{}': runner '{}' could not complete group {} - its claim was "
-                            + "no longer live. The run was superseded while this runner was "
-                            + "persisting, so it will not be sealed under this run id and the stored "
-                            + "commit value stays where the superseding build leaves it.",
-                    context.getRunId(), context.getRunnerKey(), context.getGroupNumber());
+            log.error("Distributed run '{}': runner '{}' could not complete group {} - {}. This "
+                            + "build will not be sealed under this run id, and the stored commit "
+                            + "value stays where the superseding build leaves it.",
+                    context.getRunId(), context.getRunnerKey(), context.getGroupNumber(),
+                    describeRejectedCompletion());
             return null;
         }
 
@@ -162,5 +167,35 @@ public final class DistributedRunnerPersist {
                         + "failed).", context.getRunId(), context.getRunnerKey(),
                 context.getGroupNumber(), actualDurationMs, suitesRan, suitesFailed);
         return completed;
+    }
+
+    /**
+     * Say what the group row actually holds after a completion the guarded write refused, so the
+     * failure log names the case that happened rather than asserting the most likely one. The
+     * guard's row count cannot tell the cases apart - a run superseded by a newer build's plan
+     * write, a group re-claimed by another runner, and a group this runner has already completed
+     * all miss the same {@code WHERE} clause - so the row is read back to find out.
+     *
+     * <p>Read only on the failure path, where one extra read costs nothing and a wrong explanation
+     * costs an engineer an afternoon.
+     *
+     * @return a clause naming what the group row says, to be embedded in the failure log
+     */
+    String describeRejectedCompletion() {
+        int groupNumber = context.getGroupNumber().intValue();
+
+        for (DistributedRunGroup group : dataStore.readDistributedRunGroups(context.getRunId())) {
+            if (group.getGroupNumber() != groupNumber) {
+                continue;
+            }
+            if (group.getStatus() == DistributedRunGroupStatus.COMPLETED
+                    && context.getRunnerKey().equals(group.getRunnerKey())) {
+                return "this runner had already completed it, so the completion was made twice";
+            }
+            return "the group is now " + group.getStatus() + " under runner '" + group.getRunnerKey()
+                    + "', so it is no longer this runner's to complete";
+        }
+
+        return "the run's group rows are gone, so a newer build's plan write superseded this run";
     }
 }

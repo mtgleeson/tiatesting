@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
@@ -84,11 +85,12 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
-     * Close the data store so its embedded H2 database releases its file lock, then remove the
-     * temp directory.
+     * Drop anything a test recorded for its runner's JVM exit, close the data store so its embedded
+     * H2 database releases its file lock, then remove the temp directory.
      */
     @AfterEach
     void tearDown() {
+        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -160,9 +162,10 @@ class TiaSpockRunListenerDistributedTest {
         persistSingleGroupPlan(RUN_ID);
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
 
-        // when
+        // when - the runner's tests finish, and then its JVM exits
         listenerFor(context).finishAllTests(Collections.singleton("com.example.ATest"),
                 System.currentTimeMillis());
+        DistributedRunCompletion.completePendingCompletions();
 
         // then
         DistributedRunGroup group = dataStore.readDistributedRunGroups(RUN_ID).get(0);
@@ -186,9 +189,10 @@ class TiaSpockRunListenerDistributedTest {
         persistSingleGroupPlan(RUN_ID);
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
 
-        // when
+        // when - the runner's tests finish, and then its JVM exits
         listenerFor(context).finishAllTests(Collections.singleton("com.example.ATest"),
                 System.currentTimeMillis());
+        DistributedRunCompletion.completePendingCompletions();
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
