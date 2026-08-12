@@ -5,12 +5,16 @@ import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.extension.IGlobalExtension;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedRunConfig;
+import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.spock.distributed.DistributedRunSystemProperties;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 
@@ -40,11 +44,37 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private Set<String> runnerTestSuites = ConcurrentHashMap.newKeySet();
     private long testRunStartTime;
 
+    /**
+     * Work out which test suites this Spock test JVM must skip, and build the run listener that
+     * records what it ran. Gradle selects inside the test JVM rather than in the build JVM, so
+     * this constructor is where the whole of Tia's pre-run work happens for a Gradle build.
+     *
+     * <p>How the suite lists are arrived at is the one thing that differs between an ordinary and
+     * a distributed build. An ordinary build runs the test selection here. A distributed build
+     * must not: the plan produced by {@code tia-dist-plan} already ran the VCS diff, the static
+     * rules and the library-impact drain once, for every runner, and its output is in the shared
+     * database. So a distributed build claims a group from that plan instead - see
+     * {@link TiaSpockTestRunInitializer#claimDistributedRunGroup}.
+     *
+     * @param vcsReader the VCS reader for the workspace under test, or null when Tia is disabled;
+     *                  supplies the branch whose mapping is read and the commit a distributed
+     *                  runner's claim is checked against
+     * @throws IllegalStateException if this build is a distributed runner and cannot claim its
+     *                                share of the planned run - it fails rather than continue,
+     *                                since a runner that cannot tell whether its tests ran must
+     *                                never report green
+     */
     public TiaSpockGlobalExtension(final VCSReader vcsReader){
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
 
         if (tiaEnabled){
+            // Resolved before the datastore is opened: this is what validates a distributed
+            // runner's preconditions, and a runner pointed at a database no other runner can
+            // reach should be told so rather than have a private database opened for it first.
+            // Null for every ordinary build, which therefore behaves exactly as it always did.
+            DistributedRunConfig distributedRunConfig =
+                    DistributedRunSystemProperties.runnerConfigFromSystemProperties();
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
             // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
@@ -67,29 +97,45 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 this.checkLocalChanges = checkLocalChanges;
             }
 
-            // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
-            // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When
-            // unset (no tiaSourceLibs configured), libraryConfig is null and library partitioning /
-            // reconcile / stamp / drain are skipped - same as before.
-            LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
-
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
-            // Static test selection rules are pre-resolved on the Gradle side and forwarded
-            // through the tiaStaticTestSelectionRules system property; absent property means
-            // no rules in effect.
-            StaticTestSelectionConfig staticMappingConfig = StaticTestSelectionSystemProperties.fromSystemProperties();
-            TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
-                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, staticMappingConfig);
-            ignoredTests = testSelectorResult.getTestsToIgnore();
+            Set<String> testsToRun;
+            LibraryImpactDrainResult drainResult;
+
+            if (distributedRunConfig != null){
+                // A distributed runner claims its share of an existing plan instead of selecting.
+                // The plan already ran the diff and the library-impact drain once; repeating the
+                // drain per-runner would race, and applying its cleanup belongs to the run's
+                // sealer, so no drain result is carried here.
+                DistributedRunnerAssignment assignment =
+                        tiaSpockTestRunInitializer.claimDistributedRunGroup(distributedRunConfig);
+                ignoredTests = assignment.getTestsToIgnore();
+                testsToRun = assignment.getTestsToRun();
+                drainResult = null;
+            } else {
+                // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
+                // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When
+                // unset (no tiaSourceLibs configured), libraryConfig is null and library partitioning /
+                // reconcile / stamp / drain are skipped - same as before.
+                LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
+                // Static test selection rules are pre-resolved on the Gradle side and forwarded
+                // through the tiaStaticTestSelectionRules system property; absent property means
+                // no rules in effect.
+                StaticTestSelectionConfig staticMappingConfig = StaticTestSelectionSystemProperties.fromSystemProperties();
+                TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
+                        this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, staticMappingConfig);
+                ignoredTests = testSelectorResult.getTestsToIgnore();
+                testsToRun = testSelectorResult.getTestsToRun();
+                drainResult = testSelectorResult.getLibraryImpactDrainResult();
+            }
 
             if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
                 // the listener is used for collecting coverage, updating the stored mapping,
                 // and/or recording the run in the history log
                 int ignoredTestSuiteCount = ignoredTests != null ? ignoredTests.size() : 0;
-                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testSelectorResult.getTestsToRun(),
+                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testsToRun,
                         ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory,
-                        testSelectorResult.getLibraryImpactDrainResult());
+                        drainResult);
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;
