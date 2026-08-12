@@ -14,6 +14,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.spock.distributed.DistributedRunSystemProperties;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
@@ -21,6 +22,7 @@ import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class TiaSpockGitGradlePluginTestExtension {
@@ -81,6 +83,7 @@ public class TiaSpockGitGradlePluginTestExtension {
 
                     forwardLibraryMetadata(testTask, tiaTaskExtension, resolver);
                     forwardStaticTestSelectionRules(testTask, tiaTaskExtension);
+                    forwardDistributedRunConfig(testTask, tiaTaskExtension);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -103,8 +106,9 @@ public class TiaSpockGitGradlePluginTestExtension {
      * This allows the user to define the Tia configuration at the project level, and override it for each test task
      * configuration type like 'test' and 'integrationTest'.
      *
-     * @param tiaProjectExt
-     * @param tiaTaskExt
+     * @param tiaProjectExt the project-level {@code tia { ... }} extension, the source of any value
+     *                      the test task did not set for itself
+     * @param tiaTaskExt the test task's own {@code tia { ... }} extension, populated in place
      */
     private void populateTestTaskExtension(TiaBaseTaskExtension tiaProjectExt, TiaBaseTaskExtension tiaTaskExt){
         if (tiaTaskExt.getEnabled() == null){
@@ -174,6 +178,21 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getSourceProjectDir() == null){
             tiaTaskExt.setSourceProjectDir(tiaProjectExt.getSourceProjectDir());
+        }
+
+        // A distributed run is configured per pipeline, not per test task: the run id and the
+        // runner key identify this CI job, so they are almost always set once at the project level
+        // (or on the command line) and must reach every test task that participates.
+        if (tiaTaskExt.getDistributed() == null){
+            tiaTaskExt.setDistributed(tiaProjectExt.getDistributed());
+        }
+
+        if (tiaTaskExt.getRunId() == null){
+            tiaTaskExt.setRunId(tiaProjectExt.getRunId());
+        }
+
+        if (tiaTaskExt.getDistributedRunnerKey() == null){
+            tiaTaskExt.setDistributedRunnerKey(tiaProjectExt.getDistributedRunnerKey());
         }
     }
 
@@ -305,6 +324,33 @@ public class TiaSpockGitGradlePluginTestExtension {
         String encoded = StaticTestSelectionSystemProperties.format(config);
         if (!encoded.isEmpty()) {
             testTask.systemProperty(StaticTestSelectionSystemProperties.PROP_STATIC_TEST_SELECTION_RULES, encoded);
+        }
+    }
+
+    /**
+     * Forward the distributed run this build is a runner for to the forked test JVM. Gradle
+     * selects inside that JVM, so it is the JVM that claims a group from the plan, and it needs
+     * the run to claim from and the identity to claim under.
+     *
+     * <p>The property set comes from {@link DistributedRunSystemProperties#forwardedProperties},
+     * the same class the test JVM reads it back with, so the two halves cannot drift on a property
+     * name. Nothing is forwarded for a non-distributed build, which is what keeps an ordinary
+     * Gradle build's test JVM started with exactly the properties it always was.
+     *
+     * <p>Deliberately absent is anything about how the run was split: {@code
+     * distributedGroupCount}, {@code distributedTargetRunTime} and {@code distributedMaxGroups}
+     * are the planning job's configuration, and the split they produced is already recorded in the
+     * plan the runner claims from. A runner given them could only ever disagree with it.
+     *
+     * @param testTask the test task whose forked JVM receives the properties
+     * @param tiaTaskExtension the Tia extension carrying the resolved distributed run settings
+     */
+    private void forwardDistributedRunConfig(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
+        Map<String, String> properties = DistributedRunSystemProperties.forwardedProperties(
+                tiaTaskExtension.getDistributed(), tiaTaskExtension.getRunId(),
+                tiaTaskExtension.getDistributedRunnerKey());
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            testTask.systemProperty(property.getKey(), property.getValue());
         }
     }
 
