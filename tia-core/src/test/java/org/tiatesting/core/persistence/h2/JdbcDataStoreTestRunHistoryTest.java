@@ -16,6 +16,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,6 +73,57 @@ class JdbcDataStoreTestRunHistoryTest {
         assertTrue(round.isUpdatedDbMapping());
         assertEquals(4_000L, round.getTimeSavingsMs());
         assertEquals(80, round.getSavingsPercent());
+    }
+
+    /**
+     * Verify the three distributed-only history columns round-trip: a build-level row written by a
+     * distributed run's sealer carries the run id it sealed, the wall-clock duration (the slowest
+     * group) and the group count, alongside the serial-equivalent duration in the existing
+     * {@code duration_ms} column.
+     */
+    @Test
+    void persistAndReadRoundTripsTheDistributedColumns() {
+        // given
+        TestRunHistoryEntry entry = new TestRunHistoryEntry(
+                "dist-id", 1_700_000_000_000L, "main", "abc123",
+                10, 2, 1, 5_000L, true, 4_000L, 80,
+                "ci-run-42", 1_800L, 4);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(1, result.size());
+        TestRunHistoryEntry round = result.get(0);
+        assertEquals("ci-run-42", round.getRunId());
+        assertEquals(Long.valueOf(1_800L), round.getWallClockMs());
+        assertEquals(Integer.valueOf(4), round.getGroupCount());
+        assertEquals(5_000L, round.getDurationMs());
+    }
+
+    /**
+     * Verify a non-distributed run's history row is unchanged by the new columns: all three read
+     * back null rather than as zeros, so reporting can tell "this run was not distributed" from
+     * "this run was distributed across zero groups in zero milliseconds".
+     */
+    @Test
+    void nonDistributedRunLeavesTheDistributedColumnsNull() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(
+                "main", "abc123", 1_700_000_000_000L,
+                10, 2, 1, 5_000L, true, 4_000L, 80);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(1, result.size());
+        TestRunHistoryEntry round = result.get(0);
+        assertNull(round.getRunId());
+        assertNull(round.getWallClockMs());
+        assertNull(round.getGroupCount());
     }
 
     @Test

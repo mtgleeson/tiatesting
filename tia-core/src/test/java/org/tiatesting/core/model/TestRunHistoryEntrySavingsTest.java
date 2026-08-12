@@ -32,7 +32,7 @@ class TestRunHistoryEntrySavingsTest {
     void fullConstructor_carriesSavingsFigures(){
         // given / when
         TestRunHistoryEntry entry = new TestRunHistoryEntry(
-                "id", 1000L, "main", "abc", 3, 2, 0, 1000L, true, 4000L, 80);
+                "id", 1000L, "main", "abc", 3, 2, 0, 1000L, true, 4000L, 80, null, null, null);
 
         // then
         assertEquals(4000L, entry.getTimeSavingsMs());

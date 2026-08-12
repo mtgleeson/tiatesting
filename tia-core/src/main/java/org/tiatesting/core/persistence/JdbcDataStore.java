@@ -82,6 +82,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
+    private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
     private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
     private static final String COL_BLOCK_NAME = "block_name";
     private static final String COL_NEXT_VALUE = "next_value";
@@ -1387,7 +1388,7 @@ public class JdbcDataStore implements DataStore {
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
                             COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT),
+                            COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1402,6 +1403,11 @@ public class JdbcDataStore implements DataStore {
             ps.setBoolean(9, entry.isUpdatedDbMapping());
             ps.setLong(10, entry.getTimeSavingsMs());
             ps.setInt(11, entry.getSavingsPercent());
+            // A single-host run binds SQL NULL for all three, so its row stays exactly what it was
+            // before distributed runs existed.
+            setNullableString(ps, 12, entry.getRunId());
+            setNullableLong(ps, 13, entry.getWallClockMs());
+            setNullableInt(ps, 14, entry.getGroupCount());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1442,7 +1448,10 @@ public class JdbcDataStore implements DataStore {
                         resultSet.getLong(COL_DURATION_MS),
                         resultSet.getBoolean(COL_UPDATED_DB_MAPPING),
                         resultSet.getLong(COL_TIME_SAVINGS),
-                        resultSet.getInt(COL_SAVINGS_PERCENT)));
+                        resultSet.getInt(COL_SAVINGS_PERCENT),
+                        resultSet.getString(COL_RUN_ID),
+                        getNullableLong(resultSet, COL_WALL_CLOCK_MS),
+                        getNullableInt(resultSet, COL_GROUP_COUNT)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1591,6 +1600,44 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Bind a nullable int parameter, using {@code setNull} with {@link Types#INTEGER} when the
+     * value is absent so both vendors store a real SQL NULL rather than zero.
+     *
+     * @param statement the statement to bind on
+     * @param index the one-based parameter index
+     * @param value the value to bind, or null
+     * @throws SQLException if binding fails
+     */
+    private static void setNullableInt(PreparedStatement statement, int index, Integer value)
+            throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.INTEGER);
+        } else {
+            statement.setInt(index, value);
+        }
+    }
+
+    /**
+     * Bind a nullable string parameter, using {@code setNull} with {@link Types#VARCHAR} when the
+     * value is absent. {@code setString(index, null)} is accepted by both drivers in practice, but
+     * binding the type explicitly keeps the null path unambiguous for the driver's parameter
+     * inference, which Postgres is stricter about.
+     *
+     * @param statement the statement to bind on
+     * @param index the one-based parameter index
+     * @param value the value to bind, or null
+     * @throws SQLException if binding fails
+     */
+    private static void setNullableString(PreparedStatement statement, int index, String value)
+            throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.VARCHAR);
+        } else {
+            statement.setString(index, value);
+        }
+    }
+
+    /**
      * Bind the run's library-impact drain result as a binary parameter, serialized with the same
      * {@link LibraryImpactDrainResultSerializer} encoding the Maven plugin-to-fork handoff file
      * uses, so the drain a plan already performed is stored exactly once and in one form. A run
@@ -1675,6 +1722,21 @@ public class JdbcDataStore implements DataStore {
      */
     private static Long getNullableLong(ResultSet resultSet, String column) throws SQLException {
         long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    /**
+     * Read a nullable int column, distinguishing SQL NULL from zero via
+     * {@link ResultSet#wasNull()}. The distinction matters for the history row's group count: null
+     * means "this run was not distributed", zero would mean "distributed across no groups".
+     *
+     * @param resultSet the result set positioned on the row
+     * @param column the column name
+     * @return the value, or null if the column was SQL NULL
+     * @throws SQLException if the column cannot be read
+     */
+    private static Integer getNullableInt(ResultSet resultSet, String column) throws SQLException {
+        int value = resultSet.getInt(column);
         return resultSet.wasNull() ? null : value;
     }
 
@@ -1957,6 +2019,155 @@ public class JdbcDataStore implements DataStore {
                     + "attempt should permanently remove one group from the candidate pool, so this "
                     + "means the group table is not converging as expected rather than ordinary "
                     + "claim contention.");
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>One guarded single-row {@code UPDATE ... WHERE run_id = ? AND group_number = ? AND status
+     * = 'CLAIMED' AND runner_key = ?}, whose row count is the answer. That predicate is the
+     * straggler protection, not a defensive extra: it is the only thing that tells a runner from a
+     * superseded build - one whose plan rows a newer build's plan write already deleted, or whose
+     * group another runner now holds - that its claim is dead and it must not write its mapping
+     * rows. Writing it as an unconditional update followed by a read would remove the protection
+     * while leaving code that looks correct, so the guard and the row-count check belong together.
+     *
+     * <p>Row count 0 returns {@code null} without reading anything back, since there is by
+     * definition nothing this runner wrote to return. Row count 1 re-reads the row through
+     * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
+     * claim timestamp and estimate rather than only this call's inputs.
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} first, since a runner completing its group could
+     * be the first contact any caller in this process makes with a freshly created per-branch
+     * schema.
+     *
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @param runnerKey the calling runner's stable identity
+     * @param completedAtMs UTC epoch millis to record as the completion time
+     * @param actualDurationMs measured test-execution time of this group, in ms
+     * @param suitesRan number of suites the runner executed
+     * @param suitesFailed number of this group's suites with at least one failed test
+     * @return the updated group, or {@code null} when this runner's claim is no longer live
+     */
+    @Override
+    public DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
+                                             final long completedAtMs, final long actualDurationMs,
+                                             final int suitesRan, final int suitesFailed) {
+        String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
+                + COL_COMPLETED_AT + " = ?, " + COL_ACTUAL_DURATION_MS + " = ?, " + COL_SUITES_RAN + " = ?, "
+                + COL_SUITES_FAILED + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
+                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
+        String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
+
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+
+            int rowsUpdated;
+            try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
+                statement.setString(1, DistributedRunGroupStatus.COMPLETED.name());
+                statement.setLong(2, completedAtMs);
+                statement.setLong(3, actualDurationMs);
+                statement.setInt(4, suitesRan);
+                statement.setInt(5, suitesFailed);
+                statement.setString(6, runId);
+                statement.setInt(7, groupNumber);
+                statement.setString(8, DistributedRunGroupStatus.CLAIMED.name());
+                statement.setString(9, runnerKey);
+                rowsUpdated = statement.executeUpdate();
+            }
+
+            if (rowsUpdated == 0) {
+                // This runner's claim is no longer live. The caller must now write nothing.
+                return null;
+            }
+
+            try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
+                statement.setString(1, runId);
+                statement.setInt(2, groupNumber);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    resultSet.next();
+                    return mapGroupRow(resultSet);
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>One conditional single-row {@code UPDATE}, and its row count is the entire answer. The
+     * {@code sealed_by IS NULL} predicate makes at most one runner win; the {@code NOT EXISTS
+     * (SELECT 1 FROM tia_distributed_run_group WHERE run_id = ? AND status <> 'COMPLETED')}
+     * predicate makes that runner the last one, which is what guarantees the {@code SELECT
+     * DISTINCT} the sealer runs over the edge table sees every group's edges. The database
+     * evaluates both against the latest committed row, so racing runners serialise on this
+     * statement and exactly one sees row count 1.
+     *
+     * <p>Nothing is read before or instead of the update, deliberately. Row count 0 covers both
+     * "another runner won" and "my run row no longer exists because a newer build superseded it",
+     * and the row count is the only signal that separates the two from winning. Falling back to a
+     * read would let a straggler sealer conclude it should proceed, rebuild the catalogue from an
+     * empty staging table and drop every method id the on-disk catalogue lacks. See the sealing
+     * material in the distributed test runs chapter of {@code WIKI.md}.
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} first, since electing a sealer could be the first
+     * contact any caller in this process makes with a freshly created per-branch schema.
+     *
+     * @param runId the distributed run to elect a sealer for
+     * @param runnerKey the calling runner's stable identity
+     * @param sealedAtMs UTC epoch millis to record as the election time
+     * @return {@code true} when this runner won the election, {@code false} when it must do nothing
+     */
+    @Override
+    public boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs) {
+        String electSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN + " SET " + COL_SEALED_BY + " = ?, "
+                + COL_SEALED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_SEALED_BY + " IS NULL"
+                + " AND NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_STATUS + " <> ?)";
+
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+
+            try (PreparedStatement statement = connection.prepareStatement(electSql)) {
+                statement.setString(1, runnerKey);
+                statement.setLong(2, sealedAtMs);
+                statement.setString(3, runId);
+                statement.setString(4, runId);
+                statement.setString(5, DistributedRunGroupStatus.COMPLETED.name());
+                return statement.executeUpdate() == 1;
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Unguarded on purpose, unlike the two operations above: only the runner that already won
+     * {@link #electSealer} reaches this call, so the mutual exclusion has already happened and a
+     * second predicate here would guard nothing. An unknown run id simply updates no rows.
+     *
+     * @param runId the distributed run to mark sealed
+     */
+    @Override
+    public void markDistributedRunSealed(final String runId) {
+        String sql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN + " SET " + COL_STATUS + " = ? WHERE "
+                + COL_RUN_ID + " = ?";
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, DistributedRunStatus.SEALED.name());
+                statement.setString(2, runId);
+                statement.executeUpdate();
+            }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
@@ -3313,7 +3524,12 @@ public class JdbcDataStore implements DataStore {
                 + COL_DURATION_MS + " BIGINT, "
                 + COL_UPDATED_DB_MAPPING + " BOOLEAN, "
                 + COL_TIME_SAVINGS + " BIGINT DEFAULT 0, "
-                + COL_SAVINGS_PERCENT + " INT DEFAULT 0)";
+                + COL_SAVINGS_PERCENT + " INT DEFAULT 0, "
+                // Distributed builds only; null on a single-host run, which is what makes such a
+                // row indistinguishable from one written before distributed runs existed.
+                + COL_RUN_ID + " VARCHAR(255), "
+                + COL_WALL_CLOCK_MS + " BIGINT, "
+                + COL_GROUP_COUNT + " INT)";
     }
 
     /**
@@ -3346,6 +3562,15 @@ public class JdbcDataStore implements DataStore {
                 + COL_TIME_SAVINGS + " BIGINT DEFAULT 0");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_SAVINGS_PERCENT + " INT DEFAULT 0");
+        // Migration: add the distributed-build columns to DBs created before distributed runs
+        // existed. No DEFAULT, so old rows read back null - which is correct, they were not
+        // distributed - rather than as a build split across zero groups.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_RUN_ID + " VARCHAR(255)");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_WALL_CLOCK_MS + " BIGINT");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_GROUP_COUNT + " INT");
     }
 
     /**
