@@ -92,7 +92,7 @@ class TestRunnerServiceHistorySavingsTest {
         long runStart = System.currentTimeMillis();
 
         // when
-        service.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(2));
+        service.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(2), null);
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
 
         // then
@@ -133,7 +133,7 @@ class TestRunnerServiceHistorySavingsTest {
             long runStart = System.currentTimeMillis();
 
             // when - a partial run whose persist takes longer than the baseline
-            slowService.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(2));
+            slowService.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(2), null);
             List<TestRunHistoryEntry> history = slowStore.readTestRunHistory();
 
             // then - the recorded duration excludes the persist delay, so savings stays positive
@@ -161,7 +161,7 @@ class TestRunnerServiceHistorySavingsTest {
         long runStart = System.currentTimeMillis();
 
         // when
-        service.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(0));
+        service.persistTestRunData(false, true, true, "abc123", "main", runStart, runResult(0), null);
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
 
         // then

@@ -163,8 +163,10 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount,
                 testSuiteTrackers.size());
+        // No distributed runner context: this listener persists as a single host, so the persist
+        // takes the ordinary flow - suite mapping, failed set, seal and history row.
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
-                headCommit, branch, testRunStartTime, testRunResult);
+                headCommit, branch, testRunStartTime, testRunResult, null);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){

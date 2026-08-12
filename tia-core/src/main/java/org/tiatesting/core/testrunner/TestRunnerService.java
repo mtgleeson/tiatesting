@@ -2,6 +2,8 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
+import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
@@ -62,18 +64,31 @@ public class TestRunnerService {
      * @param runStartTimestampMs      UTC epoch millis when the test run started (used as both the
      *                                 history entry timestamp and the duration baseline)
      * @param testRunResult            the collected results of the test run
+     * @param distributedRunnerContext the run id, runner identity and claimed group when this run
+     *                                 is one runner's share of a distributed build, or {@code null}
+     *                                 for an ordinary single-host run
      */
     public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
                                    final boolean updateDBTestRunHistory,
                                    final String commitValue, final String branch,
                                    final long runStartTimestampMs,
-                                   final TestRunResult testRunResult){
+                                   final TestRunResult testRunResult,
+                                   final DistributedRunnerContext distributedRunnerContext){
         // Capture the run duration up front, before any DB read/write below. This is the
         // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
         // mapping/seal persist work that follows, which on a seed run is seconds of bulk inserts.
         // The savings baseline (allTestsRunTime) is likewise pure test-execution time, so the two
         // must be measured on the same clock for savings = baseline - duration to be meaningful.
         final long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
+
+        if (distributedRunnerContext != null){
+            // One runner of a distributed build persists only its own share and stops. Everything
+            // that describes the whole build - the catalogue, the seal, the commit stamp and the
+            // history row - belongs to whichever runner finishes last.
+            persistDistributedRunnerData(updateDBMapping, updateDBStats, durationMs, testRunResult,
+                    distributedRunnerContext);
+            return;
+        }
 
         if (updateDBMapping){
             log.info("Persisting core data with commit value: " + commitValue);
@@ -115,6 +130,94 @@ public class TestRunnerService {
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
                     durationMs, testRunResult, allTestsRunTimeMs);
         }
+    }
+
+    /**
+     * Persist one runner's share of a distributed build: its suites' mapping rows, the method
+     * trackers it observed and its contribution to the failed set, and then - last - its group's
+     * completion. It does not seal, does not rebuild the method catalogue, does not advance the
+     * stored commit value and writes no history row; all four describe the whole build and belong
+     * to the runner that finishes last. See the distributed test runs chapter in {@code WIKI.md}.
+     *
+     * <p>Two orderings here are correctness properties of the run rather than tidiness:
+     * <ul>
+     *   <li><b>The claim is re-verified before any write.</b> A runner from a superseded build -
+     *       one whose plan rows a newer build's plan write already cleared - writes nothing at all,
+     *       because persisting its suites anyway would leave mapping rows describing its own older
+     *       commit under the commit the newer build has already stored.</li>
+     *   <li><b>The completion is the last write.</b> Completing the group is what releases the
+     *       barrier the sealer waits on, and the sealer rebuilds the catalogue from the distinct
+     *       method ids on the suite-to-method edge table. A group marked complete ahead of its own
+     *       edges would let that rebuild drop every method reachable only from this group's suites,
+     *       making them invisible to the next build's diff.</li>
+     * </ul>
+     *
+     * <p>The Tia-level run stats are deliberately not incremented here even when {@code
+     * updateDBStats} is set: they live on the core row alongside the commit value, and a build split
+     * across runners must contribute one set of stats rather than one per runner, so the sealer
+     * aggregates them from the completed groups. Per-suite stats are this runner's own and are
+     * written with its mapping rows as usual.
+     *
+     * @param updateDBMapping should the test-suite to source-code mapping be updated
+     * @param updateDBStats should the per-suite run stats be updated
+     * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
+     *                   single-host run records, so the sealer's aggregate stays comparable with
+     *                   non-distributed history
+     * @param testRunResult the collected results of this runner's test run
+     * @param distributedRunnerContext the run id, runner identity and claimed group this runner
+     *                                 holds; a context that claimed no group persists nothing
+     */
+    private void persistDistributedRunnerData(final boolean updateDBMapping, final boolean updateDBStats,
+                                              final long durationMs, final TestRunResult testRunResult,
+                                              final DistributedRunnerContext distributedRunnerContext){
+        if (!distributedRunnerContext.isClaimed()){
+            // A surplus runner: the pipeline fanned out wider than the plan's group count, so this
+            // runner executed nothing. It has no group to complete, and persisting the tracked-suite
+            // map it read would rewrite rows produced by the runners that did the work.
+            log.info("Distributed run '{}': runner '{}' claimed no group and ran no test suites, so "
+                            + "there is nothing to persist.", distributedRunnerContext.getRunId(),
+                    distributedRunnerContext.getRunnerKey());
+            return;
+        }
+
+        DistributedRunnerPersist runnerPersist =
+                new DistributedRunnerPersist(dataStore, distributedRunnerContext);
+
+        if (!runnerPersist.claimIsLive()){
+            // Straggler protection. claimIsLive has already logged which of the two reasons applies.
+            return;
+        }
+
+        log.info("Distributed run '{}': runner '{}' persisting group {}.",
+                distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey(),
+                distributedRunnerContext.getGroupNumber());
+
+        TiaData tiaData = dataStore.getTiaCore();
+
+        // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
+        //    coordinates, so they are safe to be ahead of the commit the sealer will store.
+        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
+                testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
+
+        if (updateDBMapping){
+            // 2. The failed set is incremental, so several runners updating it concurrently is
+            //    exactly what it was built for.
+            updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+
+            // 3. Staging replaces the catalogue write a single-host run makes here. Method ids hash
+            //    the class, method and descriptor only, so the ids this runner staged stay valid
+            //    against the catalogue the sealer writes at the end of the build.
+            runnerPersist.stageMethodTrackers(testRunResult.getMethodTrackersFromTestRun());
+        }
+
+        // 4. No history row: one distributed build produces one aggregated row, written by the
+        //    sealer, rather than one row per runner.
+
+        // 5. Completion last - it releases the barrier, so every write above must already be done.
+        int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
+        int suitesFailed = testRunResult.getTestSuitesFailed() != null
+                ? testRunResult.getTestSuitesFailed().size() : 0;
+        runnerPersist.completeGroup(durationMs, suitesRan, suitesFailed, System.currentTimeMillis());
     }
 
     /**

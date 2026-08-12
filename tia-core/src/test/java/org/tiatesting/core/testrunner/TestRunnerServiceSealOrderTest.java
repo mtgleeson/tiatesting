@@ -97,7 +97,7 @@ class TestRunnerServiceSealOrderTest {
         // when - persist with a new commit; the throw should propagate
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
+                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then - stored commit value is unchanged
         TiaData reloaded = dataStore.getTiaData(true);
@@ -120,7 +120,7 @@ class TestRunnerServiceSealOrderTest {
         // when
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
+                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then
         TiaData reloaded = dataStore.getTiaData(true);
@@ -144,7 +144,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(false, true, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then - the seal bundle is never invoked; the core row goes through persistCoreData instead
         assertEquals(0, Collections.frequency(spy.callOrder, "persistSealedRunData"),
@@ -180,7 +180,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(true, false, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then - commit value is sealed to the new value
         TiaData reloaded = dataStore.getTiaData(true);
@@ -220,7 +220,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
-                "new-commit", "main", System.currentTimeMillis(), makeResult()));
+                "new-commit", "main", System.currentTimeMillis(), makeResult(), null));
 
         // then - the prior commit survived and the seal ran as one call, not two
         assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue());
@@ -243,7 +243,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(true, true, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then
         int sealIdx = spy.callOrder.indexOf("persistSealedRunData");
@@ -276,7 +276,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when - a run that seals
         service.persistTestRunData(true, true, false, "sealedCommit", "main",
-                System.currentTimeMillis(), makeResultWithMapping());
+                System.currentTimeMillis(), makeResultWithMapping(), null);
 
         // then
         for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
@@ -286,7 +286,7 @@ class TestRunnerServiceSealOrderTest {
         // when - a run that fails inside the seal bundle
         spy.failInSealBundle = true;
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
-                "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping()));
+                "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping(), null));
 
         // then - the suites that ran stay flagged for a forced re-run
         assertTrue(dataStore.getTestSuitesTracked().values().stream().anyMatch(TestSuiteTracker::isUnsealed),

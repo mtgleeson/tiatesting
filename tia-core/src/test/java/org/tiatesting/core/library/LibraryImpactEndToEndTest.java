@@ -278,7 +278,7 @@ class LibraryImpactEndToEndTest {
                 new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 1, 0);
         // history logging is off in this end-to-end test to keep the focus on library drain cleanup
-        service.persistTestRunData(true, false, false, commitValue, "main", System.currentTimeMillis(), testRunResult);
+        service.persistTestRunData(true, false, false, commitValue, "main", System.currentTimeMillis(), testRunResult, null);
     }
 
     /**

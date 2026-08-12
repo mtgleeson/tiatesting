@@ -220,6 +220,6 @@ class TestRunnerServiceDrainCleanupTest {
                 new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, ignoredCount, 0);
         // history logging is off in this test to keep the focus on drain cleanup
-        service.persistTestRunData(true, false, false, "newcommit", "main", System.currentTimeMillis(), testRunResult);
+        service.persistTestRunData(true, false, false, "newcommit", "main", System.currentTimeMillis(), testRunResult, null);
     }
 }
