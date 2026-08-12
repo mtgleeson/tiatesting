@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedForkProperties;
+import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -104,12 +105,13 @@ class TiaJunit4ListenerDistributedTest {
     }
 
     /**
-     * Close the datastore so embedded H2 releases its file lock, remove the temp directory, and
-     * restore the system properties saved in {@link #setUp()} so these tests leave the JVM as they
-     * found it.
+     * Drop anything a test recorded for its fork's JVM exit, close the datastore so embedded H2
+     * releases its file lock, remove the temp directory, and restore the system properties saved in
+     * {@link #setUp()} so these tests leave the JVM as they found it.
      */
     @AfterEach
     void tearDown() {
+        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -164,9 +166,13 @@ class TiaJunit4ListenerDistributedTest {
     }
 
     /**
-     * Run the listener's lifecycle end to end for a run in which the suite executed but no coverage
-     * was collected, which is all this fixture needs: the flags leave mapping and stats off, so the
-     * persist writes only the completion, the seal and the history row.
+     * Run a whole fork's lifecycle for a run in which the suite executed but no coverage was
+     * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
+     * persist writes only its recording, and the fork's JVM exit does the completion and the seal.
+     *
+     * <p>The exit is driven directly, since a test cannot exit the JVM it runs in. It is part of
+     * the lifecycle rather than something a test adds: the barrier is released when the fork
+     * finishes, not when one of its test plans does.
      *
      * @throws Exception if the JUnit 4 run-start hook fails, which its signature allows
      */
@@ -174,6 +180,7 @@ class TiaJunit4ListenerDistributedTest {
         TiaJunit4Listener listener = new TiaJunit4Listener(new StubVCSReader());
         listener.testRunStarted(null);
         listener.testRunFinished(null);
+        DistributedRunCompletion.completePendingCompletions();
     }
 
     /**

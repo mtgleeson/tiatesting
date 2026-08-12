@@ -2,7 +2,7 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.distributed.DistributedRunSealer;
+import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.TestRunHistoryEntry;
@@ -127,12 +127,10 @@ public class TestRunnerService {
 
     /**
      * Persist one runner's share of a distributed build: its suites' mapping rows, the method
-     * trackers it observed and its contribution to the failed set, and then - last - its group's
-     * completion. As one runner it rebuilds no method catalogue, advances no stored commit value
-     * and writes no history row; all three describe the whole build and belong to whichever runner
-     * finishes last. Having completed its group it stands for election, and if it turns out to be
-     * that last runner it performs the build's seal through {@link DistributedRunSealer}. See the
-     * distributed test runs chapter in {@code WIKI.md}.
+     * trackers it observed and its contribution to the failed set. As one runner it rebuilds no
+     * method catalogue, advances no stored commit value and writes no history row; all three
+     * describe the whole build and belong to whichever runner finishes last. See the distributed
+     * test runs chapter in {@code WIKI.md}.
      *
      * <p>Two orderings here are correctness properties of the run rather than tidiness:
      * <ul>
@@ -140,11 +138,14 @@ public class TestRunnerService {
      *       one whose plan rows a newer build's plan write already cleared - writes nothing at all,
      *       because persisting its suites anyway would leave mapping rows describing its own older
      *       commit under the commit the newer build has already stored.</li>
-     *   <li><b>The completion is the last write.</b> Completing the group is what releases the
-     *       barrier the sealer waits on, and the sealer rebuilds the catalogue from the distinct
-     *       method ids on the suite-to-method edge table. A group marked complete ahead of its own
-     *       edges would let that rebuild drop every method reachable only from this group's suites,
-     *       making them invisible to the next build's diff.</li>
+     *   <li><b>The group is not completed here.</b> This method runs once per finished test plan,
+     *       and a retry of failed tests is another test plan in the same JVM, so a completion made
+     *       here would release the barrier after the first test plan - while this runner is still
+     *       executing tests. The sealer would then rebuild the catalogue from an edge set missing
+     *       everything the later test plans covered, dropping every method reachable only from
+     *       those suites and making them invisible to the next build's diff. The figures are
+     *       recorded with {@link DistributedRunCompletion} instead, which completes the group and
+     *       stands for election once, when this JVM exits.</li>
      * </ul>
      *
      * <p>The Tia-level run stats are deliberately not incremented here even when {@code
@@ -156,11 +157,11 @@ public class TestRunnerService {
      * @param updateDBMapping should the test-suite to source-code mapping be updated
      * @param updateDBStats should the per-suite run stats be updated. The Tia-level stats are
      *                      handed on to the seal instead, since they describe the whole build
-     * @param updateDBTestRunHistory should the build write a history row. Handed on to the seal
+     * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
      *                               unchanged: the build's one row is the sealer's to write
-     * @param commitValue the VCS commit / changelist the build ran against, handed on to the seal
+     * @param commitValue the VCS commit / changelist the build ran against, recorded for the seal
      *                    this runner performs if it turns out to be the last one to finish
-     * @param branch the VCS branch the build targeted, likewise handed on to the seal
+     * @param branch the VCS branch the build targeted, likewise recorded for the seal
      * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
      *                   single-host run records, so the sealer's aggregate stays comparable with
      *                   non-distributed history
@@ -217,23 +218,16 @@ public class TestRunnerService {
         //    row and one set of Tia-level stats, both written by the sealer from the figures every
         //    group recorded, rather than one of each per runner.
 
-        // 5. Completion last - it releases the barrier, so every write above must already be done.
+        // 5. The completion is not made here. This runs once per finished test plan, and a retry of
+        //    failed tests is another test plan in the same JVM, so completing the group here would
+        //    release the barrier after the first test plan while this runner is still executing
+        //    tests. It is recorded instead, and made once when the JVM exits.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
-        if (runnerPersist.completeGroup(durationMs, suitesRan, suitesFailed, System.currentTimeMillis()) == null){
-            // The claim died while this runner was persisting, so its group is not complete. A
-            // runner that never completed its group cannot be the last one, and its run has been
-            // superseded anyway - there is nothing of this build left to seal.
-            return;
-        }
-
-        // 6. Every runner stands for election here, immediately after releasing the barrier, since
-        //    this is the only moment at which a runner can be the last one to finish. All but one
-        //    lose and return having done nothing.
-        new DistributedRunSealer(dataStore, distributedRunnerContext)
-                .sealIfElected(commitValue, branch, updateDBMapping, updateDBStats,
-                        updateDBTestRunHistory, System.currentTimeMillis());
+        DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
+                durationMs, suitesRan, suitesFailed, commitValue, branch, updateDBMapping,
+                updateDBStats, updateDBTestRunHistory);
     }
 
     /**

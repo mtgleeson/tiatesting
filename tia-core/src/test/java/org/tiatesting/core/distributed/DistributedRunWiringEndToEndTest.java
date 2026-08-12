@@ -35,6 +35,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -64,6 +65,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * path, each sealing from an edge set holding only its own group's suites - and every one of those
  * three assertions fails.
  *
+ * <p>One runner also persists <b>twice</b>, as a Surefire retry makes it: the barrier is released
+ * when a runner's JVM exits, not when one of its test plans finishes, and a method covered only by
+ * the second test plan has to survive the seal too.
+ *
  * <p>Runs against a real datastore. {@code PostgresDistributedRunWiringEndToEndTest} re-runs the
  * same lifecycle against Postgres, which is what a real distributed build actually uses, since the
  * distributed preconditions reject an embedded database outright.
@@ -76,8 +81,10 @@ class DistributedRunWiringEndToEndTest {
     static final String PRIOR_COMMIT = "prior-commit";
     static final String SUITE_A = "com.example.ATest";
     static final String SUITE_B = "com.example.BTest";
+    static final String SUITE_RETRY = "com.example.RetryOnlyTest";
     static final int METHOD_A = 101;
     static final int METHOD_B = 202;
+    static final int METHOD_RETRY = 303;
 
     private static final String[] MANAGED_PROPERTIES = {
             DistributedForkProperties.PROP_DISTRIBUTED, DistributedForkProperties.PROP_RUN_ID,
@@ -144,11 +151,13 @@ class DistributedRunWiringEndToEndTest {
     }
 
     /**
-     * Close the shared datastore, remove the temp directory if the fixture created one, and restore
-     * the system properties saved in {@link #setUp()}.
+     * Drop anything a test recorded for a runner's JVM exit, close the shared datastore, remove the
+     * temp directory if the fixture created one, and restore the system properties saved in
+     * {@link #setUp()}.
      */
     @AfterEach
     void tearDown() {
+        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -240,7 +249,7 @@ class DistributedRunWiringEndToEndTest {
 
     /**
      * Build the result one runner reports: its own suite's coverage of the one method only that
-     * suite reaches, plus the full discovered suite set both runners see. A runner that reported
+     * suite reaches, plus the full discovered suite set every runner sees. A runner that reported
      * only its own group's suites would have the persist treat the other group's as deleted.
      *
      * @param suiteName the suite this runner executed
@@ -259,22 +268,65 @@ class DistributedRunWiringEndToEndTest {
         // forward off the stored catalogue's seeded 1-5.
         methodTrackers.put(Integer.valueOf(methodId), new MethodImpactTracker(methodName, 40, 50));
 
-        return new TestRunResult(trackers, new HashSet<String>(),
-                new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)),
+        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
                 null, 1, 1);
     }
 
     /**
+     * Build the result the first runner's <em>second</em> test plan reports - the shape a Surefire
+     * retry produces. It is cumulative, as the per-JVM shared run data makes it: the suite the
+     * first test plan ran is still in it, and a suite whose coverage only this test plan saw has
+     * been added.
+     *
+     * @return the result to hand to the second persist of the first runner's JVM
+     */
+    private TestRunResult retryRunResultForTheFirstRunner() {
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        trackers.put(SUITE_A, suiteTracker(SUITE_A, "com/example/A.java", METHOD_A));
+        trackers.put(SUITE_RETRY, suiteTracker(SUITE_RETRY, "com/example/RetryOnly.java",
+                METHOD_RETRY));
+
+        Map<Integer, MethodImpactTracker> methodTrackers = new HashMap<>();
+        methodTrackers.put(Integer.valueOf(METHOD_A),
+                new MethodImpactTracker("com/example/A.a.()V", 40, 50));
+        methodTrackers.put(Integer.valueOf(METHOD_RETRY),
+                new MethodImpactTracker("com/example/RetryOnly.r.()V", 40, 50));
+
+        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
+                null, 1, 2);
+    }
+
+    /**
+     * The suites every runner in this build discovers, whichever ones its own group executes. The
+     * retry-only suite is among them from the start, since discovery is a scan of the test classes
+     * and does not depend on which test plan happens to run one.
+     *
+     * @return the discovered suite names
+     */
+    private Set<String> discoveredSuites() {
+        return new HashSet<>(Arrays.asList(SUITE_A, SUITE_B, SUITE_RETRY));
+    }
+
+    /**
      * Drive a whole distributed build through the wiring both build tools use, and hold it to the
-     * three things the stage exists to guarantee: one seal, one history row, and a method reachable
-     * only from the last group to finish still in the catalogue.
+     * things the stage exists to guarantee: one seal, one history row, a method reachable only from
+     * the last group to finish still in the catalogue, and a method reachable only from a
+     * <em>later test plan of an earlier group</em> still in it too.
      *
      * <p>The first runner takes the Maven/JUnit route, its claim crossing a real fork properties
      * file; the second takes the Gradle/Spock route, converting the assignment it already holds.
      * Between the two persists the build is checked to be untouched: with the wiring broken, the
      * first runner would have sealed there and the method only the second group reaches would be
      * gone from the catalogue for good.
+     *
+     * <p>The first runner deliberately persists <b>twice</b>, which is what a Surefire retry of
+     * failed tests produces: a second test plan in the same JVM, so a second persist. Complete the
+     * group in the persist and the first of those two test plans releases the barrier - the second
+     * then finds its claim dead, skips every write it had, and {@link #SUITE_RETRY}'s coverage
+     * never reaches the edge table the catalogue is rebuilt from. Its method is asserted at the end
+     * for exactly that reason.
      *
      * @throws Exception if the fork properties handoff fails
      */
@@ -287,7 +339,7 @@ class DistributedRunWiringEndToEndTest {
         DistributedRunnerAssignment gradleAssignment = claim("runner-b");
         DistributedRunnerContext gradleRunner = gradleAssignment.toRunnerContext(RUN_ID);
 
-        // when - the Maven runner finishes first and persists its whole share
+        // when - the Maven runner's first test plan finishes and persists its share
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 1000L,
                 runResultFor(SUITE_A, "com/example/A.java", METHOD_A, "com/example/A.a.()V"),
@@ -301,11 +353,22 @@ class DistributedRunWiringEndToEndTest {
         assertTrue(dataStore.readTestRunHistory().isEmpty(),
                 "a distributed runner writes no history row of its own");
 
-        // when - the Gradle runner finishes last and persists
+        // when - Surefire retries in the same JVM, so a second test plan finishes and persists,
+        //        carrying a suite the first test plan never covered. Then that JVM exits.
+        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+                System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(), mavenRunner);
+        DistributedRunCompletion.completePendingCompletions();
+
+        // then - still nothing sealed, since the second group has not finished
+        assertEquals(PRIOR_COMMIT, dataStore.getTiaCore().getCommitValue(),
+                "the first runner's JVM exiting must not seal a build whose other group is running");
+
+        // when - the Gradle runner finishes last, persists, and its JVM exits
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 2000L,
                 runResultFor(SUITE_B, "com/example/B.java", METHOD_B, "com/example/B.b.()V"),
                 gradleRunner);
+        DistributedRunCompletion.completePendingCompletions();
 
         // then - exactly one seal, by the runner that finished last
         DistributedRun run = dataStore.readDistributedRun(RUN_ID);
@@ -319,7 +382,9 @@ class DistributedRunWiringEndToEndTest {
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
         assertEquals(1, history.size(), "one distributed build produces one history row: " + history);
         assertEquals(RUN_ID, history.get(0).getRunId());
-        assertEquals(2, history.get(0).getNumSuitesRan(), "both groups' suites ran");
+        assertEquals(3, history.get(0).getNumSuitesRan(),
+                "the row must count what both groups ran, taking the first group's figure from its "
+                        + "last test plan rather than its first");
         assertEquals(Integer.valueOf(2), history.get(0).getGroupCount());
 
         // then - the method reachable only from the group that finished last survives
@@ -331,6 +396,15 @@ class DistributedRunWiringEndToEndTest {
                 "the first group's method must survive the seal. Catalogue: " + catalogue);
         assertEquals(40, catalogue.get(Integer.valueOf(METHOD_B)).getLineNumberStart(),
                 "the last group's staged line numbers must be the ones the seal wrote");
+
+        // then - and so does the method reachable only from the first runner's second test plan,
+        //        which is the write a group completed by its first test plan would have skipped
+        assertNotNull(catalogue.get(Integer.valueOf(METHOD_RETRY)),
+                "the method covered only by the first runner's retry must survive the seal. "
+                        + "Catalogue: " + catalogue);
+        assertTrue(dataStore.getTestSuitesTracked().containsKey(SUITE_RETRY),
+                "the suite the first runner's retry covered must be mapped. Tracked: "
+                        + dataStore.getTestSuitesTracked().keySet());
 
         // then - both groups are recorded complete, and the staging table is cleared
         for (DistributedRunGroup group : dataStore.readDistributedRunGroups(RUN_ID)) {
