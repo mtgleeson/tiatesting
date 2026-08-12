@@ -14,6 +14,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 import static j2html.TagCreator.attrs;
@@ -86,6 +87,9 @@ public class HtmlHistoryReport {
 
         List<TestRunHistoryEntry> history = tiaData.getTestRunHistory();
         final String numberDataType = "data-type=\"number\"";
+        // The two distributed columns only earn their place when the history has a distributed
+        // build in it; otherwise every row would dash them, so the table stays as it was.
+        final boolean showDistributed = anyDistributed(history);
 
         try (FileWriter writer = new FileWriter(fileName)) {
             html(
@@ -100,20 +104,8 @@ public class HtmlHistoryReport {
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_HISTORY, "Test Run History"),
                                     table(attrs("#tiaTable"),
-                                            thead(tr(
-                                                    th("Date / time (local)").attr(numberDataType),
-                                                    th("Branch"),
-                                                    th("Commit"),
-                                                    th("Suites ran").attr(numberDataType),
-                                                    th("Ignored").attr(numberDataType),
-                                                    th("Failed").attr(numberDataType),
-                                                    th("Duration").attr(numberDataType),
-                                                    th("Savings").attr(numberDataType),
-                                                    th("Savings %").attr(numberDataType),
-                                                    th("Updated Mapping?").withStyle("width: 8em"),
-                                                    th("Id")
-                                            )),
-                                            tbody(each(history, this::buildRow))
+                                            thead(buildHeaderRow(numberDataType, showDistributed)),
+                                            tbody(each(history, entry -> buildRow(entry, showDistributed)))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
@@ -133,14 +125,67 @@ public class HtmlHistoryReport {
     }
 
     /**
+     * Report whether any row in the history describes a distributed build, which is what decides
+     * whether the wall clock and group columns are rendered at all.
+     *
+     * @param history the history rows about to be rendered; may be null
+     * @return true when at least one row carries a distributed run's group count
+     */
+    private boolean anyDistributed(List<TestRunHistoryEntry> history) {
+        if (history == null) {
+            return false;
+        }
+        for (TestRunHistoryEntry entry : history) {
+            if (entry.getGroupCount() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Build the table's header row for the layout in use. The two distributed columns sit next to
+     * Duration, since the reason they exist is to be read against it: Duration is the
+     * serial-equivalent time the build would have taken unsplit and the figure savings come from,
+     * while Wall clock is what the build actually took.
+     *
+     * @param numberDataType the {@code data-type} attribute simple-datatables sorts numerically by
+     * @param showDistributed whether the wall clock and group columns are being rendered
+     * @return the {@code <tr>} of header cells
+     */
+    private DomContent buildHeaderRow(String numberDataType, boolean showDistributed) {
+        List<DomContent> cells = new ArrayList<>();
+        cells.add(th("Date / time (local)").attr(numberDataType));
+        cells.add(th("Branch"));
+        cells.add(th("Commit"));
+        cells.add(th("Suites ran").attr(numberDataType));
+        cells.add(th("Ignored").attr(numberDataType));
+        cells.add(th("Failed").attr(numberDataType));
+        cells.add(th("Duration").attr(numberDataType));
+        if (showDistributed) {
+            cells.add(th("Wall clock").attr(numberDataType));
+            cells.add(th("Groups").attr(numberDataType));
+        }
+        cells.add(th("Savings").attr(numberDataType));
+        cells.add(th("Savings %").attr(numberDataType));
+        cells.add(th("Updated Mapping?").withStyle("width: 8em"));
+        cells.add(th("Id"));
+        return tr(cells.toArray(new DomContent[0]));
+    }
+
+    /**
      * Build a single table row for one history entry. The Date / time cell carries the UTC
      * epoch ms in {@code data-epoch-ms} and {@code data-sort} so the inline localization
      * script and simple-datatables both have what they need.
      *
+     * <p>A single-host row rendered in a mixed history dashes the two distributed cells rather than
+     * showing zeros, which would read as a build that took no time and used no groups.
+     *
      * @param entry the history entry to render as a row
+     * @param showDistributed whether the wall clock and group columns are being rendered
      * @return the {@code <tr>} content for this entry
      */
-    private DomContent buildRow(TestRunHistoryEntry entry) {
+    private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed) {
         long ms = entry.getRunTimestampMs();
         // Fallback text shown only when the localizer script doesn't run (JS disabled). Truncate
         // to whole seconds and drop the UTC 'Z' so the displayed text matches the no-ms /
@@ -150,29 +195,38 @@ public class HtmlHistoryReport {
                 .toLocalDateTime()
                 .withNano(0)
                 .toString();
-        return tr(
-                td(rawHtml("<time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>"))
-                        .attr("data-sort", String.valueOf(ms)),
-                td(text(entry.getBranch() == null ? "" : entry.getBranch())),
-                // title on a span inside the td so the tooltip survives simple-datatables
-                // re-rendering the row chrome on sort/page changes.
-                td(span(firstEightChars(entry.getCommit()))
-                        .attr("title", entry.getCommit() == null ? "" : entry.getCommit())),
-                td(String.valueOf(entry.getNumSuitesRan())),
-                td(String.valueOf(entry.getNumSuitesIgnored())),
-                td(String.valueOf(entry.getNumSuitesFailed())),
-                td(ReportUtils.prettyDuration(entry.getDurationMs(), true))
-                        .attr("data-sort", String.valueOf(entry.getDurationMs())),
-                td(entry.getTimeSavingsMs() > 0 ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-")
-                        .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())),
-                td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
-                        .attr("data-sort", String.valueOf(entry.getSavingsPercent())),
-                td(entry.isUpdatedDbMapping() ? "yes" : "no"),
-                // title on a span inside the td so the tooltip survives simple-datatables
-                // re-rendering the row chrome on sort/page changes.
-                td(span(firstEightChars(entry.getId()))
-                        .attr("title", entry.getId() == null ? "" : entry.getId()))
-        );
+        List<DomContent> cells = new ArrayList<>();
+        cells.add(td(rawHtml("<time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>"))
+                .attr("data-sort", String.valueOf(ms)));
+        cells.add(td(text(entry.getBranch() == null ? "" : entry.getBranch())));
+        // title on a span inside the td so the tooltip survives simple-datatables
+        // re-rendering the row chrome on sort/page changes.
+        cells.add(td(span(firstEightChars(entry.getCommit()))
+                .attr("title", entry.getCommit() == null ? "" : entry.getCommit())));
+        cells.add(td(String.valueOf(entry.getNumSuitesRan())));
+        cells.add(td(String.valueOf(entry.getNumSuitesIgnored())));
+        cells.add(td(String.valueOf(entry.getNumSuitesFailed())));
+        cells.add(td(ReportUtils.prettyDuration(entry.getDurationMs(), true))
+                .attr("data-sort", String.valueOf(entry.getDurationMs())));
+        if (showDistributed) {
+            long wallClockMs = entry.getWallClockMs() == null ? 0L : entry.getWallClockMs().longValue();
+            cells.add(td(entry.getWallClockMs() == null
+                    ? "-" : ReportUtils.prettyDuration(wallClockMs, true))
+                    .attr("data-sort", String.valueOf(wallClockMs)));
+            cells.add(td(entry.getGroupCount() == null ? "-" : entry.getGroupCount().toString())
+                    .attr("data-sort", entry.getGroupCount() == null
+                            ? "0" : entry.getGroupCount().toString()));
+        }
+        cells.add(td(entry.getTimeSavingsMs() > 0 ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-")
+                .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())));
+        cells.add(td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
+                .attr("data-sort", String.valueOf(entry.getSavingsPercent())));
+        cells.add(td(entry.isUpdatedDbMapping() ? "yes" : "no"));
+        // title on a span inside the td so the tooltip survives simple-datatables
+        // re-rendering the row chrome on sort/page changes.
+        cells.add(td(span(firstEightChars(entry.getId()))
+                .attr("title", entry.getId() == null ? "" : entry.getId())));
+        return tr(cells.toArray(new DomContent[0]));
     }
 
     /**

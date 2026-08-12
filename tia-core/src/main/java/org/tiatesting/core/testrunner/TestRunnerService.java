@@ -78,8 +78,8 @@ public class TestRunnerService {
             // One runner of a distributed build persists only its own share and stops. Everything
             // that describes the whole build - the catalogue, the seal, the commit stamp and the
             // history row - belongs to whichever runner finishes last.
-            persistDistributedRunnerData(updateDBMapping, updateDBStats, commitValue, branch,
-                    durationMs, testRunResult, distributedRunnerContext);
+            persistDistributedRunnerData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+                    commitValue, branch, durationMs, testRunResult, distributedRunnerContext);
             return;
         }
 
@@ -154,7 +154,10 @@ public class TestRunnerService {
      * written with its mapping rows as usual.
      *
      * @param updateDBMapping should the test-suite to source-code mapping be updated
-     * @param updateDBStats should the per-suite run stats be updated
+     * @param updateDBStats should the per-suite run stats be updated. The Tia-level stats are
+     *                      handed on to the seal instead, since they describe the whole build
+     * @param updateDBTestRunHistory should the build write a history row. Handed on to the seal
+     *                               unchanged: the build's one row is the sealer's to write
      * @param commitValue the VCS commit / changelist the build ran against, handed on to the seal
      *                    this runner performs if it turns out to be the last one to finish
      * @param branch the VCS branch the build targeted, likewise handed on to the seal
@@ -166,6 +169,7 @@ public class TestRunnerService {
      *                                 holds; a context that claimed no group persists nothing
      */
     private void persistDistributedRunnerData(final boolean updateDBMapping, final boolean updateDBStats,
+                                              final boolean updateDBTestRunHistory,
                                               final String commitValue, final String branch,
                                               final long durationMs, final TestRunResult testRunResult,
                                               final DistributedRunnerContext distributedRunnerContext){
@@ -209,8 +213,9 @@ public class TestRunnerService {
             runnerPersist.stageMethodTrackers(testRunResult.getMethodTrackersFromTestRun());
         }
 
-        // 4. No history row: one distributed build produces one aggregated row, written by the
-        //    sealer, rather than one row per runner.
+        // 4. No history row and no core row: one distributed build produces one aggregated history
+        //    row and one set of Tia-level stats, both written by the sealer from the figures every
+        //    group recorded, rather than one of each per runner.
 
         // 5. Completion last - it releases the barrier, so every write above must already be done.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
@@ -227,7 +232,8 @@ public class TestRunnerService {
         //    this is the only moment at which a runner can be the last one to finish. All but one
         //    lose and return having done nothing.
         new DistributedRunSealer(dataStore, distributedRunnerContext)
-                .sealIfElected(commitValue, branch, updateDBMapping, System.currentTimeMillis());
+                .sealIfElected(commitValue, branch, updateDBMapping, updateDBStats,
+                        updateDBTestRunHistory, System.currentTimeMillis());
     }
 
     /**

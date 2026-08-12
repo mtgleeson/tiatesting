@@ -26,6 +26,12 @@ import java.util.List;
  * ...
  * </pre>
  *
+ * <p>When any row in view describes a distributed build, two further columns appear after
+ * {@code Duration}: {@code Wall clock} (what the build actually took - its slowest group) and
+ * {@code Groups}. {@code Duration} keeps the serial-equivalent time in both modes, so it stays the
+ * figure savings are computed from and stays comparable across the two. A history with no
+ * distributed runs in it renders neither column, and single-host rows in a mixed history dash them.
+ *
  * <p>When the input list is empty, the formatter returns the single sentence
  * {@code "No Tia test run history recorded yet."} (no header, no table).
  *
@@ -50,6 +56,24 @@ public final class TestRunHistoryConsoleFormatter {
             false, false, false, true, true, true, false, false, true, false, false
     };
 
+    /**
+     * The same columns plus the two a distributed build adds: the wall clock it actually took
+     * (its slowest group) and how many groups it was split across. Duration stays the
+     * serial-equivalent time in both modes, so the two columns read as "what it cost" and "what you
+     * waited for" rather than competing for the same meaning.
+     */
+    private static final String[] DISTRIBUTED_HEADERS = {
+            "Date/time", "Branch", "Commit", "Ran", "Ignored", "Failed",
+            "Duration", "Wall clock", "Groups", "Savings", "Savings %", "Mapping", "Id"
+    };
+
+    private static final boolean[] DISTRIBUTED_RIGHT_ALIGN = {
+            false, false, false, true, true, true, false, false, true, false, true, false, false
+    };
+
+    /** Rendered in a distributed column of a single-host row, which has no such value. */
+    private static final String NOT_APPLICABLE = "-";
+
     private TestRunHistoryConsoleFormatter() { }
 
     /**
@@ -71,64 +95,98 @@ public final class TestRunHistoryConsoleFormatter {
         int rowCount = Math.min(effectiveLimit, total);
         List<TestRunHistoryEntry> visible = entries.subList(0, rowCount);
 
+        // The two distributed columns are only worth the width when something in view is a
+        // distributed build; on a project that does not distribute its tests they would be a dash
+        // on every row, so the table stays exactly as it was.
+        boolean showDistributed = anyDistributed(visible);
+        String[] headers = showDistributed ? DISTRIBUTED_HEADERS : HEADERS;
+        boolean[] rightAlign = showDistributed ? DISTRIBUTED_RIGHT_ALIGN : RIGHT_ALIGN;
+
         List<String[]> rows = new ArrayList<>(visible.size());
         ZoneId zone = ZoneId.systemDefault();
         for (TestRunHistoryEntry e : visible) {
-            rows.add(toRow(e, zone));
+            rows.add(toRow(e, zone, showDistributed));
         }
 
-        int[] widths = computeColumnWidths(rows);
+        int[] widths = computeColumnWidths(headers, rows);
 
         StringBuilder sb = new StringBuilder();
         sb.append("Displaying the latest ").append(rowCount)
                 .append(" test runs from a total of ").append(total).append(".").append(lineSep);
         sb.append(lineSep);
 
-        appendRow(sb, HEADERS, widths, lineSep);
+        appendRow(sb, headers, widths, rightAlign, lineSep);
         appendSeparator(sb, widths, lineSep);
         for (String[] row : rows) {
-            appendRow(sb, row, widths, lineSep);
+            appendRow(sb, row, widths, rightAlign, lineSep);
         }
 
         return sb.toString();
     }
 
     /**
-     * Build the array of column values for a single entry, in the same order as {@link #HEADERS}.
+     * Report whether any visible row describes a distributed build, which is what decides between
+     * the two column layouts.
+     *
+     * @param entries the rows about to be rendered
+     * @return true when at least one row carries a distributed run's group count
+     */
+    private static boolean anyDistributed(List<TestRunHistoryEntry> entries) {
+        for (TestRunHistoryEntry entry : entries) {
+            if (entry.getGroupCount() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Build the array of column values for a single entry, in the same order as the header layout
+     * in use. A single-host row rendered in the distributed layout dashes the two extra columns
+     * rather than showing zeros, which would read as a build that took no time and used no groups.
      *
      * @param e    the history entry
      * @param zone the time zone used to render {@code runTimestampMs}
-     * @return an 11-element array of strings ready to be width-padded and emitted
+     * @param showDistributed whether the wall clock and group columns are being rendered
+     * @return the row's cells, ready to be width-padded and emitted
      */
-    private static String[] toRow(TestRunHistoryEntry e, ZoneId zone) {
+    private static String[] toRow(TestRunHistoryEntry e, ZoneId zone, boolean showDistributed) {
         String dateTime = Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone)
                 .format(LOCAL_DATE_TIME);
         boolean hasSavings = e.getTimeSavingsMs() > 0;
-        return new String[] {
-                dateTime,
-                nullSafe(e.getBranch()),
-                truncate(nullSafe(e.getCommit()), TRUNCATE_LEN),
-                Integer.toString(e.getNumSuitesRan()),
-                Integer.toString(e.getNumSuitesIgnored()),
-                Integer.toString(e.getNumSuitesFailed()),
-                ReportUtils.prettyDuration(e.getDurationMs(), true),
-                hasSavings ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : "-",
-                hasSavings ? e.getSavingsPercent() + "%" : "-",
-                e.isUpdatedDbMapping() ? "yes" : "no",
-                truncate(nullSafe(e.getId()), TRUNCATE_LEN)
-        };
+        List<String> cells = new ArrayList<>(DISTRIBUTED_HEADERS.length);
+        cells.add(dateTime);
+        cells.add(nullSafe(e.getBranch()));
+        cells.add(truncate(nullSafe(e.getCommit()), TRUNCATE_LEN));
+        cells.add(Integer.toString(e.getNumSuitesRan()));
+        cells.add(Integer.toString(e.getNumSuitesIgnored()));
+        cells.add(Integer.toString(e.getNumSuitesFailed()));
+        cells.add(ReportUtils.prettyDuration(e.getDurationMs(), true));
+        if (showDistributed) {
+            cells.add(e.getWallClockMs() != null
+                    ? ReportUtils.prettyDuration(e.getWallClockMs().longValue(), true)
+                    : NOT_APPLICABLE);
+            cells.add(e.getGroupCount() != null
+                    ? e.getGroupCount().toString() : NOT_APPLICABLE);
+        }
+        cells.add(hasSavings ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : NOT_APPLICABLE);
+        cells.add(hasSavings ? e.getSavingsPercent() + "%" : NOT_APPLICABLE);
+        cells.add(e.isUpdatedDbMapping() ? "yes" : "no");
+        cells.add(truncate(nullSafe(e.getId()), TRUNCATE_LEN));
+        return cells.toArray(new String[0]);
     }
 
     /**
      * Compute per-column max widths across the header labels and all data rows.
      *
-     * @param rows the populated data rows (each the same length as {@link #HEADERS})
+     * @param headers the header labels of the layout in use
+     * @param rows the populated data rows (each the same length as {@code headers})
      * @return an array of column widths, one per header column
      */
-    private static int[] computeColumnWidths(List<String[]> rows) {
-        int[] widths = new int[HEADERS.length];
-        for (int i = 0; i < HEADERS.length; i++) {
-            widths[i] = HEADERS[i].length();
+    private static int[] computeColumnWidths(String[] headers, List<String[]> rows) {
+        int[] widths = new int[headers.length];
+        for (int i = 0; i < headers.length; i++) {
+            widths[i] = headers[i].length();
         }
         for (String[] row : rows) {
             for (int i = 0; i < row.length; i++) {
@@ -147,14 +205,16 @@ public final class TestRunHistoryConsoleFormatter {
      * @param sb      output buffer
      * @param cells   row contents in column order
      * @param widths  per-column widths
+     * @param rightAlign per-column alignment of the layout in use
      * @param lineSep line separator to terminate the row
      */
-    private static void appendRow(StringBuilder sb, String[] cells, int[] widths, String lineSep) {
+    private static void appendRow(StringBuilder sb, String[] cells, int[] widths,
+                                  boolean[] rightAlign, String lineSep) {
         for (int i = 0; i < cells.length; i++) {
             if (i > 0) {
                 sb.append("  ");
             }
-            sb.append(pad(cells[i], widths[i], RIGHT_ALIGN[i]));
+            sb.append(pad(cells[i], widths[i], rightAlign[i]));
         }
         sb.append(lineSep);
     }

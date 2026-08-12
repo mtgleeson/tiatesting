@@ -3,10 +3,15 @@ package org.tiatesting.core.distributed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.SealedRunDataAssembler;
+import org.tiatesting.core.report.ReportUtils;
 
 import java.time.Instant;
 import java.util.Map;
@@ -38,6 +43,16 @@ import java.util.Map;
  * nothing distinguishes the two after the fact. A straggler sealer that proceeded anyway would find
  * the staging table empty - the superseding plan write cleared it - resolve every method id from the
  * stored catalogue, and silently drop from the catalogue every id the stored catalogue lacks.
+ *
+ * <p><b>Why the whole build's stats and history are the sealer's job too.</b> A distributed runner
+ * writes no {@code tia_core} row at all, even when the build updates stats, because the commit stamp
+ * and the Tia-level stats share that row and the stamp belongs here. So this is the only place the
+ * build's stats can be recorded, and it records them once, from the figures its groups add up to -
+ * otherwise a distributed build would silently stop moving the Tia-level counters with nothing
+ * failing to say so. The same applies to the history row, and to the all-tests-run baseline savings
+ * are measured against: a single-host run advances that baseline only when it ignored zero suites,
+ * and no runner in a split build ever does, so the union check here is what keeps the baseline
+ * moving once a project distributes its tests.
  *
  * <p>See the distributed test runs chapter in {@code WIKI.md} for the lifecycle this closes.
  */
@@ -74,12 +89,17 @@ public final class DistributedRunSealer {
      * @param updateDBMapping whether this build owns mapping-DB updates. When false there is
      *                        nothing to seal - no runner staged anything and no commit may be
      *                        advanced - but the run is still retired
+     * @param updateDBStats whether the Tia-level run stats should be updated. Only this runner can
+     *                      do it for the build, since a distributed runner writes no core row
+     * @param updateDBTestRunHistory whether the build should write its one row to
+     *                               {@code tia_test_run_history}
      * @param sealedAtMs UTC epoch millis to record as the election time
      * @return true when this runner won the election and performed the seal, false when it did
      *         nothing
      */
     public boolean sealIfElected(final String commitValue, final String branch,
-                                 final boolean updateDBMapping, final long sealedAtMs) {
+                                 final boolean updateDBMapping, final boolean updateDBStats,
+                                 final boolean updateDBTestRunHistory, final long sealedAtMs) {
         if (!dataStore.electSealer(context.getRunId(), context.getRunnerKey(), sealedAtMs)) {
             log.debug("Distributed run '{}': runner '{}' is not the sealer, so it is done.",
                     context.getRunId(), context.getRunnerKey());
@@ -89,11 +109,11 @@ public final class DistributedRunSealer {
         log.info("Distributed run '{}': runner '{}' finished last and was elected to seal the build.",
                 context.getRunId(), context.getRunnerKey());
 
-        if (updateDBMapping) {
-            sealMapping(commitValue, branch);
+        if (updateDBMapping || updateDBStats || updateDBTestRunHistory) {
+            recordBuild(commitValue, branch, updateDBMapping, updateDBStats, updateDBTestRunHistory);
         } else {
-            log.info("Distributed run '{}': the build does not own mapping updates, so there is "
-                    + "nothing to seal.", context.getRunId());
+            log.info("Distributed run '{}': the build updates neither the mapping, the stats nor "
+                    + "the history, so there is nothing to record.", context.getRunId());
         }
 
         // The run is retired whether or not it owned mapping updates. The staging table is roughly
@@ -105,17 +125,79 @@ public final class DistributedRunSealer {
     }
 
     /**
-     * Write the build's seal: the method catalogue rebuilt from every runner's observations, the
-     * library drain cleanup the plan recorded, and the commit value, in the one transaction
-     * {@link DataStore#persistSealedRunData} provides. The catalogue's line numbers only mean
-     * anything in one commit's coordinate space, so they and the commit value cannot be allowed to
-     * land separately.
+     * Record everything that describes the build as a whole rather than any one runner: the seal
+     * itself, the Tia-level run stats, and the single history row. All three are driven by the same
+     * two derived values - the totals its groups add up to, and whether those groups between them
+     * covered every tracked suite - so they are derived once here and shared, rather than each
+     * being worked out separately and risking disagreement about what the build did.
      *
      * @param commitValue the commit being sealed
      * @param branch the branch being sealed
+     * @param updateDBMapping whether this build owns mapping-DB updates
+     * @param updateDBStats whether the Tia-level run stats should be updated
+     * @param updateDBTestRunHistory whether the build should write its history row
      */
-    private void sealMapping(final String commitValue, final String branch) {
+    private void recordBuild(final String commitValue, final String branch,
+                             final boolean updateDBMapping, final boolean updateDBStats,
+                             final boolean updateDBTestRunHistory) {
+        DistributedRunTotals totals =
+                DistributedRunTotals.from(dataStore.readDistributedRunGroups(context.getRunId()));
+        int ignoredSuiteCount = ignoredSuiteCount(totals);
+
+        // The all-tests-run test a single-host run applies is "Tia ignored zero suites this run".
+        // The same question for a build split across runners can only be asked of the groups
+        // together, which is what makes it the sealer's to answer. A build in which no group ran
+        // anything is excluded: folding it into the full-suite baseline would drive that baseline,
+        // and every later savings figure, towards nothing.
+        boolean allTestsRun = totals.getSuitesRan() > 0 && ignoredSuiteCount == 0;
+
         TiaData tiaData = dataStore.getTiaCore();
+        seal(tiaData, commitValue, branch, updateDBMapping, updateDBStats, totals, allTestsRun);
+
+        if (updateDBTestRunHistory) {
+            // The baseline this build's savings are frozen against, read from the same core data
+            // the seal has just updated, exactly as the single-host persist reads it after its own
+            // seal. An all-tests build saves nothing by definition, so the ordering only matters
+            // for a partial build, and a partial build does not move the baseline.
+            persistBuildHistory(commitValue, branch, updateDBMapping, totals, ignoredSuiteCount,
+                    allTestsRun, tiaData.getTestStats().getAllTestsRunTime());
+        }
+    }
+
+    /**
+     * Write the build's seal: the method catalogue rebuilt from every runner's observations, the
+     * library drain cleanup the plan recorded, the Tia-level run stats aggregated from every group,
+     * and the commit value, in the one transaction {@link DataStore#persistSealedRunData} provides.
+     * The catalogue's line numbers only mean anything in one commit's coordinate space, so they and
+     * the commit value cannot be allowed to land separately.
+     *
+     * <p>A build that does not own mapping updates writes only the core row, which carries the
+     * Tia-level stats but no catalogue, no drain cleanup and no commit advance - the same shape the
+     * single-host stats-only path takes.
+     *
+     * @param tiaData the core data read for this seal, mutated with the commit and stats before
+     *                being written
+     * @param commitValue the commit being sealed
+     * @param branch the branch being sealed
+     * @param updateDBMapping whether this build owns mapping-DB updates
+     * @param updateDBStats whether the Tia-level run stats should be updated
+     * @param totals the figures the build's groups add up to
+     * @param allTestsRun whether the groups between them ran every tracked suite
+     */
+    private void seal(final TiaData tiaData, final String commitValue, final String branch,
+                      final boolean updateDBMapping, final boolean updateDBStats,
+                      final DistributedRunTotals totals, final boolean allTestsRun) {
+        if (updateDBStats) {
+            tiaData.incrementStats(buildRunStats(totals), allTestsRun);
+        }
+
+        if (!updateDBMapping) {
+            log.info("Distributed run '{}': the build does not own mapping updates, so there is "
+                    + "nothing to seal.", context.getRunId());
+            dataStore.persistCoreData(tiaData);
+            return;
+        }
+
         tiaData.setCommitValue(commitValue);
         tiaData.setBranch(branch);
         tiaData.setLastUpdated(Instant.now());
@@ -132,15 +214,101 @@ public final class DistributedRunSealer {
         LibraryImpactDrainResult drainResult =
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
-        // Not treated as an all-tests run: a distributed build splits its selection across groups,
-        // so no runner ignores zero suites and the union is worked out from the completed groups by
-        // the stage that aggregates the build's stats. Reporting false here only holds library
-        // mapping baselines at their existing commit, which over-selects on the next build rather
-        // than under-selecting.
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
-                stagedMethodTrackers, drainResult, commitValue, false));
+                stagedMethodTrackers, drainResult, commitValue, allTestsRun));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
+    }
+
+    /**
+     * Write the one history row a distributed build produces, in place of the row per runner that
+     * would otherwise multiply the history - and every savings total computed from it - by the
+     * build's fan-out.
+     *
+     * <p>The row's duration is the serial-equivalent time, so it means the same thing as the
+     * duration on the single-host rows either side of it and the savings frozen onto it stay
+     * comparable with theirs. The wall clock the build actually took is carried in its own column
+     * alongside. The row is stamped with the time the run was planned rather than with any runner's
+     * own start time, since that is the one timestamp every runner in the build shares.
+     *
+     * @param commitValue the commit the build ran against
+     * @param branch the branch the build ran against
+     * @param updateDBMapping whether the build persisted mapping updates, stamped on the row
+     * @param totals the figures the build's groups add up to
+     * @param ignoredSuiteCount the tracked suites the build did not run
+     * @param allTestsRun whether the groups between them ran every tracked suite, which is what
+     *                    makes this build's savings zero
+     * @param allTestsRunTimeMs the full-suite baseline to freeze this build's savings against
+     */
+    private void persistBuildHistory(final String commitValue, final String branch,
+                                     final boolean updateDBMapping, final DistributedRunTotals totals,
+                                     final int ignoredSuiteCount, final boolean allTestsRun,
+                                     final long allTestsRunTimeMs) {
+        DistributedRun run = dataStore.readDistributedRun(context.getRunId());
+        long runTimestampMs = run != null ? run.getCreatedAtMs() : System.currentTimeMillis();
+
+        long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
+                totals.getSerialDurationMs(), allTestsRun);
+        int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
+
+        TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(branch, commitValue,
+                context.getRunId(), runTimestampMs, totals.getSuitesRan(), ignoredSuiteCount,
+                totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
+                timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount());
+        dataStore.persistTestRunHistoryEntry(entry);
+
+        log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
+                        + "ignored={}, failed={}, serialMs={}, wallClockMs={}, savingsMs={}).",
+                context.getRunId(), entry.getId(), totals.getGroupCount(), totals.getSuitesRan(),
+                ignoredSuiteCount, totals.getSuitesFailed(), totals.getSerialDurationMs(),
+                totals.getWallClockMs(), timeSavingsMs);
+    }
+
+    /**
+     * How many tracked suites the build did not run - Tia's selection decision for the build as a
+     * whole, and the same quantity a single-host run reports from its selector's ignore list.
+     *
+     * <p>Counted rather than resolved by name because the plan's group suite lists are not the
+     * answer on their own: a seed run is planned as a single group with <em>no</em> suite names at
+     * all (its runner ignores nothing and runs everything), so a name-based union would report a
+     * seed run - the very run that must establish the baseline - as having covered nothing. The
+     * groups partition the selection, so no suite is counted twice and the sum of what they ran is
+     * the size of the union.
+     *
+     * <p>Suites the developer disabled in source are excluded, matching {@code
+     * TestSelector.getTestsToIgnore}: they would not run without Tia either, so counting them would
+     * hold the all-tests baseline down permanently in any project that has one.
+     *
+     * @param totals the figures the build's groups add up to
+     * @return the number of tracked, non-developer-disabled suites the build did not run; never
+     *         negative
+     */
+    private int ignoredSuiteCount(final DistributedRunTotals totals) {
+        int selectableSuites = 0;
+        for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
+            if (!tracker.isDeveloperDisabled()) {
+                selectableSuites++;
+            }
+        }
+        return Math.max(0, selectableSuites - totals.getSuitesRan());
+    }
+
+    /**
+     * Build the run stats the whole build contributes to the Tia-level counters: one run, taking
+     * the serial-equivalent time, that succeeded only if no group reported a failed suite. This is
+     * the shape a single-host run reports for itself, so a project's stats read the same either
+     * side of the point where it switched distributed mode on.
+     *
+     * @param totals the figures the build's groups add up to
+     * @return the stats to fold into the core row
+     */
+    private TestStats buildRunStats(final DistributedRunTotals totals) {
+        TestStats stats = new TestStats();
+        stats.setNumRuns(1);
+        stats.setAvgRunTime(totals.getSerialDurationMs());
+        stats.setNumSuccessRuns(totals.getSuitesFailed() == 0 ? 1 : 0);
+        stats.setNumFailRuns(totals.getSuitesFailed() == 0 ? 0 : 1);
+        return stats;
     }
 }
