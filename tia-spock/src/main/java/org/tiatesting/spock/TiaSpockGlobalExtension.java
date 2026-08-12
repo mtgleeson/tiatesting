@@ -7,6 +7,7 @@ import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.persistence.DataStore;
@@ -100,6 +101,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
             Set<String> testsToRun;
             LibraryImpactDrainResult drainResult;
+            // Null for an ordinary build, which is what keeps its persist on the single-host flow
+            // it has always taken.
+            DistributedRunnerContext distributedRunnerContext = null;
 
             if (distributedRunConfig != null){
                 // A distributed runner claims its share of an existing plan instead of selecting.
@@ -111,6 +115,12 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 ignoredTests = assignment.getTestsToIgnore();
                 testsToRun = assignment.getTestsToRun();
                 drainResult = null;
+                // Converted from the claim just made, never re-derived: claiming again would take a
+                // second group and leave this one open forever, so the run would never seal. A
+                // surplus runner converts too, into a context holding no group - what it must not
+                // become is a null one, which would put it on the single-host path where it would
+                // seal a build whose other runners are still going.
+                distributedRunnerContext = assignment.toRunnerContext(distributedRunConfig.getRunId());
             } else {
                 // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
                 // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When
@@ -135,7 +145,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testsToRun,
                         ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory,
-                        drainResult);
+                        drainResult, distributedRunnerContext);
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;

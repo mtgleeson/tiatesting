@@ -120,6 +120,28 @@ public final class DistributedRunnerAssignment {
      */
     public String getRunnerKey() { return runnerKey; }
 
+    /**
+     * Convert this assignment into the context the runner's persist is driven from, so a build
+     * tool that claims and persists in the same JVM - Gradle/Spock - carries the claim it already
+     * made rather than making a second one. Re-deriving a context by claiming again would take
+     * another group, leave this one open forever, and the run would never seal.
+     *
+     * <p>A surplus runner converts too, into a context holding no group. That is deliberately not
+     * the same thing as no context: a null context is what an ordinary single-host run passes, and
+     * it would have this runner rebuild the method catalogue and stamp the commit for a build whose
+     * other runners are still going.
+     *
+     * @param runId the run this assignment was claimed from, which the context is keyed by; the
+     *              assignment does not carry it because the claim was made against a configuration
+     *              the caller already holds
+     * @return the context for this runner's persist, claimed or surplus
+     */
+    public DistributedRunnerContext toRunnerContext(final String runId) {
+        return groupNumber == null
+                ? DistributedRunnerContext.surplusRunner(runId, runnerKey)
+                : DistributedRunnerContext.forClaimedGroup(runId, runnerKey, groupNumber.intValue());
+    }
+
     /** @return the suite names this runner must not execute; every suite when it claimed no group */
     public Set<String> getTestsToIgnore() { return testsToIgnore; }
 

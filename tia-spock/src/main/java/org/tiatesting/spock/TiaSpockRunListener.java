@@ -7,6 +7,7 @@ import org.spockframework.runtime.model.ErrorInfo;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -41,10 +42,16 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final boolean updateDBTestRunHistory;
     private final SpecificationUtil specificationUtil;
     private final LibraryImpactDrainResult libraryImpactDrainResult;
+    private final DistributedRunnerContext distributedRunnerContext;
     private boolean stopStepRan;
 
     /**
      * Construct the Spock run listener.
+     *
+     * <p>The distributed context is handed in rather than resolved here, and it must be the one
+     * built from the assignment the extension already claimed. A Gradle runner claims inside this
+     * same test JVM, so re-deriving it here would claim a second group, leave the first one open
+     * forever and the run would never seal.
      *
      * @param vcsReader               VCS reader (provides branch + head commit; closed here)
      * @param dataStore               persistence backend
@@ -55,12 +62,16 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * @param updateDBStats           persist run stats
      * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
      * @param libraryImpactDrainResult drain result from selection (may be {@code null})
+     * @param distributedRunnerContext the run id, runner identity and claimed group when this build
+     *                                 is one runner of a distributed run, or {@code null} for an
+     *                                 ordinary single-host build
      */
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final int ignoredTestSuiteCount,
                                final boolean updateDBMapping, final boolean updateDBStats,
                                final boolean updateDBTestRunHistory,
-                               final LibraryImpactDrainResult libraryImpactDrainResult){
+                               final LibraryImpactDrainResult libraryImpactDrainResult,
+                               final DistributedRunnerContext distributedRunnerContext){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
@@ -75,6 +86,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.updateDBStats = updateDBStats;
         this.updateDBTestRunHistory = updateDBTestRunHistory;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
+        this.distributedRunnerContext = distributedRunnerContext;
         this.headCommit = vcsReader.getHeadCommit();
         this.branch = vcsReader.getBranchName();
 
@@ -148,6 +160,17 @@ public class TiaSpockRunListener extends AbstractRunListener {
         testSuitesProcessed.add(specName); // this method is called twice for some reason - avoid processing it twice.
     }
 
+    /**
+     * Persist everything this test JVM accumulated, once the Spock global extension reports that
+     * every spec has finished. An ordinary build persists as a single host; a distributed runner
+     * persists only its own share, completes its group and seals the build only if it turns out to
+     * be the last runner to finish.
+     *
+     * @param runnerTestSuites every suite the runner discovered, executed or skipped, used to spot
+     *                         suites that have been deleted since the last run
+     * @param testRunStartTime UTC epoch millis when the test run started, used as both the history
+     *                         row's timestamp and the duration baseline
+     */
     public void finishAllTests(Set<String> runnerTestSuites, long testRunStartTime){
         if (stopStepRan){
             return;
@@ -163,10 +186,12 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount,
                 testSuiteTrackers.size());
-        // No distributed runner context: this listener persists as a single host, so the persist
-        // takes the ordinary flow - suite mapping, failed set, seal and history row.
+        // Null context on an ordinary build, which persists as a single host - suite mapping,
+        // failed set, seal and history row. A distributed runner instead persists only its own
+        // share and completes its group, and seals the build only if it turns out to be the last
+        // runner to finish.
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
-                headCommit, branch, testRunStartTime, testRunResult, null);
+                headCommit, branch, testRunStartTime, testRunResult, distributedRunnerContext);
     }
 
     private TestStats updateStatsForTestRun(final long testRunStartTime){

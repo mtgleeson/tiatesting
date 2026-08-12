@@ -295,4 +295,53 @@ class DistributedRunnerAssignmentTest {
         assertTrue(assignment.getTestsToIgnore().isEmpty(), assignment.getTestsToIgnore().toString());
         assertTrue(assignment.getTestsToRun().isEmpty(), assignment.getTestsToRun().toString());
     }
+
+    /**
+     * Verify a claimed assignment converts into the context its persist is driven from, carrying
+     * the identity the claim was actually recorded under and the group it won. A Gradle runner
+     * claims and persists in the same JVM, so it converts the assignment it already holds rather
+     * than claiming a second time - re-deriving here would take another group and leave the first
+     * one open forever.
+     */
+    @Test
+    void shouldConvertAClaimedAssignmentIntoTheContextItsPersistUses() {
+        // given
+        persistPlan("run-context", "commit-1", twoGroupAssignment());
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
+                config("run-context", "runner-a"), "commit-1", 4242L);
+
+        // when
+        DistributedRunnerContext context = assignment.toRunnerContext("run-context");
+
+        // then
+        assertTrue(context.isClaimed());
+        assertEquals("run-context", context.getRunId());
+        assertEquals("runner-a", context.getRunnerKey());
+        assertEquals(assignment.getGroupNumber(), context.getGroupNumber());
+    }
+
+    /**
+     * Verify a surplus runner's assignment converts into a context holding no group rather than
+     * into no context at all. A null context would put it on the single-host persist, where it
+     * would rebuild the catalogue and seal a build whose other runners are still going.
+     */
+    @Test
+    void shouldConvertASurplusAssignmentIntoAGrouplessContext() {
+        // given - both groups already claimed by other runners
+        persistPlan("run-context-surplus", "commit-1", twoGroupAssignment());
+        DistributedRunnerAssignment.claim(dataStore, config("run-context-surplus", "runner-a"),
+                "commit-1", 1L);
+        DistributedRunnerAssignment.claim(dataStore, config("run-context-surplus", "runner-b"),
+                "commit-1", 2L);
+        DistributedRunnerAssignment surplus = DistributedRunnerAssignment.claim(dataStore,
+                config("run-context-surplus", "runner-c"), "commit-1", 3L);
+
+        // when
+        DistributedRunnerContext context = surplus.toRunnerContext("run-context-surplus");
+
+        // then
+        assertNotNull(context, "a surplus runner is still a distributed runner");
+        assertFalse(context.isClaimed());
+        assertEquals("runner-c", context.getRunnerKey());
+    }
 }

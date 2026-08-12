@@ -7,6 +7,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
@@ -359,13 +360,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put("tiaDBPassword", getTiaDBPassword());
 
         if (assignment != null){
-            props.put("tiaDistributed", String.valueOf(true));
-            props.put("tiaRunId", getTiaRunId());
-            props.put("tiaDistributedRunnerKey", assignment.getRunnerKey());
-            // Absent for a surplus runner, which claimed no group: a group number it does not own
-            // would have the fork report progress for another runner's work.
-            props.put("tiaDistributedGroupNumber", assignment.getGroupNumber() == null
-                    ? null : String.valueOf(assignment.getGroupNumber()));
+            // The property names and the rendering of the values are owned by
+            // DistributedForkProperties, which is also what the forked JVM's listener reads them
+            // back with - so the two halves of this handoff cannot drift apart on a name. A fork
+            // that resolved no context because of a renamed property would silently persist as a
+            // single host and seal a build the other runners are still contributing to.
+            props.putAll(DistributedForkProperties.forkProperties(getTiaRunId(),
+                    assignment.getRunnerKey(), assignment.getGroupNumber()));
         }
 
         String filename = getTiaBuildDir() + "/" + FORK_PROPERTIES_FILENAME;
