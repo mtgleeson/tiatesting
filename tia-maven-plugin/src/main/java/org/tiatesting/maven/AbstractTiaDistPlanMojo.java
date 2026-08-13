@@ -2,6 +2,7 @@ package org.tiatesting.maven;
 
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -53,14 +54,17 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         System.out.println("Planning a distributed Tia test run:");
 
+        List<MavenProject> reactorProjects = getReactorProjects();
         DistributedRunConfig config;
         try {
-            DistributedRunPreconditions.check(isTiaEnabled(), getTiaDBUrl(), getTiaDBDialect(), isTiaCheckLocalChanges());
+            DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
+                    getTiaDBDialect(), isTiaCheckLocalChanges());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
                     getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
                     getTiaDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
-            throw new MojoExecutionException("Distributed run configuration is invalid: " + e.getMessage(), e);
+            throw new MojoExecutionException("Distributed run configuration is invalid: "
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
         }
 
         final VCSReader vcsReader = getVCSReader();
@@ -101,5 +105,48 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     + getTiaBuildDir() + " - the run was still persisted to the database, but the "
                     + "pipeline has no file to read the group count from: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Resolve the Maven projects taking part in the current build, so this goal can reject a
+     * multi-module reactor before opening any datastore - {@code tia-dist-plan} is not bound as an
+     * aggregator, so on a reactor of more than one project it would run once per project and each
+     * project's plan write would clear the previous project's plan from the shared distributed-run
+     * tables. Exposed as its own overridable method, rather than reading {@link #session} inline,
+     * so a unit test can drive {@link #execute()} without constructing a real {@code MavenSession}.
+     *
+     * @return the projects in the current Maven reactor, in build order
+     */
+    protected List<MavenProject> getReactorProjects() {
+        return session.getProjects();
+    }
+
+    /**
+     * Append the reactor's project artifact ids to a precondition failure message when the failure
+     * is the multi-project-reactor rule, so a user reading this goal's console output sees exactly
+     * which modules were found in the reactor - information {@code
+     * DistributedRunPreconditions.check} cannot supply itself, since {@code tia-core} has no Maven
+     * type to name them with. The multi-project rule is checked immediately after the Tia-enabled
+     * rule and does not depend on any other property, so whenever Tia is enabled and the reactor
+     * holds more than one project the message from {@code check} is always this rule's - there is
+     * no need to inspect the message text to tell.
+     *
+     * @param message the failure message from {@code DistributedRunPreconditions.check}
+     * @param reactorProjects the projects {@link #getReactorProjects()} resolved for this build
+     * @return {@code message} unchanged, or with the reactor's project artifact ids appended when
+     *         Tia is enabled and the reactor holds more than one project
+     */
+    private String withReactorProjectNamesIfRelevant(final String message, final List<MavenProject> reactorProjects) {
+        if (!isTiaEnabled() || reactorProjects.size() <= 1) {
+            return message;
+        }
+        StringBuilder names = new StringBuilder();
+        for (MavenProject project : reactorProjects) {
+            if (names.length() > 0) {
+                names.append(", ");
+            }
+            names.append(project.getArtifactId());
+        }
+        return message + " Projects found in this reactor: " + names + ".";
     }
 }

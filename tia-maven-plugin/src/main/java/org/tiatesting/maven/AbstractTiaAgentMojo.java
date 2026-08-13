@@ -215,7 +215,11 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     private DistributedRunConfig validatedDistributedRunConfig() throws MojoExecutionException {
         try {
-            DistributedRunPreconditions.check(isTiaEnabled(), getTiaDBUrl(), getTiaDBDialect(),
+            // The reactor-size rule guards the planning step (tia-dist-plan), which is not bound to
+            // run once across a multi-module build; this goal claims from a plan already persisted
+            // by that step and does not itself plan anything, so it passes 1 to opt out of that rule
+            // rather than duplicating the planner's reactor-size logic here.
+            DistributedRunPreconditions.check(isTiaEnabled(), 1, getTiaDBUrl(), getTiaDBDialect(),
                     isTiaCheckLocalChanges());
             // forRunner, not validated: how the build was split is the planner's decision and is
             // already recorded in the plan being claimed from. Requiring the grouping properties
