@@ -207,7 +207,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * Validate the distributed run properties this runner was given, enforcing the same
      * preconditions and the same configuration rules the planner enforced - a runner pointed at an
      * embedded database cannot see the plan at all, and one that disagreed with the planner about
-     * the run's shape would be claiming from a run nobody planned.
+     * the run's shape would be claiming from a run nobody planned. The reactor-size rule applies
+     * here too: see the inline comment on the {@code check} call for why a claim, not only a plan,
+     * must be rejected on a multi-module reactor.
      *
      * @return the validated distributed run configuration
      * @throws MojoExecutionException if a precondition fails or the configuration is invalid; the
@@ -215,12 +217,15 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     private DistributedRunConfig validatedDistributedRunConfig() throws MojoExecutionException {
         try {
-            // The reactor-size rule guards the planning step (tia-dist-plan), which is not bound to
-            // run once across a multi-module build; this goal claims from a plan already persisted
-            // by that step and does not itself plan anything, so it passes 1 to opt out of that rule
-            // rather than duplicating the planner's reactor-size logic here.
-            DistributedRunPreconditions.check(isTiaEnabled(), 1, getTiaDBUrl(), getTiaDBDialect(),
-                    isTiaCheckLocalChanges());
+            // The reactor-size rule belongs here too, not only on tia-dist-plan: prepare-agent is
+            // bound to the INITIALIZE phase, so Maven runs it once per reactor module rather than
+            // once for the whole build. On a multi-module reactor each module's execution would
+            // claim its own group from the plan, so suites end up assigned to a group whose runner
+            // lives in a different module - nobody runs them, and the build still reports success.
+            // Passing the reactor's real size here, the same way AbstractTiaDistPlanMojo does, lets
+            // DistributedRunPreconditions.check reject that shape before any group is claimed.
+            DistributedRunPreconditions.check(isTiaEnabled(), getReactorProjects().size(), getTiaDBUrl(),
+                    getTiaDBDialect(), isTiaCheckLocalChanges());
             // forRunner, not validated: how the build was split is the planner's decision and is
             // already recorded in the plan being claimed from. Requiring the grouping properties
             // here would make every runner job repeat configuration only the planning job uses, and
