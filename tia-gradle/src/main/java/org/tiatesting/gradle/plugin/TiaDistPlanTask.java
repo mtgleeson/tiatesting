@@ -2,6 +2,7 @@ package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
+import org.gradle.api.Project;
 import org.gradle.api.tasks.TaskAction;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Gradle task that plans a distributed test run: it runs the same test selection a normal build
@@ -79,14 +81,17 @@ public class TiaDistPlanTask extends DefaultTask {
 
         boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
         boolean tiaEnabled = Boolean.TRUE.equals(plugin.getEnabled());
+        Set<Project> reactorProjects = plugin.getReactorProjects();
         DistributedRunConfig config;
         try {
-            DistributedRunPreconditions.check(tiaEnabled, plugin.getDbUrl(), plugin.getDbDialect(), checkLocalChanges);
+            DistributedRunPreconditions.check(tiaEnabled, reactorProjects.size(), plugin.getDbUrl(),
+                    plugin.getDbDialect(), checkLocalChanges);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
                     plugin.getDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
-            throw new GradleException("Distributed run configuration is invalid: " + e.getMessage(), e);
+            throw new GradleException("Distributed run configuration is invalid: "
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), tiaEnabled, reactorProjects), e);
         }
 
         VCSReader vcsReader = plugin.getVCSReader();
@@ -129,5 +134,37 @@ public class TiaDistPlanTask extends DefaultTask {
                     + plugin.getTiaBuildDir() + " - the run was still persisted to the database, but "
                     + "the pipeline has no file to read the group count from: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Append the reactor's project names to a precondition failure message when the failure is the
+     * multi-project rule, so a user reading this task's console output sees exactly which projects
+     * were found in the build - information {@code DistributedRunPreconditions.check} cannot
+     * supply itself, since {@code tia-core} has no Gradle type to name them with. The
+     * multi-project rule is checked immediately after the Tia-enabled rule and does not depend on
+     * any other property, so whenever Tia is enabled and the build holds more than one project the
+     * message from {@code check} is always this rule's - there is no need to inspect the message
+     * text to tell.
+     *
+     * @param message the failure message from {@code DistributedRunPreconditions.check}
+     * @param tiaEnabled the resolved {@code tia.enabled} value this run started {@code check} with
+     * @param reactorProjects the projects {@link TiaBasePlugin#getReactorProjects()} resolved for
+     *                        this build
+     * @return {@code message} unchanged, or with the build's project names appended when Tia is
+     *         enabled and more than one project took part in the build
+     */
+    private static String withReactorProjectNamesIfRelevant(final String message, final boolean tiaEnabled,
+                                                              final Set<Project> reactorProjects) {
+        if (!tiaEnabled || reactorProjects.size() <= 1) {
+            return message;
+        }
+        StringBuilder names = new StringBuilder();
+        for (Project reactorProject : reactorProjects) {
+            if (names.length() > 0) {
+                names.append(", ");
+            }
+            names.append(reactorProject.getName());
+        }
+        return message + " Projects found in this build: " + names + ".";
     }
 }

@@ -72,7 +72,11 @@ public final class DistributedRunSystemProperties {
             return null;
         }
 
-        DistributedRunPreconditions.check(Boolean.parseBoolean(System.getProperty("tiaEnabled")),
+        // The reactor-size rule guards the planning step, which this runner does not perform - it
+        // claims from a plan the planning step already persisted - so 1 opts out of that rule rather
+        // than duplicating the planner's reactor-size logic in a forked test JVM that cannot see the
+        // Gradle multi-project build it belongs to.
+        DistributedRunPreconditions.check(Boolean.parseBoolean(System.getProperty("tiaEnabled")), 1,
                 System.getProperty("tiaDBUrl"), System.getProperty("tiaDBDialect"),
                 Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges")));
 

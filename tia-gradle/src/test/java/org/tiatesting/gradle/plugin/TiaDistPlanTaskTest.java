@@ -105,6 +105,60 @@ class TiaDistPlanTaskTest {
     }
 
     /**
+     * Verify that running the task against a build of more than one project fails fast with a
+     * {@link GradleException} naming the project count and every project found, before any
+     * datastore is opened - {@code tia-dist-plan} is not bound to run only once across a
+     * multi-project build, so each project's plan write would clear the previous project's plan
+     * from the shared distributed-run tables.
+     */
+    @Test
+    void rejectsMultiProjectBuildNamingTheProjects(@TempDir File projectDir) {
+        // given a root project with a subproject, and an otherwise-valid distributed configuration
+        Project root = ProjectBuilder.builder().withProjectDir(projectDir).withName("root-project").build();
+        ProjectBuilder.builder().withParent(root).withName("sub-project").build();
+        root.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = root.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(true);
+        ext.setDbUrl("jdbc:h2:tcp://h2host:9092/tiadb");
+        ext.setRunId("run-1");
+        ext.setDistributedGroupCount(4);
+
+        // when the task runs
+        TiaDistPlanTask task = (TiaDistPlanTask) root.getTasks().getByName("tia-dist-plan");
+
+        // then it fails naming the project count and both project names
+        GradleException e = assertThrows(GradleException.class, task::run);
+        assertTrue(e.getMessage().contains("2"), e.getMessage());
+        assertTrue(e.getMessage().contains("root-project"), e.getMessage());
+        assertTrue(e.getMessage().contains("sub-project"), e.getMessage());
+    }
+
+    /**
+     * Verify that a single-project build is unaffected by the multi-project rule: with no
+     * subprojects, an otherwise-broken configuration still fails on the rule it would have failed
+     * on before this rule existed - here, the disabled-Tia rule - and the message names no
+     * projects at all.
+     */
+    @Test
+    void allowsSingleProjectBuildToFallThroughToTheNextRule(@TempDir File projectDir) {
+        // given a single-project build with an otherwise-valid configuration but Tia disabled
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        project.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setEnabled(false);
+        ext.setDbUrl("jdbc:h2:tcp://h2host:9092/tiadb");
+        ext.setRunId("run-1");
+        ext.setDistributedGroupCount(4);
+
+        // when the task runs
+        TiaDistPlanTask task = (TiaDistPlanTask) project.getTasks().getByName("tia-dist-plan");
+
+        // then the disabled-Tia rule fired, not the multi-project rule
+        GradleException e = assertThrows(GradleException.class, task::run);
+        assertTrue(e.getMessage().contains("tiaEnabled"), e.getMessage());
+    }
+
+    /**
      * Verify that running the task with a server-mode URL configured but no {@code runId} fails
      * with a {@link GradleException} naming the missing property, still before any datastore is
      * opened - {@code DistributedRunConfig.validated} runs immediately after the shared-database

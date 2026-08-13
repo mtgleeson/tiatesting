@@ -449,6 +449,21 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         return tiaTaskExtension.getEnabled();
     }
 
+    /**
+     * Resolve every project taking part in the current Gradle build - the root project and all of
+     * its subprojects - so {@link TiaDistPlanTask} can reject a multi-project build before opening
+     * any datastore, the Gradle equivalent of a Maven reactor of more than one module. Neither the
+     * plan task nor a Gradle multi-project build guarantees {@code tia-dist-plan} runs only once
+     * across every project the plugin is applied to, so with more than one project taking part the
+     * same problem a Maven reactor has applies: each project's plan write would clear the previous
+     * project's plan from the shared distributed-run tables.
+     *
+     * @return the root project and every subproject of the current build
+     */
+    public Set<Project> getReactorProjects() {
+        return project.getRootProject().getAllprojects();
+    }
+
     public Boolean getUpdateDBMapping() {
         return tiaTaskExtension.getUpdateDBMapping();
     }
