@@ -108,20 +108,6 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
     }
 
     /**
-     * Resolve the Maven projects taking part in the current build, so this goal can reject a
-     * multi-module reactor before opening any datastore - {@code tia-dist-plan} is not bound as an
-     * aggregator, so on a reactor of more than one project it would run once per project and each
-     * project's plan write would clear the previous project's plan from the shared distributed-run
-     * tables. Exposed as its own overridable method, rather than reading {@link #session} inline,
-     * so a unit test can drive {@link #execute()} without constructing a real {@code MavenSession}.
-     *
-     * @return the projects in the current Maven reactor, in build order
-     */
-    protected List<MavenProject> getReactorProjects() {
-        return session.getProjects();
-    }
-
-    /**
      * Append the reactor's project artifact ids to a precondition failure message when the failure
      * is the multi-project-reactor rule, so a user reading this goal's console output sees exactly
      * which modules were found in the reactor - information {@code

@@ -393,6 +393,59 @@ class AbstractTiaAgentMojoDistributedTest {
     }
 
     /**
+     * Verify a runner refuses to claim on a multi-module reactor. {@code prepare-agent} is bound to
+     * the {@code INITIALIZE} phase, not to an aggregator goal, so Maven runs it once per reactor
+     * module; without this rule each module would claim its own group from the same plan, leaving
+     * suites assigned to a group whose runner lives in a different module - nobody runs them, and
+     * the build still reports success. The precondition must reject this before any group is
+     * claimed, so no ignore list is written either.
+     */
+    @Test
+    void shouldFailTheGoalWhenTheReactorHasMoreThanOneProject() {
+        // given a plan that would otherwise be claimable, but a three-module reactor
+        persistPlan("run-11", PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = distributedMojo("run-11", PLAN_COMMIT);
+        mojo.reactorProjects = Arrays.asList(new MavenProject(new Model()),
+                new MavenProject(new Model()), new MavenProject(new Model()));
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then - the reactor rule fired, naming the project count, before any group was claimed
+        assertTrue(thrown.getMessage().contains("3 projects"), thrown.getMessage());
+        assertFalse(new File(buildDir, "ignored-tests.txt").exists(),
+                "no ignore list may be written when the reactor rule rejects the claim");
+    }
+
+    /**
+     * Verify a non-distributed build is completely unaffected by the reactor-size rule, even on a
+     * multi-module reactor. {@code validatedDistributedRunConfig()} - the method the reactor-size
+     * rule lives in - is reached only through {@code claimDistributedRunGroup()}, which {@code
+     * execute()} calls only when {@code isTiaDistributed()} is true; with distribution off,
+     * {@code execute()} takes the ordinary selection branch instead, which never reads {@code
+     * getReactorProjects()} at all.
+     *
+     * @throws Exception if the goal fails for a reason other than what this test verifies the
+     *                    absence of
+     */
+    @Test
+    void shouldNotEnforceTheReactorRuleForANonDistributedMultiModuleReactor() throws Exception {
+        // given a non-distributed mojo on a three-module reactor, and no stored mapping to select
+        // against - selectTestsToIgnore's "run all tests" fallback, exercised without needing a
+        // working VCS reader
+        TestMojo mojo = distributedMojo("run-12", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+        mojo.reactorProjects = Arrays.asList(new MavenProject(new Model()),
+                new MavenProject(new Model()), new MavenProject(new Model()));
+
+        // when - execute() must not throw, since the reactor rule is never reached
+        mojo.execute();
+
+        // then - the ordinary "no stored mapping" path ran, selecting every test and ignoring none
+        assertTrue(readTestsFile("ignored-tests.txt").isEmpty());
+    }
+
+    /**
      * Verify a non-distributed run's fork properties carry none of the distributed handoff values,
      * so the forked test JVM of an ordinary build sees exactly the properties it saw before
      * distributed runs existed.
@@ -536,6 +589,7 @@ class AbstractTiaAgentMojoDistributedTest {
 
         private final String workspaceCommit;
         private final MavenProject mavenProject;
+        private List<MavenProject> reactorProjects = Collections.singletonList(new MavenProject(new Model()));
 
         /**
          * Build a mojo whose stubbed VCS reader reports the given workspace commit.
@@ -555,6 +609,17 @@ class AbstractTiaAgentMojoDistributedTest {
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader(workspaceCommit);
+        }
+
+        /**
+         * @return this test's configured reactor project list - a single bare project by default,
+         *         standing in for {@link #session}'s projects so the test does not need to construct
+         *         a real {@code MavenSession}; a test covering the multi-module rejection overrides
+         *         it via {@link #reactorProjects}
+         */
+        @Override
+        protected List<MavenProject> getReactorProjects() {
+            return reactorProjects;
         }
 
         /**
