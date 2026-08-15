@@ -66,20 +66,24 @@ class AbstractTiaDistPlanMojoDistributedTest {
     }
 
     /**
-     * Verify that a disabled Tia, not a single-project reactor, is what this configuration fails
-     * on, and that no project names are appended to the message - the {@code !tiaEnabled} gate on
-     * {@link AbstractTiaMojo#withReactorProjectNamesIfRelevant} suppresses naming just as
-     * effectively as the reactor rule never firing does. This test does not prove a single-project
-     * reactor gets past the reactor rule itself: rule 1 (Tia enabled) is checked before rule 4 (the
-     * reactor rule) in {@code DistributedRunPreconditions.check}, so with {@code tiaEnabled=false}
-     * rule 4 is never reached regardless of the reactor's size - see {@link
-     * #singleProjectReactorPassesPreconditionsIntoConfigValidation()} for a test that actually
-     * proves the reactor rule lets a single-project build through.
+     * Verify that a disabled Tia, not the reactor-size rule, is what a multi-project reactor fails
+     * on, and that no project names are appended to the message even though the reactor holds more
+     * than one project - the {@code !tiaEnabled} gate on {@link
+     * AbstractTiaMojo#withReactorProjectNamesIfRelevant} is what suppresses naming here, not the
+     * {@code size <= 1} gate, since the reactor has two projects. Using a single-project reactor
+     * would not isolate the {@code !tiaEnabled} gate: with only one project the {@code size <= 1}
+     * gate would suppress naming on its own regardless of {@code tiaEnabled}, so the assertion
+     * would pass even if the {@code !tiaEnabled} gate were deleted. This test does not prove a
+     * multi-project reactor gets past the reactor rule itself: rule 1 (Tia enabled) is checked
+     * before rule 4 (the reactor rule) in {@code DistributedRunPreconditions.check}, so with
+     * {@code tiaEnabled=false} rule 4 is never reached regardless of the reactor's size - see
+     * {@link #singleProjectReactorPassesPreconditionsIntoConfigValidation()} for a test that
+     * actually proves the reactor rule lets a single-project build through.
      */
     @Test
     void disabledTiaSuppressesProjectNamingRegardlessOfReactorSize() {
-        // given a single-project reactor with Tia disabled, otherwise a valid configuration
-        TestMojo mojo = new TestMojo(Collections.singletonList(projectNamed("module-a")));
+        // given a two-project reactor with Tia disabled, otherwise a valid configuration
+        TestMojo mojo = new TestMojo(Arrays.asList(projectNamed("module-a"), projectNamed("module-b")));
         mojo.tiaEnabled = false;
         mojo.tiaDBUrl = "jdbc:h2:tcp://h2host:9092/tiadb";
         mojo.tiaRunId = "run-1";
@@ -88,10 +92,14 @@ class AbstractTiaDistPlanMojoDistributedTest {
         // when
         MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
 
-        // then - the disabled-Tia rule fired, not the reactor rule, and no project names were added
+        // then - the disabled-Tia rule fired, not the reactor rule, and no project names were
+        // added even though the reactor holds two projects
         String message = thrown.getMessage();
         assertTrue(message.contains("tiaEnabled"), "message should name tiaEnabled, was: " + message);
-        assertFalse(message.contains("module-a"), "single-project build should not be named: " + message);
+        assertFalse(message.contains("module-a"), "multi-project build should not be named when "
+                + "Tia is disabled: " + message);
+        assertFalse(message.contains("module-b"), "multi-project build should not be named when "
+                + "Tia is disabled: " + message);
     }
 
     /**

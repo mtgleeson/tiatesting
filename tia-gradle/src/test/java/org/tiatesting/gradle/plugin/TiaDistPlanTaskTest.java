@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -134,33 +135,40 @@ class TiaDistPlanTaskTest {
     }
 
     /**
-     * Verify that a disabled Tia, not the multi-project rule, is what a single-project build fails
-     * on, and that no project names are appended to the message - the {@code !tiaEnabled} gate on
-     * the project-naming helper suppresses naming just as effectively as the multi-project rule
-     * never firing does. This test does not prove a single-project build gets past the
-     * multi-project rule itself: the disabled-Tia rule is checked first in {@code
-     * DistributedRunPreconditions.check}, so with Tia disabled the multi-project rule is never
-     * reached regardless of how many projects took part - see {@link
-     * #rejectsMissingRunIdBeforeOpeningAnything(File)} for a test that actually proves a
+     * Verify that a disabled Tia, not the multi-project rule, is what a multi-project build fails
+     * on, and that no project names are appended to the message even though the build holds more
+     * than one project - the {@code !tiaEnabled} gate on the project-naming helper is what
+     * suppresses naming here, not the {@code size <= 1} gate, since the build has two projects.
+     * Using a single-project build would not isolate the {@code !tiaEnabled} gate: with only one
+     * project the {@code size <= 1} gate would suppress naming on its own regardless of {@code
+     * tiaEnabled}, so the assertion would pass even if the {@code !tiaEnabled} gate were deleted.
+     * This test does not prove a multi-project build gets past the multi-project rule itself: the
+     * disabled-Tia rule is checked first in {@code DistributedRunPreconditions.check}, so with Tia
+     * disabled the multi-project rule is never reached regardless of how many projects took part -
+     * see {@link #rejectsMissingRunIdBeforeOpeningAnything(File)} for a test that actually proves a
      * single-project build gets past every precondition, including the multi-project rule.
      */
     @Test
     void disabledTiaSuppressesProjectNamingRegardlessOfProjectCount(@TempDir File projectDir) {
-        // given a single-project build with an otherwise-valid configuration but Tia disabled
-        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
-        project.getPlugins().apply(TestPlugin.class);
-        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        // given a root project with a subproject, an otherwise-valid configuration, but Tia disabled
+        Project root = ProjectBuilder.builder().withProjectDir(projectDir).withName("root-project").build();
+        ProjectBuilder.builder().withParent(root).withName("sub-project").build();
+        root.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = root.getExtensions().getByType(TiaBaseTaskExtension.class);
         ext.setEnabled(false);
         ext.setDbUrl("jdbc:h2:tcp://h2host:9092/tiadb");
         ext.setRunId("run-1");
         ext.setDistributedGroupCount(4);
 
         // when the task runs
-        TiaDistPlanTask task = (TiaDistPlanTask) project.getTasks().getByName("tia-dist-plan");
+        TiaDistPlanTask task = (TiaDistPlanTask) root.getTasks().getByName("tia-dist-plan");
 
-        // then the disabled-Tia rule fired, not the multi-project rule
+        // then the disabled-Tia rule fired, not the multi-project rule, and no project names were
+        // added even though the build holds two projects
         GradleException e = assertThrows(GradleException.class, task::run);
         assertTrue(e.getMessage().contains("tiaEnabled"), e.getMessage());
+        assertFalse(e.getMessage().contains("root-project"), e.getMessage());
+        assertFalse(e.getMessage().contains("sub-project"), e.getMessage());
     }
 
     /**

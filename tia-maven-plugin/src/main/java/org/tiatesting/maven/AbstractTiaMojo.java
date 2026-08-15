@@ -262,16 +262,19 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * Resolve the Maven projects taking part in the current build's reactor, so a distributed-run
-     * precondition can see the build's true module count rather than the count for whichever
-     * module happens to be executing. Both {@code tia-dist-plan} and {@code prepare-agent} are
-     * bound to per-module Maven phases, not to an aggregator goal, so on a multi-module reactor
-     * each runs once per module - a caller that read only {@link #getProject()} would see just its
-     * own module and never detect that the reactor holds more than one. Exposed as its own
-     * overridable method, rather than reading {@link #session} inline, so a unit test can drive a
-     * mojo's {@code execute()} without constructing a real {@code MavenSession}.
+     * Resolve the Maven projects taking part in the current build session, so a distributed-run
+     * precondition can see more than just the module currently executing. Both {@code
+     * tia-dist-plan} and {@code prepare-agent} are bound to per-module Maven phases, not to an
+     * aggregator goal, so on a multi-module reactor each runs once per module - a caller that read
+     * only {@link #getProject()} would see just its own module and never detect that more than one
+     * module is taking part. Exposed as its own overridable method, rather than reading {@link
+     * #session} inline, so a unit test can drive a mojo's {@code execute()} without constructing a
+     * real {@code MavenSession}.
      *
-     * @return the projects in the current Maven reactor, in build order
+     * @return the projects in the current Maven session, in build order - {@link
+     *         MavenSession#getProjects()} reports the projects actually taking part in this
+     *         invocation, which for a reactor-scoped build (e.g. {@code mvn -pl a}) is narrower
+     *         than the full reactor
      */
     protected List<MavenProject> getReactorProjects() {
         return session.getProjects();
@@ -295,8 +298,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     protected String withReactorProjectNamesIfRelevant(final String message, final List<MavenProject> reactorProjects) {
         List<String> names = new ArrayList<>(reactorProjects.size());
-        for (MavenProject project : reactorProjects) {
-            names.add(project.getArtifactId());
+        for (MavenProject reactorProject : reactorProjects) {
+            names.add(reactorProject.getArtifactId());
         }
         return DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, isTiaEnabled(), names);
     }

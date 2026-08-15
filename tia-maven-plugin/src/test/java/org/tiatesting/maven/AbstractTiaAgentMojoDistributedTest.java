@@ -106,6 +106,22 @@ class AbstractTiaAgentMojoDistributedTest {
     }
 
     /**
+     * Build a bare {@link MavenProject} with the given artifact id, sufficient for {@code
+     * AbstractTiaMojo#withReactorProjectNamesIfRelevant} to name in a rejection message - no build
+     * section or dependencies are needed since the reactor-rule failure path never reads them. No
+     * real reactor project lacks an artifact id, so a fixture project must have one too for a test
+     * asserting on the naming behaviour to mean anything.
+     *
+     * @param artifactId the artifact id the project should report
+     * @return a bare Maven project with only its artifact id set
+     */
+    private static MavenProject projectNamed(final String artifactId) {
+        Model model = new Model();
+        model.setArtifactId(artifactId);
+        return new MavenProject(model);
+    }
+
+    /**
      * Persist a run plan with an exact, caller-chosen suite-to-group assignment, so a test asserts
      * against the grouping it wrote rather than one the balancer chose.
      *
@@ -393,26 +409,36 @@ class AbstractTiaAgentMojoDistributedTest {
     }
 
     /**
-     * Verify a runner refuses to claim on a multi-module reactor. {@code prepare-agent} is bound to
-     * the {@code INITIALIZE} phase, not to an aggregator goal, so Maven runs it once per reactor
-     * module; without this rule each module would claim its own group from the same plan, leaving
-     * suites assigned to a group whose runner lives in a different module - nobody runs them, and
-     * the build still reports success. The precondition must reject this before any group is
-     * claimed, so no ignore list is written either.
+     * Verify a runner refuses to claim on a multi-module reactor, and that the rejection names
+     * every module found in it - {@code AbstractTiaMojo.withReactorProjectNamesIfRelevant} reads
+     * each {@link MavenProject#getArtifactId()}, so a fixture built with a bare {@code new
+     * MavenProject(new Model())} (no artifact id set) would silently produce "null, null, null"
+     * instead of exercising this naming path; {@link #projectNamed(String)} gives each project a
+     * real artifact id so the assertions below are actually checking something. {@code
+     * prepare-agent} is bound to the {@code INITIALIZE} phase, not to an aggregator goal, so Maven
+     * runs it once per reactor module; without this rule each module would claim its own group
+     * from the same plan, leaving suites assigned to a group whose runner lives in a different
+     * module - nobody runs them, and the build still reports success. The precondition must reject
+     * this before any group is claimed, so no ignore list is written either.
      */
     @Test
     void shouldFailTheGoalWhenTheReactorHasMoreThanOneProject() {
         // given a plan that would otherwise be claimable, but a three-module reactor
         persistPlan("run-11", PLAN_COMMIT, twoGroupAssignment());
         TestMojo mojo = distributedMojo("run-11", PLAN_COMMIT);
-        mojo.reactorProjects = Arrays.asList(new MavenProject(new Model()),
-                new MavenProject(new Model()), new MavenProject(new Model()));
+        mojo.reactorProjects = Arrays.asList(projectNamed("module-a"), projectNamed("module-b"),
+                projectNamed("module-c"));
 
         // when
         MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
 
-        // then - the reactor rule fired, naming the project count, before any group was claimed
-        assertTrue(thrown.getMessage().contains("3 projects"), thrown.getMessage());
+        // then - the reactor rule fired, naming the project count and every module, before any
+        // group was claimed
+        String message = thrown.getMessage();
+        assertTrue(message.contains("3 projects"), message);
+        assertTrue(message.contains("module-a"), message);
+        assertTrue(message.contains("module-b"), message);
+        assertTrue(message.contains("module-c"), message);
         assertFalse(new File(buildDir, "ignored-tests.txt").exists(),
                 "no ignore list may be written when the reactor rule rejects the claim");
     }
