@@ -77,9 +77,11 @@ public class TestRunnerService {
         if (distributedRunnerContext != null){
             // One runner of a distributed build persists only its own share and stops. Everything
             // that describes the whole build - the catalogue, the seal, the commit stamp and the
-            // history row - belongs to whichever runner finishes last.
+            // history row - belongs to whichever runner finishes last, and it reads the commit and
+            // branch itself from the plan's own run row rather than from this runner's copy - see
+            // persistDistributedRunnerData's javadoc for why commitValue and branch stop here.
             persistDistributedRunnerData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
-                    commitValue, branch, durationMs, testRunResult, distributedRunnerContext);
+                    durationMs, testRunResult, distributedRunnerContext);
             return;
         }
 
@@ -156,14 +158,18 @@ public class TestRunnerService {
      * aggregates them from the completed groups. Per-suite stats are this runner's own and are
      * written with its mapping rows as usual.
      *
+     * <p>Neither the commit nor the branch is a parameter here, though {@link #persistTestRunData}
+     * receives both. This runner's own copy - normally read from the VCS reader - is never used for
+     * a distributed build: the sealer reads the commit and branch from the plan's own run row
+     * instead, so the value that gets stamped is authoritative by construction rather than a runner's
+     * copy that then has to agree with it. Every runner was verified against the plan's commit before
+     * it claimed, so nothing is lost by not carrying it through to the seal.
+     *
      * @param updateDBMapping should the test-suite to source-code mapping be updated
      * @param updateDBStats should the per-suite run stats be updated. The Tia-level stats are
      *                      handed on to the seal instead, since they describe the whole build
      * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
      *                               unchanged: the build's one row is the sealer's to write
-     * @param commitValue the VCS commit / changelist the build ran against, recorded for the seal
-     *                    this runner performs if it turns out to be the last one to finish
-     * @param branch the VCS branch the build targeted, likewise recorded for the seal
      * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
      *                   single-host run records, so the sealer's aggregate stays comparable with
      *                   non-distributed history
@@ -173,7 +179,6 @@ public class TestRunnerService {
      */
     private void persistDistributedRunnerData(final boolean updateDBMapping, final boolean updateDBStats,
                                               final boolean updateDBTestRunHistory,
-                                              final String commitValue, final String branch,
                                               final long durationMs, final TestRunResult testRunResult,
                                               final DistributedRunnerContext distributedRunnerContext){
         if (!distributedRunnerContext.isClaimed()){
@@ -241,7 +246,7 @@ public class TestRunnerService {
                 ? testRunResult.getRunnerTestSuites().size() : 0;
         runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesDiscovered);
         DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
-                commitValue, branch, updateDBMapping, updateDBStats, updateDBTestRunHistory);
+                updateDBMapping, updateDBStats, updateDBTestRunHistory);
     }
 
     /**

@@ -125,7 +125,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 3, 1);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -141,7 +141,7 @@ class DistributedRunSealerStatsHistoryTest {
         assertEquals(1, entry.getNumSuitesFailed(), "the failed suites must be summed across the groups");
         assertEquals(3, entry.getNumSuitesIgnored(),
                 "the ignored count is the tracked suites the build did not run");
-        assertEquals("new-commit", entry.getCommit(), "the row must carry the sealed commit");
+        assertEquals(PLAN_COMMIT, entry.getCommit(), "the row must carry the sealed commit");
         assertEquals("main", entry.getBranch(), "the row must carry the build's branch");
     }
 
@@ -158,7 +158,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
 
         // then
         assertEquals(PLANNED_AT_MS, dataStore.readTestRunHistory().get(0).getRunTimestampMs(),
@@ -211,7 +211,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
@@ -236,7 +236,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -260,7 +260,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 1);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -280,7 +280,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -301,7 +301,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", false, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(false, true, true, 9000L);
 
         // then
         TiaData reloaded = dataStore.getTiaCore();
@@ -325,7 +325,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, true, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, false, 9000L);
 
         // then
         assertTrue(dataStore.readTestRunHistory().isEmpty(),
@@ -349,7 +349,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -380,7 +380,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -405,7 +405,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
 
         // then
         assertEquals(8_000L, dataStore.getTiaCore().getTestStats().getAllTestsRunTime(),
@@ -427,7 +427,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 40L, 0, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -450,10 +450,10 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
 
         // then
-        assertEquals("new-commit", dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
+        assertEquals(PLAN_COMMIT, dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
                 "an all-tests build re-covered every library, so their baselines advance");
     }
 
@@ -469,7 +469,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
 
         // then
         assertTrue(dataStore.readTestRunHistory().isEmpty(),

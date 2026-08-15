@@ -136,7 +136,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
 
         // when
-        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected(true, false, false, 9000L);
 
         // then
         assertTrue(sealed, "the last runner to finish must win the election and seal");
@@ -167,7 +167,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -194,7 +194,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -211,20 +211,22 @@ class DistributedRunSealerTest {
      */
     @Test
     void theSealAdvancesTheStoredCommitValueAndBranch() {
-        // given
+        // given - a plan on a branch distinct from every other test's "main", so the assertion below
+        // cannot pass by coincidence
         seedStoredCatalogue(trackers(101, "com/example/A.a.()V", 1, 5));
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
-        persistPlan(RUN_ID, 1, null);
+        persistPlanForBranch(RUN_ID, "release-1");
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "release-1", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         TiaData reloaded = dataStore.getTiaCore();
-        assertEquals("new-commit", reloaded.getCommitValue(),
-                "the sealer must advance the stored commit value for the whole build");
-        assertEquals("release-1", reloaded.getBranch(), "the sealer must record the run's branch");
+        assertEquals(PLAN_COMMIT, reloaded.getCommitValue(),
+                "the sealer must advance the stored commit value to the plan's own commit");
+        assertEquals("release-1", reloaded.getBranch(),
+                "the sealer must record the plan's own branch");
         assertEquals(1, Collections.frequency(dataStore.callOrder, "persistSealedRunData"),
                 "the catalogue and the commit value must be written as one bundle, once");
     }
@@ -251,7 +253,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty(),
@@ -259,7 +261,7 @@ class DistributedRunSealerTest {
         TrackedLibrary library = dataStore.readTrackedLibraries().get(LIB);
         assertEquals(Long.valueOf(7L), library.getLastAppliedSeq(),
                 "the drained library's applied sequence must advance");
-        assertEquals("new-commit", library.getMappingBaselineCommit(),
+        assertEquals(PLAN_COMMIT, library.getMappingBaselineCommit(),
                 "the drained library's mapping baseline must advance to the sealed commit");
     }
 
@@ -278,7 +280,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         assertTrue(dataStore.readStagedMethodTrackers(RUN_ID).isEmpty(),
@@ -298,7 +300,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         DistributedRun run = dataStore.readDistributedRun(RUN_ID);
@@ -324,7 +326,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner cannot seal while another group is still running");
@@ -347,17 +349,17 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
         persistPlan(RUN_ID, 2, null);
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
-        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected("new-commit", "main", true, false, false, 9000L));
+        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected(true, false, false, 9000L));
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("other-commit", "other-branch", true, false, false, 9500L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9500L);
 
         // then
         assertFalse(sealed, "exactly one runner may seal a run");
         assertEquals(Collections.<String>emptyList(), dataStore.callOrder,
                 "the runner that lost the election must make no writes at all");
-        assertEquals("new-commit", dataStore.getTiaCore().getCommitValue(),
+        assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue(),
                 "the loser must not restamp the commit value");
     }
 
@@ -379,7 +381,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner whose run no longer exists must not seal");
@@ -403,7 +405,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected("new-commit", "main", false, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(false, false, false, 9000L);
 
         // then
         assertTrue(sealed, "the elected runner still finishes the run");
@@ -541,6 +543,24 @@ class DistributedRunSealerTest {
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
                         1000L * groupCount, 1234L), groups, suites, drainResult));
+    }
+
+    /**
+     * Build and persist a single-group distributed run plan on a caller-chosen branch, so a test can
+     * assert the sealer records the plan's own branch rather than the "main" every other helper here
+     * hard-codes.
+     *
+     * @param runId the run identifier to plan under
+     * @param branch the branch to plan under
+     */
+    private void persistPlanForBranch(final String runId, final String branch) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        Map<Integer, List<String>> suites = new HashMap<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        suites.put(0, Arrays.asList("com.example.Suite0Test"));
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, null, 1000L, 1234L),
+                groups, suites, null));
     }
 
     /**
