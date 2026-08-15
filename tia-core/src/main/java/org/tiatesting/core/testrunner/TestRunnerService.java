@@ -138,14 +138,16 @@ public class TestRunnerService {
      *       one whose plan rows a newer build's plan write already cleared - writes nothing at all,
      *       because persisting its suites anyway would leave mapping rows describing its own older
      *       commit under the commit the newer build has already stored.</li>
-     *   <li><b>The group is not completed here.</b> This method runs once per finished test plan,
-     *       and a retry of failed tests is another test plan in the same JVM, so a completion made
-     *       here would release the barrier after the first test plan - while this runner is still
-     *       executing tests. The sealer would then rebuild the catalogue from an edge set missing
-     *       everything the later test plans covered, dropping every method reachable only from
-     *       those suites and making them invisible to the next build's diff. The figures are
-     *       recorded with {@link DistributedRunCompletion} instead, which completes the group and
-     *       stands for election once, when this JVM exits.</li>
+     *   <li><b>The group's status is not flipped here, though its progress is reported.</b> This
+     *       method runs once per finished test plan, and a retry of failed tests is another test
+     *       plan in the same JVM, so flipping the group to {@code COMPLETED} here would release the
+     *       barrier after the first test plan - while this runner is still executing tests. The
+     *       sealer would then rebuild the catalogue from an edge set missing everything the later
+     *       test plans covered, dropping every method reachable only from those suites and making
+     *       them invisible to the next build's diff. This runner's duration and suite counters are
+     *       still reported on every persist, so they accumulate correctly across retries; only the
+     *       status flip is deferred, recorded with {@link DistributedRunCompletion} and made once,
+     *       when this JVM exits.</li>
      * </ul>
      *
      * <p>The Tia-level run stats are deliberately not incremented here even when {@code
@@ -218,16 +220,21 @@ public class TestRunnerService {
         //    row and one set of Tia-level stats, both written by the sealer from the figures every
         //    group recorded, rather than one of each per runner.
 
-        // 5. The completion is not made here. This runs once per finished test plan, and a retry of
-        //    failed tests is another test plan in the same JVM, so completing the group here would
-        //    release the barrier after the first test plan while this runner is still executing
-        //    tests. It is recorded instead, and made once when the JVM exits.
+        // 5. Report this test plan's progress. suitesRan and the duration accumulate onto whatever
+        //    is already stored for the group, so a Surefire retry within this JVM sums correctly
+        //    instead of this retry's per-attempt count overwriting the ones before it; suitesFailed
+        //    replaces what was stored, since it is current state and a passing retry must be able
+        //    to shrink it back to zero. The status flip itself is not made here: this runs once per
+        //    finished test plan, and a retry is another test plan in the same JVM, so flipping the
+        //    group to COMPLETED here would release the barrier after the first test plan while this
+        //    runner is still executing tests. It is recorded instead, and made once when the JVM
+        //    exits.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
+        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed);
         DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
-                durationMs, suitesRan, suitesFailed, commitValue, branch, updateDBMapping,
-                updateDBStats, updateDBTestRunHistory);
+                commitValue, branch, updateDBMapping, updateDBStats, updateDBTestRunHistory);
     }
 
     /**

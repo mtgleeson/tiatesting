@@ -31,15 +31,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Cover the three operations that close a distributed run against embedded H2:
- * {@link DataStore#completeGroup(String, int, String, long, long, int, int)} (the guarded group
- * completion that is also the straggler protection),
+ * Cover the four operations that close a distributed run against embedded H2:
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int)} (the accumulating
+ * progress report), {@link DataStore#completeGroup(String, int, String, long)} (the guarded status
+ * flip that is also the straggler protection and the completeness guard),
  * {@link DataStore#electSealer(String, String, long)} (the barrier) and
  * {@link DataStore#markDistributedRunSealed(String)}.
  *
- * <p>Both guards carry correctness rather than tidiness, so they get dedicated tests: the
+ * <p>All three guards carry correctness rather than tidiness, so they get dedicated tests: the
  * completion's {@code status = 'CLAIMED' AND runner_key = ?} predicate is what tells a runner from
- * a superseded build that its claim is dead so it must not write, and the election's
+ * a superseded build that its claim is dead so it must not write; its {@code suites_ran >= COUNT(*)}
+ * predicate is what stands in for the crash protection a JVM shutdown hook used to provide, blocking
+ * a group that has not yet reported running every suite it was assigned; and the election's
  * {@code sealed_by IS NULL AND NOT EXISTS (incomplete group)} predicate is what makes the sealer's
  * {@code SELECT DISTINCT} over the edge table see a complete method id set. See the "Sealing" and
  * "Straggler protection" material in the distributed test runs chapter of {@code WIKI.md}.
@@ -96,6 +99,27 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
+     * Build and persist a single-group plan with {@code suiteCount} suites all assigned to that one
+     * group, so the completeness guard has a concrete assigned count to compare {@code suites_ran}
+     * against.
+     *
+     * @param runId the run identifier to plan under
+     * @param suiteCount how many suites to assign to the run's one group
+     */
+    private void persistPlanWithOneGroupOfSuites(String runId, int suiteCount) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        List<String> suiteNames = new ArrayList<>();
+        for (int i = 0; i < suiteCount; i++) {
+            suiteNames.add("com.example.Suite" + i + "Test");
+        }
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, suiteNames);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
+    }
+
+    /**
      * Read one group back from the store by number, so a test can assert what the guarded update
      * actually left on disk rather than trusting the value the call returned.
      *
@@ -113,19 +137,20 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
-     * Verify the happy path: the runner holding a live claim completes its group and the stored row
-     * gains {@code COMPLETED}, the completion timestamp, the measured duration and both suite
-     * counters - the figures the sealer later aggregates into the build's single history row.
+     * Verify the happy path: the runner holding a live claim reports its progress, then completes
+     * its group, and the stored row gains {@code COMPLETED}, the completion timestamp, the measured
+     * duration and both suite counters - the figures the sealer later aggregates into the build's
+     * single history row.
      */
     @Test
     void shouldRecordDurationAndCountersWhenTheClaimIsStillLive() {
         // given
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2));
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L,
-                4321L, 7, 2);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // then
         assertNotNull(completed);
@@ -151,8 +176,7 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-b", 9000L,
-                4321L, 7, 2);
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-b", 9000L);
 
         // then
         assertNull(completed);
@@ -166,6 +190,26 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
+     * Verify that a progress report on a group another runner holds gets {@code false} and leaves
+     * the stored row untouched, mirroring the straggler guard on the completion itself.
+     */
+    @Test
+    void shouldReturnFalseAndWriteNothingWhenAnotherRunnerHoldsTheGroupOnProgress() {
+        // given
+        persistPlanWithGroups("run-1", 2);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+
+        // when
+        boolean applied = dataStore.reportGroupProgress("run-1", 0, "runner-b", 4321L, 7, 2);
+
+        // then
+        assertFalse(applied);
+        DistributedRunGroup stored = storedGroup("run-1", 0);
+        assertEquals(0, stored.getSuitesRan());
+        assertNull(stored.getActualDurationMs());
+    }
+
+    /**
      * Verify that completing a group that already reached {@code COMPLETED} returns {@code null}
      * and leaves the first completion's figures untouched, so a duplicate completion (a retried
      * process finishing a group its predecessor already finished) can never overwrite the recorded
@@ -176,11 +220,11 @@ class JdbcDataStoreCompletionTest {
         // given
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, 4321L, 7, 2);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // when
-        DistributedRunGroup secondCompletion = dataStore.completeGroup("run-1", 0, "runner-a",
-                9999L, 1L, 1, 1);
+        DistributedRunGroup secondCompletion = dataStore.completeGroup("run-1", 0, "runner-a", 9999L);
 
         // then
         assertNull(secondCompletion);
@@ -202,7 +246,7 @@ class JdbcDataStoreCompletionTest {
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-does-not-exist", 0, "runner-a",
-                9000L, 4321L, 7, 2);
+                9000L);
 
         // then
         assertNull(completed);
@@ -220,7 +264,8 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, 100L, 1, 0);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // when
         boolean elected = dataStore.electSealer("run-1", "runner-a", 9500L);
@@ -242,8 +287,10 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, 100L, 1, 0);
-        dataStore.completeGroup("run-1", 1, "runner-b", 9100L, 200L, 1, 0);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0);
+        dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
 
         // when
         boolean elected = dataStore.electSealer("run-1", "runner-b", 9500L);
@@ -266,8 +313,10 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.completeGroup("run-1", 0, "runner-a", 9000L, 100L, 1, 0);
-        dataStore.completeGroup("run-1", 1, "runner-b", 9100L, 200L, 1, 0);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0);
+        dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0);
+        dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
         dataStore.electSealer("run-1", "runner-a", 9500L);
 
         // when
@@ -278,6 +327,108 @@ class JdbcDataStoreCompletionTest {
         DistributedRun run = dataStore.readDistributedRun("run-1");
         assertEquals("runner-a", run.getSealedBy());
         assertEquals(Long.valueOf(9500L), run.getSealedAtMs());
+    }
+
+    /**
+     * Case 1 of the completeness guard: a group that ran every suite it was assigned completes.
+     * The ordinary case, and the baseline the other three cases are measured against.
+     */
+    @Test
+    void shouldCompleteAGroupThatRanEveryAssignedSuite() {
+        // given - 50 assigned suites, all 50 reported as run
+        persistPlanWithOneGroupOfSuites("run-1", 50);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 0));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a group that ran every assigned suite must complete");
+        assertEquals(50, completed.getSuitesRan());
+    }
+
+    /**
+     * Case 2 of the completeness guard: attempt 1 reports all 50 assigned suites with 3 failures,
+     * then a retry starts and its JVM dies before reporting anything further. The guard sees
+     * {@code 50 >= 50} from attempt 1's own report and completes anyway - the 3 failures stay in
+     * {@code suites_failed} exactly as attempt 1 left them, so the next build re-runs them
+     * regardless of its diff. Nothing is lost and the error is conservative; this case must
+     * complete.
+     */
+    @Test
+    void shouldCompleteWhenARetryDiesAfterAttemptOneAlreadyReportedEveryAssignedSuite() {
+        // given - attempt 1 reports every assigned suite with 3 failures; no further report follows
+        persistPlanWithOneGroupOfSuites("run-1", 50);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 3));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "attempt 1 already satisfied the completeness guard, so a dead "
+                + "retry must not block the completion");
+        assertEquals(3, completed.getSuitesFailed(),
+                "the 3 failures attempt 1 reported must survive so the next build re-runs them");
+    }
+
+    /**
+     * Case 3 of the completeness guard: a JVM that dies before making any persist reports nothing
+     * at all, so {@code suites_ran} stays at its planned default of 0. {@code 0 < 50} blocks the
+     * completion.
+     */
+    @Test
+    void shouldBlockCompletionWhenNoProgressWasEverReported() {
+        // given - 50 assigned suites, no reportGroupProgress call at all
+        persistPlanWithOneGroupOfSuites("run-1", 50);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNull(completed, "a group with no reported progress must not be completable");
+        assertEquals(DistributedRunGroupStatus.CLAIMED, storedGroup("run-1", 0).getStatus());
+    }
+
+    /**
+     * Case 4 of the completeness guard: a Gradle worker that dies partway through its group reports
+     * only the suites it finished before dying. {@code 30 < 50} blocks the completion.
+     */
+    @Test
+    void shouldBlockCompletionWhenOnlyPartOfTheGroupWasReported() {
+        // given - 50 assigned suites, a report covering only 30 of them
+        persistPlanWithOneGroupOfSuites("run-1", 50);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 24_000L, 30, 0));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNull(completed, "a group that has reported only part of its assigned suites must not "
+                + "be completable");
+        assertEquals(30, storedGroup("run-1", 0).getSuitesRan(),
+                "the partial report must still be stored, even though it did not complete the group");
+    }
+
+    /**
+     * A group with no suites assigned at all - the degenerate plan shape - completes on
+     * {@code 0 >= 0} without ever needing a progress report. Documents that the guard's {@code >=}
+     * is deliberately not a {@code >}.
+     */
+    @Test
+    void shouldCompleteAGroupWithNoAssignedSuites() {
+        // given
+        persistPlanWithOneGroupOfSuites("run-1", 0);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a group with zero assigned suites must complete on 0 >= 0");
     }
 
     /**
@@ -360,7 +511,8 @@ class JdbcDataStoreCompletionTest {
         }
         for (int i = 0; i < runnerCount; i++) {
             DistributedRunGroup claimed = storedGroup(runId, i);
-            assertNotNull(dataStore.completeGroup(runId, i, claimed.getRunnerKey(), 9000L, 100L, 1, 0));
+            assertTrue(dataStore.reportGroupProgress(runId, i, claimed.getRunnerKey(), 100L, 1, 0));
+            assertNotNull(dataStore.completeGroup(runId, i, claimed.getRunnerKey(), 9000L));
         }
 
         ExecutorService executor = Executors.newFixedThreadPool(runnerCount);

@@ -440,36 +440,86 @@ public interface DataStore extends AutoCloseable {
     DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey, final long claimedAtMs);
 
     /**
-     * Record that a runner finished its group, recording the measured duration and suite counters
-     * the sealer later aggregates into the build's single history row. Conditional on the group
-     * still being {@code CLAIMED} <strong>by this runner key</strong>, and this condition is not a
-     * defensive nicety - it is the straggler protection.
+     * Record one test plan's progress on a runner's group, without releasing the barrier: the
+     * group stays {@code CLAIMED}. Called on every persist a runner's test JVM makes - possibly
+     * several times per JVM, once per Surefire retry - so the figures it carries fall into two
+     * kinds that must not be treated alike:
      *
-     * <p>A {@code null} return means the claim is no longer live: the runner's run was superseded
-     * and its plan tables cleared by a newer build's plan write, or another runner holds the group,
-     * or the group was already completed. The caller <strong>must</strong> treat that as "write
-     * nothing": a runner from a superseded build that persisted its suites anyway would leave
-     * mapping rows from an old commit under the commit a newer build already sealed. See the
-     * "Straggler protection" material in the distributed test runs chapter of {@code WIKI.md}.
+     * <ul>
+     *   <li>{@code actualDurationMs} and {@code suitesRan} are counters: this call adds to
+     *       whatever is already stored, so several test plans within one JVM sum to the JVM's
+     *       total instead of the last one's figure silently overwriting the ones before it. This
+     *       is what makes retried suites count correctly toward the group's totals - see the
+     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.</li>
+     *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
+     *       a suite that passes on retry must legitimately leave the failed set, and accumulating
+     *       it would instead leave a fixed suite recorded as permanently failed.</li>
+     * </ul>
      *
-     * <p>Callers must make this the last write of the runner's persist. Completing a group is what
-     * releases the barrier in {@link #electSealer}, so a group marked complete before its suite
-     * mapping rows are written would let the sealer rebuild the method catalogue from an edge set
-     * that is still missing them - silent under-selection on the next build.
+     * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
+     * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code
+     * false} return means the claim is no longer live, for exactly the reasons a failed {@link
+     * #completeGroup} call would report, and the caller must treat it the same way: there is
+     * nothing further to persist for this group from here.
+     *
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @param runnerKey the calling runner's stable identity; must match the key that claimed the
+     *                  group or nothing is written
+     * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
+     *                         duration is already stored for the group
+     * @param suitesRan the number of suites this call's test plan executed, added to whatever
+     *                  count is already stored for the group
+     * @param suitesFailed the number of suites currently failing, replacing whatever was stored
+     * @return {@code true} when the guarded update applied, {@code false} when this runner's
+     *         claim is no longer live
+     */
+    boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
+                                final long actualDurationMs, final int suitesRan,
+                                final int suitesFailed);
+
+    /**
+     * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.
+     * Carries no measurements of its own - {@link #reportGroupProgress} records those on every
+     * persist - because only the status flip is order-sensitive: it must be the runner's last
+     * write for the whole test JVM, not merely the last write of one test plan's persist, since it
+     * is what lets the sealer rebuild the method catalogue from a suite-to-method edge set that is
+     * guaranteed complete.
+     *
+     * <p>Conditional on two things at once, both evaluated in the same guarded {@code UPDATE} so
+     * the check and the flip are atomic:
+     * <ul>
+     *   <li>the group is still {@code CLAIMED} <strong>by this runner key</strong> - the straggler
+     *       protection, not a defensive nicety: it is what tells a runner from a superseded build,
+     *       or one whose group another runner has since re-claimed, that it must write nothing
+     *       further;</li>
+     *   <li>{@code suites_ran} recorded by {@link #reportGroupProgress} is at least the number of
+     *       suites the plan assigned to this group ({@code suites_ran >= COUNT(*)} over the
+     *       group's assigned suites, {@code >=} rather than {@code =} because a completed retry's
+     *       cumulative count can run past the originally assigned total). This is what stands in
+     *       for the crash protection a JVM shutdown hook used to provide: without it, a JVM killed
+     *       mid-retry (SIGKILL, OOM) after reporting only part of its group's suites could still
+     *       have its group completed, sealing the build on a catalogue missing whatever the killed
+     *       JVM never got to run - the one failure Tia must never have.</li>
+     * </ul>
+     *
+     * <p>A {@code null} return means either guard failed - the claim is no longer live (a
+     * superseded run, a re-claimed group, or a group already completed), or the group has not yet
+     * reported enough progress to be considered finished. The caller <strong>must</strong> treat
+     * both the same way: the group stays open, and this run can never elect a sealer or advance
+     * the stored commit value. See the "Straggler protection" material in the distributed test
+     * runs chapter of {@code WIKI.md}.
      *
      * @param runId the distributed run the group belongs to
      * @param groupNumber the group's zero-based index within the run
      * @param runnerKey the calling runner's stable identity; must match the key that claimed the
      *                  group or nothing is written
      * @param completedAtMs UTC epoch millis to record as the completion time
-     * @param actualDurationMs measured test-execution time of this group, in ms
-     * @param suitesRan number of suites the runner executed
-     * @param suitesFailed number of this group's suites with at least one failed test
-     * @return the updated group, or {@code null} when this runner's claim is no longer live
+     * @return the updated group, or {@code null} when this runner's claim is no longer live or the
+     *         group has not reported enough progress to close
      */
     DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
-                                      final long completedAtMs, final long actualDurationMs,
-                                      final int suitesRan, final int suitesFailed);
+                                      final long completedAtMs);
 
     /**
      * The barrier: atomically elect the calling runner as the run's one and only sealer, but only

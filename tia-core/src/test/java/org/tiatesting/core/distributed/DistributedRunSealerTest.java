@@ -565,8 +565,11 @@ class DistributedRunSealerTest {
      */
     private void claimAndComplete(final String runId, final String runnerKey) {
         DistributedRunnerContext context = claim(runId, runnerKey);
-        assertNotNull(dataStore.completeGroup(runId, context.getGroupNumber().intValue(), runnerKey,
-                6000L, 1000L, 1, 0), "test setup expects the completion to be accepted");
+        int groupNumber = context.getGroupNumber().intValue();
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0),
+                "test setup expects the progress report to be accepted");
+        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
+                "test setup expects the completion to be accepted");
     }
 
     /**
@@ -793,25 +796,40 @@ class DistributedRunSealerTest {
         }
 
         /**
+         * Record and delegate the progress report, which is not subject to the "last write"
+         * ordering the group completion is.
+         *
+         * @param runId the run the group belongs to
+         * @param groupNumber the group's zero-based index within the run
+         * @param runnerKey the calling runner's identity
+         * @param actualDurationMs this call's measured test-execution time, added to the group
+         * @param suitesRan number of suites this call's test plan executed, added to the group
+         * @param suitesFailed number of suites currently failing, replacing what was stored
+         * @return true when the guarded update applied, false when the claim is no longer live
+         */
+        @Override
+        public boolean reportGroupProgress(final String runId, final int groupNumber,
+                                           final String runnerKey, final long actualDurationMs,
+                                           final int suitesRan, final int suitesFailed) {
+            callOrder.add("reportGroupProgress");
+            return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
+                    suitesRan, suitesFailed);
+        }
+
+        /**
          * Record and delegate the group completion, the write that releases the barrier.
          *
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
-         * @param actualDurationMs measured test-execution time of this group
-         * @param suitesRan number of suites the runner executed
-         * @param suitesFailed number of this runner's failed suites
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs,
-                                                 final long actualDurationMs, final int suitesRan,
-                                                 final int suitesFailed) {
+                                                 final String runnerKey, final long completedAtMs) {
             callOrder.add("completeGroup");
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs,
-                    actualDurationMs, suitesRan, suitesFailed);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
         }
     }
 }

@@ -33,7 +33,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Execution-coverage test for the operations that close a distributed run -
- * {@link DataStore#completeGroup(String, int, String, long, long, int, int)},
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int)},
+ * {@link DataStore#completeGroup(String, int, String, long)},
  * {@link DataStore#electSealer(String, String, long)},
  * {@link DataStore#markDistributedRunSealed(String)} and the distributed columns on
  * {@code tia_test_run_history} - against a real Postgres. Mirrors
@@ -159,10 +160,11 @@ class PostgresCompletionTest {
         // given
         persistPlanWithGroups("pg-complete-1", 2);
         postgresStore.claimNextPendingGroup("pg-complete-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-complete-1", 0, "runner-a", 4321L, 7, 2));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-1", 0, "runner-a",
-                9000L, 4321L, 7, 2);
+                9000L);
 
         // then
         assertNotNull(completed);
@@ -187,7 +189,7 @@ class PostgresCompletionTest {
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-2", 0, "runner-b",
-                9000L, 4321L, 7, 2);
+                9000L);
 
         // then
         assertNull(completed);
@@ -207,7 +209,8 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-1", 2);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-b", 5100L);
-        postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L, 100L, 1, 0);
+        postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", 100L, 1, 0);
+        postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L);
 
         // when
         boolean elected = postgresStore.electSealer("pg-seal-1", "runner-a", 9500L);
@@ -227,8 +230,10 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-2", 2);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-b", 5100L);
-        postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L, 100L, 1, 0);
-        postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L, 200L, 1, 0);
+        postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", 100L, 1, 0);
+        postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L);
+        postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", 200L, 1, 0);
+        postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L);
 
         // when
         boolean firstAttempt = postgresStore.electSealer("pg-seal-2", "runner-a", 9500L);

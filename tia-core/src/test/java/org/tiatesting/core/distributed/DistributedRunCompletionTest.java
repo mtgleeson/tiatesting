@@ -173,12 +173,15 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * The figures recorded on the completed group are the last test plan's, since the shared
-     * per-JVM run data each persist reads from is cumulative - so the last one to run carries
-     * everything the JVM did.
+     * The counter-versus-state distinction task 2 fixes: each test plan's {@code suitesRan} and
+     * duration are per-attempt figures that must sum across the JVM's test plans, matching what a
+     * single-host run would produce across its several history rows, while {@code suitesFailed} is
+     * current state and must reflect only the latest report - a suite that passes on retry has to
+     * be able to leave the failed set, and accumulating it would instead record a fixed suite as
+     * permanently failed.
      */
     @Test
-    void theCompletedGroupCarriesTheLastTestPlansFigures() {
+    void theCompletedGroupSumsCountersButKeepsOnlyTheLatestFailedSet() {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
@@ -186,7 +189,7 @@ class DistributedRunCompletionTest {
                 System.currentTimeMillis() - 1000L,
                 resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0), context);
 
-        // when - a retry adds a third suite and a failure, then the JVM exits
+        // when - a retry reports 3 more suites with 1 failure, then the JVM exits
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis() - 5000L,
                 resultFor(SUITE_SECOND_PLAN, METHOD_SECOND_PLAN, 3, 1), context);
@@ -194,13 +197,13 @@ class DistributedRunCompletionTest {
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(3, group.getSuitesRan(),
-                "the last test plan's cumulative suite count is the one the sealer aggregates");
+        assertEquals(5, group.getSuitesRan(),
+                "the two test plans' suite counts must sum (2 + 3), not the last one replace the first");
         assertEquals(1, group.getSuitesFailed(),
-                "the last test plan's failed count is the one the sealer aggregates");
+                "the failed count must reflect only the latest report");
         assertNotNull(group.getActualDurationMs());
-        assertTrue(group.getActualDurationMs() >= 5000L,
-                "the last test plan's duration must be the recorded one, was "
+        assertTrue(group.getActualDurationMs() >= 6000L,
+                "the two test plans' durations must sum too (roughly 1000ms + 5000ms), was "
                         + group.getActualDurationMs());
     }
 
@@ -458,6 +461,27 @@ class DistributedRunCompletionTest {
         }
 
         /**
+         * Record and delegate the progress report, which is not subject to the JVM-exit failure
+         * path this class can simulate on the completion.
+         *
+         * @param runId the run the group belongs to
+         * @param groupNumber the group's zero-based index within the run
+         * @param runnerKey the calling runner's identity
+         * @param actualDurationMs this call's measured test-execution time, added to the group
+         * @param suitesRan number of suites this call's test plan executed, added to the group
+         * @param suitesFailed number of suites currently failing, replacing what was stored
+         * @return true when the guarded update applied, false when the claim is no longer live
+         */
+        @Override
+        public boolean reportGroupProgress(final String runId, final int groupNumber,
+                                           final String runnerKey, final long actualDurationMs,
+                                           final int suitesRan, final int suitesFailed) {
+            callOrder.add("reportGroupProgress");
+            return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
+                    suitesRan, suitesFailed);
+        }
+
+        /**
          * Record and delegate the group completion, or fail it outright when the test has asked for
          * the JVM-exit failure path.
          *
@@ -465,22 +489,16 @@ class DistributedRunCompletionTest {
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
-         * @param actualDurationMs measured test-execution time of this group
-         * @param suitesRan number of suites the runner executed
-         * @param suitesFailed number of this runner's failed suites
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs,
-                                                 final long actualDurationMs, final int suitesRan,
-                                                 final int suitesFailed) {
+                                                 final String runnerKey, final long completedAtMs) {
             callOrder.add("completeGroup");
             if (failCompleteGroup) {
                 throw new IllegalStateException("the database went away as the JVM was exiting");
             }
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs,
-                    actualDurationMs, suitesRan, suitesFailed);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
         }
 
         /**
