@@ -71,7 +71,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
 
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
-        return new TestRunResult(trackers, empty, empty, empty, new HashMap<>(), runStats, null,
+        return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
                 ignoredTestSuiteCount, 0);
     }
 

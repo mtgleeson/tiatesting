@@ -355,12 +355,11 @@ class DistributedRunSealerTest {
         // when
         boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9500L);
 
-        // then
+        // then - an empty call order already implies the commit value was never touched, so a
+        // separate "still PLAN_COMMIT" assertion would only restate it under a different name
         assertFalse(sealed, "exactly one runner may seal a run");
         assertEquals(Collections.<String>emptyList(), dataStore.callOrder,
                 "the runner that lost the election must make no writes at all");
-        assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue(),
-                "the loser must not restamp the commit value");
     }
 
     /**
@@ -676,7 +675,7 @@ class DistributedRunSealerTest {
         methodTrackers.put(Integer.valueOf(methodId), new MethodImpactTracker(methodName, 1, 10));
 
         Set<String> runnerSuites = new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest"));
-        return new TestRunResult(trackers, new HashSet<String>(), runnerSuites,
+        return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
                 null, 1, 1);
     }
@@ -825,16 +824,17 @@ class DistributedRunSealerTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesDiscovered number of suites discovered so far, replacing what was stored
+         * @param suitesObserved number of suites observed so far, replacing what was stored with
+         *                       the greater of the two values
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesDiscovered) {
+                                           final int suitesObserved) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesDiscovered);
+                    suitesRan, suitesFailed, suitesObserved);
         }
 
         /**

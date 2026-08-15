@@ -161,7 +161,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
             trackers.put(name, new TestSuiteTracker(name));
         }
         return new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length);
     }
 
@@ -318,14 +318,14 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @param actualDurationMs ignored
          * @param suitesRan ignored
          * @param suitesFailed ignored
-         * @param suitesDiscovered ignored
+         * @param suitesObserved ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           int suitesDiscovered) {
+                                           int suitesObserved) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

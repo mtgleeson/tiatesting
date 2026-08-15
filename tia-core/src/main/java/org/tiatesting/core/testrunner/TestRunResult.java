@@ -12,6 +12,7 @@ public class TestRunResult {
     final Map<String, TestSuiteTracker> testSuiteTrackers;
     final Set<String> testSuitesFailed;
     final Set<String> runnerTestSuites;
+    final Set<String> suitesObserved;
     final Set<String> selectedTests;
     final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun;
     final TestStats testStats;
@@ -27,7 +28,21 @@ public class TestRunResult {
      *                                   the mapping path needs the cumulative coverage. For the history "Ran"
      *                                   column use {@code suitesRanThisAttempt} instead.
      * @param testSuitesFailed           names of suites that failed
-     * @param runnerTestSuites           every suite the runner discovered (executed + skipped + filtered)
+     * @param runnerTestSuites           every suite name Tia still considers to exist for this project - the
+     *                                   project-wide set when the build tool provides a directory scan (Maven's
+     *                                   {@code testClassesDir}), otherwise the suites this JVM observed. Used
+     *                                   only by {@code removeDeletedTestSuites} to detect suites that have
+     *                                   genuinely been deleted; it deliberately carries no information about
+     *                                   how far this runner actually got, which is what {@code suitesObserved}
+     *                                   is for.
+     * @param suitesObserved             the suites this runner's JVM actually observed - those it saw
+     *                                   <b>finish</b> or saw <b>skipped</b> - accumulated across every test
+     *                                   plan the JVM makes (Surefire retries included), with no directory-scan
+     *                                   override. This is the set the distributed completeness guard is fed
+     *                                   from, kept distinct from {@code runnerTestSuites} precisely because
+     *                                   that set can be a project-wide scan carrying no information about this
+     *                                   runner's own progress - feeding the guard from it let a group complete
+     *                                   before its runner had actually seen every assigned suite.
      * @param selectedTests              the suites Tia selected to run, as read from the {@code tiaSelectedTests}
      *                                   system property by the listener
      * @param methodTrackersFromTestRun  method-id to {@code MethodImpactTracker} captured during the run
@@ -45,6 +60,7 @@ public class TestRunResult {
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
                          Set<String> runnerTestSuites,
+                         Set<String> suitesObserved,
                          Set<String> selectedTests,
                          Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
                          TestStats testStats,
@@ -54,6 +70,7 @@ public class TestRunResult {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
+        this.suitesObserved = suitesObserved;
         this.selectedTests = selectedTests;
         this.methodTrackersFromTestRun = methodTrackersFromTestRun;
         this.testStats = testStats;
@@ -72,6 +89,16 @@ public class TestRunResult {
 
     public Set<String> getRunnerTestSuites() {
         return runnerTestSuites;
+    }
+
+    /**
+     * @return the suites this runner's JVM actually observed - those it saw finish or saw skipped -
+     *         with no directory-scan override, unlike {@link #getRunnerTestSuites()}. This is what
+     *         {@code TestRunnerService#persistDistributedRunnerData} feeds the distributed
+     *         completeness guard from.
+     */
+    public Set<String> getSuitesObserved() {
+        return suitesObserved;
     }
 
     public Set<String> getSelectedTests() {

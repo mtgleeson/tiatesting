@@ -258,15 +258,15 @@ class DistributedRunnerPersistTest {
     }
 
     /**
-     * A completion rejected because the group has not yet discovered enough of its assigned suites
-     * says so with the discovered-versus-assigned counts, so a reader is not left guessing whether
+     * A completion rejected because the group has not yet observed enough of its assigned suites
+     * says so with the observed-versus-assigned counts, so a reader is not left guessing whether
      * the completeness guard or the straggler guard is what actually blocked it - the two miss the
      * same {@code WHERE} clause and only the group row (plus the assigned suite count) tells them
      * apart. Asserts the exact "0 of 1" substring rather than the two digits independently, so the
      * assertion cannot pass with the counts swapped or embedded in unrelated text.
      */
     @Test
-    void aRejectedCompletionReportsTheDiscoveredVersusAssignedCountsWhenTheGroupIsIncomplete() {
+    void aRejectedCompletionReportsTheObservedVersusAssignedCountsWhenTheGroupIsIncomplete() {
         // given - one suite assigned to the group, and no progress reported at all
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
@@ -279,7 +279,7 @@ class DistributedRunnerPersistTest {
 
         // then
         assertTrue(description.contains("0 of 1"),
-                "the rejection must name the discovered-versus-assigned counts (0 of 1), was: "
+                "the rejection must name the observed-versus-assigned counts (0 of 1), was: "
                         + description);
         assertFalse(description.contains("superseded"),
                 "a group this runner still holds was not superseded, was: " + description);
@@ -289,34 +289,36 @@ class DistributedRunnerPersistTest {
 
     /**
      * Task 2's accumulation contract, exercised through the persist wrapper: two progress reports
-     * in the same JVM - the second reporting fewer suites than the first, as a Surefire retry of a
-     * smaller failing subset would - sum the ran counter and the duration, but let the later report
-     * replace both the failed set and the discovered count outright: the failed set because it is
-     * current state, the discovered count because the set it is drawn from is already cumulative
-     * per JVM, so summing it here would double-count.
+     * in the same JVM - the second reporting fewer suites ran than the first, as a Surefire retry of
+     * a smaller failing subset would - sum the ran counter and the duration, but let the later report
+     * replace both the failed set and the observed count outright: the failed set because it is
+     * current state, the observed count because the set it is drawn from is already cumulative per
+     * JVM, so summing it here would double-count. The ran and observed totals are deliberately kept
+     * different numbers below (52 vs 53) so a getter/column transposition between the two would fail
+     * this test - a shared value could not tell them apart.
      */
     @Test
-    void reportGroupProgressAccumulatesCountersButReplacesTheFailedSet() {
+    void reportGroupProgressAccumulatesCountersButReplacesTheFailedAndObservedSets() {
         // given
         persistPlan(RUN_ID, 1);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
 
-        // when - the first test plan reports 50 suites with 3 failures, the retry reports 3 more
-        // suites with none failing; the discovered count is the JVM's cumulative total each time,
-        // not this call's own contribution
+        // when - the first test plan reports 50 suites run (all 50 observed) with 3 failures; the
+        // retry reports only 2 of its 3 remaining suites finishing (2 ran) while the observed count -
+        // the JVM's cumulative total, not this call's own contribution - reaches 53
         assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, 50));
-        assertTrue(runnerPersist.reportGroupProgress(500L, 3, 0, 53));
+        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, 53));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(53, group.getSuitesRan(), "the ran counter must sum across both reports");
+        assertEquals(52, group.getSuitesRan(), "the ran counter must sum across both reports (50 + 2)");
         assertEquals(4500L, group.getActualDurationMs().longValue(),
                 "the duration must sum across both reports");
         assertEquals(0, group.getSuitesFailed(),
                 "the failed count must reflect only the later report, not accumulate onto the first");
-        assertEquals(53, group.getSuitesDiscovered(),
-                "the discovered count must reflect only the later report's cumulative total, not "
+        assertEquals(53, group.getSuitesObserved(),
+                "the observed count must reflect only the later report's cumulative total, not "
                         + "sum onto the first report's");
     }
 

@@ -70,7 +70,12 @@ public final class ForkSystemProperties {
      *
      * @param file the fork properties file to read; {@code null} returns an empty result rather
      *             than reading anything, mirroring {@link #applyToSystemProperties(String)}'s
-     *             {@code null}/empty-path no-op
+     *             {@code null}-path no-op. This is not fully symmetric with that method's blank-path
+     *             handling though: {@link #applyToSystemProperties(String)} treats an empty string
+     *             as a no-op before it ever constructs a {@code File}, whereas {@code
+     *             read(new File(""))} reaches the {@code try}-with-resources below and throws, since
+     *             only a literal {@code null} short-circuits here. A caller that constructs its own
+     *             {@code File} from a possibly-blank path must apply that same blank check itself.
      * @return the properties read from the file (empty when {@code file} is {@code null})
      * @throws IOException if {@code file} is non-null but does not exist or cannot be read
      */
@@ -93,7 +98,8 @@ public final class ForkSystemProperties {
      *
      * @param filePath path to the fork properties file, or {@code null}/empty to do nothing
      * @return the properties read from the file (empty when {@code filePath} is blank)
-     * @throws IOException if the file exists but cannot be read
+     * @throws IOException if {@code filePath} is non-blank but the file does not exist or cannot be
+     *                      read
      */
     public static Properties applyToSystemProperties(final String filePath) throws IOException {
         if (filePath == null || filePath.isEmpty()) {

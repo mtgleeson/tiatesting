@@ -60,6 +60,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private final Set<String> runnerTestSuites;
     /*
+    The suites this JVM has actually observed - those it has seen finish or seen skipped - shared
+    across Surefire retries via sharedTestRunData exactly like runnerTestSuites, but with no
+    testClassesDir directory-scan override. This, not runnerTestSuites, is what feeds the
+    distributed completeness guard: see TestRunResult#getSuitesObserved.
+     */
+    private final Set<String> suitesObserved;
+    /*
     The set of tests selected to run by Tia.
      */
     private Set<String> selectedTests;
@@ -102,7 +109,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * only the other groups reach, and silently under-selecting on the next build.
      *
      * @param sharedTestRunData the per-JVM state carried across Surefire retries (suite trackers,
-     *                          discovered suites and the run-level stats)
+     *                          the runner's suite sets and the run-level stats)
      * @param vcsReader the VCS reader for the workspace under test; supplies the branch and head
      *                  commit, and is closed here
      */
@@ -122,6 +129,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.testSuiteTrackers = sharedTestRunData.getTestSuiteTrackers();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.runnerTestSuites = sharedTestRunData.getRunnerTestSuites();
+        this.suitesObserved = sharedTestRunData.getSuitesObserved();
         this.testRunStats = sharedTestRunData.getTestRunStats();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
@@ -280,6 +288,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             // track the test suite was run by the runner but not executed (0 executions)
             String testSuiteName = getTestSuiteName(testIdentifier);
             runnerTestSuites.add(testSuiteName);
+            // this JVM has observed the suite (as skipped), independent of any testClassesDir
+            // override applied to runnerTestSuites - see the field's javadoc.
+            suitesObserved.add(testSuiteName);
         }
 
         /*
@@ -342,6 +353,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         runnerTestSuites.add(testSuiteName);
+        // this JVM has observed the suite (as finished), independent of any testClassesDir
+        // override applied to runnerTestSuites - see the field's javadoc.
+        suitesObserved.add(testSuiteName);
         suitesFinishedThisAttempt.add(testSuiteName);
     }
 
@@ -364,8 +378,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
-                suitesFinishedThisAttempt.size());
+                suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size());
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

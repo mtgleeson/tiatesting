@@ -29,6 +29,16 @@ public class SharedTestRunData {
     private final Set<String> runnerTestSuites;
 
     /*
+     * The suites this JVM has actually observed - those it has seen finish or seen skipped - with
+     * no directory-scan override. Unlike runnerTestSuites, which testClassesDir can replace with a
+     * project-wide scan for deletion detection, this set exists purely to answer "how far did this
+     * runner get", which is what the distributed completeness guard needs fed to it. It must live
+     * here rather than on the listener so a Surefire retry's new listener instance sees what earlier
+     * attempts already observed, exactly like runnerTestSuites does.
+     */
+    private final Set<String> suitesObserved;
+
+    /*
      * On re-runs, we don't want to overwrite the class mappings for the test suites.
      * i.e. the re-run test plan mappings will be only relevant for the re-run test method(s) which are a subset for the
      * overall test suite and won't account for the other test methods in the suite.
@@ -45,12 +55,21 @@ public class SharedTestRunData {
 
     public SharedTestRunData() {
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
+        this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testRunStats = new TestStats();
     }
 
     public Set<String> getRunnerTestSuites() {
         return runnerTestSuites;
+    }
+
+    /**
+     * @return the mutable, shared set of suites this JVM has observed finish or skip so far,
+     *         accumulated across every test plan (including Surefire retries) the JVM makes.
+     */
+    public Set<String> getSuitesObserved() {
+        return suitesObserved;
     }
 
     public Map<String, TestSuiteTracker> getTestSuiteTrackers() {

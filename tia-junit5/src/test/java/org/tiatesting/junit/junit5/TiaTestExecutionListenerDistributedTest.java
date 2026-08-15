@@ -170,14 +170,23 @@ class TiaTestExecutionListenerDistributedTest {
      * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
      * persist writes only its recording, and the fork's JVM exit does the completion and the seal.
      *
+     * <p>{@code SUITE} is pre-seeded into the shared data's observed set rather than driven through
+     * real {@code executionFinished}/{@code executionSkipped} calls, standing in for the JUnit
+     * Platform lifecycle this fixture does not otherwise exercise (the two {@code testPlanExecution*}
+     * hooks below take a null test plan). Without it the completeness guard would see zero suites
+     * observed against the plan's one assigned suite and block every completion in this class,
+     * regardless of which build tool or distributed logic is under test here.
+     *
      * <p>The exit is driven directly, since a test cannot exit the JVM it runs in. It is part of
      * the lifecycle rather than something a test adds: the barrier is released when the fork
      * finishes, not when one of its test plans does - and a Surefire retry makes several test plans
      * per fork routine.
      */
     private void runTheListener() {
+        SharedTestRunData sharedTestRunData = new SharedTestRunData();
+        sharedTestRunData.getSuitesObserved().add(SUITE);
         TiaTestExecutionListener listener =
-                new TiaTestExecutionListener(new SharedTestRunData(), new StubVCSReader());
+                new TiaTestExecutionListener(sharedTestRunData, new StubVCSReader());
         listener.testPlanExecutionStarted(null);
         listener.testPlanExecutionFinished(null);
         DistributedRunCompletion.completePendingCompletions();

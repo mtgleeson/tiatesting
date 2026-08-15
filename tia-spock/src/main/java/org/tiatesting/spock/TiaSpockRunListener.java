@@ -34,6 +34,15 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
+    /*
+    The suites this JVM has actually observed - those it has seen finish (afterSpec) or seen skipped
+    (specSkipped) - with no directory-scan or spec-visiting override, unlike the runnerTestSuites the
+    global extension hands to finishAllTests (which tracks every spec visitSpec sees, whether or not
+    this JVM ever got to run it). This, not that set, is what feeds the distributed completeness
+    guard: see TestRunResult#getSuitesObserved. One listener instance is used for the whole JVM (no
+    Surefire-retry-style re-creation on the Gradle/Spock side), so a plain field is enough.
+     */
+    private final Set<String> suitesObserved;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private final Set<String> selectedTests;
     private final int ignoredTestSuiteCount;
@@ -77,6 +86,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.testSuitesProcessed = ConcurrentHashMap.newKeySet();
+        this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.specificationUtil = new SpecificationUtil();
         this.dataStore = dataStore;
@@ -119,10 +129,20 @@ public class TiaSpockRunListener extends AbstractRunListener {
         updateTrackerStatsForFailedRun(specName);
     }
 
+    /**
+     * Called when a spec is skipped, whether by an {@code @Ignore}-style annotation or
+     * programmatically (Tia's own selection calls {@code spec.skip(...)}). Records the spec as
+     * observed by this JVM even though it never ran, so a skipped spec does not make the
+     * distributed completeness guard wait for it forever - mirroring the JUnit5 listener's
+     * {@code executionSkipped}.
+     *
+     * @param spec the spec that was skipped
+     */
     @Override
     public void specSkipped(SpecInfo spec) {
         String specName = specificationUtil.getSpecName(spec);
         log.info(specName + " was skipped!");
+        suitesObserved.add(specName);
 
         /*
         Note, we don't need to reset stats for Ignore:
@@ -131,6 +151,13 @@ public class TiaSpockRunListener extends AbstractRunListener {
          */
     }
 
+    /**
+     * Called once a spec has finished running (not when it was skipped - {@code specSkipped} covers
+     * that). Collects its coverage and records it as observed by this JVM, mirroring the JUnit5
+     * listener's {@code executionFinished}/{@code testSuiteFinished}.
+     *
+     * @param spec the spec that finished
+     */
     @Override
     public void afterSpec(SpecInfo spec) {
         String specName = specificationUtil.getSpecName(spec);
@@ -158,6 +185,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
         }
 
         testSuitesProcessed.add(specName); // this method is called twice for some reason - avoid processing it twice.
+        // this JVM has observed the spec (as finished) - see the field's javadoc.
+        suitesObserved.add(specName);
     }
 
     /**
@@ -184,8 +213,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
         // per-attempt count - there's no separate counter to thread through.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult, ignoredTestSuiteCount,
-                testSuiteTrackers.size());
+                suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
+                ignoredTestSuiteCount, testSuiteTrackers.size());
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

@@ -81,7 +81,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList(
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), runnerTestSuites,
+                trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4);
 
         // when - persist with history enabled
@@ -118,7 +118,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledA", "com.example.UserDisabledB", "com.example.UserDisabledC",
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), runnerTestSuites,
+                trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4);
 
         // when
@@ -141,7 +141,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
     void firstRun_noStoredMapping_persistsZeroIgnored() {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
-                new HashMap<>(), new HashSet<>(), new HashSet<>(),
+                new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0);
 
         // when
@@ -175,7 +175,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedA", new TestSuiteTracker("com.example.RetriedA"));
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2);
 
         // when
@@ -203,7 +203,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
             trackers.put(name, new TestSuiteTracker(name));
         }
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5);
 
         // when

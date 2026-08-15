@@ -47,6 +47,15 @@ public class TiaJunit4Listener extends RunListener {
      */
     private final Map<String, Integer> runnerTestSuites;
     /*
+    The suites this JVM has actually observed - those it has seen finish (testSuiteFinished) or seen
+    skipped (testIgnored) - with no testClassesDir directory-scan override, unlike
+    getRunnerTestSuites(). This, not the (possibly overridden) discovered set, is what feeds the
+    distributed completeness guard: see TestRunResult#getSuitesObserved. JUnit4 reuses this listener
+    instance across Surefire retries, so a single field (rather than something shared like JUnit5's
+    SharedTestRunData) is enough to accumulate across attempts.
+     */
+    private final Set<String> suitesObserved;
+    /*
     The set of tests selected to run by Tia.
      */
     private Set<String> selectedTests;
@@ -107,6 +116,7 @@ public class TiaJunit4Listener extends RunListener {
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.runnerTestSuites = new ConcurrentHashMap<>();
+        this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
         this.branch = vcsReader.getBranchName();
@@ -242,6 +252,14 @@ public class TiaJunit4Listener extends RunListener {
         }
     }
 
+    /**
+     * Called when a test suite (class) or individual test is ignored/skipped. Records the suite as
+     * observed by this JVM - even though it never ran - so a class-level {@code @Ignore} does not
+     * make the distributed completeness guard wait for it forever.
+     *
+     * @param description the JUnit test description
+     * @throws Exception an Exception
+     */
     @Override
     public void testIgnored(Description description) throws Exception {
         if (!enabled){
@@ -251,6 +269,9 @@ public class TiaJunit4Listener extends RunListener {
         String testSuiteName = getTestSuiteName(description);
         // track the test suite was run by the runner but not executed (0 executions)
         runnerTestSuites.put(testSuiteName, 0);
+        // this JVM has observed the suite (as skipped), independent of any testClassesDir override
+        // applied by getRunnerTestSuites() - see the field's javadoc.
+        suitesObserved.add(testSuiteName);
 
         /*
         Note, we don't need to reset stats for Ignore:
@@ -315,6 +336,9 @@ public class TiaJunit4Listener extends RunListener {
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
             runnerTestSuites.put(testSuiteName, previousRuns+1);
+            // this JVM has observed the suite (as finished), independent of any testClassesDir
+            // override applied by getRunnerTestSuites() - see the field's javadoc.
+            suitesObserved.add(testSuiteName);
             suitesFinishedThisAttempt.add(testSuiteName);
         }
     }
@@ -340,8 +364,8 @@ public class TiaJunit4Listener extends RunListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
-                suitesFinishedThisAttempt.size());
+                suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size());
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

@@ -29,7 +29,9 @@ import java.util.Map;
  *   <li>{@link #reportGroupProgress(long, int, int, int)} is called on every persist, at the point
  *       in the persist that used to record the same measurements as part of the combined
  *       completion call. It is not subject to the ordering below, since it never releases the
- *       barrier - only the status flip does.</li>
+ *       barrier - only the status flip does. It also assumes one JVM works one group end to end;
+ *       see its own javadoc for what several JVMs reporting against the same group do to that
+ *       assumption.</li>
  *   <li>{@link #completeGroup(long)} is the <b>last</b> write the runner makes, because completing
  *       the group is what releases that barrier. A group marked complete ahead of its own mapping
  *       rows would let the sealer rebuild the catalogue from an edge set still missing them -
@@ -135,14 +137,16 @@ public final class DistributedRunnerPersist {
      * Report this test plan's progress on the runner's group, without releasing the barrier. Called
      * on every persist - potentially several times per JVM, once per Surefire retry - so {@code
      * actualDurationMs} and {@code suitesRan} accumulate onto whatever is already stored while
-     * {@code suitesFailed} and {@code suitesDiscovered} both replace it outright, exactly as
-     * {@link DataStore#reportGroupProgress} documents - though for different reasons: {@code
-     * suitesFailed} because it is current state, {@code suitesDiscovered} because the set it comes
-     * from is already cumulative per JVM, so accumulating it here would double-count. This is what
-     * {@link #completeGroup(long)}'s completeness guard later reads back to decide whether the
-     * group's mapping rows are believed to cover everything it was assigned - via {@code
-     * suitesDiscovered}, not {@code suitesRan}, since a suite the group discovered but never
-     * executed (a disabled class, a filter, a deletion) still counts toward completeness.
+     * {@code suitesFailed} replaces it outright and {@code suitesObserved} is written via {@code
+     * GREATEST}, exactly as {@link DataStore#reportGroupProgress} documents - though for different
+     * reasons: {@code suitesFailed} because it is current state, {@code suitesObserved} because the
+     * set it comes from is already cumulative per JVM, so summing it here would double-count (and a
+     * plain replace would risk a late-arriving smaller report regressing it - see
+     * {@link DataStore#reportGroupProgress} for the multi-JVM caveat this does not fully solve). This
+     * is what {@link #completeGroup(long)}'s completeness guard later reads back to decide whether
+     * the group's mapping rows are believed to cover everything it was assigned - via {@code
+     * suitesObserved}, not {@code suitesRan}, since a suite the group observed but never executed (a
+     * disabled class, a filter, a deletion) still counts toward completeness.
      *
      * <p>A false return is the same straggler protection {@link #completeGroup(long)} guards on,
      * seen early: the claim died before this call, so there is nothing further to persist for this
@@ -155,16 +159,16 @@ public final class DistributedRunnerPersist {
      *                         stays comparable with non-distributed history
      * @param suitesRan the number of suites this call's test plan executed
      * @param suitesFailed the number of this runner's suites currently failing
-     * @param suitesDiscovered the number of suites this runner has discovered so far (executed +
-     *                         skipped + filtered), cumulative across every test plan in this JVM
+     * @param suitesObserved the number of suites this runner has observed so far (finished or
+     *                       skipped), cumulative across every test plan in this JVM
      * @return true when the guarded update applied, false when this runner's claim is no longer
      *         live
      */
     public boolean reportGroupProgress(final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final int suitesDiscovered) {
+                                       final int suitesFailed, final int suitesObserved) {
         boolean applied = dataStore.reportGroupProgress(context.getRunId(),
                 context.getGroupNumber().intValue(), context.getRunnerKey(), actualDurationMs,
-                suitesRan, suitesFailed, suitesDiscovered);
+                suitesRan, suitesFailed, suitesObserved);
 
         if (!applied) {
             log.warn("Distributed run '{}': runner '{}' could not report progress on group {} - {}. "
@@ -173,9 +177,9 @@ public final class DistributedRunnerPersist {
                     context.getRunId(), context.getRunnerKey(), context.getGroupNumber(),
                     describeRejectedCompletion());
         } else {
-            log.debug("Distributed run '{}': runner '{}' reported {} suite(s) ran, {} discovered ({} "
+            log.debug("Distributed run '{}': runner '{}' reported {} suite(s) ran, {} observed ({} "
                             + "failed, {}ms) on group {}.", context.getRunId(), context.getRunnerKey(),
-                    suitesRan, suitesDiscovered, suitesFailed, actualDurationMs,
+                    suitesRan, suitesObserved, suitesFailed, actualDurationMs,
                     context.getGroupNumber());
         }
         return applied;
@@ -190,7 +194,7 @@ public final class DistributedRunnerPersist {
      *
      * <p>A null return is either the straggler protection firing late - the claim died between
      * {@link #claimIsLive()} and here, so the mapping writes in between went to a run that no
-     * longer exists - or the group has not yet discovered every suite it was assigned. Nothing
+     * longer exists - or the group has not yet observed every suite it was assigned. Nothing
      * further can be done about those rows from here, but the group stays incomplete, so this run
      * can never elect a sealer and can never advance the stored commit - which is what keeps the
      * superseding build's commit stamp honest. The failure log names which of the causes it was,
@@ -227,7 +231,7 @@ public final class DistributedRunnerPersist {
      * failure paths, so its wording is deliberately guard-neutral rather than assuming a completion
      * was attempted. The guard's row count cannot tell the cases apart - a run superseded by a newer
      * build's plan write, a group re-claimed by another runner, a group this runner has already
-     * completed, and a group this runner still holds but has not yet discovered enough of all miss
+     * completed, and a group this runner still holds but has not yet observed enough of all miss
      * the same {@code WHERE} clause - so the row is read back to find out.
      *
      * <p>Read only on the failure path, where one extra read costs nothing and a wrong explanation
@@ -250,7 +254,7 @@ public final class DistributedRunnerPersist {
             if (group.getStatus() == DistributedRunGroupStatus.CLAIMED && heldByThisRunner) {
                 int assigned = dataStore.readDistributedRunGroupSuites(context.getRunId(), groupNumber)
                         .size();
-                return "this runner has discovered only " + group.getSuitesDiscovered() + " of "
+                return "this runner has observed only " + group.getSuitesObserved() + " of "
                         + assigned + " assigned suite(s) so far, so the group is not complete "
                         + "enough to close";
             }

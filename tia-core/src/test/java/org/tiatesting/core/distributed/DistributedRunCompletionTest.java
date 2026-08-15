@@ -369,7 +369,7 @@ class DistributedRunCompletionTest {
     /**
      * Build the result one test plan reports: one suite carrying coverage of one method, with the
      * counters that test plan would have accumulated. Both of the test's suites are always reported
-     * as discovered, since the runner discovers every test class whichever ones a given test plan
+     * as observed, since the runner observes every test class whichever ones a given test plan
      * executes, and a suite missing from that set would be treated as deleted.
      *
      * @param suiteName the suite this test plan executed
@@ -395,10 +395,10 @@ class DistributedRunCompletionTest {
         for (int i = 0; i < suitesFailed; i++) {
             failed.add("com.example.Failed" + i + "Test");
         }
-        Set<String> discovered = new HashSet<>(Arrays.asList(SUITE_FIRST_PLAN, SUITE_SECOND_PLAN));
-        discovered.addAll(failed);
+        Set<String> observed = new HashSet<>(Arrays.asList(SUITE_FIRST_PLAN, SUITE_SECOND_PLAN));
+        observed.addAll(failed);
 
-        return new TestRunResult(trackers, failed, discovered, new HashSet<>(discovered),
+        return new TestRunResult(trackers, failed, observed, observed, new HashSet<>(observed),
                 methodTrackers, new TestStats(), null, 1, suitesRan);
     }
 
@@ -409,7 +409,7 @@ class DistributedRunCompletionTest {
      */
     private TestRunResult emptyResult() {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
-                new HashSet<String>(), new HashSet<String>(),
+                new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0);
     }
 
@@ -471,16 +471,17 @@ class DistributedRunCompletionTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesDiscovered number of suites discovered so far, replacing what was stored
+         * @param suitesObserved number of suites observed so far, replacing what was stored with
+         *                       the greater of the two values
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesDiscovered) {
+                                           final int suitesObserved) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesDiscovered);
+                    suitesRan, suitesFailed, suitesObserved);
         }
 
         /**

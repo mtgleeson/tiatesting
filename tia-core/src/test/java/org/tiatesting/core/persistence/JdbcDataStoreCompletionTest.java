@@ -34,17 +34,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Cover the four operations that close a distributed run against embedded H2:
  * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, int)} (the progress
  * report, where {@code suitesRan}/{@code actualDurationMs} accumulate and {@code suitesFailed}/
- * {@code suitesDiscovered} replace), {@link DataStore#completeGroup(String, int, String, long)}
+ * {@code suitesObserved} replace), {@link DataStore#completeGroup(String, int, String, long)}
  * (the guarded status flip that is also the straggler protection and the completeness guard),
  * {@link DataStore#electSealer(String, String, long)} (the barrier) and
  * {@link DataStore#markDistributedRunSealed(String)}.
  *
  * <p>All three guards carry correctness rather than tidiness, so they get dedicated tests: the
  * completion's {@code status = 'CLAIMED' AND runner_key = ?} predicate is what tells a runner from
- * a superseded build that its claim is dead so it must not write; its {@code suites_discovered >=
+ * a superseded build that its claim is dead so it must not write; its {@code suites_observed >=
  * COUNT(*)} predicate is what stands in for the crash protection a JVM shutdown hook used to
- * provide, blocking a group that has not yet discovered every suite it was assigned - deliberately
- * {@code suites_discovered} and not {@code suites_ran}, since a suite the runner discovered but
+ * provide, blocking a group that has not yet observed every suite it was assigned - deliberately
+ * {@code suites_observed} and not {@code suites_ran}, since a suite the runner observed but
  * never executed (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class deleted since
  * the last mapping run) must not block a group forever; and the election's {@code sealed_by IS
  * NULL AND NOT EXISTS (incomplete group)} predicate is what makes the sealer's {@code SELECT
@@ -105,7 +105,7 @@ class JdbcDataStoreCompletionTest {
     /**
      * Build and persist a single-group plan with {@code suiteCount} suites all assigned to that one
      * group, so the completeness guard has a concrete assigned count to compare
-     * {@code suites_discovered} against.
+     * {@code suites_observed} against.
      *
      * @param runId the run identifier to plan under
      * @param suiteCount how many suites to assign to the run's one group
@@ -164,7 +164,7 @@ class JdbcDataStoreCompletionTest {
         assertEquals(Long.valueOf(4321L), completed.getActualDurationMs());
         assertEquals(7, completed.getSuitesRan());
         assertEquals(2, completed.getSuitesFailed());
-        assertEquals(7, completed.getSuitesDiscovered());
+        assertEquals(7, completed.getSuitesObserved());
         assertEquals(completed, storedGroup("run-1", 0));
     }
 
@@ -335,12 +335,12 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
-     * Case 1 of the completeness guard: a group that discovered (and ran) every suite it was
+     * Case 1 of the completeness guard: a group that observed (and ran) every suite it was
      * assigned completes. The ordinary case, and the baseline the other cases are measured against.
      */
     @Test
     void shouldCompleteAGroupThatRanEveryAssignedSuite() {
-        // given - 50 assigned suites, all 50 reported as run and discovered
+        // given - 50 assigned suites, all 50 reported as run and observed
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 0, 50));
@@ -354,17 +354,17 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
-     * <b>The case that motivates the completeness guard reading {@code suites_discovered} rather
+     * <b>The case that motivates the completeness guard reading {@code suites_observed} rather
      * than {@code suites_ran}.</b> A class-level {@code @Disabled} suite (or one excluded by a
-     * Surefire/Gradle filter, or a class deleted since the last mapping run) is discovered by the
+     * Surefire/Gradle filter, or a class deleted since the last mapping run) is observed by the
      * runner but never finishes, so {@code suites_ran} under-counts against the plan's assigned
      * total even though nothing is actually missing. Guarding on {@code suites_ran} would block
      * this group forever - every build re-running everything, with the stored commit never
-     * advancing. Guarding on {@code suites_discovered} lets it complete correctly.
+     * advancing. Guarding on {@code suites_observed} lets it complete correctly.
      */
     @Test
-    void shouldCompleteAGroupThatDiscoveredEveryAssignedSuiteEvenThoughItExecutedFewer() {
-        // given - 50 assigned suites, all 50 discovered but only 49 executed (one @Disabled suite)
+    void shouldCompleteAGroupThatObservedEveryAssignedSuiteEvenThoughItExecutedFewer() {
+        // given - 50 assigned suites, all 50 observed but only 49 executed (one @Disabled suite)
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 50));
@@ -373,11 +373,11 @@ class JdbcDataStoreCompletionTest {
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // then
-        assertNotNull(completed, "a group that discovered every assigned suite must complete even "
+        assertNotNull(completed, "a group that observed every assigned suite must complete even "
                 + "when it executed fewer of them, e.g. one was @Disabled");
         assertEquals(49, completed.getSuitesRan(),
                 "the executed count stored for the sealer must still reflect only what actually ran");
-        assertEquals(50, completed.getSuitesDiscovered());
+        assertEquals(50, completed.getSuitesObserved());
     }
 
     /**
@@ -407,7 +407,7 @@ class JdbcDataStoreCompletionTest {
 
     /**
      * Case 3 of the completeness guard: a JVM that dies before making any persist reports nothing
-     * at all, so {@code suites_discovered} stays at its planned default of 0. {@code 0 < 50} blocks
+     * at all, so {@code suites_observed} stays at its planned default of 0. {@code 0 < 50} blocks
      * the completion.
      */
     @Test
@@ -426,7 +426,7 @@ class JdbcDataStoreCompletionTest {
 
     /**
      * Case 4 of the completeness guard: a Gradle worker that dies partway through its group reports
-     * only the suites it discovered before dying. {@code 30 < 50} blocks the completion.
+     * only the suites it observed before dying. {@code 30 < 50} blocks the completion.
      */
     @Test
     void shouldBlockCompletionWhenOnlyPartOfTheGroupWasReported() {

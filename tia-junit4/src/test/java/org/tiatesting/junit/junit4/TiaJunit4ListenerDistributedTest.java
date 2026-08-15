@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit4;
 
+import org.junit.runner.Description;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * <p>Driven against a real embedded-H2 {@link JdbcDataStore}, because what is under test is which
  * rows the persist writes. The two run hooks are called with a null description and result: the
  * listener does not read either argument, and building real ones would add a JUnit 4 runner to the
- * fixture without testing anything more.
+ * fixture without testing anything more. {@link #runTheListener()} does call {@code testIgnored}
+ * with one real {@link Description} first, though - not to exercise the ignore path itself, but
+ * because the distributed completeness guard needs this fork to have observed at least as many
+ * suites as the plan assigned it, and nothing else in this fixture's stripped-down lifecycle would
+ * do that.
  */
 class TiaJunit4ListenerDistributedTest {
 
@@ -170,6 +175,12 @@ class TiaJunit4ListenerDistributedTest {
      * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
      * persist writes only its recording, and the fork's JVM exit does the completion and the seal.
      *
+     * <p>{@code testIgnored} is called once, with a {@link Description} for this class, before the
+     * run hooks - not to exercise the ignore path, but to give the listener's internally-tracked
+     * observed set one entry. Without it the completeness guard would see zero suites observed
+     * against the plan's one assigned suite and block every completion in this class; the guard
+     * compares counts only, so the observed suite need not be the same name the plan assigned.
+     *
      * <p>The exit is driven directly, since a test cannot exit the JVM it runs in. It is part of
      * the lifecycle rather than something a test adds: the barrier is released when the fork
      * finishes, not when one of its test plans does.
@@ -178,6 +189,7 @@ class TiaJunit4ListenerDistributedTest {
      */
     private void runTheListener() throws Exception {
         TiaJunit4Listener listener = new TiaJunit4Listener(new StubVCSReader());
+        listener.testIgnored(Description.createSuiteDescription(TiaJunit4ListenerDistributedTest.class));
         listener.testRunStarted(null);
         listener.testRunFinished(null);
         DistributedRunCompletion.completePendingCompletions();
