@@ -4,6 +4,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.agent.ForkSystemProperties;
@@ -209,13 +210,18 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * embedded database cannot see the plan at all, and one that disagreed with the planner about
      * the run's shape would be claiming from a run nobody planned. The reactor-size rule applies
      * here too: see the inline comment on the {@code check} call for why a claim, not only a plan,
-     * must be rejected on a multi-module reactor.
+     * must be rejected on a multi-module reactor. When that rule is what fails, the rejection names
+     * every project found in the reactor via {@link #withReactorProjectNamesIfRelevant}, the same
+     * way {@link AbstractTiaDistPlanMojo#execute()} does for the planning side of the same rule.
      *
      * @return the validated distributed run configuration
      * @throws MojoExecutionException if a precondition fails or the configuration is invalid; the
-     *                                message names the property to fix
+     *                                message names the property to fix, and additionally names
+     *                                every reactor project when the multi-project rule is what
+     *                                failed
      */
     private DistributedRunConfig validatedDistributedRunConfig() throws MojoExecutionException {
+        List<MavenProject> reactorProjects = getReactorProjects();
         try {
             // The reactor-size rule belongs here too, not only on tia-dist-plan: prepare-agent is
             // bound to the INITIALIZE phase, so Maven runs it once per reactor module rather than
@@ -224,7 +230,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             // lives in a different module - nobody runs them, and the build still reports success.
             // Passing the reactor's real size here, the same way AbstractTiaDistPlanMojo does, lets
             // DistributedRunPreconditions.check reject that shape before any group is claimed.
-            DistributedRunPreconditions.check(isTiaEnabled(), getReactorProjects().size(), getTiaDBUrl(),
+            DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
                     getTiaDBDialect(), isTiaCheckLocalChanges());
             // forRunner, not validated: how the build was split is the planner's decision and is
             // already recorded in the plan being claimed from. Requiring the grouping properties
@@ -233,7 +239,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             return DistributedRunConfig.forRunner(getTiaRunId(), getTiaDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new MojoExecutionException("Distributed run configuration is invalid: "
-                    + e.getMessage(), e);
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
         }
     }
 

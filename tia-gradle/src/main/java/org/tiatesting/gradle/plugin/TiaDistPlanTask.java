@@ -19,6 +19,7 @@ import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -137,14 +138,15 @@ public class TiaDistPlanTask extends DefaultTask {
     }
 
     /**
-     * Append the reactor's project names to a precondition failure message when the failure is the
+     * Append the build's project names to a precondition failure message when the failure is the
      * multi-project rule, so a user reading this task's console output sees exactly which projects
      * were found in the build - information {@code DistributedRunPreconditions.check} cannot
-     * supply itself, since {@code tia-core} has no Gradle type to name them with. The
-     * multi-project rule is checked immediately after the Tia-enabled rule and does not depend on
-     * any other property, so whenever Tia is enabled and the build holds more than one project the
-     * message from {@code check} is always this rule's - there is no need to inspect the message
-     * text to tell.
+     * supply itself, since {@code tia-core} has no Gradle type to name them with. Converts {@link
+     * TiaBasePlugin#getReactorProjects()}'s {@link Project} set to plain name strings and delegates
+     * the "only when relevant" gate to {@link
+     * DistributedRunPreconditions#withReactorProjectNamesIfRelevant}, the same core helper the
+     * Maven plan goal's equivalent wrapper ({@code AbstractTiaMojo.withReactorProjectNamesIfRelevant})
+     * delegates to, so the two build tools cannot drift on when a project list gets appended.
      *
      * @param message the failure message from {@code DistributedRunPreconditions.check}
      * @param tiaEnabled the resolved {@code tia.enabled} value this run started {@code check} with
@@ -155,16 +157,10 @@ public class TiaDistPlanTask extends DefaultTask {
      */
     private static String withReactorProjectNamesIfRelevant(final String message, final boolean tiaEnabled,
                                                               final Set<Project> reactorProjects) {
-        if (!tiaEnabled || reactorProjects.size() <= 1) {
-            return message;
-        }
-        StringBuilder names = new StringBuilder();
+        List<String> names = new ArrayList<>(reactorProjects.size());
         for (Project reactorProject : reactorProjects) {
-            if (names.length() > 0) {
-                names.append(", ");
-            }
-            names.append(reactorProject.getName());
+            names.add(reactorProject.getName());
         }
-        return message + " Projects found in this build: " + names + ".";
+        return DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, tiaEnabled, names);
     }
 }

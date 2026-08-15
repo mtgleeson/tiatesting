@@ -55,11 +55,14 @@ public final class DistributedRunSystemProperties {
      * running a normal Gradle build against an embedded database must not be failed by a
      * distributed run's preconditions.
      *
-     * <p>For a runner, the same three preconditions the planner enforced are enforced again here
-     * rather than trusted from the planning job, because a runner is a separate process with its
-     * own configuration and can be misconfigured on its own: one pointed at an embedded database
-     * would see no other runner's claims at all and would claim group 0 alongside every other
-     * runner in the pipeline.
+     * <p>{@link DistributedRunPreconditions#check} enforces four rules; of those, the same three
+     * that do not depend on the reactor - Tia enabled, a shared database, and local-changes
+     * checking off - are enforced again here rather than trusted from the planning job, because a
+     * runner is a separate process with its own configuration and can be misconfigured on its own:
+     * one pointed at an embedded database would see no other runner's claims at all and would claim
+     * group 0 alongside every other runner in the pipeline. The fourth rule, the reactor-size
+     * check, is passed a literal {@code 1} below so it never fires here - see the comment on that
+     * call for why, which is not the same reason a Maven runner is exempt from it.
      *
      * @return the configuration for claiming a group, or null when this build is not a distributed
      *         runner
@@ -72,10 +75,20 @@ public final class DistributedRunSystemProperties {
             return null;
         }
 
-        // The reactor-size rule guards the planning step, which this runner does not perform - it
-        // claims from a plan the planning step already persisted - so 1 opts out of that rule rather
-        // than duplicating the planner's reactor-size logic in a forked test JVM that cannot see the
-        // Gradle multi-project build it belongs to.
+        // Passing 1 here is correct, but not because this call sees only one project the way a
+        // Maven claim does. A forked test JVM cannot see the Gradle multi-project build it belongs
+        // to at all - it has no Project reference, only system properties - so it has no reactor
+        // size to pass even if it wanted to. It is safe to always claim to be single-project because
+        // TiaBasePlugin.getReactorProjects() reads project.getRootProject().getAllprojects(), so
+        // planning already refuses ANY multi-project Gradle build, whichever project tia-dist-plan
+        // was invoked on. There is no Gradle analogue of Maven's "mvn -pl <module>" that could invoke
+        // planning against a single module of a larger reactor - which is precisely what makes the
+        // Maven claim-time gap this rule closes reachable, and leaves no equivalent gap on Gradle.
+        // If a Gradle claim-time guard is ever wanted anyway, it belongs in
+        // TiaSpockGitGradlePluginTestExtension.applyTo, which runs in the build JVM at task-action
+        // time with task.getProject() available and already forwards distributed properties into
+        // the fork via forwardDistributedRunConfig - it is not blocked by the same "no Project
+        // reference" limitation this method has.
         DistributedRunPreconditions.check(Boolean.parseBoolean(System.getProperty("tiaEnabled")), 1,
                 System.getProperty("tiaDBUrl"), System.getProperty("tiaDBDialect"),
                 Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges")));

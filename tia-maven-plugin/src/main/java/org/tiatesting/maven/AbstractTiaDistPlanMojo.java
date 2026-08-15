@@ -54,9 +54,10 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         System.out.println("Planning a distributed Tia test run:");
 
-        List<MavenProject> reactorProjects = getReactorProjects();
         DistributedRunConfig config;
+        List<MavenProject> reactorProjects;
         try {
+            reactorProjects = getReactorProjects();
             DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
                     getTiaDBDialect(), isTiaCheckLocalChanges());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
@@ -64,7 +65,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     getTiaDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new MojoExecutionException("Distributed run configuration is invalid: "
-                    + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), getReactorProjects()), e);
         }
 
         final VCSReader vcsReader = getVCSReader();
@@ -105,34 +106,5 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     + getTiaBuildDir() + " - the run was still persisted to the database, but the "
                     + "pipeline has no file to read the group count from: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Append the reactor's project artifact ids to a precondition failure message when the failure
-     * is the multi-project-reactor rule, so a user reading this goal's console output sees exactly
-     * which modules were found in the reactor - information {@code
-     * DistributedRunPreconditions.check} cannot supply itself, since {@code tia-core} has no Maven
-     * type to name them with. The multi-project rule is checked immediately after the Tia-enabled
-     * rule and does not depend on any other property, so whenever Tia is enabled and the reactor
-     * holds more than one project the message from {@code check} is always this rule's - there is
-     * no need to inspect the message text to tell.
-     *
-     * @param message the failure message from {@code DistributedRunPreconditions.check}
-     * @param reactorProjects the projects {@link #getReactorProjects()} resolved for this build
-     * @return {@code message} unchanged, or with the reactor's project artifact ids appended when
-     *         Tia is enabled and the reactor holds more than one project
-     */
-    private String withReactorProjectNamesIfRelevant(final String message, final List<MavenProject> reactorProjects) {
-        if (!isTiaEnabled() || reactorProjects.size() <= 1) {
-            return message;
-        }
-        StringBuilder names = new StringBuilder();
-        for (MavenProject project : reactorProjects) {
-            if (names.length() > 0) {
-                names.append(", ");
-            }
-            names.append(project.getArtifactId());
-        }
-        return message + " Projects found in this reactor: " + names + ".";
     }
 }

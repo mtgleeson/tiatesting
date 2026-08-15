@@ -134,13 +134,18 @@ class TiaDistPlanTaskTest {
     }
 
     /**
-     * Verify that a single-project build is unaffected by the multi-project rule: with no
-     * subprojects, an otherwise-broken configuration still fails on the rule it would have failed
-     * on before this rule existed - here, the disabled-Tia rule - and the message names no
-     * projects at all.
+     * Verify that a disabled Tia, not the multi-project rule, is what a single-project build fails
+     * on, and that no project names are appended to the message - the {@code !tiaEnabled} gate on
+     * the project-naming helper suppresses naming just as effectively as the multi-project rule
+     * never firing does. This test does not prove a single-project build gets past the
+     * multi-project rule itself: the disabled-Tia rule is checked first in {@code
+     * DistributedRunPreconditions.check}, so with Tia disabled the multi-project rule is never
+     * reached regardless of how many projects took part - see {@link
+     * #rejectsMissingRunIdBeforeOpeningAnything(File)} for a test that actually proves a
+     * single-project build gets past every precondition, including the multi-project rule.
      */
     @Test
-    void allowsSingleProjectBuildToFallThroughToTheNextRule(@TempDir File projectDir) {
+    void disabledTiaSuppressesProjectNamingRegardlessOfProjectCount(@TempDir File projectDir) {
         // given a single-project build with an otherwise-valid configuration but Tia disabled
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply(TestPlugin.class);
@@ -162,7 +167,10 @@ class TiaDistPlanTaskTest {
      * Verify that running the task with a server-mode URL configured but no {@code runId} fails
      * with a {@link GradleException} naming the missing property, still before any datastore is
      * opened - {@code DistributedRunConfig.validated} runs immediately after the shared-database
-     * check.
+     * check. Doubles as the proof that a single-project build (no subprojects are created here)
+     * genuinely gets past every {@code DistributedRunPreconditions.check} rule, including the
+     * multi-project rule: if the multi-project rule had rejected this single-project build, the
+     * failure would name the project count, not {@code tiaRunId}.
      */
     @Test
     void rejectsMissingRunIdBeforeOpeningAnything(@TempDir File projectDir) {
