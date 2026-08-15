@@ -241,9 +241,11 @@ class TestRunnerServiceDistributedPersistTest {
                 "the failed set must be written before the group is completed. Call order: " + dataStore.callOrder);
         assertTrue(dataStore.callOrder.indexOf("persistStagedMethodTrackers") < completeIdx,
                 "the trackers must be staged before the group is completed. Call order: " + dataStore.callOrder);
+        // completeIdx is already asserted above to be the last index in callOrder, so a
+        // non-negative progressIdx is necessarily before it - no need to re-assert "< completeIdx".
         int progressIdx = dataStore.callOrder.indexOf("reportGroupProgress");
-        assertTrue(progressIdx >= 0 && progressIdx < completeIdx,
-                "progress must be reported, and before the completion that reads it back. Call order: "
+        assertTrue(progressIdx >= 0,
+                "progress must be reported before the completion that reads it back. Call order: "
                         + dataStore.callOrder);
     }
 
@@ -588,15 +590,17 @@ class TestRunnerServiceDistributedPersistTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
+         * @param suitesDiscovered number of suites discovered so far, replacing what was stored
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
-                                           final int suitesRan, final int suitesFailed) {
+                                           final int suitesRan, final int suitesFailed,
+                                           final int suitesDiscovered) {
             callOrder.add("reportGroupProgress");
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed);
+                    suitesRan, suitesFailed, suitesDiscovered);
         }
 
         /**

@@ -318,12 +318,14 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @param actualDurationMs ignored
          * @param suitesRan ignored
          * @param suitesFailed ignored
+         * @param suitesDiscovered ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
-                                           long actualDurationMs, int suitesRan, int suitesFailed) {
+                                           long actualDurationMs, int suitesRan, int suitesFailed,
+                                           int suitesDiscovered) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

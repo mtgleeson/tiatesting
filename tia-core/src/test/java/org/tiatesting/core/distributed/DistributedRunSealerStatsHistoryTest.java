@@ -527,7 +527,9 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * Claim a group, report the measurements a real runner would report, and complete it.
+     * Claim a group, report the measurements a real runner would report, and complete it. Reports
+     * {@code suitesRan} as the discovered count too, standing in for the ordinary case where a
+     * runner discovers exactly the suites it executes.
      *
      * @param runId the run the group belongs to
      * @param groupNumber the group to claim and complete
@@ -544,7 +546,8 @@ class DistributedRunSealerStatsHistoryTest {
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed), "test setup expects the progress report to be accepted");
+                suitesRan, suitesFailed, suitesRan),
+                "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
                 "test setup expects the completion to be accepted");
     }

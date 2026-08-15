@@ -461,8 +461,9 @@ class DistributedRunCompletionTest {
         }
 
         /**
-         * Record and delegate the progress report, which is not subject to the JVM-exit failure
-         * path this class can simulate on the completion.
+         * Delegate the progress report, which is not subject to the JVM-exit failure path this
+         * class can simulate on the completion. Not recorded in {@code callOrder}: no test in this
+         * class asserts on where it falls in the write order.
          *
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
@@ -470,15 +471,16 @@ class DistributedRunCompletionTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
+         * @param suitesDiscovered number of suites discovered so far, replacing what was stored
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
-                                           final int suitesRan, final int suitesFailed) {
-            callOrder.add("reportGroupProgress");
+                                           final int suitesRan, final int suitesFailed,
+                                           final int suitesDiscovered) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed);
+                    suitesRan, suitesFailed, suitesDiscovered);
         }
 
         /**

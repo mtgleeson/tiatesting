@@ -97,7 +97,7 @@ class DistributedRunTotalsTest {
         List<DistributedRunGroup> groups = Arrays.asList(
                 completed(0, 3_000L, 2, 0),
                 new DistributedRunGroup(RUN_ID, 1, DistributedRunGroupStatus.COMPLETED, "runner-b",
-                        5000L, 6000L, 1000L, null, 4, 0));
+                        5000L, 6000L, 1000L, null, 4, 0, 4));
 
         // when
         DistributedRunTotals totals = DistributedRunTotals.from(groups);
@@ -161,6 +161,6 @@ class DistributedRunTotalsTest {
                                           final int suitesRan, final int suitesFailed) {
         return new DistributedRunGroup(RUN_ID, groupNumber, DistributedRunGroupStatus.COMPLETED,
                 "runner-" + groupNumber, 5000L, 6000L, 1000L, Long.valueOf(actualDurationMs),
-                suitesRan, suitesFailed);
+                suitesRan, suitesFailed, suitesRan);
     }
 }

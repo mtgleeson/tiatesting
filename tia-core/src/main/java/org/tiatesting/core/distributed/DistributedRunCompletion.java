@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>The mapping writes stay in the persist where they are, and so now does the group's progress -
  * duration and suite counters are reported on every persist via {@link
- * DistributedRunnerPersist#reportGroupProgress(long, int, int)}, accumulating across retries the
+ * DistributedRunnerPersist#reportGroupProgress(long, int, int, int)}, accumulating across retries the
  * same way the suite rows, failed set and staged trackers do. Only the status flip, and the
  * sealer election that follows it, are held back to here.
  *
@@ -78,7 +78,7 @@ public final class DistributedRunCompletion {
      * which is correct because these values are the same across every test plan in a JVM - the
      * last one to persist is simply the freshest copy. The measured progress (duration, suites
      * ran, suites failed) is no longer carried here at all: {@link
-     * DistributedRunnerPersist#reportGroupProgress(long, int, int)} records it directly, on every
+     * DistributedRunnerPersist#reportGroupProgress(long, int, int, int)} records it directly, on every
      * persist, so it accumulates correctly across retries instead of being replaced by whichever
      * test plan happens to persist last.
      */
@@ -109,7 +109,7 @@ public final class DistributedRunCompletion {
      * correct because what it now carries - the commit, the branch and which DB updates this build
      * owns - is the same across every test plan in the JVM, so the last one to persist is simply
      * the freshest copy. The measured progress this used to carry is reported directly by {@link
-     * DistributedRunnerPersist#reportGroupProgress(long, int, int)} instead, on the same persist,
+     * DistributedRunnerPersist#reportGroupProgress(long, int, int, int)} instead, on the same persist,
      * since it has to accumulate across test plans rather than be replaced by the last one.
      *
      * @param dataStore the shared datastore this runner's build writes to
@@ -258,8 +258,12 @@ public final class DistributedRunCompletion {
     }
 
     /**
-     * One test plan's figures, held together so the completion reads a consistent set rather than
-     * a mixture of two test plans' values.
+     * The build-identifying figures a test plan recorded, held together as one immutable group so a
+     * later test plan replaces the whole recording atomically rather than field-by-field. Every
+     * field here is the same across every test plan in a JVM - the commit and branch the build ran
+     * against, and which of the mapping DB, Tia-level stats and history row it owns - so there is
+     * no mixture to guard against; the value of holding them together is simply that replacement is
+     * one assignment rather than several.
      */
     private static final class RecordedFigures {
 

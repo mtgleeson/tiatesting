@@ -708,9 +708,9 @@ class DistributedRunPlannerTest {
                 DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
-                "runner-1", 1L, 2L, 1000L, 900L, 5, 0));
+                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5));
         groups.add(new DistributedRunGroup("run-unsealed", 1, DistributedRunGroupStatus.COMPLETED,
-                "runner-2", 1L, 2L, 1000L, 950L, 4, 0));
+                "runner-2", 1L, 2L, 1000L, 950L, 4, 0, 4));
 
         // when
         List<String> result = DistributedRunPlanner.incompleteGroupsToWarnAbout(unsealedRun, groups);
@@ -732,7 +732,7 @@ class DistributedRunPlannerTest {
                 DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
-                "runner-1", 1L, 2L, 1000L, 900L, 5, 0));
+                "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5));
         groups.add(DistributedRunGroup.pending("run-incomplete", 1, 1000L));
 
         // when
