@@ -78,7 +78,7 @@ class TestRunnerServiceHistorySavingsTest {
         runStats.setNumSuccessRuns(1);
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
-        return new TestRunResult(trackers, empty, empty, empty, new HashMap<>(), runStats, null,
+        return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
                 ignoredTestSuiteCount, 1);
     }
 

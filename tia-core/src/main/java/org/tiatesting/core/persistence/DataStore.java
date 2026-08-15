@@ -457,19 +457,32 @@ public interface DataStore extends AutoCloseable {
      *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
      *       a suite that passes on retry must legitimately leave the failed set, and accumulating
      *       it would instead leave a fixed suite recorded as permanently failed.</li>
-     *   <li>{@code suitesDiscovered} is also replaced outright, not accumulated, but for a
-     *       different reason than {@code suitesFailed}: the set it is drawn from ({@link
-     *       org.tiatesting.core.testrunner.TestRunResult#getRunnerTestSuites()}) is already
-     *       cumulative across every test plan in the JVM, so summing it here would double-count.
-     *       It counts every suite the runner <b>discovered</b> - executed, skipped or filtered -
-     *       which is deliberately not the same figure as {@code suitesRan}: a suite Tia never got
-     *       to run (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class deleted
-     *       since the last mapping run) is discovered without ever being executed. This is the
-     *       figure {@link #completeGroup}'s completeness guard reads, precisely so that a group
-     *       with such a suite can still complete. Do not conflate {@code suitesRan} and {@code
-     *       suitesDiscovered}: one is the sealer's "executed" figure, the other is the guard's
+     *   <li>{@code suitesObserved} is written as {@code GREATEST(COALESCE(stored, 0), value)}
+     *       rather than accumulated, but for a different reason than {@code suitesFailed}: the set
+     *       it is drawn from ({@link org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()})
+     *       is already cumulative across every test plan in the JVM, so summing it here would
+     *       double-count. It counts every suite the runner <b>observed</b> - saw finish or saw
+     *       skipped - which is deliberately not the same figure as {@code suitesRan}: a suite Tia
+     *       never got to run (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class
+     *       deleted since the last mapping run) is observed (skipped) without ever being executed.
+     *       This is the figure {@link #completeGroup}'s completeness guard reads, precisely so that
+     *       a group with such a suite can still complete. Do not conflate {@code suitesRan} and
+     *       {@code suitesObserved}: one is the sealer's "executed" figure, the other is the guard's
      *       "accounted for" figure, and they answer different questions.</li>
      * </ul>
+     *
+     * <p><strong>Precondition: one JVM works one group end to end.</strong> The "already cumulative"
+     * claim above about {@code suitesObserved} - and therefore the correctness of {@code GREATEST}
+     * over a plain replace - holds only when every call for a given {@code (runId, groupNumber,
+     * runnerKey)} comes from the same JVM's shared, monotonically-growing observed set, exactly what
+     * a Surefire retry within one JVM is. With Gradle {@code maxParallelForks > 1} or {@code
+     * forkEvery > 0}, several independent JVMs can report against the same group under the same
+     * runner key, each with its own smaller observed set; {@code GREATEST} then converges on the
+     * largest single fork's count rather than the true union, which under-counts and can leave the
+     * completeness guard blocked even once every fork has finished. This is strictly safer than a
+     * plain replace (which could regress below an earlier, more-complete report depending on write
+     * order) but does not make multi-fork correct - it is a known-unsupported configuration for the
+     * mapping write already, and this call does not attempt to lift that.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code
@@ -486,14 +499,15 @@ public interface DataStore extends AutoCloseable {
      * @param suitesRan the number of suites this call's test plan executed, added to whatever
      *                  count is already stored for the group
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
-     * @param suitesDiscovered the number of suites the runner has discovered so far (executed +
-     *                         skipped + filtered), replacing whatever was stored
+     * @param suitesObserved the number of suites the runner has observed so far (finished or
+     *                       skipped), written as the greatest of this value and whatever was
+     *                       already stored
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                 final long actualDurationMs, final int suitesRan,
-                                final int suitesFailed, final int suitesDiscovered);
+                                final int suitesFailed, final int suitesObserved);
 
     /**
      * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.
@@ -510,19 +524,24 @@ public interface DataStore extends AutoCloseable {
      *       protection, not a defensive nicety: it is what tells a runner from a superseded build,
      *       or one whose group another runner has since re-claimed, that it must write nothing
      *       further;</li>
-     *   <li>{@code suites_discovered} recorded by {@link #reportGroupProgress} is at least the
-     *       number of suites the plan assigned to this group ({@code suites_discovered >=
+     *   <li>{@code suites_observed} recorded by {@link #reportGroupProgress} is at least the
+     *       number of suites the plan assigned to this group ({@code suites_observed >=
      *       COUNT(*)} over the group's assigned suites, {@code >=} rather than {@code =} because a
      *       completed retry's report can run past the originally assigned total). This is what
      *       stands in for the crash protection a JVM shutdown hook used to provide: without it, a
      *       JVM killed mid-retry (SIGKILL, OOM) after reporting only part of its group's suites
      *       could still have its group completed, sealing the build on a catalogue missing
      *       whatever the killed JVM never got to run - the one failure Tia must never have. The
-     *       guard reads {@code suites_discovered} rather than {@code suites_ran} deliberately: a
-     *       group can discover every assigned suite while executing fewer of them (a class-level
+     *       guard reads {@code suites_observed} rather than {@code suites_ran} deliberately: a
+     *       group can observe every assigned suite while executing fewer of them (a class-level
      *       {@code @Disabled} suite, a Surefire/Gradle filter, a class deleted since the last
      *       mapping run), and such a group is genuinely complete - guarding on {@code suites_ran}
-     *       would block it forever.</li>
+     *       would block it forever. {@code suites_observed} is fed from
+     *       {@link org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()}, the suites
+     *       this runner's own JVM actually saw finish or saw skipped - never from {@link
+     *       org.tiatesting.core.testrunner.TestRunResult#getRunnerTestSuites()}, which on Maven can
+     *       be a project-wide directory scan carrying no information about this runner's own
+     *       progress.</li>
      * </ul>
      *
      * <p>A {@code null} return means either guard failed - the claim is no longer live (a

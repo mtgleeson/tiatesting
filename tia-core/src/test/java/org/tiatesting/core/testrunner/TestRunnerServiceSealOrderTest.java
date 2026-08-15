@@ -309,7 +309,7 @@ class TestRunnerServiceSealOrderTest {
                 new ClassImpactTracker("com/example/Some.java", new HashSet<>(Collections.singletonList(1)))));
         trackers.put("com.example.SomeTest", tracker);
         return new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
@@ -325,7 +325,7 @@ class TestRunnerServiceSealOrderTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
@@ -578,14 +578,14 @@ class TestRunnerServiceSealOrderTest {
          * @param actualDurationMs ignored
          * @param suitesRan ignored
          * @param suitesFailed ignored
-         * @param suitesDiscovered ignored
+         * @param suitesObserved ignored
          * @return never returns
          * @throws UnsupportedOperationException always
          */
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           int suitesDiscovered) {
+                                           int suitesObserved) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

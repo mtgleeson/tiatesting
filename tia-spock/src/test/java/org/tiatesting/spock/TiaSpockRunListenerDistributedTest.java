@@ -3,6 +3,7 @@ package org.tiatesting.spock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -151,6 +152,20 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
+     * Build a bare {@link SpecInfo} naming one spec, standing in for the real one Spock would build
+     * from the compiled spec class. Only {@code getPackage()}/{@code getName()} are read by anything
+     * this fixture exercises, so nothing beyond those two properties needs to be set.
+     *
+     * @return a spec named {@code com.example.ATest}
+     */
+    private SpecInfo observedSpec() {
+        SpecInfo spec = new SpecInfo();
+        spec.setPackage("com.example");
+        spec.setName("ATest");
+        return spec;
+    }
+
+    /**
      * Verify the context the extension claimed reaches the persist, by asserting on what only the
      * distributed flow writes: the group is marked complete and the run is sealed by this runner.
      * On the single-host path neither row would move, which is exactly the silent failure the
@@ -161,10 +176,13 @@ class TiaSpockRunListenerDistributedTest {
         // given
         persistSingleGroupPlan(RUN_ID);
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
+        TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits
-        listenerFor(context).finishAllTests(Collections.singleton("com.example.ATest"),
-                System.currentTimeMillis());
+        // when - the runner's tests finish, and then its JVM exits. specSkipped is called first so
+        // the completeness guard sees this fork having observed its one assigned suite - without it
+        // the guard would see zero observed against one assigned and block the completion.
+        listener.specSkipped(observedSpec());
+        listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
         DistributedRunCompletion.completePendingCompletions();
 
         // then
@@ -188,10 +206,12 @@ class TiaSpockRunListenerDistributedTest {
         // given
         persistSingleGroupPlan(RUN_ID);
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
+        TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits
-        listenerFor(context).finishAllTests(Collections.singleton("com.example.ATest"),
-                System.currentTimeMillis());
+        // when - the runner's tests finish, and then its JVM exits. specSkipped is called first so
+        // the completeness guard sees this fork having observed its one assigned suite.
+        listener.specSkipped(observedSpec());
+        listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
         DistributedRunCompletion.completePendingCompletions();
 
         // then

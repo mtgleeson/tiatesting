@@ -268,7 +268,7 @@ class DistributedRunWiringEndToEndTest {
         // forward off the stored catalogue's seeded 1-5.
         methodTrackers.put(Integer.valueOf(methodId), new MethodImpactTracker(methodName, 40, 50));
 
-        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(),
+        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
                 null, 1, 1);
     }
@@ -293,7 +293,7 @@ class DistributedRunWiringEndToEndTest {
         methodTrackers.put(Integer.valueOf(METHOD_RETRY),
                 new MethodImpactTracker("com/example/RetryOnly.r.()V", 40, 50));
 
-        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(),
+        return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
                 null, 1, 2);
     }

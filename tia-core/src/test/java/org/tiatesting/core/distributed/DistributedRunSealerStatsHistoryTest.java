@@ -528,8 +528,8 @@ class DistributedRunSealerStatsHistoryTest {
 
     /**
      * Claim a group, report the measurements a real runner would report, and complete it. Reports
-     * {@code suitesRan} as the discovered count too, standing in for the ordinary case where a
-     * runner discovers exactly the suites it executes.
+     * {@code suitesRan} as the observed count too, standing in for the ordinary case where a
+     * runner observes exactly the suites it executes.
      *
      * @param runId the run the group belongs to
      * @param groupNumber the group to claim and complete
@@ -624,7 +624,7 @@ class DistributedRunSealerStatsHistoryTest {
         Set<String> runnerSuites = new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest"));
         TestStats stats = new TestStats();
         stats.setNumRuns(1);
-        return new TestRunResult(trackers, new HashSet<String>(), runnerSuites,
+        return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
                 null, 1, 1);
     }

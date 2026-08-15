@@ -48,9 +48,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * <p>Two shapes here are worth executing against Postgres specifically rather than trusting from
  * H2, because they are new SQL rather than new parameters: the completeness guard embeds a scalar
- * subquery inside a guarded {@code UPDATE}'s {@code WHERE}, and the progress report writes
- * {@code COALESCE(column, 0) + ?} to accumulate across a JVM's several test plans. Both are covered
- * below.
+ * subquery inside a guarded {@code UPDATE}'s {@code WHERE}, and the progress report writes both
+ * {@code COALESCE(column, 0) + ?} and {@code GREATEST(COALESCE(column, 0), ?)} to accumulate across
+ * a JVM's several test plans. Both are covered below.
  *
  * <p>Guarded exactly like {@link PostgresClaimTest}: skipped (not failed) when no Postgres is
  * reachable on {@code localhost:5432}, so the normal build stays green without the Postgres
@@ -142,7 +142,7 @@ class PostgresCompletionTest {
     /**
      * Build and persist a single-group plan with {@code suiteCount} suites all assigned to that one
      * group, so the completeness guard has a concrete assigned count to compare
-     * {@code suites_discovered} against on Postgres.
+     * {@code suites_observed} against on Postgres.
      *
      * @param runId the run identifier to plan under
      * @param suiteCount how many suites to assign to the run's one group
@@ -200,7 +200,7 @@ class PostgresCompletionTest {
         assertEquals(Long.valueOf(4321L), completed.getActualDurationMs());
         assertEquals(7, completed.getSuitesRan());
         assertEquals(2, completed.getSuitesFailed());
-        assertEquals(7, completed.getSuitesDiscovered());
+        assertEquals(7, completed.getSuitesObserved());
         assertEquals(completed, storedGroup("pg-complete-1", 0));
     }
 
@@ -228,16 +228,20 @@ class PostgresCompletionTest {
     }
 
     /**
-     * Verify the accumulate-versus-replace split executes correctly on Postgres, where the
-     * {@code COALESCE(column, 0) + ?} arithmetic is new SQL rather than a new parameter. Two
-     * reports stand for two test plans in one JVM - an attempt and its Surefire retry - and the
-     * second reports fewer suites than the first: the duration and the executed count must sum,
-     * while the failed count and the discovered count must reflect only the later report, since
-     * both are current state rather than counters.
+     * Verify the accumulate-versus-replace split executes correctly on Postgres, where both the
+     * {@code COALESCE(column, 0) + ?} and {@code GREATEST(COALESCE(column, 0), ?)} arithmetic are
+     * new SQL rather than a new parameter. Two reports stand for two test plans in one JVM - an
+     * attempt and its Surefire retry - and the second reports fewer suites than the first: the
+     * duration and the executed count must sum, while the failed count and the observed count both
+     * reflect only the later report, but for two different reasons that must not be conflated: the
+     * failed count is replaced outright because it is current state (a passing retry must be able to
+     * shrink it back to zero), while the observed count is written via {@code GREATEST} because its
+     * <em>source</em> - the caller's own observed set - is already cumulative across the JVM's test
+     * plans, so summing it here would double-count.
      */
     @Test
     void shouldAccumulateCountersAcrossTwoProgressReportsOnPostgres() {
-        // given - attempt 1 runs 30 of 40 discovered suites with 3 failures
+        // given - attempt 1 runs 30 of 40 observed suites with 3 failures
         persistPlanWithOneGroupOfSuites("pg-progress-1", 40);
         postgresStore.claimNextPendingGroup("pg-progress-1", "runner-a", 5000L);
         assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 20_000L, 30, 3, 30));
@@ -253,15 +257,15 @@ class PostgresCompletionTest {
                 "suites_ran is a counter and must sum across the JVM's test plans");
         assertEquals(0, stored.getSuitesFailed(),
                 "suites_failed is current state, so a passing retry must shrink it back to zero");
-        assertEquals(40, stored.getSuitesDiscovered(),
-                "suites_discovered is already cumulative in the caller, so it must replace rather "
+        assertEquals(40, stored.getSuitesObserved(),
+                "suites_observed is already cumulative in the caller, so it must replace rather "
                         + "than sum - 70 here would mean it double-counted");
     }
 
     /**
      * Verify the completeness guard blocks on Postgres, where it is a scalar subquery inside a
      * guarded {@code UPDATE}'s {@code WHERE} rather than a plain column comparison. A worker that
-     * died partway through its group discovered only 30 of its 50 assigned suites, so
+     * died partway through its group observed only 30 of its 50 assigned suites, so
      * {@code 30 &lt; 50} and the group must stay {@code CLAIMED} - which is what stops the run
      * electing a sealer and advancing the stored commit past work that never ran.
      */
@@ -276,20 +280,20 @@ class PostgresCompletionTest {
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-1", 0, "runner-a", 9000L);
 
         // then
-        assertNull(completed, "a group that discovered only part of its assigned suites must not "
+        assertNull(completed, "a group that observed only part of its assigned suites must not "
                 + "be completable");
         assertEquals(DistributedRunGroupStatus.CLAIMED, storedGroup("pg-guard-1", 0).getStatus());
     }
 
     /**
-     * Verify on Postgres that the guard reads {@code suites_discovered} and not {@code suites_ran}:
-     * a group that discovered every assigned suite but executed fewer of them - one class-level
+     * Verify on Postgres that the guard reads {@code suites_observed} and not {@code suites_ran}:
+     * a group that observed every assigned suite but executed fewer of them - one class-level
      * {@code @Disabled} suite, say - must still complete, or the run would never seal and every
      * build would re-do all its work.
      */
     @Test
-    void shouldCompleteAGroupThatDiscoveredEveryAssignedSuiteEvenThoughItExecutedFewerOnPostgres() {
-        // given - 50 assigned suites, all 50 discovered but only 49 executed
+    void shouldCompleteAGroupThatObservedEveryAssignedSuiteEvenThoughItExecutedFewerOnPostgres() {
+        // given - 50 assigned suites, all 50 observed but only 49 executed
         persistPlanWithOneGroupOfSuites("pg-guard-2", 50);
         postgresStore.claimNextPendingGroup("pg-guard-2", "runner-a", 5000L);
         assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", 40_000L, 49, 0, 50));
@@ -298,11 +302,11 @@ class PostgresCompletionTest {
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-2", 0, "runner-a", 9000L);
 
         // then
-        assertNotNull(completed, "a group that discovered every assigned suite must complete even "
+        assertNotNull(completed, "a group that observed every assigned suite must complete even "
                 + "when it executed fewer of them");
         assertEquals(49, completed.getSuitesRan(),
                 "the executed count stored for the sealer must still reflect only what actually ran");
-        assertEquals(50, completed.getSuitesDiscovered());
+        assertEquals(50, completed.getSuitesObserved());
     }
 
     /**

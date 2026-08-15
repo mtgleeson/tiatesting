@@ -245,8 +245,41 @@ class TestRunnerServiceDistributedPersistTest {
         // non-negative progressIdx is necessarily before it - no need to re-assert "< completeIdx".
         int progressIdx = dataStore.callOrder.indexOf("reportGroupProgress");
         assertTrue(progressIdx >= 0,
-                "progress must be reported before the completion that reads it back. Call order: "
+                "progress must be reported at least once during the persist. Call order: "
                         + dataStore.callOrder);
+    }
+
+    /**
+     * The point of this change: the completeness guard's stored figure must be derived from a real
+     * {@link TestRunResult}'s {@link TestRunResult#getSuitesObserved()}, not from hand-picked numbers
+     * passed straight to the data store, and not from {@link TestRunResult#getRunnerTestSuites()} -
+     * which on Maven can be a project-wide directory scan reporting every suite in the project
+     * regardless of how far this runner actually got. A runner whose JVM observed only 2 of its
+     * group's 3 assigned suites must have the group record 2, not 3, even when
+     * {@code runnerTestSuites} (the deletion-detection set) reports the full project-wide 3 - and the
+     * group must stay short of complete, since the guard's whole purpose is to block exactly this
+     * case: sealing on an edge set the runner never finished writing.
+     */
+    @Test
+    void distributedRunnerReportsOnlyThePartiallyObservedSuiteCountEvenWhenRunnerTestSuitesIsLarger() {
+        // given - 3 suites assigned to the one group, but this JVM only observed 2 of them
+        persistPlanWithOneGroupOfSuites(RUN_ID, 3);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        TestRunResult partialResult = makeResultWithPartialObservation();
+
+        // when
+        service.persistTestRunData(true, true, true, "new-commit", "main",
+                System.currentTimeMillis(), partialResult, context);
+        DistributedRunCompletion.completePendingCompletions();
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(2, group.getSuitesObserved(),
+                "the stored observed count must come from getSuitesObserved() (2), not the larger "
+                        + "getRunnerTestSuites() (3)");
+        assertEquals(DistributedRunGroupStatus.CLAIMED, group.getStatus(),
+                "a group short of its assigned suite count must not complete, even though "
+                        + "runnerTestSuites alone would have satisfied 3 >= 3");
     }
 
     /**
@@ -399,6 +432,27 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * Build and persist a single-group plan with {@code suiteCount} suites all assigned to that one
+     * group, so the completeness guard has a concrete assigned count to compare the reported
+     * observed count against.
+     *
+     * @param runId the run identifier to plan under
+     * @param suiteCount how many suites to assign to the run's one group
+     */
+    private void persistPlanWithOneGroupOfSuites(final String runId, final int suiteCount) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        List<String> suiteNames = new ArrayList<>();
+        for (int i = 0; i < suiteCount; i++) {
+            suiteNames.add("com.example.Suite" + i + "Test");
+        }
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, suiteNames);
+        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, null, 1000L, 1234L);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
+    }
+
+    /**
      * Claim a group for a runner key and wrap the result in the context a runner hands to the
      * persist, so tests start from the state a real runner reaches before it runs its tests.
      *
@@ -451,8 +505,8 @@ class TestRunnerServiceDistributedPersistTest {
         Set<String> selected = new HashSet<>(Arrays.asList("com.example.SomeTest",
                 "com.example.FailedTest"));
 
-        return new TestRunResult(trackers, failed, runnerSuites, selected, methodTrackers,
-                new TestStats(), null, 3, 2);
+        return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
+                methodTrackers, new TestStats(), null, 3, 2);
     }
 
     /**
@@ -462,8 +516,28 @@ class TestRunnerServiceDistributedPersistTest {
      */
     private TestRunResult makeEmptyResult() {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
-                new HashSet<String>(), new HashSet<String>(),
+                new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0);
+    }
+
+    /**
+     * Build a run result demonstrating the fix this change makes: {@code runnerTestSuites} (the
+     * deletion-detection set, which on Maven can be a project-wide {@code testClassesDir} scan)
+     * reports all 3 of the group's assigned suites, while {@code suitesObserved} - what this JVM
+     * actually saw finish or skip - reports only 2 of them, the shape a runner that has not yet
+     * finished its group produces.
+     *
+     * @return a result whose {@code suitesObserved} is a strict subset of its {@code runnerTestSuites}
+     */
+    private TestRunResult makeResultWithPartialObservation() {
+        Set<String> runnerSuites = new HashSet<>(Arrays.asList(
+                "com.example.Suite0Test", "com.example.Suite1Test", "com.example.Suite2Test"));
+        Set<String> observed = new HashSet<>(Arrays.asList(
+                "com.example.Suite0Test", "com.example.Suite1Test"));
+
+        return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
+                runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
+                new TestStats(), null, 0, 2);
     }
 
     /**
@@ -590,17 +664,18 @@ class TestRunnerServiceDistributedPersistTest {
          * @param actualDurationMs this call's measured test-execution time, added to the group
          * @param suitesRan number of suites this call's test plan executed, added to the group
          * @param suitesFailed number of suites currently failing, replacing what was stored
-         * @param suitesDiscovered number of suites discovered so far, replacing what was stored
+         * @param suitesObserved number of suites observed so far, replacing what was stored with
+         *                       the greater of the two values
          * @return true when the guarded update applied, false when the claim is no longer live
          */
         @Override
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesDiscovered) {
+                                           final int suitesObserved) {
             callOrder.add("reportGroupProgress");
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesDiscovered);
+                    suitesRan, suitesFailed, suitesObserved);
         }
 
         /**
