@@ -2028,17 +2028,76 @@ public class JdbcDataStore implements DataStore {
      * {@inheritDoc}
      *
      * <p>One guarded single-row {@code UPDATE ... WHERE run_id = ? AND group_number = ? AND status
-     * = 'CLAIMED' AND runner_key = ?}, whose row count is the answer. That predicate is the
-     * straggler protection, not a defensive extra: it is the only thing that tells a runner from a
-     * superseded build - one whose plan rows a newer build's plan write already deleted, or whose
-     * group another runner now holds - that its claim is dead and it must not write its mapping
-     * rows. Writing it as an unconditional update followed by a read would remove the protection
-     * while leaving code that looks correct, so the guard and the row-count check belong together.
+     * = 'CLAIMED' AND runner_key = ?}, the same straggler-protection predicate {@link
+     * #completeGroup} is guarded on. {@code actual_duration_ms} and {@code suites_ran} are written
+     * as {@code COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry)
+     * sum instead of the last one overwriting the ones before it; the {@code COALESCE} handles the
+     * first call of a JVM, where the column is still the {@code NULL} the plan write left it as.
+     * {@code suites_failed} is written as a plain {@code = ?}, since it is current state rather
+     * than a counter and a passing retry must be able to shrink it back to zero.
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} first, since reporting progress could be the
+     * first contact any caller in this process makes with a freshly created per-branch schema.
+     *
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @param runnerKey the calling runner's stable identity
+     * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
+     *                         is already stored
+     * @param suitesRan the number of suites this call's test plan executed, added to whatever is
+     *                  already stored
+     * @param suitesFailed the number of suites currently failing, replacing whatever was stored
+     * @return {@code true} when the guarded update applied, {@code false} when this runner's
+     *         claim is no longer live
+     */
+    @Override
+    public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
+                                       final long actualDurationMs, final int suitesRan,
+                                       final int suitesFailed) {
+        String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
+                + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = COALESCE("
+                + COL_SUITES_RAN + ", 0) + ?, " + COL_SUITES_FAILED + " = ? WHERE " + COL_RUN_ID + " = ? AND "
+                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
+
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+
+            try (PreparedStatement statement = connection.prepareStatement(progressSql)) {
+                statement.setLong(1, actualDurationMs);
+                statement.setInt(2, suitesRan);
+                statement.setInt(3, suitesFailed);
+                statement.setString(4, runId);
+                statement.setInt(5, groupNumber);
+                statement.setString(6, DistributedRunGroupStatus.CLAIMED.name());
+                statement.setString(7, runnerKey);
+                return statement.executeUpdate() == 1;
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>One guarded single-row {@code UPDATE} whose {@code WHERE} clause carries two predicates,
+     * so the completeness check and the status flip are atomic:
+     * {@code run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?} is the
+     * straggler protection, unchanged from before this group's progress was split out; {@code
+     * suites_ran >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite WHERE run_id = ? AND
+     * group_number = ?)} is the completeness guard, comparing what {@link #reportGroupProgress}
+     * has accumulated against the group's assigned suite count. If {@code suites_ran} is ever
+     * {@code NULL} - a group that never reported at all - the comparison evaluates to {@code
+     * NULL} rather than {@code true}, and SQL excludes a {@code NULL} predicate from a {@code
+     * WHERE} clause exactly as it would exclude {@code false}, so an unreported group is blocked
+     * with no extra {@code COALESCE} needed. Row count is the entire answer, exactly as for {@link
+     * #claimNextPendingGroup} and {@link #electSealer}.
      *
      * <p>Row count 0 returns {@code null} without reading anything back, since there is by
      * definition nothing this runner wrote to return. Row count 1 re-reads the row through
      * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
-     * claim timestamp and estimate rather than only this call's inputs.
+     * claim timestamp, estimate and the figures {@link #reportGroupProgress} accumulated rather
+     * than only this call's inputs.
      *
      * <p>Calls {@link #ensureSchema(Connection)} first, since a runner completing its group could
      * be the first contact any caller in this process makes with a freshly created per-branch
@@ -2048,19 +2107,17 @@ public class JdbcDataStore implements DataStore {
      * @param groupNumber the group's zero-based index within the run
      * @param runnerKey the calling runner's stable identity
      * @param completedAtMs UTC epoch millis to record as the completion time
-     * @param actualDurationMs measured test-execution time of this group, in ms
-     * @param suitesRan number of suites the runner executed
-     * @param suitesFailed number of this group's suites with at least one failed test
-     * @return the updated group, or {@code null} when this runner's claim is no longer live
+     * @return the updated group, or {@code null} when this runner's claim is no longer live or the
+     *         group has not reported enough progress to close
      */
     @Override
     public DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
-                                             final long completedAtMs, final long actualDurationMs,
-                                             final int suitesRan, final int suitesFailed) {
+                                             final long completedAtMs) {
         String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
-                + COL_COMPLETED_AT + " = ?, " + COL_ACTUAL_DURATION_MS + " = ?, " + COL_SUITES_RAN + " = ?, "
-                + COL_SUITES_FAILED + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
-                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
+                + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
+                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_RAN
+                + " >= (SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " WHERE " + COL_RUN_ID
+                + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
         String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
 
@@ -2071,18 +2128,18 @@ public class JdbcDataStore implements DataStore {
             try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
                 statement.setString(1, DistributedRunGroupStatus.COMPLETED.name());
                 statement.setLong(2, completedAtMs);
-                statement.setLong(3, actualDurationMs);
-                statement.setInt(4, suitesRan);
-                statement.setInt(5, suitesFailed);
-                statement.setString(6, runId);
-                statement.setInt(7, groupNumber);
-                statement.setString(8, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(9, runnerKey);
+                statement.setString(3, runId);
+                statement.setInt(4, groupNumber);
+                statement.setString(5, DistributedRunGroupStatus.CLAIMED.name());
+                statement.setString(6, runnerKey);
+                statement.setString(7, runId);
+                statement.setInt(8, groupNumber);
                 rowsUpdated = statement.executeUpdate();
             }
 
             if (rowsUpdated == 0) {
-                // This runner's claim is no longer live. The caller must now write nothing.
+                // Either this runner's claim is no longer live, or the group has not yet reported
+                // enough progress to be considered finished. The caller must now write nothing.
                 return null;
             }
 

@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -137,7 +138,9 @@ class DistributedRunnerPersistTest {
         // given
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
-        assertNotNull(persistFor(0).completeGroup(1000L, 2, 0, 6000L));
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0));
+        assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
         boolean live = persistFor(0).claimIsLive();
@@ -161,10 +164,33 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        DistributedRunGroup completed = runnerPersist.completeGroup(1000L, 2, 0, 6000L);
+        DistributedRunGroup completed = runnerPersist.completeGroup(6000L);
 
         // then
         assertNull(completed, "a completion whose claim died must report it rather than appear to succeed");
+    }
+
+    /**
+     * The task 1 requirement, driven through the persist wrapper rather than the raw data store: a
+     * progress report on a group whose claim has already died - the run was superseded between the
+     * claim re-verification and this call - writes nothing and says so via its boolean return,
+     * exactly mirroring what a failed {@link DistributedRunnerPersist#completeGroup(long)} reports.
+     */
+    @Test
+    void reportGroupProgressWritesNothingWhenTheClaimHasDied() {
+        // given
+        persistPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.claimIsLive());
+        persistPlan("run-2", 1);
+
+        // when
+        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0);
+
+        // then
+        assertFalse(applied, "a progress report on a dead claim must report failure rather than "
+                + "appear to succeed");
     }
 
     /**
@@ -217,7 +243,9 @@ class DistributedRunnerPersistTest {
         // given
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
-        assertNotNull(persistFor(0).completeGroup(1000L, 2, 0, 6000L));
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0));
+        assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
         String description = persistFor(0).describeRejectedCompletion();
@@ -227,6 +255,60 @@ class DistributedRunnerPersistTest {
                 "a group this runner already completed must be reported as such, was: " + description);
         assertFalse(description.contains("superseded"),
                 "a group this runner completed normally was not superseded, was: " + description);
+    }
+
+    /**
+     * A completion rejected because the group has not yet reported enough progress says so with
+     * the ran-versus-assigned counts, so a reader is not left guessing whether the completeness
+     * guard or the straggler guard is what actually blocked it - the two miss the same {@code
+     * WHERE} clause and only the group row (plus the assigned suite count) tells them apart.
+     */
+    @Test
+    void aRejectedCompletionReportsTheRanVersusAssignedCountsWhenTheGroupIsIncomplete() {
+        // given - one suite assigned to the group, and no progress reported at all
+        persistPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertNull(runnerPersist.completeGroup(6000L),
+                "test setup expects the completion to be rejected as incomplete");
+
+        // when
+        String description = runnerPersist.describeRejectedCompletion();
+
+        // then
+        assertTrue(description.contains("0") && description.contains("1"),
+                "the rejection must name the ran-versus-assigned counts (0 of 1), was: " + description);
+        assertFalse(description.contains("superseded"),
+                "a group this runner still holds was not superseded, was: " + description);
+        assertFalse(description.contains("already"),
+                "a group never completed was not completed twice, was: " + description);
+    }
+
+    /**
+     * Task 2's accumulation contract, exercised through the persist wrapper: two progress reports
+     * in the same JVM - the second reporting fewer suites than the first, as a Surefire retry of a
+     * smaller failing subset would - sum the ran counter and the duration, but let the later report
+     * replace the failed set outright, since a passing retry legitimately shrinks it.
+     */
+    @Test
+    void reportGroupProgressAccumulatesCountersButReplacesTheFailedSet() {
+        // given
+        persistPlan(RUN_ID, 1);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+
+        // when - the first test plan reports 50 suites with 3 failures, the retry reports 3 more
+        // suites with none failing
+        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3));
+        assertTrue(runnerPersist.reportGroupProgress(500L, 3, 0));
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(53, group.getSuitesRan(), "the ran counter must sum across both reports");
+        assertEquals(4500L, group.getActualDurationMs().longValue(),
+                "the duration must sum across both reports");
+        assertEquals(0, group.getSuitesFailed(),
+                "the failed count must reflect only the later report, not accumulate onto the first");
     }
 
     /**
@@ -253,6 +335,23 @@ class DistributedRunnerPersistTest {
     private DistributedRunnerPersist persistFor(final int groupNumber) {
         return new DistributedRunnerPersist(dataStore,
                 DistributedRunnerContext.forClaimedGroup(RUN_ID, RUNNER_KEY, groupNumber));
+    }
+
+    /**
+     * Read one group of a run back from the store, so a test can assert what a guarded update
+     * actually left on disk.
+     *
+     * @param runId the run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @return the stored group
+     */
+    private DistributedRunGroup readGroup(final String runId, final int groupNumber) {
+        for (DistributedRunGroup group : dataStore.readDistributedRunGroups(runId)) {
+            if (group.getGroupNumber() == groupNumber) {
+                return group;
+            }
+        }
+        throw new IllegalStateException("no group " + groupNumber + " in run " + runId);
     }
 
     /**

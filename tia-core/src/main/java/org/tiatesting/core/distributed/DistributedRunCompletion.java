@@ -24,10 +24,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * later test plans covered, and every method reachable only from those suites is dropped: invisible
  * to the next build's diff, and its covering suites silently stop being selected.
  *
- * <p>The mapping writes stay in the persist where they are. Suite rows, the failed set and the
- * staged trackers are cumulative and safe to be ahead of the stored commit, and each test plan's
- * persist carries everything the JVM has seen so far. Only the completion, and the sealer election
- * that follows it, are held back to here.
+ * <p>The mapping writes stay in the persist where they are, and so now does the group's progress -
+ * duration and suite counters are reported on every persist via {@link
+ * DistributedRunnerPersist#reportGroupProgress(long, int, int)}, accumulating across retries the
+ * same way the suite rows, failed set and staged trackers do. Only the status flip, and the
+ * sealer election that follows it, are held back to here.
  *
  * <p><b>Why a JVM shutdown hook.</b> Nothing tells a listener whether another test plan is coming,
  * and the launcher session callbacks fire several times per JVM for the same reason the shared run
@@ -71,10 +72,15 @@ public final class DistributedRunCompletion {
     private final DistributedRunnerContext context;
 
     /**
-     * The figures the test plan that recorded this reported. A later test plan replaces the whole
-     * recording rather than merging into it, because the run data a persist reads from is already
-     * cumulative across the JVM's test plans - so the last one to run is the one that describes
-     * everything the JVM did.
+     * The build-identifying figures the test plan that recorded this reported: the commit and
+     * branch the build ran against, and which of the mapping DB, Tia-level stats and history row
+     * this build owns. A later test plan replaces the whole recording rather than merging into it,
+     * which is correct because these values are the same across every test plan in a JVM - the
+     * last one to persist is simply the freshest copy. The measured progress (duration, suites
+     * ran, suites failed) is no longer carried here at all: {@link
+     * DistributedRunnerPersist#reportGroupProgress(long, int, int)} records it directly, on every
+     * persist, so it accumulates correctly across retries instead of being replaced by whichever
+     * test plan happens to persist last.
      */
     private final RecordedFigures figures;
 
@@ -96,19 +102,19 @@ public final class DistributedRunCompletion {
 
     /**
      * Record what this JVM's completion will need, from a test plan that has just finished
-     * persisting its mapping writes, and make sure the JVM exit that runs it is hooked.
+     * persisting its mapping writes and reporting its progress, and make sure the JVM exit that
+     * runs it is hooked.
      *
-     * <p>Called once per test plan and replaces the previous test plan's figures, which is correct
-     * precisely because those figures are cumulative: the last test plan to persist reports what
-     * the whole JVM ran, not what its own attempt ran.
+     * <p>Called once per test plan and replaces the previous test plan's recording, which is
+     * correct because what it now carries - the commit, the branch and which DB updates this build
+     * owns - is the same across every test plan in the JVM, so the last one to persist is simply
+     * the freshest copy. The measured progress this used to carry is reported directly by {@link
+     * DistributedRunnerPersist#reportGroupProgress(long, int, int)} instead, on the same persist,
+     * since it has to accumulate across test plans rather than be replaced by the last one.
      *
      * @param dataStore the shared datastore this runner's build writes to
      * @param context the runner's claimed context; a runner that claimed no group has no group to
      *                complete and must not reach here
-     * @param durationMs this runner's test-execution time in ms, on the same clock a single-host
-     *                   run measures its duration on
-     * @param suitesRan the number of suites this runner has executed
-     * @param suitesFailed the number of this runner's suites with at least one failed test
      * @param commitValue the commit the build ran against, handed to the seal if this runner turns
      *                    out to be the last one to finish
      * @param branch the branch the build ran against, likewise handed to the seal
@@ -119,9 +125,8 @@ public final class DistributedRunCompletion {
      */
     public static void recordTestPlanPersist(final DataStore dataStore,
                                              final DistributedRunnerContext context,
-                                             final long durationMs, final int suitesRan,
-                                             final int suitesFailed, final String commitValue,
-                                             final String branch, final boolean updateDBMapping,
+                                             final String commitValue, final String branch,
+                                             final boolean updateDBMapping,
                                              final boolean updateDBStats,
                                              final boolean updateDBTestRunHistory) {
         if (!context.isClaimed()) {
@@ -135,13 +140,12 @@ public final class DistributedRunCompletion {
         // whole of the next one's. The store is taken from the latest test plan too: each listener
         // builds its own, and the newest is the one most recently proved usable.
         PENDING.put(key(context), new DistributedRunCompletion(dataStore, context,
-                new RecordedFigures(durationMs, suitesRan, suitesFailed, commitValue, branch,
-                        updateDBMapping, updateDBStats, updateDBTestRunHistory)));
+                new RecordedFigures(commitValue, branch, updateDBMapping, updateDBStats,
+                        updateDBTestRunHistory)));
 
         registerShutdownHook();
-        log.debug("Distributed run '{}': runner '{}' will complete group {} when its JVM exits "
-                        + "({} suite(s) ran, {} failed, {}ms).", context.getRunId(),
-                context.getRunnerKey(), context.getGroupNumber(), suitesRan, suitesFailed, durationMs);
+        log.debug("Distributed run '{}': runner '{}' will complete group {} when its JVM exits.",
+                context.getRunId(), context.getRunnerKey(), context.getGroupNumber());
     }
 
     /**
@@ -234,8 +238,7 @@ public final class DistributedRunCompletion {
     private void completeAndSeal() {
         try {
             DistributedRunnerPersist runnerPersist = new DistributedRunnerPersist(dataStore, context);
-            if (runnerPersist.completeGroup(figures.durationMs, figures.suitesRan,
-                    figures.suitesFailed, System.currentTimeMillis()) == null) {
+            if (runnerPersist.completeGroup(System.currentTimeMillis()) == null) {
                 // The claim died while this JVM was running its tests, so the group is not complete.
                 // A runner that never completed its group cannot be the last one, and its run has
                 // been superseded anyway - there is nothing of this build left to seal.
@@ -260,9 +263,6 @@ public final class DistributedRunCompletion {
      */
     private static final class RecordedFigures {
 
-        private final long durationMs;
-        private final int suitesRan;
-        private final int suitesFailed;
         private final String commitValue;
         private final String branch;
         private final boolean updateDBMapping;
@@ -270,23 +270,17 @@ public final class DistributedRunCompletion {
         private final boolean updateDBTestRunHistory;
 
         /**
-         * Store the figures a finished test plan reported.
+         * Store the build-identifying figures a finished test plan reported.
          *
-         * @param durationMs the runner's test-execution time in ms
-         * @param suitesRan the number of suites the runner has executed
-         * @param suitesFailed the number of its suites with at least one failed test
          * @param commitValue the commit the build ran against
          * @param branch the branch the build ran against
          * @param updateDBMapping whether the build owns mapping-DB updates
          * @param updateDBStats whether the Tia-level run stats should be updated
          * @param updateDBTestRunHistory whether the build should write its one history row
          */
-        RecordedFigures(final long durationMs, final int suitesRan, final int suitesFailed,
-                        final String commitValue, final String branch, final boolean updateDBMapping,
-                        final boolean updateDBStats, final boolean updateDBTestRunHistory) {
-            this.durationMs = durationMs;
-            this.suitesRan = suitesRan;
-            this.suitesFailed = suitesFailed;
+        RecordedFigures(final String commitValue, final String branch,
+                        final boolean updateDBMapping, final boolean updateDBStats,
+                        final boolean updateDBTestRunHistory) {
             this.commitValue = commitValue;
             this.branch = branch;
             this.updateDBMapping = updateDBMapping;

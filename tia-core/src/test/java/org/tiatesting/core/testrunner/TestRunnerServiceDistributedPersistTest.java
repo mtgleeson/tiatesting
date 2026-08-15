@@ -215,7 +215,9 @@ class TestRunnerServiceDistributedPersistTest {
      * releases the barrier, so a group marked complete before its mapping rows land would let the
      * sealer rebuild the catalogue from an edge set still missing them - silent under-selection.
      * It comes from the runner's JVM exit rather than from the persist, so the run of writes it has
-     * to follow is every test plan's, not just the last one's.
+     * to follow is every test plan's, not just the last one's. {@code reportGroupProgress} is not
+     * subject to this ordering - it happens inside the persist itself, since it does not release
+     * the barrier - but it must still land before the completion that later reads it back.
      */
     @Test
     void distributedRunnerCompletesItsGroupAfterEveryMappingWrite() {
@@ -239,6 +241,10 @@ class TestRunnerServiceDistributedPersistTest {
                 "the failed set must be written before the group is completed. Call order: " + dataStore.callOrder);
         assertTrue(dataStore.callOrder.indexOf("persistStagedMethodTrackers") < completeIdx,
                 "the trackers must be staged before the group is completed. Call order: " + dataStore.callOrder);
+        int progressIdx = dataStore.callOrder.indexOf("reportGroupProgress");
+        assertTrue(progressIdx >= 0 && progressIdx < completeIdx,
+                "progress must be reported, and before the completion that reads it back. Call order: "
+                        + dataStore.callOrder);
     }
 
     /**
@@ -573,25 +579,40 @@ class TestRunnerServiceDistributedPersistTest {
         }
 
         /**
+         * Record and delegate the progress report, which is not subject to the "last write"
+         * ordering the group completion is.
+         *
+         * @param runId the run the group belongs to
+         * @param groupNumber the group's zero-based index within the run
+         * @param runnerKey the calling runner's identity
+         * @param actualDurationMs this call's measured test-execution time, added to the group
+         * @param suitesRan number of suites this call's test plan executed, added to the group
+         * @param suitesFailed number of suites currently failing, replacing what was stored
+         * @return true when the guarded update applied, false when the claim is no longer live
+         */
+        @Override
+        public boolean reportGroupProgress(final String runId, final int groupNumber,
+                                           final String runnerKey, final long actualDurationMs,
+                                           final int suitesRan, final int suitesFailed) {
+            callOrder.add("reportGroupProgress");
+            return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
+                    suitesRan, suitesFailed);
+        }
+
+        /**
          * Record and delegate the group completion, the write that must come last.
          *
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
          * @param runnerKey the calling runner's identity
          * @param completedAtMs UTC epoch millis of the completion
-         * @param actualDurationMs measured test-execution time of this group
-         * @param suitesRan number of suites the runner executed
-         * @param suitesFailed number of this runner's failed suites
          * @return the updated group, or null when the claim is no longer live
          */
         @Override
         public DistributedRunGroup completeGroup(final String runId, final int groupNumber,
-                                                 final String runnerKey, final long completedAtMs,
-                                                 final long actualDurationMs, final int suitesRan,
-                                                 final int suitesFailed) {
+                                                 final String runnerKey, final long completedAtMs) {
             callOrder.add("completeGroup");
-            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs,
-                    actualDurationMs, suitesRan, suitesFailed);
+            return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
         }
 
         /**

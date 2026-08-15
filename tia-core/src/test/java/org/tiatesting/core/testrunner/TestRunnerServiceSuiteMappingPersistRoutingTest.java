@@ -315,7 +315,6 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @param runId ignored
          * @param groupNumber ignored
          * @param runnerKey ignored
-         * @param completedAtMs ignored
          * @param actualDurationMs ignored
          * @param suitesRan ignored
          * @param suitesFailed ignored
@@ -323,9 +322,24 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          * @throws UnsupportedOperationException always
          */
         @Override
+        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
+                                           long actualDurationMs, int suitesRan, int suitesFailed) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @param runnerKey ignored
+         * @param completedAtMs ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
         public DistributedRunGroup completeGroup(String runId, int groupNumber, String runnerKey,
-                                                 long completedAtMs, long actualDurationMs,
-                                                 int suitesRan, int suitesFailed) {
+                                                 long completedAtMs) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

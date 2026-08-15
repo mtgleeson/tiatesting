@@ -421,8 +421,9 @@ class DistributedRunSealerStatsHistoryTest {
      */
     @Test
     void aBuildWhereNoGroupRanAnythingIsNotAnAllTestsRun() {
-        // given - nothing tracked yet and a build whose group ran no suites
-        persistPlan(RUN_ID, 1);
+        // given - nothing tracked yet, and a group assigned no suites at all, so it can complete on
+        // 0 >= 0 without reporting any progress
+        persistPlanWithNoAssignedSuites(RUN_ID);
         completeGroup(RUN_ID, 0, RUNNER_A, 40L, 0, 0);
 
         // when
@@ -508,7 +509,25 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * Claim a group and complete it with the measurements a real runner would report.
+     * Build and persist a single-group plan with no suites assigned to it at all, standing in for a
+     * runner whose group genuinely ran nothing - the completeness guard's degenerate {@code 0 >= 0}
+     * case, which must not be confused with a group that was assigned suites but never reported
+     * running any of them.
+     *
+     * @param runId the run identifier to plan under
+     */
+    private void persistPlanWithNoAssignedSuites(final String runId) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Collections.<String>emptyList());
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", PLAN_COMMIT, 1, null, 1000L, PLANNED_AT_MS),
+                groups, suites, null));
+    }
+
+    /**
+     * Claim a group, report the measurements a real runner would report, and complete it.
      *
      * @param runId the run the group belongs to
      * @param groupNumber the group to claim and complete
@@ -524,8 +543,10 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(claimed, "test setup expects a group to be available to claim");
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
-        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L, actualDurationMs,
-                suitesRan, suitesFailed), "test setup expects the completion to be accepted");
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
+                suitesRan, suitesFailed), "test setup expects the progress report to be accepted");
+        assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
+                "test setup expects the completion to be accepted");
     }
 
     /**
