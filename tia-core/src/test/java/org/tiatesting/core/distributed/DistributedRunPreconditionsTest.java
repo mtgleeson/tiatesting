@@ -3,6 +3,7 @@ package org.tiatesting.core.distributed;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -132,6 +133,13 @@ class DistributedRunPreconditionsTest {
      * 4 and 2 broken at once, with Tia enabled - fails on the reactor rule, since that is checked
      * immediately after the Tia-enabled rule, before the shared-database rule. The message a user
      * sees should not depend on which rule happens to be checked last.
+     *
+     * <p>Asserts on {@code "2 projects"}, a phrase unique to the rule-4 message, and separately
+     * asserts {@code "tiaDBUrl"} (unique to the rule-2 message) is absent. A bare {@code
+     * contains("2")} is not discriminating here: the rule-2 message names a {@code "server-mode H2
+     * URL (jdbc:h2:tcp://...)"}, which itself contains the digit "2" (from "H2"), so a check that
+     * only looked for "2" would pass just as well if the two rules were checked in the opposite
+     * order.
      */
     @Test
     void check_multiProjectReactorAndEmbeddedH2_throwsNamingProjectCountFirst() {
@@ -143,9 +151,12 @@ class DistributedRunPreconditionsTest {
                 () -> DistributedRunPreconditions.check(true, 2, dbUrl, null, false));
 
         // then
-        assertTrue(ex.getMessage().contains("2"),
+        String message = ex.getMessage();
+        assertTrue(message.contains("2 projects"),
                 "message should state the project count since the reactor rule is checked "
-                        + "immediately after the Tia-enabled rule, was: " + ex.getMessage());
+                        + "immediately after the Tia-enabled rule, was: " + message);
+        assertFalse(message.contains("tiaDBUrl"),
+                "message should not contain the rule-2 (shared database) message, was: " + message);
     }
 
     /**

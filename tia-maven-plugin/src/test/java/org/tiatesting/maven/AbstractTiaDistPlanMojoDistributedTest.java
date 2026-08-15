@@ -66,13 +66,18 @@ class AbstractTiaDistPlanMojoDistributedTest {
     }
 
     /**
-     * Verify that a single-project build is unaffected by the reactor rule: with exactly one
-     * project in the reactor, an otherwise-broken configuration still fails on the rule it would
-     * have failed on before this rule existed - here, the disabled-Tia rule - not on the reactor
-     * rule, and the message names no reactor projects.
+     * Verify that a disabled Tia, not a single-project reactor, is what this configuration fails
+     * on, and that no project names are appended to the message - the {@code !tiaEnabled} gate on
+     * {@link AbstractTiaMojo#withReactorProjectNamesIfRelevant} suppresses naming just as
+     * effectively as the reactor rule never firing does. This test does not prove a single-project
+     * reactor gets past the reactor rule itself: rule 1 (Tia enabled) is checked before rule 4 (the
+     * reactor rule) in {@code DistributedRunPreconditions.check}, so with {@code tiaEnabled=false}
+     * rule 4 is never reached regardless of the reactor's size - see {@link
+     * #singleProjectReactorPassesPreconditionsIntoConfigValidation()} for a test that actually
+     * proves the reactor rule lets a single-project build through.
      */
     @Test
-    void allowsSingleProjectReactorToFallThroughToTheNextRule() {
+    void disabledTiaSuppressesProjectNamingRegardlessOfReactorSize() {
         // given a single-project reactor with Tia disabled, otherwise a valid configuration
         TestMojo mojo = new TestMojo(Collections.singletonList(projectNamed("module-a")));
         mojo.tiaEnabled = false;
@@ -87,6 +92,33 @@ class AbstractTiaDistPlanMojoDistributedTest {
         String message = thrown.getMessage();
         assertTrue(message.contains("tiaEnabled"), "message should name tiaEnabled, was: " + message);
         assertFalse(message.contains("module-a"), "single-project build should not be named: " + message);
+    }
+
+    /**
+     * Verify that a single-project reactor genuinely gets past every {@code
+     * DistributedRunPreconditions.check} rule - including rule 4, the reactor rule - and into
+     * {@code DistributedRunConfig.validated}. Proven by an otherwise-valid single-project
+     * configuration (Tia enabled, a shared database, {@code tiaCheckLocalChanges} off) failing only
+     * on the missing-{@code tiaRunId} validation that {@code DistributedRunConfig.validated} runs
+     * after every precondition has already passed - not on any precondition rule itself, and
+     * without naming any reactor projects, since the reactor rule never fired.
+     */
+    @Test
+    void singleProjectReactorPassesPreconditionsIntoConfigValidation() {
+        // given a single-project reactor, Tia enabled, a shared database, but no tiaRunId configured
+        TestMojo mojo = new TestMojo(Collections.singletonList(projectNamed("module-a")));
+        mojo.tiaEnabled = true;
+        mojo.tiaDBUrl = "jdbc:h2:tcp://h2host:9092/tiadb";
+        mojo.tiaDistributedGroupCount = 2;
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then - the missing-runId validation fired, proving every precondition rule passed first
+        String message = thrown.getMessage();
+        assertTrue(message.contains("tiaRunId"), "message should name tiaRunId, was: " + message);
+        assertFalse(message.contains("module-a"),
+                "a passing reactor rule should not name any reactor projects: " + message);
     }
 
     /**

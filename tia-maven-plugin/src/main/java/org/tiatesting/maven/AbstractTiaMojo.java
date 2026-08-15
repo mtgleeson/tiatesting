@@ -6,6 +6,7 @@ import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
+import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -274,6 +275,30 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     protected List<MavenProject> getReactorProjects() {
         return session.getProjects();
+    }
+
+    /**
+     * Append the reactor's project artifact ids to a distributed-run precondition failure message
+     * when the failure is the multi-project-reactor rule, so both distributed-run entry points -
+     * the {@code tia-dist-plan} goal and the {@code prepare-agent} goal - report exactly which
+     * modules were found in the reactor. Shared here rather than duplicated per mojo since {@code
+     * tia-core} has no Maven type to name the projects with itself; this method converts {@link
+     * #getReactorProjects()}'s {@link MavenProject} list to plain artifact-id strings and delegates
+     * the "only when relevant" gate to {@link
+     * DistributedRunPreconditions#withReactorProjectNamesIfRelevant}, the same core helper the
+     * Gradle plan task's equivalent wrapper delegates to.
+     *
+     * @param message the failure message from {@code DistributedRunPreconditions.check}
+     * @param reactorProjects the projects {@link #getReactorProjects()} resolved for this build
+     * @return {@code message} unchanged, or with the reactor's project artifact ids appended when
+     *         Tia is enabled and the reactor holds more than one project
+     */
+    protected String withReactorProjectNamesIfRelevant(final String message, final List<MavenProject> reactorProjects) {
+        List<String> names = new ArrayList<>(reactorProjects.size());
+        for (MavenProject project : reactorProjects) {
+            names.add(project.getArtifactId());
+        }
+        return DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, isTiaEnabled(), names);
     }
 
     public String getTiaBuildDir() {
