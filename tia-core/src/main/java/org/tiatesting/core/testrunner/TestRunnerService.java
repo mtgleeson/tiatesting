@@ -224,15 +224,22 @@ public class TestRunnerService {
         //    is already stored for the group, so a Surefire retry within this JVM sums correctly
         //    instead of this retry's per-attempt count overwriting the ones before it; suitesFailed
         //    replaces what was stored, since it is current state and a passing retry must be able
-        //    to shrink it back to zero. The status flip itself is not made here: this runs once per
-        //    finished test plan, and a retry is another test plan in the same JVM, so flipping the
-        //    group to COMPLETED here would release the barrier after the first test plan while this
-        //    runner is still executing tests. It is recorded instead, and made once when the JVM
-        //    exits.
+        //    to shrink it back to zero. suitesDiscovered also replaces what was stored, but for a
+        //    different reason: getRunnerTestSuites() is already cumulative across every test plan in
+        //    this JVM, so accumulating it here would double-count. It is what the completeness guard
+        //    later reads, not suitesRan, so a suite the runner discovered but never executed (a
+        //    disabled class, a Surefire/Gradle filter, a class deleted since the last mapping run)
+        //    does not block the group from completing. The status flip itself is not made here: this
+        //    runs once per finished test plan, and a retry is another test plan in the same JVM, so
+        //    flipping the group to COMPLETED here would release the barrier after the first test plan
+        //    while this runner is still executing tests. It is recorded instead, and made once when
+        //    the JVM exits.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
-        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed);
+        int suitesDiscovered = testRunResult.getRunnerTestSuites() != null
+                ? testRunResult.getRunnerTestSuites().size() : 0;
+        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesDiscovered);
         DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
                 commitValue, branch, updateDBMapping, updateDBStats, updateDBTestRunHistory);
     }

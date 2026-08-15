@@ -108,6 +108,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_ACTUAL_DURATION_MS = "actual_duration_ms";
     private static final String COL_SUITES_RAN = "suites_ran";
     private static final String COL_SUITES_FAILED = "suites_failed";
+    private static final String COL_SUITES_DISCOVERED = "suites_discovered";
     private static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
@@ -1496,8 +1497,9 @@ public class JdbcDataStore implements DataStore {
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
-                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED + ", "
+                + COL_SUITES_DISCOVERED
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
 
@@ -1546,6 +1548,7 @@ public class JdbcDataStore implements DataStore {
                         setNullableLong(statement, 8, group.getActualDurationMs());
                         statement.setInt(9, group.getSuitesRan());
                         statement.setInt(10, group.getSuitesFailed());
+                        statement.setInt(11, group.getSuitesDiscovered());
                         statement.addBatch();
                     }
                     statement.executeBatch();
@@ -2031,10 +2034,18 @@ public class JdbcDataStore implements DataStore {
      * = 'CLAIMED' AND runner_key = ?}, the same straggler-protection predicate {@link
      * #completeGroup} is guarded on. {@code actual_duration_ms} and {@code suites_ran} are written
      * as {@code COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry)
-     * sum instead of the last one overwriting the ones before it; the {@code COALESCE} handles the
-     * first call of a JVM, where the column is still the {@code NULL} the plan write left it as.
-     * {@code suites_failed} is written as a plain {@code = ?}, since it is current state rather
-     * than a counter and a passing retry must be able to shrink it back to zero.
+     * sum instead of the last one overwriting the ones before it. Only {@code actual_duration_ms}
+     * genuinely needs the {@code COALESCE}: the plan write binds it with {@link #setNullableLong}
+     * as SQL {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column.
+     * {@code suites_ran}'s DDL is {@code INT DEFAULT 0} and the plan write binds it with a primitive
+     * {@code setInt}, so it is never actually {@code NULL} - its {@code COALESCE} is defensive
+     * rather than load-bearing, kept for symmetry and to protect against a future change to the
+     * plan write. {@code suites_failed} is written as a plain {@code = ?}, since it is current
+     * state rather than a counter and a passing retry must be able to shrink it back to zero.
+     * {@code suites_discovered} is likewise a plain {@code = ?}: unlike {@code suites_ran}, it does
+     * not accumulate here, because the set it is drawn from ({@link
+     * org.tiatesting.core.testrunner.TestRunResult#getRunnerTestSuites()}) is already cumulative
+     * per JVM - summing it across retries would double-count.
      *
      * <p>Calls {@link #ensureSchema(Connection)} first, since reporting progress could be the
      * first contact any caller in this process makes with a freshly created per-branch schema.
@@ -2047,17 +2058,21 @@ public class JdbcDataStore implements DataStore {
      * @param suitesRan the number of suites this call's test plan executed, added to whatever is
      *                  already stored
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
+     * @param suitesDiscovered the number of suites the runner has discovered so far (executed +
+     *                         skipped + filtered), replacing whatever was stored - not added to it,
+     *                         since the caller's own set is already cumulative across retries
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     @Override
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed) {
+                                       final int suitesFailed, final int suitesDiscovered) {
         String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
                 + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = COALESCE("
-                + COL_SUITES_RAN + ", 0) + ?, " + COL_SUITES_FAILED + " = ? WHERE " + COL_RUN_ID + " = ? AND "
-                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
+                + COL_SUITES_RAN + ", 0) + ?, " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_DISCOVERED
+                + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS
+                + " = ? AND " + COL_RUNNER_KEY + " = ?";
 
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
@@ -2066,10 +2081,11 @@ public class JdbcDataStore implements DataStore {
                 statement.setLong(1, actualDurationMs);
                 statement.setInt(2, suitesRan);
                 statement.setInt(3, suitesFailed);
-                statement.setString(4, runId);
-                statement.setInt(5, groupNumber);
-                statement.setString(6, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(7, runnerKey);
+                statement.setInt(4, suitesDiscovered);
+                statement.setString(5, runId);
+                statement.setInt(6, groupNumber);
+                statement.setString(7, DistributedRunGroupStatus.CLAIMED.name());
+                statement.setString(8, runnerKey);
                 return statement.executeUpdate() == 1;
             }
         } catch (SQLException e) {
@@ -2084,14 +2100,26 @@ public class JdbcDataStore implements DataStore {
      * so the completeness check and the status flip are atomic:
      * {@code run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?} is the
      * straggler protection, unchanged from before this group's progress was split out; {@code
-     * suites_ran >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite WHERE run_id = ? AND
-     * group_number = ?)} is the completeness guard, comparing what {@link #reportGroupProgress}
-     * has accumulated against the group's assigned suite count. If {@code suites_ran} is ever
-     * {@code NULL} - a group that never reported at all - the comparison evaluates to {@code
-     * NULL} rather than {@code true}, and SQL excludes a {@code NULL} predicate from a {@code
-     * WHERE} clause exactly as it would exclude {@code false}, so an unreported group is blocked
-     * with no extra {@code COALESCE} needed. Row count is the entire answer, exactly as for {@link
-     * #claimNextPendingGroup} and {@link #electSealer}.
+     * suites_discovered >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite WHERE run_id = ?
+     * AND group_number = ?)} is the completeness guard, comparing what {@link #reportGroupProgress}
+     * has recorded against the group's assigned suite count.
+     *
+     * <p>The guard reads {@code suites_discovered}, not {@code suites_ran}, deliberately.
+     * {@code suites_ran} counts only suites that finished, and a class-level {@code @Disabled}
+     * suite (or one excluded by a Surefire/Gradle filter, or deleted since the last mapping run)
+     * never finishes even though the planner still assigned it to this group - guarding on
+     * {@code suites_ran} would then block a group forever on a suite Tia never expected to run.
+     * {@code suites_discovered} is what {@link
+     * org.tiatesting.core.testrunner.TestRunResult#getRunnerTestSuites()} reports - every suite the
+     * runner discovered whether or not it executed - so a group whose runner has seen every
+     * assigned suite completes even when it executed fewer of them. {@code suites_discovered}'s
+     * DDL is {@code INT DEFAULT 0} and every write to it (the plan write and {@link
+     * #reportGroupProgress}) binds a primitive {@code setInt}, so it is never actually SQL
+     * {@code NULL} - a group that never reported reads {@code 0}, and {@code 0 >= assignedCount}
+     * is false for any group with at least one assigned suite, blocking it as intended without
+     * needing three-valued-logic reasoning about a {@code NULL} this column cannot hold.
+     * Row count is the entire answer, exactly as for {@link #claimNextPendingGroup} and
+     * {@link #electSealer}.
      *
      * <p>Row count 0 returns {@code null} without reading anything back, since there is by
      * definition nothing this runner wrote to return. Row count 1 re-reads the row through
@@ -2115,7 +2143,7 @@ public class JdbcDataStore implements DataStore {
                                              final long completedAtMs) {
         String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
                 + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
-                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_RAN
+                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_DISCOVERED
                 + " >= (SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " WHERE " + COL_RUN_ID
                 + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
         String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
@@ -2254,7 +2282,8 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getLong(COL_ESTIMATED_MS),
                 getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
                 resultSet.getInt(COL_SUITES_RAN),
-                resultSet.getInt(COL_SUITES_FAILED));
+                resultSet.getInt(COL_SUITES_FAILED),
+                resultSet.getInt(COL_SUITES_DISCOVERED));
     }
 
     /**
@@ -3780,6 +3809,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_ACTUAL_DURATION_MS + " BIGINT, "
                 + COL_SUITES_RAN + " INT DEFAULT 0, "
                 + COL_SUITES_FAILED + " INT DEFAULT 0, "
+                + COL_SUITES_DISCOVERED + " INT DEFAULT 0, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + "))";
     }
 

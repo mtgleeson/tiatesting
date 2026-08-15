@@ -442,7 +442,7 @@ public interface DataStore extends AutoCloseable {
     /**
      * Record one test plan's progress on a runner's group, without releasing the barrier: the
      * group stays {@code CLAIMED}. Called on every persist a runner's test JVM makes - possibly
-     * several times per JVM, once per Surefire retry - so the figures it carries fall into two
+     * several times per JVM, once per Surefire retry - so the figures it carries fall into three
      * kinds that must not be treated alike:
      *
      * <ul>
@@ -450,10 +450,25 @@ public interface DataStore extends AutoCloseable {
      *       whatever is already stored, so several test plans within one JVM sum to the JVM's
      *       total instead of the last one's figure silently overwriting the ones before it. This
      *       is what makes retried suites count correctly toward the group's totals - see the
-     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.</li>
+     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.
+     *       {@code suitesRan} counts only suites that <b>finished</b>, and it is what the sealer
+     *       later aggregates into the build's one history row, where {@code ignoredSuiteCount} and
+     *       {@code allTestsRun} depend on it meaning exactly that.</li>
      *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
      *       a suite that passes on retry must legitimately leave the failed set, and accumulating
      *       it would instead leave a fixed suite recorded as permanently failed.</li>
+     *   <li>{@code suitesDiscovered} is also replaced outright, not accumulated, but for a
+     *       different reason than {@code suitesFailed}: the set it is drawn from ({@link
+     *       org.tiatesting.core.testrunner.TestRunResult#getRunnerTestSuites()}) is already
+     *       cumulative across every test plan in the JVM, so summing it here would double-count.
+     *       It counts every suite the runner <b>discovered</b> - executed, skipped or filtered -
+     *       which is deliberately not the same figure as {@code suitesRan}: a suite Tia never got
+     *       to run (a class-level {@code @Disabled}, a Surefire/Gradle filter, a class deleted
+     *       since the last mapping run) is discovered without ever being executed. This is the
+     *       figure {@link #completeGroup}'s completeness guard reads, precisely so that a group
+     *       with such a suite can still complete. Do not conflate {@code suitesRan} and {@code
+     *       suitesDiscovered}: one is the sealer's "executed" figure, the other is the guard's
+     *       "accounted for" figure, and they answer different questions.</li>
      * </ul>
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
@@ -471,12 +486,14 @@ public interface DataStore extends AutoCloseable {
      * @param suitesRan the number of suites this call's test plan executed, added to whatever
      *                  count is already stored for the group
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
+     * @param suitesDiscovered the number of suites the runner has discovered so far (executed +
+     *                         skipped + filtered), replacing whatever was stored
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                 final long actualDurationMs, final int suitesRan,
-                                final int suitesFailed);
+                                final int suitesFailed, final int suitesDiscovered);
 
     /**
      * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.
@@ -493,14 +510,19 @@ public interface DataStore extends AutoCloseable {
      *       protection, not a defensive nicety: it is what tells a runner from a superseded build,
      *       or one whose group another runner has since re-claimed, that it must write nothing
      *       further;</li>
-     *   <li>{@code suites_ran} recorded by {@link #reportGroupProgress} is at least the number of
-     *       suites the plan assigned to this group ({@code suites_ran >= COUNT(*)} over the
-     *       group's assigned suites, {@code >=} rather than {@code =} because a completed retry's
-     *       cumulative count can run past the originally assigned total). This is what stands in
-     *       for the crash protection a JVM shutdown hook used to provide: without it, a JVM killed
-     *       mid-retry (SIGKILL, OOM) after reporting only part of its group's suites could still
-     *       have its group completed, sealing the build on a catalogue missing whatever the killed
-     *       JVM never got to run - the one failure Tia must never have.</li>
+     *   <li>{@code suites_discovered} recorded by {@link #reportGroupProgress} is at least the
+     *       number of suites the plan assigned to this group ({@code suites_discovered >=
+     *       COUNT(*)} over the group's assigned suites, {@code >=} rather than {@code =} because a
+     *       completed retry's report can run past the originally assigned total). This is what
+     *       stands in for the crash protection a JVM shutdown hook used to provide: without it, a
+     *       JVM killed mid-retry (SIGKILL, OOM) after reporting only part of its group's suites
+     *       could still have its group completed, sealing the build on a catalogue missing
+     *       whatever the killed JVM never got to run - the one failure Tia must never have. The
+     *       guard reads {@code suites_discovered} rather than {@code suites_ran} deliberately: a
+     *       group can discover every assigned suite while executing fewer of them (a class-level
+     *       {@code @Disabled} suite, a Surefire/Gradle filter, a class deleted since the last
+     *       mapping run), and such a group is genuinely complete - guarding on {@code suites_ran}
+     *       would block it forever.</li>
      * </ul>
      *
      * <p>A {@code null} return means either guard failed - the claim is no longer live (a
