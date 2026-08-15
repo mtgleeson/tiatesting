@@ -2,7 +2,12 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,11 +44,13 @@ class DistributedRunPreconditionsTest {
 
     /**
      * Verifies that a reactor of more than one project is rejected, and that the message states
-     * the project count and the reason a build with more than one project cannot be planned - the
-     * planning goal is not bound as an aggregator, so it would run once per project and each
-     * project's plan write would clear the previous project's plan from the shared database.
-     * {@code tia-core} has no Maven or Gradle type to name the projects with, so naming them is
-     * the caller's job; this rule only ever states the count.
+     * the project count and the reason a build with more than one project cannot be planned or
+     * claimed against - neither the planning goal nor the claim-time goal is bound as an
+     * aggregator, so each would run once per project: on the planning side, each project's plan
+     * write would clear the previous project's plan from the shared database; on the claim-time
+     * side, each project's claim would claim a fresh group instead of the single group the runner
+     * process is meant to hold. {@code tia-core} has no Maven or Gradle type to name the projects
+     * with, so naming them is the caller's job; this rule only ever states the count.
      */
     @Test
     void check_multiProjectReactor_throwsNamingProjectCount() {
@@ -235,5 +242,81 @@ class DistributedRunPreconditionsTest {
 
         // when / then
         assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false));
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPreconditions#withReactorProjectNamesIfRelevant} leaves
+     * the message unchanged when {@code tiaEnabled} is false, even with more than one project
+     * name supplied - a disabled Tia fails on rule 1 before rule 4 (the reactor rule) is ever
+     * reached, so a message produced under {@code tiaEnabled=false} never came from rule 4 and has
+     * nothing to append project names to.
+     */
+    @Test
+    void withReactorProjectNamesIfRelevant_tiaDisabled_returnsMessageUnchanged() {
+        // given - Tia disabled and a message that did not come from the reactor rule, alongside
+        // more than one project name
+        String message = "Distributed test runs require Tia to be enabled.";
+        List<String> projectNames = Arrays.asList("module-a", "module-b");
+
+        // when
+        String result = DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, false, projectNames);
+
+        // then
+        assertEquals(message, result);
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPreconditions#withReactorProjectNamesIfRelevant} leaves
+     * the message unchanged when the project list is empty, so a caller that has not resolved any
+     * reactor projects (the {@code size == 0} branch) never appends a dangling "Projects taking
+     * part in this build: ." suffix.
+     */
+    @Test
+    void withReactorProjectNamesIfRelevant_zeroProjects_returnsMessageUnchanged() {
+        // given - Tia enabled, but no project names resolved at all
+        String message = "Distributed test runs require the planning step to run exactly once.";
+        List<String> projectNames = Collections.emptyList();
+
+        // when
+        String result = DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, true, projectNames);
+
+        // then
+        assertEquals(message, result);
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPreconditions#withReactorProjectNamesIfRelevant} leaves
+     * the message unchanged for a single-project build, so a build that never trips rule 4 never
+     * has a one-project list appended to an unrelated message.
+     */
+    @Test
+    void withReactorProjectNamesIfRelevant_singleProject_returnsMessageUnchanged() {
+        // given - Tia enabled and exactly one project name, the ordinary single-module case
+        String message = "Distributed test runs require the planning step to run exactly once.";
+        List<String> projectNames = Collections.singletonList("module-a");
+
+        // when
+        String result = DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, true, projectNames);
+
+        // then
+        assertEquals(message, result);
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPreconditions#withReactorProjectNamesIfRelevant} appends
+     * every project name, comma-joined and in order, when Tia is enabled and more than one project
+     * name is supplied - the case rule 4's rejection message is meant to be enriched for.
+     */
+    @Test
+    void withReactorProjectNamesIfRelevant_multipleProjectsAndTiaEnabled_appendsJoinedNames() {
+        // given - Tia enabled and three project names
+        String message = "Distributed test runs require the planning step to run exactly once.";
+        List<String> projectNames = Arrays.asList("module-a", "module-b", "module-c");
+
+        // when
+        String result = DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, true, projectNames);
+
+        // then
+        assertEquals(message + " Projects taking part in this build: module-a, module-b, module-c.", result);
     }
 }

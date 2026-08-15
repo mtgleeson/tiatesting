@@ -64,9 +64,9 @@ public final class DistributedRunPreconditions {
      * rule 1 (Tia enabled) before rule 4 (single-project build) before rule 2 (shared database)
      * before rule 3 (local-changes checking off), so a configuration that breaks more than one
      * rule fails on the most fundamental one - a disabled Tia makes every other question moot, a
-     * build that cannot be planned at all (a multi-project reactor) makes the database and
-     * local-changes questions moot, and a database no runner can share makes the local-changes
-     * question moot.
+     * build that cannot be planned or claimed against at all (a multi-project reactor) makes the
+     * database and local-changes questions moot, and a database no runner can share makes the
+     * local-changes question moot.
      *
      * @param tiaEnabled       the resolved value of {@code tiaEnabled}; must be true, since {@code
      *                         tia-dist-plan} opens the shared datastore and persists a claimable run
@@ -88,7 +88,8 @@ public final class DistributedRunPreconditions {
      * @param checkLocalChanges the resolved value of {@code tiaCheckLocalChanges}; must be false
      * @throws IllegalStateException if {@code tiaEnabled} is false, naming {@code tiaEnabled} as
      *         the property to set; or if {@code projectCount} is more than 1, stating the project
-     *         count and that multi-module distributed planning is not supported; or if the resolved
+     *         count and that multi-module distributed runs (planning or claiming) are not
+     *         supported; or if the resolved
      *         datastore is embedded H2, naming server-mode H2 and Postgres as the options and {@code
      *         tiaDBUrl} as the property that selects them; or if {@code checkLocalChanges} is true,
      *         naming {@code tiaCheckLocalChanges}
@@ -171,13 +172,6 @@ public final class DistributedRunPreconditions {
         if (!tiaEnabled || projectNames.size() <= 1) {
             return message;
         }
-        StringBuilder names = new StringBuilder();
-        for (String name : projectNames) {
-            if (names.length() > 0) {
-                names.append(", ");
-            }
-            names.append(name);
-        }
-        return message + " Projects taking part in this build: " + names + ".";
+        return message + " Projects taking part in this build: " + String.join(", ", projectNames) + ".";
     }
 }

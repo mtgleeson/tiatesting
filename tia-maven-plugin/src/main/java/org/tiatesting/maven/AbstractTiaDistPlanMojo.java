@@ -54,10 +54,9 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         System.out.println("Planning a distributed Tia test run:");
 
+        List<MavenProject> reactorProjects = getReactorProjects();
         DistributedRunConfig config;
-        List<MavenProject> reactorProjects;
         try {
-            reactorProjects = getReactorProjects();
             DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
                     getTiaDBDialect(), isTiaCheckLocalChanges());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
@@ -65,7 +64,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     getTiaDistributedRunnerKey());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new MojoExecutionException("Distributed run configuration is invalid: "
-                    + withReactorProjectNamesIfRelevant(e.getMessage(), getReactorProjects()), e);
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
         }
 
         final VCSReader vcsReader = getVCSReader();
