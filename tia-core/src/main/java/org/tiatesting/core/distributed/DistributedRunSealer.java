@@ -82,10 +82,11 @@ public final class DistributedRunSealer {
      * which a runner can be the last one. Losing is the ordinary outcome for all but one runner in
      * the build and is not an error: a loser returns without reading or writing anything.
      *
-     * @param commitValue the commit the build ran against, which becomes the stored commit value.
-     *                    Every runner was verified against the plan's commit before it claimed, so
-     *                    the winner's own commit is the commit every group's mapping rows describe
-     * @param branch the branch the build ran against, recorded alongside the commit
+     * <p>The commit and branch being sealed are no longer taken from the caller: they are read from
+     * the plan's own run row, which every runner was already verified against before it claimed. That
+     * makes the plan's commit authoritative by construction rather than by a runner passing back a
+     * value that then has to agree with it - see {@link #recordBuild} for where that read happens.
+     *
      * @param updateDBMapping whether this build owns mapping-DB updates. When false there is
      *                        nothing to seal - no runner staged anything and no commit may be
      *                        advanced - but the run is still retired
@@ -97,8 +98,7 @@ public final class DistributedRunSealer {
      * @return true when this runner won the election and performed the seal, false when it did
      *         nothing
      */
-    public boolean sealIfElected(final String commitValue, final String branch,
-                                 final boolean updateDBMapping, final boolean updateDBStats,
+    public boolean sealIfElected(final boolean updateDBMapping, final boolean updateDBStats,
                                  final boolean updateDBTestRunHistory, final long sealedAtMs) {
         if (!dataStore.electSealer(context.getRunId(), context.getRunnerKey(), sealedAtMs)) {
             log.debug("Distributed run '{}': runner '{}' is not the sealer, so it is done.",
@@ -110,7 +110,7 @@ public final class DistributedRunSealer {
                 context.getRunId(), context.getRunnerKey());
 
         if (updateDBMapping || updateDBStats || updateDBTestRunHistory) {
-            recordBuild(commitValue, branch, updateDBMapping, updateDBStats, updateDBTestRunHistory);
+            recordBuild(updateDBMapping, updateDBStats, updateDBTestRunHistory);
         } else {
             log.info("Distributed run '{}': the build updates neither the mapping, the stats nor "
                     + "the history, so there is nothing to record.", context.getRunId());
@@ -131,15 +131,36 @@ public final class DistributedRunSealer {
      * covered every tracked suite - so they are derived once here and shared, rather than each
      * being worked out separately and risking disagreement about what the build did.
      *
-     * @param commitValue the commit being sealed
-     * @param branch the branch being sealed
+     * <p>The commit and branch being sealed are read here, from the run row this election just won,
+     * rather than accepted as parameters. The read is treated as an assertion of an invariant rather
+     * than a recovery path: {@link
+     * DataStore#electSealer} only returns {@code true} after matching and updating that exact row
+     * under this run id, so the row existed a moment earlier, and nothing but a new plan write
+     * clears it - which cannot happen for this run id until this run reaches its terminal state,
+     * which has not happened yet. A {@code null} read here is therefore a broken invariant, not a
+     * race a caller can sensibly recover from, so it is reported as such rather than silently
+     * substituting a fallback value.
+     *
      * @param updateDBMapping whether this build owns mapping-DB updates
      * @param updateDBStats whether the Tia-level run stats should be updated
      * @param updateDBTestRunHistory whether the build should write its history row
+     * @throws IllegalStateException if the run row is gone immediately after this runner won the
+     *                                election to seal it
      */
-    private void recordBuild(final String commitValue, final String branch,
-                             final boolean updateDBMapping, final boolean updateDBStats,
+    private void recordBuild(final boolean updateDBMapping, final boolean updateDBStats,
                              final boolean updateDBTestRunHistory) {
+        DistributedRun run = dataStore.readDistributedRun(context.getRunId());
+        if (run == null) {
+            throw new IllegalStateException("Distributed run '" + context.getRunId() + "': the run "
+                    + "row is gone immediately after runner '" + context.getRunnerKey() + "' won the "
+                    + "election to seal it. This cannot happen by design: electSealer only returns "
+                    + "true after matching and updating that exact row, so it existed a moment "
+                    + "earlier, and nothing clears a run's row before that run reaches its terminal "
+                    + "state.");
+        }
+        String commitValue = run.getCommitValue();
+        String branch = run.getBranch();
+
         DistributedRunTotals totals =
                 DistributedRunTotals.from(dataStore.readDistributedRunGroups(context.getRunId()));
         int ignoredSuiteCount = ignoredSuiteCount(totals);
@@ -160,7 +181,7 @@ public final class DistributedRunSealer {
             // seal. An all-tests build saves nothing by definition, so the ordering only matters
             // for a partial build, and a partial build does not move the baseline.
             persistBuildHistory(commitValue, branch, updateDBMapping, totals, ignoredSuiteCount,
-                    allTestsRun, tiaData.getTestStats().getAllTestsRunTime());
+                    allTestsRun, tiaData.getTestStats().getAllTestsRunTime(), run.getCreatedAtMs());
         }
     }
 
@@ -240,14 +261,14 @@ public final class DistributedRunSealer {
      * @param allTestsRun whether the groups between them ran every tracked suite, which is what
      *                    makes this build's savings zero
      * @param allTestsRunTimeMs the full-suite baseline to freeze this build's savings against
+     * @param runTimestampMs UTC epoch millis when the run's plan was written, read from the same
+     *                       run row {@link #recordBuild} already read the commit and branch from,
+     *                       so the row is read once per seal rather than once per figure
      */
     private void persistBuildHistory(final String commitValue, final String branch,
                                      final boolean updateDBMapping, final DistributedRunTotals totals,
                                      final int ignoredSuiteCount, final boolean allTestsRun,
-                                     final long allTestsRunTimeMs) {
-        DistributedRun run = dataStore.readDistributedRun(context.getRunId());
-        long runTimestampMs = run != null ? run.getCreatedAtMs() : System.currentTimeMillis();
-
+                                     final long allTestsRunTimeMs, final long runTimestampMs) {
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
                 totals.getSerialDurationMs(), allTestsRun);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);

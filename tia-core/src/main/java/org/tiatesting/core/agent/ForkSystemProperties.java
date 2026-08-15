@@ -23,6 +23,10 @@ import java.util.Properties;
  *
  * <p>The build plugin calls {@link #write(Map, File)}; the agent's {@code premain} calls
  * {@link #applyToSystemProperties(String)} so the values are live before any test listener runs.
+ * A build-JVM step that needs the file's contents without becoming a fork - one that must not
+ * pollute its own process's system properties with configuration meant for a test JVM - calls
+ * {@link #read(File)} directly instead. See the "How Tia exchanges data with the test runner
+ * (Gradle vs Maven)" chapter in {@code WIKI.md} for the fork-boundary handoff this file crosses.
  */
 public final class ForkSystemProperties {
 
@@ -55,6 +59,33 @@ public final class ForkSystemProperties {
     }
 
     /**
+     * Read the fork properties file's contents without touching this JVM's system properties.
+     *
+     * <p>This is the one place either public entry point actually reads the file - {@link
+     * #applyToSystemProperties(String)} delegates here rather than loading it a second way, so the
+     * two callers can never disagree about what counts as a missing or unreadable file. A caller
+     * that only wants the values (a build-JVM step that must not leak test-fork configuration into
+     * its own process's system properties) calls this directly; a caller that wants them live as
+     * system properties calls {@link #applyToSystemProperties(String)} instead.
+     *
+     * @param file the fork properties file to read; {@code null} returns an empty result rather
+     *             than reading anything, mirroring {@link #applyToSystemProperties(String)}'s
+     *             {@code null}/empty-path no-op
+     * @return the properties read from the file (empty when {@code file} is {@code null})
+     * @throws IOException if {@code file} is non-null but does not exist or cannot be read
+     */
+    public static Properties read(final File file) throws IOException {
+        Properties props = new Properties();
+        if (file == null) {
+            return props;
+        }
+        try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
+            props.load(reader);
+        }
+        return props;
+    }
+
+    /**
      * Load the fork properties file and publish each entry as a system property, but only when that
      * property is not already set. The "set only if absent" rule means an explicit {@code -D} on
      * the command line, or a value Surefire applies from {@code systemPropertyVariables}, still
@@ -65,13 +96,10 @@ public final class ForkSystemProperties {
      * @throws IOException if the file exists but cannot be read
      */
     public static Properties applyToSystemProperties(final String filePath) throws IOException {
-        Properties props = new Properties();
         if (filePath == null || filePath.isEmpty()) {
-            return props;
+            return new Properties();
         }
-        try (Reader reader = Files.newBufferedReader(new File(filePath).toPath(), StandardCharsets.UTF_8)) {
-            props.load(reader);
-        }
+        Properties props = read(new File(filePath));
         for (String name : props.stringPropertyNames()) {
             if (System.getProperty(name) == null) {
                 System.setProperty(name, props.getProperty(name));

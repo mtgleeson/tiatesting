@@ -72,15 +72,16 @@ public final class DistributedRunCompletion {
     private final DistributedRunnerContext context;
 
     /**
-     * The build-identifying figures the test plan that recorded this reported: the commit and
-     * branch the build ran against, and which of the mapping DB, Tia-level stats and history row
-     * this build owns. A later test plan replaces the whole recording rather than merging into it,
-     * which is correct because these values are the same across every test plan in a JVM - the
-     * last one to persist is simply the freshest copy. The measured progress (duration, suites
-     * ran, suites failed) is no longer carried here at all: {@link
-     * DistributedRunnerPersist#reportGroupProgress(long, int, int, int)} records it directly, on every
-     * persist, so it accumulates correctly across retries instead of being replaced by whichever
-     * test plan happens to persist last.
+     * The build-identifying figures the test plan that recorded this reported: which of the mapping
+     * DB, Tia-level stats and history row this build owns. A later test plan replaces the whole
+     * recording rather than merging into it, which is correct because these values are the same
+     * across every test plan in a JVM - the last one to persist is simply the freshest copy. The
+     * commit and branch are no longer carried here: the seal now reads them itself from the run row,
+     * which is authoritative by construction, rather than trusting a value handed back from this
+     * JVM. The measured progress (duration, suites ran, suites failed) is likewise no longer carried
+     * here: {@link DistributedRunnerPersist#reportGroupProgress(long, int, int, int)} records it
+     * directly, on every persist, so it accumulates correctly across retries instead of being
+     * replaced by whichever test plan happens to persist last.
      */
     private final RecordedFigures figures;
 
@@ -106,18 +107,17 @@ public final class DistributedRunCompletion {
      * runs it is hooked.
      *
      * <p>Called once per test plan and replaces the previous test plan's recording, which is
-     * correct because what it now carries - the commit, the branch and which DB updates this build
-     * owns - is the same across every test plan in the JVM, so the last one to persist is simply
-     * the freshest copy. The measured progress this used to carry is reported directly by {@link
-     * DistributedRunnerPersist#reportGroupProgress(long, int, int, int)} instead, on the same persist,
-     * since it has to accumulate across test plans rather than be replaced by the last one.
+     * correct because what it now carries - which DB updates this build owns - is the same across
+     * every test plan in the JVM, so the last one to persist is simply the freshest copy. The commit
+     * and branch are not recorded here at all: the seal reads them itself from the run row rather
+     * than trusting a value handed back from this JVM. The measured progress this used to carry is
+     * reported directly by {@link DistributedRunnerPersist#reportGroupProgress(long, int, int, int)}
+     * instead, on the same persist, since it has to accumulate across test plans rather than be
+     * replaced by the last one.
      *
      * @param dataStore the shared datastore this runner's build writes to
      * @param context the runner's claimed context; a runner that claimed no group has no group to
      *                complete and must not reach here
-     * @param commitValue the commit the build ran against, handed to the seal if this runner turns
-     *                    out to be the last one to finish
-     * @param branch the branch the build ran against, likewise handed to the seal
      * @param updateDBMapping whether the build owns mapping-DB updates
      * @param updateDBStats whether the Tia-level run stats should be updated
      * @param updateDBTestRunHistory whether the build should write its one history row
@@ -125,7 +125,6 @@ public final class DistributedRunCompletion {
      */
     public static void recordTestPlanPersist(final DataStore dataStore,
                                              final DistributedRunnerContext context,
-                                             final String commitValue, final String branch,
                                              final boolean updateDBMapping,
                                              final boolean updateDBStats,
                                              final boolean updateDBTestRunHistory) {
@@ -140,8 +139,7 @@ public final class DistributedRunCompletion {
         // whole of the next one's. The store is taken from the latest test plan too: each listener
         // builds its own, and the newest is the one most recently proved usable.
         PENDING.put(key(context), new DistributedRunCompletion(dataStore, context,
-                new RecordedFigures(commitValue, branch, updateDBMapping, updateDBStats,
-                        updateDBTestRunHistory)));
+                new RecordedFigures(updateDBMapping, updateDBStats, updateDBTestRunHistory)));
 
         registerShutdownHook();
         log.debug("Distributed run '{}': runner '{}' will complete group {} when its JVM exits.",
@@ -246,9 +244,8 @@ public final class DistributedRunCompletion {
             }
 
             new DistributedRunSealer(dataStore, context)
-                    .sealIfElected(figures.commitValue, figures.branch, figures.updateDBMapping,
-                            figures.updateDBStats, figures.updateDBTestRunHistory,
-                            System.currentTimeMillis());
+                    .sealIfElected(figures.updateDBMapping, figures.updateDBStats,
+                            figures.updateDBTestRunHistory, System.currentTimeMillis());
         } catch (Throwable throwable) {
             log.error("Distributed run '{}': runner '{}' failed to complete group {} as its JVM was "
                             + "exiting, so this build will not be sealed and the stored commit value "
@@ -260,15 +257,14 @@ public final class DistributedRunCompletion {
     /**
      * The build-identifying figures a test plan recorded, held together as one immutable group so a
      * later test plan replaces the whole recording atomically rather than field-by-field. Every
-     * field here is the same across every test plan in a JVM - the commit and branch the build ran
-     * against, and which of the mapping DB, Tia-level stats and history row it owns - so there is
-     * no mixture to guard against; the value of holding them together is simply that replacement is
-     * one assignment rather than several.
+     * field here is the same across every test plan in a JVM - which of the mapping DB, Tia-level
+     * stats and history row it owns - so there is no mixture to guard against; the value of holding
+     * them together is simply that replacement is one assignment rather than several. The commit and
+     * branch the build ran against used to live here too, but the seal now reads them itself from
+     * the run row instead of trusting a value carried through this JVM.
      */
     private static final class RecordedFigures {
 
-        private final String commitValue;
-        private final String branch;
         private final boolean updateDBMapping;
         private final boolean updateDBStats;
         private final boolean updateDBTestRunHistory;
@@ -276,17 +272,12 @@ public final class DistributedRunCompletion {
         /**
          * Store the build-identifying figures a finished test plan reported.
          *
-         * @param commitValue the commit the build ran against
-         * @param branch the branch the build ran against
          * @param updateDBMapping whether the build owns mapping-DB updates
          * @param updateDBStats whether the Tia-level run stats should be updated
          * @param updateDBTestRunHistory whether the build should write its one history row
          */
-        RecordedFigures(final String commitValue, final String branch,
-                        final boolean updateDBMapping, final boolean updateDBStats,
+        RecordedFigures(final boolean updateDBMapping, final boolean updateDBStats,
                         final boolean updateDBTestRunHistory) {
-            this.commitValue = commitValue;
-            this.branch = branch;
             this.updateDBMapping = updateDBMapping;
             this.updateDBStats = updateDBStats;
             this.updateDBTestRunHistory = updateDBTestRunHistory;
