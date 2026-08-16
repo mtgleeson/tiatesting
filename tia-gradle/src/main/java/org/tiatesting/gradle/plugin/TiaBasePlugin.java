@@ -4,6 +4,7 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
 import org.tiatesting.core.library.LibraryPublishStamper;
 import org.slf4j.Logger;
@@ -80,6 +81,34 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createDistPlanTask() {
         project.getTasks().register("tia-dist-plan", TiaDistPlanTask.class, task -> {
             task.setPlugin(this);
+        });
+    }
+
+    /**
+     * Register the {@code tia-dist-complete} task for one distributed test task - completes that
+     * test task's claimed group and, if this runner happens to be the last one to finish, seals the
+     * distributed build. The Gradle equivalent of the Maven {@code tia-dist-complete} goal.
+     *
+     * <p>Unlike {@link #createDistPlanTask()}, which every build registers unconditionally at
+     * plugin-apply time, this task must exist only for a distributed build: a non-distributed
+     * Gradle build must gain no task and no finalizer. So this method is not called from {@link
+     * #apply(Project)} at all - it is called from the build-tool bridge that applies Tia to a test
+     * task (currently only {@code TiaSpockGitGradlePluginTestExtension}), once that bridge has
+     * resolved the merged {@code tia { distributed = ... } } flag at configuration time (in a
+     * {@code project.afterEvaluate} block, since the task graph - and therefore any {@code
+     * finalizedBy} wiring - is built before execution, while the fully-merged flag is normally only
+     * available inside the test task's own {@code doFirst} action).
+     *
+     * @param testTaskPath the {@link org.gradle.api.Task#getPath()} of the test task whose claim
+     *                      the registered task completes; injected into the task at registration via
+     *                      {@link TiaDistCompleteTask#setTestTaskPath(String)}
+     * @return the registered task's provider, for the caller to wire {@code testTask.finalizedBy(...)}
+     *         with
+     */
+    public TaskProvider<TiaDistCompleteTask> createDistCompleteTask(final String testTaskPath) {
+        return project.getTasks().register("tia-dist-complete", TiaDistCompleteTask.class, task -> {
+            task.setPlugin(this);
+            task.setTestTaskPath(testTaskPath);
         });
     }
 

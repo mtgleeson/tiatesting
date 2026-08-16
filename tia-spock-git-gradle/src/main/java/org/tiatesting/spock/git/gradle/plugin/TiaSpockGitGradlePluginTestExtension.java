@@ -4,6 +4,7 @@ import org.gradle.api.Action;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
@@ -22,6 +23,7 @@ import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
@@ -44,6 +46,12 @@ public class TiaSpockGitGradlePluginTestExtension {
         TiaBaseTaskExtension tiaProjectExtension = task.getProject().getExtensions().findByType(TiaBaseTaskExtension.class);
         TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
         JacocoTaskExtension jacocoTaskExtension = task.getExtensions().findByType(JacocoTaskExtension.class);
+
+        // Wired at configuration time, not inside the doFirst action below: the task graph (and
+        // therefore any finalizedBy wiring) is built before execution, so the finalizer must exist
+        // before the doFirst action runs. See wireDistCompleteFinalizer for why this needs its own,
+        // narrower resolution of the "distributed" flag rather than reusing populateTestTaskExtension.
+        task.getProject().afterEvaluate(p -> wireDistCompleteFinalizer(task, tiaProjectExtension, tiaTaskExtension));
 
         Action<Task> action = new Action<Task>() {
             @Override
@@ -207,6 +215,64 @@ public class TiaSpockGitGradlePluginTestExtension {
         if (tiaTaskExt.getDistributedRunnerKey() == null){
             tiaTaskExt.setDistributedRunnerKey(tiaProjectExt.getDistributedRunnerKey());
         }
+    }
+
+    /**
+     * Register the {@code tia-dist-complete} finalizer for this test task, and wire it as {@code
+     * testTask.finalizedBy(...)}, but only when this test task is configured for a distributed run
+     * - an ordinary, non-distributed Gradle build must gain no task and no finalizer.
+     *
+     * <p>Called from {@code project.afterEvaluate}, after the user's build script has finished
+     * setting both the project-level and this task's own {@code tia { ... } } extension, since the
+     * task graph - and therefore any {@code finalizedBy} wiring - is built before execution, while
+     * {@link #populateTestTaskExtension} only merges the two extensions inside the test task's
+     * {@code doFirst} action, which runs too late to affect the task graph. Rather than duplicate
+     * that whole merge this early, only the one flag a finalizer decision needs - {@code distributed}
+     * - is resolved here, with {@link #populateTestTaskExtension}'s same "task extension wins,
+     * project extension is the fallback" rule.
+     *
+     * <p>Resolves the {@link TiaBasePlugin} applied to this project the same way {@link
+     * #claimDistributedRun} does, via {@code withType} rather than {@code findPlugin}. Finding none
+     * is not escalated here: with no plugin applied, {@link #claimDistributedRun} will already fail
+     * this build with a clear error the first time the test task's {@code doFirst} action actually
+     * attempts a claim, so failing a second time from this configuration-time hook would only
+     * duplicate that message.
+     *
+     * @param testTask the test task to finalize with a {@code tia-dist-complete} task, if this
+     *                  build turns out to be distributed
+     * @param tiaProjectExtension the project-level {@code tia { ... } } extension
+     * @param tiaTaskExtension the test task's own {@code tia { ... } } extension
+     */
+    private void wireDistCompleteFinalizer(final Test testTask, final TiaBaseTaskExtension tiaProjectExtension,
+                                           final TiaBaseTaskExtension tiaTaskExtension) {
+        if (!resolveDistributedAtConfigurationTime(tiaProjectExtension, tiaTaskExtension)) {
+            return;
+        }
+
+        TiaBasePlugin plugin = testTask.getProject().getPlugins().withType(TiaBasePlugin.class)
+                .stream().findFirst().orElse(null);
+        if (plugin == null) {
+            return;
+        }
+
+        TaskProvider<TiaDistCompleteTask> completeTask = plugin.createDistCompleteTask(testTask.getPath());
+        testTask.finalizedBy(completeTask);
+    }
+
+    /**
+     * Resolve the {@code distributed} flag the same way {@link #populateTestTaskExtension} would,
+     * but standalone and safe to call at configuration time: this test task's own value if it set
+     * one, otherwise the project-level extension's value.
+     *
+     * @param tiaProjectExtension the project-level {@code tia { ... } } extension, the fallback
+     * @param tiaTaskExtension the test task's own {@code tia { ... } } extension, which wins when set
+     * @return true only when the resolved value is {@link Boolean#TRUE}
+     */
+    private boolean resolveDistributedAtConfigurationTime(final TiaBaseTaskExtension tiaProjectExtension,
+                                                           final TiaBaseTaskExtension tiaTaskExtension) {
+        Boolean resolved = tiaTaskExtension.getDistributed() != null
+                ? tiaTaskExtension.getDistributed() : tiaProjectExtension.getDistributed();
+        return Boolean.TRUE.equals(resolved);
     }
 
     /**

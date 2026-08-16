@@ -3,6 +3,7 @@ package org.tiatesting.spock.git.gradle.plugin;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,6 +23,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -546,6 +549,74 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         assertTrue(thrown.getMessage().contains(firstTestTask.getPath()), thrown.getMessage());
         assertTrue(thrown.getMessage().contains(secondTestTask.getPath()), thrown.getMessage());
         assertTrue(thrown.getMessage().contains("exactly one test task per runner"), thrown.getMessage());
+    }
+
+    /**
+     * Force the project's queued {@code afterEvaluate} blocks to run, the way a real Gradle
+     * invocation would once the build script finishes - including the {@code
+     * tia-dist-complete}-wiring block {@link TiaSpockGitGradlePluginTestExtension#applyTo}
+     * registers. {@link ProjectBuilder}-built projects never reach this point on their own, since
+     * nothing in these tests runs a real build; the cast to {@link ProjectInternal} is what exposes
+     * {@code evaluate()} - not part of the public {@link Project} API - to trigger it directly.
+     *
+     * @param testTask a test task whose project's queued {@code afterEvaluate} blocks should run
+     */
+    private static void evaluate(final Test testTask) {
+        ((ProjectInternal) testTask.getProject()).evaluate();
+    }
+
+    /**
+     * Verify that a distributed build - {@code tia.distributed = true} - gets a {@code
+     * tia-dist-complete} task of type {@link TiaDistCompleteTask}, and that the test task is
+     * finalized by it, once the project's {@code afterEvaluate} blocks run. Without the production
+     * wiring, {@code tia-dist-complete} would not exist at all, and a runner whose tests failed
+     * would never get the chance to complete its group - the run would never seal.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRegisterDistCompleteTaskAndFinalizeTheTestTaskForADistributedBuild(@TempDir File projectDir) {
+        // given a distributed build (no plan or claim needed - only the configuration-time wiring
+        // is under test here)
+        Test testTask = testTaskWithTiaApplied(projectDir, null);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-wiring");
+
+        // when the project's afterEvaluate blocks run
+        evaluate(testTask);
+
+        // then the tia-dist-complete task exists and finalizes the test task
+        Task completeTask = testTask.getProject().getTasks().findByName("tia-dist-complete");
+        assertNotNull(completeTask, "tia-dist-complete should be registered for a distributed build");
+        assertInstanceOf(TiaDistCompleteTask.class, completeTask);
+        assertTrue(testTask.getFinalizedBy().getDependencies(testTask).contains(completeTask),
+                "the test task should be finalized by tia-dist-complete");
+    }
+
+    /**
+     * Verify that an ordinary, non-distributed build - {@code tia.distributed} left unset - gets
+     * neither a {@code tia-dist-complete} task nor a finalizer on the test task, once the project's
+     * {@code afterEvaluate} blocks run. A non-distributed Gradle build must gain no task and no
+     * finalizer at all.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRegisterNeitherTaskNorFinalizerForANonDistributedBuild(@TempDir File projectDir) {
+        // given an ordinary build with tia.distributed left unset
+        Test testTask = testTaskWithTiaApplied(projectDir, null);
+        enableTia(projectExtension(testTask), projectDir);
+
+        // when the project's afterEvaluate blocks run
+        evaluate(testTask);
+
+        // then no tia-dist-complete task was registered, and the test task has no finalizer
+        assertNull(testTask.getProject().getTasks().findByName("tia-dist-complete"));
+        assertTrue(testTask.getFinalizedBy().getDependencies(testTask).isEmpty(),
+                "a non-distributed build's test task should have no finalizer");
     }
 
     /**
