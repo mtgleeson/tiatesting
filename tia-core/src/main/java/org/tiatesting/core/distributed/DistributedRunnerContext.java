@@ -10,7 +10,7 @@ package org.tiatesting.core.distributed;
  * <p>The three values are held together rather than passed around separately for one reason: the
  * completion write is guarded on all three at once, and a runner that completed with a re-derived
  * runner key or a mislaid group number would silently fail that guard and leave its group open
- * forever, so the run would never seal. See the "Group assignment" chapter in {@code WIKI.md}.
+ * forever, so the run would never seal. See the "Distributed test runs" chapter in {@code WIKI.md}.
  *
  * <p>A context with no group is a legitimate state, not an error: a pipeline that fans out wider
  * than the plan's group count produces surplus runners, which run nothing and have nothing to

@@ -529,8 +529,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     /**
      * @return whether this build participates in a distributed test run - the master switch the
      *         claim branches on. The claim is made in the build JVM on both build tools (Gradle's
-     *         daemon test-task action, before the test task forks); see the "Group assignment"
-     *         chapter in {@code WIKI.md}.
+     *         daemon test-task action, before the test task forks); see the "Distributed test
+     *         runs" chapter in {@code WIKI.md}.
      */
     public Boolean getDistributed() {
         return tiaTaskExtension.getDistributed();

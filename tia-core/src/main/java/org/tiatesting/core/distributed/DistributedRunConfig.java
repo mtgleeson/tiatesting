@@ -116,7 +116,7 @@ public final class DistributedRunConfig {
      * plan the runner is about to claim from; a runner neither reads those values nor could act on
      * them. Requiring them here would do two unhelpful things: force every runner job to repeat
      * configuration that only the planning job uses, and accept a value that disagrees with the one
-     * the plan was actually built with while silently ignoring it. See the "Group assignment"
+     * the plan was actually built with while silently ignoring it. See the "Distributed test runs"
      * chapter in {@code WIKI.md}.
      *
      * @param runId the distributed run's shared identifier ({@code tiaRunId}); must not be null or

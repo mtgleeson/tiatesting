@@ -26,6 +26,9 @@ wiki can also be read front to back.
   and the relationships between the mapping, library-impact and audit clusters.
 - [Persist flow and crash safety](wiki/persist-flow-and-crash-safety.md) - the seal-last invariant
   and the failure-mode taxonomy that keeps crashes self-correcting.
+- [Distributed test runs (group assignment and the run lifecycle)](wiki/distributed-test-runs.md) -
+  how one logical build is split across CI runners: the plan, the claim protocol, the completion
+  barrier and the sealer election, plus what a pipeline has to run.
 - [Embedded vs server-mode H2 connections](wiki/h2-connection-modes.md) - connection resolution,
   the embedded engine options and the shared-server considerations.
 - [Pluggable datastore (H2, Postgres, and the seam for more)](wiki/pluggable-datastore.md) - the

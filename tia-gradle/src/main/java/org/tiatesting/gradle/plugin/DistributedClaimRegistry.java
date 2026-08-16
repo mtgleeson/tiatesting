@@ -29,7 +29,7 @@ import java.util.WeakHashMap;
  * to know which run, runner key, group and update-DB flags to seal with, since none of that
  * survives in the forked JVM once it exits.
  *
- * <p>See the "Group assignment" chapter in {@code WIKI.md} for the claim protocol this sits on.
+ * <p>See the "Distributed test runs" chapter in {@code WIKI.md} for the claim protocol this sits on.
  */
 public final class DistributedClaimRegistry {
 

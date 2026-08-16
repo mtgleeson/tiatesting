@@ -114,4 +114,4 @@ Open `http://localhost:8082`, connect with JDBC URL `jdbc:h2:tcp://localhost:909
 
 ---
 
-Prev: [Persist flow and crash safety](persist-flow-and-crash-safety.md) | [Back to the Wiki index](../WIKI.md) | Next: [Pluggable datastore (H2, Postgres, and the seam for more)](pluggable-datastore.md)
+Prev: [Distributed test runs (group assignment and the run lifecycle)](distributed-test-runs.md) | [Back to the Wiki index](../WIKI.md) | Next: [Pluggable datastore (H2, Postgres, and the seam for more)](pluggable-datastore.md)

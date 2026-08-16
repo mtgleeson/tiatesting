@@ -104,7 +104,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     // fork can no longer make this claim itself. The claim is recorded in the
                     // build's DistributedClaimRegistry as a side effect; the tiaDistComplete
                     // finalizer reads it back from there after the test task's forked JVM(s)
-                    // finish - see the "Group assignment" chapter in WIKI.md.
+                    // finish - see the "Distributed test runs" chapter in WIKI.md.
                     claimDistributedRun(testTask, tiaTaskExtension);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB

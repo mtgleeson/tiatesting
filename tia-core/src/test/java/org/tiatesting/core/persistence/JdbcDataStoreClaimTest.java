@@ -34,8 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Cover {@link DataStore#claimNextPendingGroup(String, String, long)} against embedded H2: the
  * sequential claim protocol (fresh plan, second runner, exhaustion, retry-reclaims-its-own-group,
  * unknown run) and, separately, a genuine concurrency test proving no two racing runners can ever
- * claim the same group and no group is left unclaimed while groups remain. See the "Group
- * assignment" chapter in {@code WIKI.md} for the protocol this exercises.
+ * claim the same group and no group is left unclaimed while groups remain. See the "Distributed
+ * test runs" chapter in {@code WIKI.md} for the protocol this exercises.
  */
 class JdbcDataStoreClaimTest {
 
