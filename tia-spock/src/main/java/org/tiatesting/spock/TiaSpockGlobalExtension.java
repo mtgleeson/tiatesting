@@ -7,7 +7,7 @@ import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
-import org.tiatesting.core.distributed.DistributedRunCoordinator;
+import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
@@ -20,7 +20,6 @@ import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -48,19 +47,21 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
     /**
      * Work out which test suites this Spock test JVM must skip, and build the run listener that
-     * records what it ran. Gradle selects inside the test JVM rather than in the build JVM, so
-     * this constructor is where the whole of Tia's pre-run work happens for a Gradle build.
+     * records what it ran. For an ordinary (non-distributed) Gradle build, selection genuinely runs
+     * inside this test JVM rather than in the build JVM, so this constructor is where the whole of
+     * Tia's pre-run work happens.
      *
      * <p>How the suite lists are arrived at is the one thing that differs between an ordinary and
      * a distributed build. An ordinary build runs the test selection here. A distributed build
      * must not: the plan produced by {@code tia-dist-plan} already ran the VCS diff, the static
      * rules and the library-impact drain once, for every runner, and its output is in the shared
-     * database. So a distributed build does not select, and does not claim either - the Gradle
-     * daemon already claimed this test task's group before the test JVM forked (see {@code
-     * TiaSpockGitGradlePluginTestExtension#applyTo}), and this constructor only resolves that
-     * claim's result from system properties, via {@link
-     * DistributedForkProperties#contextFromSystemProperties()}, and derives the two suite sets
-     * from the datastore. Claiming a second time here would take a second group and leave the
+     * database. So a distributed build does not select, and does not claim either - on both Maven
+     * and Gradle the claim now happens in the build JVM, before the test JVM forks (on Gradle, the
+     * daemon's test-task action - see {@code TiaSpockGitGradlePluginTestExtension#applyTo}), and
+     * this constructor only resolves that claim's result from system properties, via {@link
+     * DistributedForkProperties#contextFromSystemProperties()}, then re-derives the two suite sets
+     * from it via {@link DistributedRunnerAssignment#forClaimedRunner}, the same derivation the
+     * build JVM's claim used. Claiming a second time here would take a second group and leave the
      * first open forever, so the run would never seal.
      *
      * @param vcsReader the VCS reader for the workspace under test, or null when Tia is disabled;
@@ -115,22 +116,24 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // and the library-impact drain once; repeating the drain per-runner would race,
                 // and applying its cleanup belongs to the run's sealer, so no drain result is
                 // carried here.
-                Integer groupNumber = distributedRunnerContext.getGroupNumber();
-                testsToRun = distributedRunnerContext.isClaimed()
-                        ? new HashSet<>(dataStore.readDistributedRunGroupSuites(
-                                distributedRunnerContext.getRunId(), groupNumber.intValue()))
-                        : Collections.<String>emptySet();
-                // forRunner, not validated: this config exists only to key the coordinator's
-                // reads by the run id the group was claimed under - no group count or target run
-                // time is asked for, since that shape was already decided by the plan this
-                // context was resolved from.
+                //
+                // forRunner, not validated: this config exists only to key the derivation's reads
+                // by the run id the group was claimed under - no group count or target run time is
+                // asked for, since that shape was already decided by the plan this context was
+                // resolved from.
                 DistributedRunConfig config = DistributedRunConfig.forRunner(
                         distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
-                // Reuses the exact rule the daemon's claim itself used to derive the ignore list,
-                // so this fork cannot land on a different answer than the claim already committed
-                // to - a surplus runner (null groupNumber) ignores every suite, same as before.
-                ignoredTests = new DistributedRunCoordinator(dataStore, config).deriveTestsToIgnore(
-                        groupNumber, dataStore.getTestSuitesTracked().keySet());
+                // forClaimedRunner, not claim: this fork does not claim, it re-derives the same two
+                // suite lists the daemon's claim already resolved, from the runner key and group
+                // number the daemon forwarded. Sharing DistributedRunnerAssignment's one copy of the
+                // derivation is what keeps this fork from landing on a different answer than the
+                // claim already committed to - a surplus runner (null group number) ignores every
+                // suite and runs none, same as before.
+                DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
+                        dataStore, config, distributedRunnerContext.getRunnerKey(),
+                        distributedRunnerContext.getGroupNumber());
+                testsToRun = assignment.getTestsToRun();
+                ignoredTests = assignment.getTestsToIgnore();
                 drainResult = null;
             } else {
                 // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
