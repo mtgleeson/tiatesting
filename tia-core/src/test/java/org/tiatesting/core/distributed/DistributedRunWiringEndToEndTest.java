@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,10 +57,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       fork properties file, which the Tia agent republishes as system properties in the forked
  *       test JVM - so this test writes that file and reads it back;</li>
  *   <li>the <b>Gradle/Spock</b> runner claims in the daemon's test-task action, before the test
- *       task forks, and builds the context its forked test JVM would resolve from the forwarded
- *       runner key and group number - the same claim-then-forward shape as Maven's, minus the fork
- *       properties file, since Gradle forwards a test task's system properties into its fork
- *       itself.</li>
+ *       task forks, and publishes the same run id, runner key and group number as system
+ *       properties - the same claim-then-forward shape as Maven's, minus the fork properties
+ *       file, since Gradle forwards a test task's system properties into its fork itself - so
+ *       this test sets them directly and resolves the context the fork would resolve from
+ *       them.</li>
  * </ul>
  *
  * <p>What it asserts is what the whole stage exists for: exactly one seal for the build, exactly
@@ -214,6 +216,23 @@ class DistributedRunWiringEndToEndTest {
     }
 
     /**
+     * Plan a single-group build, pinned to the commit the runner's workspace is on. Used by the
+     * completeness-guard scenarios, which need only one group and one runner to prove their point
+     * rather than the two-runner race {@link #planTheBuild()} sets up for the full lifecycle test.
+     *
+     * @param suites the suite names assigned to the one group
+     */
+    private void planASingleGroupBuild(final List<String> suites) {
+        List<DistributedRunGroup> groups =
+                Collections.singletonList(DistributedRunGroup.pending(RUN_ID, 0, 1000L));
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, suites);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, null, 1000L, 1200L),
+                groups, suitesByGroup, null));
+    }
+
+    /**
      * Claim a group the way both build tools do, through the shared assignment.
      *
      * @param runnerKey the identity to claim under
@@ -247,6 +266,39 @@ class DistributedRunWiringEndToEndTest {
         }
         ForkSystemProperties.applyToSystemProperties(forkProperties.getAbsolutePath());
         return DistributedForkProperties.contextFromSystemProperties();
+    }
+
+    /**
+     * Carry a claim across the Gradle boundary for real: publish the run id, runner key and group
+     * number as system properties the way {@code testTask.systemProperty(...)} forwards a Gradle
+     * test task's own system properties into its forked JVM, then resolve the context exactly as
+     * the Spock global extension does once inside that fork. There is no fork properties file on
+     * this route and therefore nothing to write or read back - Gradle forwards the properties
+     * itself - which is the one difference from {@link #throughTheMavenForkBoundary}; both routes
+     * still meet at the same {@link DistributedForkProperties#contextFromSystemProperties()} read.
+     *
+     * <p>The properties are cleared again before returning, whether resolution succeeds or throws,
+     * so a Gradle claim resolved for one runner in a test cannot leak into whatever the test does
+     * next - this is the in-process equivalent of two claims never sharing a JVM's system
+     * properties in a real build.
+     *
+     * @param assignment the claim the daemon's test-task action made
+     * @return the context the forked test JVM's extension would resolve under
+     */
+    private DistributedRunnerContext throughTheGradleForkBoundary(
+            final DistributedRunnerAssignment assignment) {
+        Map<String, String> forkProperties = DistributedForkProperties.forkProperties(RUN_ID,
+                assignment.getRunnerKey(), assignment.getGroupNumber());
+        for (Map.Entry<String, String> property : forkProperties.entrySet()) {
+            System.setProperty(property.getKey(), property.getValue());
+        }
+        try {
+            return DistributedForkProperties.contextFromSystemProperties();
+        } finally {
+            for (String key : MANAGED_PROPERTIES) {
+                System.clearProperty(key);
+            }
+        }
     }
 
     /**
@@ -318,11 +370,12 @@ class DistributedRunWiringEndToEndTest {
      * <em>later test plan of an earlier group</em> still in it too.
      *
      * <p>The first runner takes the Maven/JUnit route, its claim crossing a real fork properties
-     * file; the second takes the Gradle/Spock route, building the context its forked test JVM would
-     * resolve from the runner key and group number the daemon's claim forwards. Between the two
-     * persists the build is checked to be untouched: with the wiring broken, the
-     * first runner would have sealed there and the method only the second group reaches would be
-     * gone from the catalogue for good.
+     * file; the second takes the Gradle/Spock route, its claim crossing as system properties the
+     * daemon publishes directly onto the forked JVM's process, with no file in between. Both
+     * resolve their context the same way the fork does, from {@link
+     * DistributedForkProperties#contextFromSystemProperties()}. Between the two persists the build
+     * is checked to be untouched: with the wiring broken, the first runner would have sealed there
+     * and the method only the second group reaches would be gone from the catalogue for good.
      *
      * <p>The first runner deliberately persists <b>twice</b>, which is what a Surefire retry of
      * failed tests produces: a second test plan in the same JVM, so a second persist. Complete the
@@ -339,9 +392,7 @@ class DistributedRunWiringEndToEndTest {
         planTheBuild();
         TestRunnerService service = new TestRunnerService(dataStore);
         DistributedRunnerContext mavenRunner = throughTheMavenForkBoundary(claim("runner-a"));
-        DistributedRunnerAssignment gradleAssignment = claim("runner-b");
-        DistributedRunnerContext gradleRunner = DistributedRunnerContext.forClaimedGroup(RUN_ID,
-                gradleAssignment.getRunnerKey(), gradleAssignment.getGroupNumber().intValue());
+        DistributedRunnerContext gradleRunner = throughTheGradleForkBoundary(claim("runner-b"));
 
         // when - the Maven runner's first test plan finishes and persists its share
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
@@ -458,5 +509,134 @@ class DistributedRunWiringEndToEndTest {
                 "a surplus runner writes no history row");
         assertNull(dataStore.readDistributedRunGroups(RUN_ID).get(0).getCompletedAtMs(),
                 "a surplus runner must not complete anybody's group");
+    }
+
+    /**
+     * Verify a partial group - a runner whose JVM observed fewer suites than its group was
+     * assigned, whether because the JVM died part way through or because one of its suites never
+     * ran at all - does not complete, does not let the build seal, and leaves the stored commit
+     * exactly where it was.
+     *
+     * <p>This is what would break in production without the completeness guard: a runner that
+     * stopped short would still flip its only group to {@code COMPLETED} on whatever it managed to
+     * persist, the sealer would rebuild the catalogue from an edge set missing the suite that never
+     * ran, and every method reachable only from that suite would vanish from the catalogue while
+     * the build still reported a green seal. The persist here goes through the real {@link
+     * TestRunnerService} path, with a {@code suitesObserved} set that genuinely covers only one of
+     * the group's two assigned suites, rather than a hand-picked progress number written straight
+     * to the datastore - see the brief's fact 2 for why that distinction is load-bearing for this
+     * guard specifically.
+     *
+     * @throws Exception if the fork properties handoff fails
+     */
+    @Test
+    void shouldNotCompleteOrSealAGroupThatObservedFewerSuitesThanItWasAssigned() throws Exception {
+        // given - a single group assigned two suites, claimed by one runner through the real wiring
+        planASingleGroupBuild(Arrays.asList(SUITE_A, SUITE_B));
+        DistributedRunnerContext context = throughTheMavenForkBoundary(claim("runner-partial"));
+        TestRunnerService service = new TestRunnerService(dataStore);
+
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        trackers.put(SUITE_A, suiteTracker(SUITE_A, "com/example/A.java", METHOD_A));
+        Map<Integer, MethodImpactTracker> methodTrackers = new HashMap<>();
+        methodTrackers.put(Integer.valueOf(METHOD_A),
+                new MethodImpactTracker("com/example/A.a.()V", 40, 50));
+        // suitesObserved holds only SUITE_A - the JVM never got to SUITE_B, which its group was
+        // nonetheless assigned. This is the one field the completeness guard reads.
+        TestRunResult partialResult = new TestRunResult(trackers, new HashSet<String>(),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)),
+                new HashSet<>(Collections.singletonList(SUITE_A)),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), methodTrackers, new TestStats(),
+                null, 0, 1);
+
+        // when - the one test plan this JVM manages persists its partial share, and the build tool
+        //        then makes its explicit completion
+        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+                System.currentTimeMillis(), partialResult, context);
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+                true, System.currentTimeMillis());
+
+        // then - the completion is rejected, nothing seals, and the commit stays exactly where it was
+        assertFalse(completed, "a group missing an assigned suite must not be reported complete");
+        assertEquals(PRIOR_COMMIT, dataStore.getTiaCore().getCommitValue(),
+                "an incomplete group must not advance the stored commit");
+        assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
+                "the run must stay open while its only group is still short a suite");
+        assertEquals(DistributedRunGroupStatus.CLAIMED,
+                dataStore.readDistributedRunGroups(RUN_ID).get(0).getStatus(),
+                "the group must stay CLAIMED, not COMPLETED, until every assigned suite is observed");
+        assertTrue(dataStore.readTestRunHistory().isEmpty(),
+                "an incomplete group must not produce a history row");
+    }
+
+    /**
+     * Verify the worked example the completeness guard was designed around: every suite the group
+     * was assigned ran in its one and only test plan, one of them failed, and the Surefire retry
+     * JVM died before it ever persisted again. The group must still complete - every assigned suite
+     * really was observed in that first test plan - the build must still seal, and the failed suite
+     * the dead retry never got a chance to re-report must still be recorded rather than silently
+     * reset by the absence of a second report.
+     *
+     * <p>This is what would break in production if the guard instead demanded a report from every
+     * retry: a legitimately complete group whose retry JVM crashed for an unrelated reason (an
+     * out-of-memory kill, a CI node reclaimed) would be stuck open forever, and the build would
+     * never seal even though every suite it was assigned had already been observed. It would also
+     * catch a regression that let a runner's failed count be cleared just because nothing wrote to
+     * it again. Driven through the real {@link TestRunnerService} persist path with one genuine
+     * attempt, not a hand-picked progress number.
+     *
+     * @throws Exception if the fork properties handoff fails
+     */
+    @Test
+    void shouldCompleteAndSealAGroupWhoseRetryDiedBeforeReportingAgain() throws Exception {
+        // given - a single group assigned two suites, claimed by one runner through the real wiring
+        planASingleGroupBuild(Arrays.asList(SUITE_A, SUITE_RETRY));
+        DistributedRunnerContext context =
+                throughTheMavenForkBoundary(claim("runner-retry-died"));
+        TestRunnerService service = new TestRunnerService(dataStore);
+
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        trackers.put(SUITE_A, suiteTracker(SUITE_A, "com/example/A.java", METHOD_A));
+        trackers.put(SUITE_RETRY, suiteTracker(SUITE_RETRY, "com/example/RetryOnly.java",
+                METHOD_RETRY));
+        Map<Integer, MethodImpactTracker> methodTrackers = new HashMap<>();
+        methodTrackers.put(Integer.valueOf(METHOD_A),
+                new MethodImpactTracker("com/example/A.a.()V", 40, 50));
+        methodTrackers.put(Integer.valueOf(METHOD_RETRY),
+                new MethodImpactTracker("com/example/RetryOnly.r.()V", 40, 50));
+        // Both assigned suites finished in this one attempt - SUITE_RETRY with a failure - so
+        // suitesObserved already covers the group's whole assignment before any retry.
+        TestRunResult firstAndOnlyAttempt = new TestRunResult(trackers,
+                new HashSet<>(Collections.singletonList(SUITE_RETRY)),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
+                new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
+                null, 0, 2);
+
+        // when - the one test plan persists, and the build tool completes the group once no more
+        //        retries arrive - the retry that would have run again never got the chance to persist
+        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+                System.currentTimeMillis(), firstAndOnlyAttempt, context);
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+                true, System.currentTimeMillis());
+
+        // then - the group completes, because every assigned suite was already observed
+        assertTrue(completed,
+                "a group that observed every assigned suite must complete without needing a retry");
+        DistributedRunGroup group = dataStore.readDistributedRunGroups(RUN_ID).get(0);
+        assertEquals(DistributedRunGroupStatus.COMPLETED, group.getStatus());
+
+        // then - the build seals, since this is the run's only group
+        assertEquals(DistributedRunStatus.SEALED, dataStore.readDistributedRun(RUN_ID).getStatus());
+        assertEquals(PLAN_COMMIT, dataStore.getTiaCore().getCommitValue());
+
+        // then - the failed suite the dead retry never reported again is still recorded: the
+        //        group's failed count was never overwritten back to zero by a report that never
+        //        came, and the suite is still in the globally tracked failed set
+        assertEquals(1, group.getSuitesFailed(),
+                "a retry that never reported must not shrink the group's failed count back to zero");
+        assertTrue(dataStore.getTestSuitesFailed().contains(SUITE_RETRY),
+                "the suite the dead retry never got to re-report must still be in the tracked "
+                        + "failed set");
     }
 }
