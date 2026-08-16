@@ -39,7 +39,7 @@ import java.util.Set;
  * so two planners racing can both leave a row behind, and a coordinator that assumed a single row
  * would then attach the wrong runner to the wrong build.
  *
- * <p>See the "Group assignment" chapter in {@code WIKI.md} for the claim protocol this wraps.
+ * <p>See the "Distributed test runs" chapter in {@code WIKI.md} for the claim protocol this wraps.
  */
 public final class DistributedRunCoordinator {
 

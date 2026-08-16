@@ -301,4 +301,4 @@ The renderer is `TestRunHistoryConsoleFormatter` in `tia-core`; both the Maven `
 
 ---
 
-Prev: [Database schema (tables and relationships)](database-schema.md) | [Back to the Wiki index](../WIKI.md) | Next: [Embedded vs server-mode H2 connections](h2-connection-modes.md)
+Prev: [Database schema (tables and relationships)](database-schema.md) | [Back to the Wiki index](../WIKI.md) | Next: [Distributed test runs (group assignment and the run lifecycle)](distributed-test-runs.md)

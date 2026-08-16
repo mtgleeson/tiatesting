@@ -26,7 +26,7 @@ import java.util.Set;
  * pending library rows a second time, which races with every other runner doing the same. So the
  * runner reads the plan and claims - it never selects.
  *
- * <p>See the "Group assignment" chapter in {@code WIKI.md} for the claim protocol this sits on.
+ * <p>See the "Distributed test runs" chapter in {@code WIKI.md} for the claim protocol this sits on.
  */
 public final class DistributedRunnerAssignment {
 

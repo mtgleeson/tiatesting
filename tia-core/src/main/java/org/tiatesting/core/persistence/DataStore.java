@@ -427,8 +427,8 @@ public interface DataStore extends AutoCloseable {
      * PENDING} group and attempts a single-row compare-and-swap update guarded by {@code status =
      * 'PENDING'}: two runners racing for the same candidate both attempt that update, the database
      * serialises them, and only one sees a row affected. The loser observes zero rows affected and
-     * retries against whatever is now the lowest-numbered {@code PENDING} group. See the "Group
-     * assignment" chapter in {@code WIKI.md} for the full protocol.
+     * retries against whatever is now the lowest-numbered {@code PENDING} group. See the
+     * "Distributed test runs" chapter in {@code WIKI.md} for the full protocol.
      *
      * @param runId the distributed run to claim a group from
      * @param runnerKey the calling runner's stable identity; must be stable across CI job retries

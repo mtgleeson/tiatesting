@@ -1909,7 +1909,7 @@ public class JdbcDataStore implements DataStore {
      * the loop in a transaction would only add lock contention between racing runners without
      * changing the outcome.
      *
-     * <p>Follows the exact three-step protocol from the "Group assignment" chapter in {@code
+     * <p>Follows the exact three-step protocol from the "Distributed test runs" chapter in {@code
      * WIKI.md}: (0) return the group this runner key already holds, if any; (1) read the
      * lowest-numbered {@code PENDING} group number; (2) attempt a single-row update guarded by
      * {@code status = 'PENDING'} - rowcount 1 means this runner won it, rowcount 0 means another

@@ -292,7 +292,7 @@ public class TiaBaseTaskExtension {
      *         split into groups and persisted to a shared database instead of all running in this
      *         one build. Mirrors the Maven {@code tiaDistributed} parameter (see {@code
      *         AbstractTiaMojo#isTiaDistributed()}); the claim, made in the build JVM on both build
-     *         tools (see the "Group assignment" chapter in {@code WIKI.md}), branches on this
+     *         tools (see the "Distributed test runs" chapter in {@code WIKI.md}), branches on this
      *         master switch.
      */
     @Input
