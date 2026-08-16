@@ -154,7 +154,11 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      * failure while sealing happens only after the group already flipped to {@code COMPLETED}, so
      * the message must say the group was completed rather than imply completion itself failed - an
      * operator reading "could not complete group N" would otherwise go looking for a row that is, in
-     * fact, already marked completed.
+     * fact, already marked completed. A third case falls into the generic catch too: {@link
+     * DistributedRunCompleter#completeAndSeal}'s return value is tracked in {@code groupCompleted} so
+     * that a failure closing the datastore - part of this method's try-with-resources - after that
+     * call already returned successfully is told apart from a genuine completion failure, since the
+     * group has, in that case, already completed (and possibly sealed) despite the close failure.
      *
      * @param context the claimed runner context read from the fork properties file
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
@@ -163,15 +167,17 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      *                       properties file
      * @param updateDBTestRunHistory whether this run logs a history row, as recorded in the fork
      *                               properties file
-     * @throws MojoExecutionException if completing the group or sealing the build fails; the
-     *                                 message distinguishes which of the two happened
+     * @throws MojoExecutionException if completing the group or sealing the build fails, or if the
+     *                                 datastore fails to close afterwards; the message distinguishes
+     *                                 which of the three happened
      */
     private void completeAndSeal(final DistributedRunnerContext context, final boolean updateDBMapping,
                                  final boolean updateDBStats, final boolean updateDBTestRunHistory)
             throws MojoExecutionException {
+        boolean groupCompleted = false;
         try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping, updateDBStats,
-                    updateDBTestRunHistory, System.currentTimeMillis());
+            groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
+                    updateDBStats, updateDBTestRunHistory, System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
             throw new MojoExecutionException("Distributed run '" + context.getRunId()
                     + "': runner '" + context.getRunnerKey() + "' completed group "
@@ -179,6 +185,13 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
                     + "now marked COMPLETED even though the run was NOT sealed: "
                     + e.getCause().getMessage(), e.getCause());
         } catch (RuntimeException e) {
+            if (groupCompleted) {
+                throw new MojoExecutionException("Distributed run '" + context.getRunId()
+                        + "': runner '" + context.getRunnerKey() + "' completed group "
+                        + context.getGroupNumber() + ", but closing the datastore afterwards failed - "
+                        + "the group's completion (and any resulting seal) already took effect "
+                        + "despite this failure: " + e.getMessage(), e);
+            }
             throw new MojoExecutionException("Distributed run '" + context.getRunId() + "': runner '"
                     + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
                     + " - this build will NOT be sealed, and the next build will redo the work: "

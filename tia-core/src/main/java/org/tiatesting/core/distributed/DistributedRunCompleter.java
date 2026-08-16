@@ -50,20 +50,27 @@ public final class DistributedRunCompleter {
      * @param updateDBStats whether the Tia-level run stats should be updated
      * @param updateDBTestRunHistory whether the build should write its one history row
      * @param nowMs UTC epoch millis to record as the completion time and, if elected, the seal time
+     * @return {@code true} if this call was the one that flipped the group to {@code COMPLETED};
+     *         {@code false} if the completion was rejected as a normal no-op (superseded, already
+     *         completed, or the completeness guard was not satisfied) - lets a caller whose own
+     *         resource cleanup fails after this method has already returned successfully tell "the
+     *         group completed on this call" apart from "there was never anything to complete",
+     *         rather than reporting a failure that happens after this method returns as if it were
+     *         a completion failure
      * @throws SealFailedAfterCompletionException if the group was completed but the election or
      *                                             seal that follows it then failed; wraps the
      *                                             original failure as its cause
      * @throws RuntimeException if completing the group itself fails; propagates unwrapped, since
      *                          the group in that case is exactly as it was before this call
      */
-    public static void completeAndSeal(final DataStore dataStore, final DistributedRunnerContext context,
-                                       final boolean updateDBMapping, final boolean updateDBStats,
-                                       final boolean updateDBTestRunHistory, final long nowMs) {
+    public static boolean completeAndSeal(final DataStore dataStore, final DistributedRunnerContext context,
+                                          final boolean updateDBMapping, final boolean updateDBStats,
+                                          final boolean updateDBTestRunHistory, final long nowMs) {
         DistributedRunnerPersist runnerPersist = new DistributedRunnerPersist(dataStore, context);
         DistributedRunGroup completed = runnerPersist.completeGroup(nowMs);
 
         if (completed == null) {
-            return;
+            return false;
         }
 
         try {
@@ -72,6 +79,8 @@ public final class DistributedRunCompleter {
         } catch (RuntimeException e) {
             throw new SealFailedAfterCompletionException(e);
         }
+
+        return true;
     }
 
     /**

@@ -62,6 +62,8 @@ class TiaDistCompleteTaskTest {
     static class TestPlugin extends TiaBasePlugin {
         private File dbDir;
         private boolean throwOnBuildDataStore;
+        private boolean failSeal;
+        private boolean failClose;
 
         void setDbDir(final File dbDir) {
             this.dbDir = dbDir;
@@ -69,6 +71,28 @@ class TiaDistCompleteTaskTest {
 
         void setThrowOnBuildDataStore(final boolean throwOnBuildDataStore) {
             this.throwOnBuildDataStore = throwOnBuildDataStore;
+        }
+
+        /**
+         * Make the datastore this plugin builds one whose sealer election always fails, so a test
+         * can drive the "group completed, then sealing failed" path without a genuinely broken
+         * database.
+         *
+         * @param failSeal whether {@code electSealer} on the built datastore should throw
+         */
+        void setFailSeal(final boolean failSeal) {
+            this.failSeal = failSeal;
+        }
+
+        /**
+         * Make the datastore this plugin builds one whose {@code close()} always fails after
+         * delegating to the real close, so a test can drive the "group completed, then closing the
+         * datastore failed" path without a genuinely broken database.
+         *
+         * @param failClose whether {@code close()} on the built datastore should throw
+         */
+        void setFailClose(final boolean failClose) {
+            this.failClose = failClose;
         }
 
         @Override
@@ -81,7 +105,80 @@ class TiaDistCompleteTaskTest {
             if (throwOnBuildDataStore) {
                 throw new RuntimeException("simulated datastore failure");
             }
+            if (failSeal) {
+                return new SealFailingDataStore(dbDir, branch);
+            }
+            if (failClose) {
+                return new CloseFailingDataStore(dbDir, branch);
+            }
             return openStore(dbDir, branch);
+        }
+    }
+
+    /**
+     * An embedded-H2 {@link JdbcDataStore} whose {@code electSealer} always throws, so a test can
+     * drive the "group completed, then sealing failed" path without a genuinely broken database -
+     * {@code completeGroup} itself still succeeds, so the failure lands strictly after the group has
+     * flipped to {@code COMPLETED}.
+     */
+    private static final class SealFailingDataStore extends JdbcDataStore {
+
+        /**
+         * Open an embedded H2 store over the given directory and branch schema, the same
+         * construction {@link #openStore(File, String)} performs.
+         *
+         * @param dbDir the embedded database directory
+         * @param branch the VCS branch name whose schema the store selects
+         */
+        SealFailingDataStore(final File dbDir, final String branch) {
+            super(new H2Dialect(),
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
+                    BranchSchema.schemaName(branch));
+        }
+
+        /**
+         * Simulate a sealer-election failure that happens after the group it belongs to has already
+         * completed.
+         *
+         * @param runId the run to elect within
+         * @param runnerKey the calling runner's identity
+         * @param sealedAtMs UTC epoch millis to record as the election time
+         * @return never returns
+         */
+        @Override
+        public boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs) {
+            throw new RuntimeException("simulated sealer election failure");
+        }
+    }
+
+    /**
+     * An embedded-H2 {@link JdbcDataStore} whose {@code close()} always throws after delegating to
+     * the real close, so a test can drive the "group completed, then closing the datastore failed"
+     * path without a genuinely broken database.
+     */
+    private static final class CloseFailingDataStore extends JdbcDataStore {
+
+        /**
+         * Open an embedded H2 store over the given directory and branch schema, the same
+         * construction {@link #openStore(File, String)} performs.
+         *
+         * @param dbDir the embedded database directory
+         * @param branch the VCS branch name whose schema the store selects
+         */
+        CloseFailingDataStore(final File dbDir, final String branch) {
+            super(new H2Dialect(),
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
+                    BranchSchema.schemaName(branch));
+        }
+
+        /**
+         * Delegate to the real close, then simulate a close failure that happens after a successful
+         * completion has already taken effect.
+         */
+        @Override
+        public void close() {
+            super.close();
+            throw new RuntimeException("simulated datastore close failure");
         }
     }
 
@@ -346,6 +443,74 @@ class TiaDistCompleteTaskTest {
         assertNotNull(e.getMessage());
         assertTrue(e.getMessage().contains("NOT be sealed"), e.getMessage());
         assertTrue(e.getMessage().contains("run-5"), e.getMessage());
+    }
+
+    /**
+     * Verify that a seal failure occurring after the group has already completed successfully is
+     * reported with wording distinct from a completion failure - proving the task's catch for
+     * {@link org.tiatesting.core.distributed.DistributedRunCompleter.SealFailedAfterCompletionException}
+     * is reached, and reached before the generic {@link RuntimeException} catch, rather than the two
+     * clauses collapsing into one message that misleads an operator into looking for a group row
+     * that is, in fact, already {@code COMPLETED}.
+     *
+     * @param projectDir a temp directory to root the Gradle project and database at
+     */
+    @Test
+    void sealFailureAfterCompletionIsReportedDistinctlyFromACompletionFailure(@TempDir File projectDir) {
+        // given a single-group plan claimed by this runner, with a datastore whose seal always fails
+        File dbDir = newDbDir(projectDir);
+        persistEmptyPlan(dbDir, "run-6", 1);
+        DistributedRunnerAssignment assignment = claim(dbDir, "run-6", "runner-e");
+        Fixture fixture = projectWithPlugin(projectDir, dbDir);
+        fixture.plugin.setFailSeal(true);
+        fixture.recordClaim("run-6", assignment.getRunnerKey(), assignment.getGroupNumber());
+
+        // when
+        GradleException e = assertThrows(GradleException.class, fixture::runCompleteTask);
+
+        // then - the message says the group completed and sealing failed, not that completion failed
+        assertNotNull(e.getMessage());
+        assertTrue(e.getMessage().contains("completed group"), e.getMessage());
+        assertTrue(e.getMessage().contains("sealing"), e.getMessage());
+        assertTrue(e.getMessage().toLowerCase().contains("marked completed"), e.getMessage());
+        assertTrue(!e.getMessage().contains("could not complete group"), e.getMessage());
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-6");
+            assertEquals(DistributedRunGroupStatus.COMPLETED, groups.get(0).getStatus());
+        }
+    }
+
+    /**
+     * Verify that a datastore {@code close()} failure occurring after a successful completion is
+     * reported as such rather than as a completion failure - the try-with-resources block's close
+     * call sits in the same generic {@link RuntimeException} catch as a genuine completion failure,
+     * so without tracking whether the completion already succeeded, the message would wrongly claim
+     * the group was never completed and the next build should redo the work.
+     *
+     * @param projectDir a temp directory to root the Gradle project and database at
+     */
+    @Test
+    void datastoreCloseFailureAfterSuccessfulCompletionIsReportedDistinctly(@TempDir File projectDir) {
+        // given a single-group plan claimed by this runner, with a datastore whose close always fails
+        File dbDir = newDbDir(projectDir);
+        persistEmptyPlan(dbDir, "run-7", 1);
+        DistributedRunnerAssignment assignment = claim(dbDir, "run-7", "runner-f");
+        Fixture fixture = projectWithPlugin(projectDir, dbDir);
+        fixture.plugin.setFailClose(true);
+        fixture.recordClaim("run-7", assignment.getRunnerKey(), assignment.getGroupNumber());
+
+        // when
+        GradleException e = assertThrows(GradleException.class, fixture::runCompleteTask);
+
+        // then - the message says the group completed, not that completion itself failed
+        assertNotNull(e.getMessage());
+        assertTrue(e.getMessage().contains("completed group"), e.getMessage());
+        assertTrue(e.getMessage().contains("closing the datastore"), e.getMessage());
+        assertTrue(!e.getMessage().contains("could not complete group"), e.getMessage());
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-7");
+            assertEquals(DistributedRunGroupStatus.COMPLETED, groups.get(0).getStatus());
+        }
     }
 
     /**
