@@ -304,6 +304,17 @@ converges on the largest single fork's count rather than the true union. That is
 a plain replace, but it does not make multi-fork correct - multi-fork is already unsupported for the
 mapping write itself.
 
+Gradle `maxParallelForks > 1` / `forkEvery > 0` breaks the same precondition, for the same structural
+reason: the claim happens once in the daemon and the resulting run id, runner key and group number
+are forwarded to the test task as system properties, which Gradle hands to every worker JVM. Gradle's
+case is the worse of the two, because Gradle really does split the group's suites across its workers.
+No single worker ever observes the whole group, so `GREATEST` settles on the largest worker's count -
+strictly less than the group's assigned total - the completeness guard never passes, the group never
+completes and the run never seals. What the operator would see is a run stuck in `OPEN` with a group
+still `CLAIMED`, a stored commit value that never advanced, and a **green build**, because
+`completeAndSeal` returning `false` is an ordinary no-op to both build tools. Rather than let that
+happen, the Gradle plugin refuses either setting at configuration time with an explanation.
+
 ### Straggler protection
 
 Two things guard against a runner from a **superseded** build writing into the run that superseded

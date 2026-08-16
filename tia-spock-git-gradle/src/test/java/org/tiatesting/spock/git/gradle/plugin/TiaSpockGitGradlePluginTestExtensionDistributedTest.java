@@ -516,6 +516,96 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
+     * Verify a distributed test task with {@code maxParallelForks > 1} is refused rather than left
+     * to hang. The claim is made once, here in the daemon, and its group number and runner key are
+     * forwarded to every worker JVM Gradle starts, while Gradle splits the group's suites across
+     * those workers - so no single worker observes the whole group, the completion's
+     * suites-observed guard is never satisfied, the group never completes and the run never seals,
+     * on a build that still exits green.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenTheTestTaskRunsMoreThanOneForkInParallel(@TempDir File projectDir) {
+        // given a distributed test task configured to run several forks at once
+        Test testTask = testTaskWithTiaApplied(projectDir, null);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-parallel-forks");
+        testTask.setMaxParallelForks(4);
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> runTiaTaskAction(testTask));
+
+        // then the failure names the setting it found and the rule it breaks
+        assertTrue(thrown.getMessage().contains("maxParallelForks = 4"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("one JVM per group"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("never seal"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a distributed test task with {@code forkEvery > 0} is refused for the same reason as
+     * {@code maxParallelForks > 1}: it too gives the one claimed group more than one JVM, each
+     * reporting its own partial observed set under the same runner key.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenTheTestTaskRestartsItsForkPeriodically(@TempDir File projectDir) {
+        // given a distributed test task configured to start a fresh JVM every few classes
+        Test testTask = testTaskWithTiaApplied(projectDir, null);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-fork-every");
+        testTask.setForkEvery(10L);
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> runTiaTaskAction(testTask));
+
+        // then the failure names the setting it found and the rule it breaks
+        assertTrue(thrown.getMessage().contains("forkEvery = 10"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("one JVM per group"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the forking guard refuses only what it must: a distributed test task left on Gradle's
+     * one-JVM defaults claims its group exactly as before. A guard that fired on the default
+     * configuration would make distributed runs impossible rather than safe.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimNormallyWhenTheTestTaskRunsASingleFork(@TempDir File projectDir) {
+        // given a distributed test task explicitly on the one-JVM settings
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-single-fork", PLAN_COMMIT, singleGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-single-fork");
+        testTask.setMaxParallelForks(1);
+        testTask.setForkEvery(0L);
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then the claim went through and the group number reached the fork
+        assertEquals("0", testTask.getSystemProperties().get("tiaDistributedGroupNumber"));
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            assertEquals(DistributedRunGroupStatus.CLAIMED,
+                    dataStore.readDistributedRunGroups("run-single-fork").get(0).getStatus());
+        }
+    }
+
+    /**
      * Verify a second test task claiming in the same build is refused loudly instead of the two
      * test tasks' claims silently colliding. The derived runner key is {@code runId + hostname +
      * pid}, and the pid is the daemon's, shared by every test task in this one JVM, so the second
@@ -624,6 +714,40 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         String message = rootCauseMessage(thrown);
         assertTrue(message.contains(secondTestTask.getPath()), message);
         assertTrue(message.contains("exactly one test task per runner"), message);
+    }
+
+    /**
+     * Verify that a build with Tia switched off is inert, however much distributed configuration it
+     * carries: two distributed test tasks configure cleanly, no {@code tia-dist-complete} task is
+     * registered and no finalizer is wired. Disabled Tia must add nothing to a build and must
+     * certainly not fail one at configuration time over a run it was never going to make - the same
+     * rule the Maven side keeps by short-circuiting {@code AbstractTiaDistCompleteMojo.execute} on
+     * {@code !isTiaEnabled()} as its very first statement.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldWireNothingWhenTiaIsDisabledEvenWithTwoDistributedTestTasks(@TempDir File projectDir) {
+        // given two distributed test tasks in a build that has Tia switched off
+        Test firstTestTask = testTaskWithTiaApplied(projectDir, null);
+        TiaBaseTaskExtension extension = projectExtension(firstTestTask);
+        enableTia(extension, projectDir);
+        extension.setEnabled(Boolean.FALSE);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-tia-disabled");
+        Test secondTestTask = secondTestTaskWithTiaApplied(firstTestTask, "integrationTest");
+
+        // when the project's afterEvaluate blocks run
+        evaluate(firstTestTask);
+
+        // then the build configured cleanly and gained nothing at all
+        assertNull(firstTestTask.getProject().getTasks().findByName("tia-dist-complete"),
+                "a disabled build must register no completion task");
+        assertTrue(firstTestTask.getFinalizedBy().getDependencies(firstTestTask).isEmpty(),
+                "a disabled build's test task must have no finalizer");
+        assertTrue(secondTestTask.getFinalizedBy().getDependencies(secondTestTask).isEmpty(),
+                "and neither must the second one");
     }
 
     /**
