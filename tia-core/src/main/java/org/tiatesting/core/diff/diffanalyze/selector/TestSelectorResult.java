@@ -179,16 +179,38 @@ public class TestSelectorResult {
         return runAllTests;
     }
 
+    /**
+     * Compare two results by the selection decision they carry: the suites to run, the suites to
+     * ignore, and {@link #isRunAllTests()}.
+     *
+     * <p>{@code runAllTests} is part of the comparison because without it the two opposite
+     * instructions this class exists to tell apart compare equal: a seed run ("run everything")
+     * and a selection that found nothing impacted ("run nothing") both carry an empty
+     * {@code testsToRun} and an empty {@code testsToIgnore}, and differ only in this flag. The
+     * remaining fields are estimates and diagnostics derived from the selection rather than part
+     * of it, so they are deliberately left out.
+     *
+     * @param o the object to compare against
+     * @return true when the other object is a {@link TestSelectorResult} carrying the same
+     *         selection decision
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TestSelectorResult that = (TestSelectorResult) o;
-        return Objects.equals(testsToRun, that.testsToRun) && Objects.equals(testsToIgnore, that.testsToIgnore);
+        return runAllTests == that.runAllTests && Objects.equals(testsToRun, that.testsToRun)
+                && Objects.equals(testsToIgnore, that.testsToIgnore);
     }
 
+    /**
+     * Hash the same three fields {@link #equals(Object)} compares, so the two empty-list cases
+     * {@code runAllTests} distinguishes do not collide in a hash-based collection either.
+     *
+     * @return the hash of the selection decision this result carries
+     */
     @Override
     public int hashCode() {
-        return Objects.hash(testsToRun, testsToIgnore);
+        return Objects.hash(testsToRun, testsToIgnore, runAllTests);
     }
 }
