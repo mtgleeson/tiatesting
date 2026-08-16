@@ -11,6 +11,7 @@ import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
@@ -35,6 +36,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -213,6 +215,24 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
+     * Register a second {@link Test} task on a project a prior call to {@link
+     * #testTaskWithTiaApplied} already built, and apply the Tia test extension to it too - the
+     * shape of a build with two test tasks (e.g. {@code test} and {@code integrationTest}), both
+     * sharing the one {@link org.gradle.api.invocation.Gradle} instance {@link
+     * org.tiatesting.gradle.plugin.DistributedClaimRegistry#forBuild} keys its registry by.
+     *
+     * @param firstTestTask a test task {@link #testTaskWithTiaApplied} already built and applied
+     *                      the extension to, whose project the new task is added to
+     * @param taskName the name of the new test task
+     * @return the new test task, with the Tia extension applied and not yet run
+     */
+    private static Test secondTestTaskWithTiaApplied(final Test firstTestTask, final String taskName) {
+        Test testTask = firstTestTask.getProject().getTasks().create(taskName, Test.class);
+        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        return testTask;
+    }
+
+    /**
      * The project-level Tia extension of the given task's project, which is where a pipeline
      * configures a distributed run - the run id identifies the CI build, not one test task.
      *
@@ -264,7 +284,11 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      * Verify the daemon claims this test task's group and forwards the run id, the claimed group
      * number, and - critically - the runner key the claim actually recorded, never a re-derived
      * one: a forwarded key that did not match the claimed row would let a later "this group is
-     * finished" step (stage 9's task 2b) match no row and leave the group open forever.
+     * finished" step (stage 9's task 2b) match no row and leave the group open forever. Also
+     * verifies the plan's other group is untouched - still {@code PENDING}, with no runner key or
+     * claim time - so this test does not merely catch a double claim incidentally were one to
+     * happen: it asserts directly that a single test-task claim takes exactly the one group it
+     * claimed and leaves the rest of the plan alone.
      *
      * @param projectDir a temporary directory to root the Gradle project and the database at
      */
@@ -291,8 +315,11 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         Object forwardedRunnerKey = systemProperties.get("tiaDistributedRunnerKey");
         assertNotNull(forwardedRunnerKey);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
-            assertEquals(forwardedRunnerKey,
-                    dataStore.readDistributedRunGroups("run-1").get(0).getRunnerKey());
+            List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-1");
+            assertEquals(forwardedRunnerKey, groups.get(0).getRunnerKey());
+            DistributedRunGroup untouchedGroup = groups.get(1);
+            assertEquals(DistributedRunGroupStatus.PENDING, untouchedGroup.getStatus());
+            assertNull(untouchedGroup.getRunnerKey());
         }
     }
 
@@ -427,6 +454,98 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
 
         // then
         assertTrue(thrown.getMessage().contains("3 projects"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the shared-database precondition fires from the daemon's claim, not only from the
+     * (deleted) fork-side re-check the old test-JVM claim used to make. No {@code tiaDBUrl} is
+     * configured here, so the resolved datastore is embedded H2 - each runner would get its own
+     * private copy and no runner would ever see another's group claims.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenTheDatabaseIsEmbedded(@TempDir File projectDir) {
+        // given a distributed build with no tiaDBUrl configured, so the datastore resolves embedded
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-embedded", PLAN_COMMIT, singleGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-embedded");
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> runTiaTaskAction(testTask));
+
+        // then
+        assertTrue(thrown.getMessage().contains("shared database"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the local-changes precondition fires from the daemon's claim. A distributed run
+     * requires every runner to diff the same committed baseline; {@code tiaCheckLocalChanges}
+     * enabled would let this runner's uncommitted edits compute different line numbers than the
+     * plan was built from.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenCheckLocalChangesIsEnabled(@TempDir File projectDir) {
+        // given a distributed build with tiaCheckLocalChanges enabled
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-local-changes", PLAN_COMMIT, singleGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-local-changes");
+        extension.setCheckLocalChanges(Boolean.TRUE);
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> runTiaTaskAction(testTask));
+
+        // then
+        assertTrue(thrown.getMessage().contains("tiaCheckLocalChanges"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a second test task claiming in the same build is refused loudly instead of the two
+     * test tasks' claims silently colliding. The derived runner key is {@code runId + hostname +
+     * pid}, and the pid is the daemon's, shared by every test task in this one JVM, so the second
+     * task's underlying claim actually re-claims the first task's group via {@code
+     * claimNextPendingGroup}'s "already holds a group" step rather than failing on its own - it is
+     * {@link org.tiatesting.gradle.plugin.DistributedClaimRegistry#recordClaim} that must be what
+     * catches this, by refusing to record a claim under a second test task path in the same build.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenASecondTestTaskClaimsInTheSameBuild(@TempDir File projectDir) {
+        // given a two-group plan and two distributed test tasks in the same project
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-two-tasks", PLAN_COMMIT, twoGroupAssignment());
+        Test firstTestTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(firstTestTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-two-tasks");
+        Test secondTestTask = secondTestTaskWithTiaApplied(firstTestTask, "integrationTest");
+
+        // when the first test task claims successfully
+        runTiaTaskAction(firstTestTask);
+        // and the second test task attempts to claim too
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> runTiaTaskAction(secondTestTask));
+
+        // then the failure names both test tasks and the one-test-task-per-runner rule
+        assertTrue(thrown.getMessage().contains(firstTestTask.getPath()), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains(secondTestTask.getPath()), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("exactly one test task per runner"), thrown.getMessage());
     }
 
     /**

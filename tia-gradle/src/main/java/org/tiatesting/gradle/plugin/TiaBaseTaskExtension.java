@@ -291,8 +291,9 @@ public class TiaBaseTaskExtension {
      * @return whether this build participates in a distributed test run: the tests Tia selects are
      *         split into groups and persisted to a shared database instead of all running in this
      *         one build. Mirrors the Maven {@code tiaDistributed} parameter (see {@code
-     *         AbstractTiaMojo#isTiaDistributed()}); stage 5's claim protocol on the test-task side
-     *         branches on this master switch.
+     *         AbstractTiaMojo#isTiaDistributed()}); the claim, made in the build JVM on both build
+     *         tools (see the "Group assignment" chapter in {@code WIKI.md}), branches on this
+     *         master switch.
      */
     @Input
     @org.gradle.api.tasks.Optional
