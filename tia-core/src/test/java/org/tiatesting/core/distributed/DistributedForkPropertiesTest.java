@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -244,5 +245,52 @@ class DistributedForkPropertiesTest {
         assertNotNull(context);
         assertFalse(context.isClaimed());
         assertEquals("runner-c", context.getRunnerKey());
+    }
+
+    /**
+     * Verify {@link DistributedForkProperties#contextFromProperties(Properties)} resolves a claimed
+     * context directly from a {@link Properties} instance, without touching any system property -
+     * the entry point a build-JVM step needs when it reads a fork properties file back without
+     * publishing it into its own process's system properties, such as {@code
+     * AbstractTiaDistCompleteMojo} in {@code tia-maven-plugin}.
+     */
+    @Test
+    void shouldResolveAClaimedContextFromPropertiesWithoutTouchingSystemProperties() {
+        // given - a Properties instance built directly, never published as a system property
+        Properties properties = new Properties();
+        properties.setProperty(DistributedForkProperties.PROP_DISTRIBUTED, "true");
+        properties.setProperty(DistributedForkProperties.PROP_RUN_ID, "run-2");
+        properties.setProperty(DistributedForkProperties.PROP_RUNNER_KEY, "runner-b");
+        properties.setProperty(DistributedForkProperties.PROP_GROUP_NUMBER, "5");
+
+        // when
+        DistributedRunnerContext context = DistributedForkProperties.contextFromProperties(properties);
+
+        // then
+        assertNotNull(context);
+        assertTrue(context.isClaimed());
+        assertEquals("run-2", context.getRunId());
+        assertEquals("runner-b", context.getRunnerKey());
+        assertEquals(Integer.valueOf(5), context.getGroupNumber());
+        assertNull(System.getProperty(DistributedForkProperties.PROP_RUN_ID),
+                "resolving from an explicit Properties instance must not publish any system property");
+    }
+
+    /**
+     * Verify {@link DistributedForkProperties#contextFromProperties(Properties)} resolves no
+     * context for a {@link Properties} instance carrying no distributed handoff, mirroring {@link
+     * #shouldResolveNoContextWhenTheForkIsNotDistributed()} for the explicit-{@code Properties}
+     * entry point.
+     */
+    @Test
+    void shouldResolveNoContextFromPropertiesWithNoDistributedHandoff() {
+        // given - an empty Properties instance
+        Properties properties = new Properties();
+
+        // when
+        DistributedRunnerContext context = DistributedForkProperties.contextFromProperties(properties);
+
+        // then
+        assertNull(context, "a Properties instance with no distributed handoff must resolve no context");
     }
 }

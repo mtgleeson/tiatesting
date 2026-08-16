@@ -9,6 +9,7 @@ import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,46 +36,58 @@ import java.util.Properties;
  *
  * <p>The goal is safe to run unconditionally in a pipeline: with no {@code fork.properties} file,
  * or a file carrying no distributed handoff, there is nothing to complete, and the goal logs that
- * and exits successfully. This is not an aggregator - see {@link AbstractTiaDistPlanMojo}'s
- * javadoc for why that shape is intentional here too - so it runs per project, reads that
- * project's own fork properties file, and skips projects that have none.
+ * and exits successfully. This is not an aggregator - see rule 4 in {@link
+ * org.tiatesting.core.distributed.DistributedRunPreconditions} for why neither the planning step
+ * nor a runner's claim (nor, by the same reasoning, this goal's completion of one) is bound to run
+ * once across a multi-module build - so this goal runs per project, reads that project's own fork
+ * properties file, and skips projects that have none.
  *
  * <p>See the distributed test runs chapter in {@code WIKI.md} for the lifecycle this goal closes.
  */
 public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
 
-    /** Property name, in the fork properties file, for whether this run updates the mapping DB. */
-    private static final String PROP_UPDATE_DB_MAPPING = "tiaUpdateDBMapping";
-
-    /** Property name, in the fork properties file, for whether this run updates the stats DB. */
-    private static final String PROP_UPDATE_DB_STATS = "tiaUpdateDBStats";
-
-    /** Property name, in the fork properties file, for whether this run logs a history row. */
-    private static final String PROP_UPDATE_DB_TEST_RUN_HISTORY = "tiaUpdateDBTestRunHistory";
-
     /**
      * Complete this runner's claimed group and, if elected, seal the distributed build.
      *
-     * <p>Reads {@code ${tiaBuildDir}/fork.properties}, the same file {@code prepare-agent} wrote
-     * for the forked test JVM, and reconstructs the runner's {@link DistributedRunnerContext} from
-     * its values directly - never from this mojo's own {@code -D} parameters, and never by
-     * publishing the file into this build JVM's own system properties, which would leak test-fork
-     * configuration into a JVM that is not a fork. A missing file, or one with no distributed
-     * handoff in it, means this was not a distributed run (or this runner claimed nothing), and the
-     * goal is a no-op. Otherwise it completes the claimed group and, when that succeeds, stands for
-     * election to seal the build - see {@link DistributedRunnerPersist#completeGroup} and
-     * {@link DistributedRunSealer#sealIfElected} for what each step does and why a rejected
+     * <p>When Tia is disabled, this returns immediately without reading {@code fork.properties} at
+     * all - a build with Tia switched off must never act on a stale handoff file left over from an
+     * earlier distributed build, and must never fail on connection settings ({@code tiaDBUrl}) it
+     * was never going to use. Otherwise, reads {@code ${tiaBuildDir}/fork.properties}, the same
+     * file {@code prepare-agent} wrote for the forked test JVM, and reconstructs the runner's
+     * {@link DistributedRunnerContext} from its values directly - never from this mojo's own
+     * {@code -D} parameters, and never by publishing the file into this build JVM's own system
+     * properties, which would leak test-fork configuration into a JVM that is not a fork. A missing
+     * file, or one with no distributed handoff in it, means this was not a distributed run (or this
+     * runner claimed nothing), and the goal is a no-op.
+     *
+     * <p>Before opening the datastore for a claimed runner, this goal also verifies it was pointed
+     * at the same shared database the runner's {@code prepare-agent} execution used: a pipeline
+     * that invokes this goal as a separate {@code mvn} command and omits the DB connection settings
+     * would otherwise silently open a private, empty embedded database, find no claimed row, and
+     * exit as if the group were already completed - leaving the run unsealed with nothing telling
+     * the user. Once past that guard, it completes the claimed group and, when that succeeds,
+     * stands for election to seal the build - see {@link DistributedRunnerPersist#completeGroup}
+     * and {@link DistributedRunSealer#sealIfElected} for what each step does and why a rejected
      * completion (superseded, or already completed) is a normal outcome rather than a failure here.
      *
      * @throws MojoExecutionException if the fork properties file exists but cannot be read, if its
-     *                                 distributed handoff is malformed, or if completing the group
-     *                                 or sealing the build fails unexpectedly (for example, the
-     *                                 datastore is unreachable) - in every case naming that this
-     *                                 build was NOT sealed and the next build will redo the work
+     *                                 distributed handoff is malformed, if this goal is not pointed
+     *                                 at the shared database a claimed run needs, or if completing
+     *                                 the group or sealing the build fails unexpectedly (for
+     *                                 example, the datastore is unreachable) - in every case naming
+     *                                 that this build was NOT sealed and the next build will redo
+     *                                 the work
      * @throws MojoFailureException never thrown directly; declared by the mojo contract
      */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
+        if (!isTiaEnabled()) {
+            getLog().info("Tia is disabled (tiaEnabled=false) - not acting on any distributed run "
+                    + "handoff, even a stale fork.properties file left over from an earlier "
+                    + "distributed build.");
+            return;
+        }
+
         File forkPropertiesFile = new File(getForkPropertiesFilename());
         if (!forkPropertiesFile.exists()) {
             getLog().info("No fork properties file found at " + forkPropertiesFile
@@ -100,7 +113,7 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
 
         DistributedRunnerContext context;
         try {
-            context = contextFromForkProperties(forkProperties);
+            context = DistributedForkProperties.contextFromProperties(forkProperties);
         } catch (IllegalArgumentException e) {
             throw new MojoExecutionException("The distributed run handoff in " + forkPropertiesFile
                     + " is malformed - this build will NOT be sealed, and the next build will redo "
@@ -114,25 +127,35 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
             return;
         }
 
-        boolean updateDBMapping = Boolean.parseBoolean(forkProperties.getProperty(PROP_UPDATE_DB_MAPPING));
-        boolean updateDBStats = Boolean.parseBoolean(forkProperties.getProperty(PROP_UPDATE_DB_STATS));
-        boolean updateDBTestRunHistory =
-                Boolean.parseBoolean(forkProperties.getProperty(PROP_UPDATE_DB_TEST_RUN_HISTORY));
-
-        try {
-            completeAndSeal(context, updateDBMapping, updateDBStats, updateDBTestRunHistory);
-        } catch (RuntimeException e) {
-            throw new MojoExecutionException("Distributed run '" + context.getRunId() + "': runner '"
-                    + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
-                    + " - this build will NOT be sealed, and the next build will redo the work: "
-                    + e.getMessage(), e);
+        if (!DataStoreFactory.isSharedDatabase(getTiaDBUrl(), getTiaDBDialect())) {
+            throw new MojoExecutionException("Distributed run '" + context.getRunId() + "': this "
+                    + "goal was pointed at a private, embedded H2 database rather than the shared "
+                    + "datastore the run's runners coordinate through - this build will NOT be "
+                    + "sealed. Set tiaDBUrl (and tiaDBDialect, if needed) to the same connection "
+                    + "settings the runner's prepare-agent execution used.");
         }
+
+        boolean updateDBMapping =
+                Boolean.parseBoolean(forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING));
+        boolean updateDBStats =
+                Boolean.parseBoolean(forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_STATS));
+        boolean updateDBTestRunHistory = Boolean.parseBoolean(
+                forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
+
+        completeAndSeal(context, updateDBMapping, updateDBStats, updateDBTestRunHistory);
     }
 
     /**
-     * Open the shared datastore and perform the completion and seal, in the order the run's
-     * correctness depends on: the group must be marked complete - releasing the barrier the
-     * sealer's catalogue rebuild waits on - before this runner may stand for election.
+     * Open the shared datastore and perform the completion and, when elected, the seal - in the
+     * order the run's correctness depends on: the group must be marked complete, releasing the
+     * barrier the sealer's catalogue rebuild waits on, before this runner may stand for election.
+     *
+     * <p>A failure is reported differently depending on which side of that barrier it happened on:
+     * a failure while completing the group (or opening the datastore) leaves the group exactly as
+     * it was, safe for the next build to redo; a failure while sealing happens only after the group
+     * already flipped to {@code COMPLETED}, so the message must say the group was completed rather
+     * than imply completion itself failed - an operator reading "could not complete group N" would
+     * otherwise go looking for a row that is, in fact, already marked completed.
      *
      * @param context the claimed runner context read from the fork properties file
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
@@ -141,9 +164,13 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      *                       properties file
      * @param updateDBTestRunHistory whether this run logs a history row, as recorded in the fork
      *                               properties file
+     * @throws MojoExecutionException if completing the group or sealing the build fails; the
+     *                                 message distinguishes which of the two happened
      */
     private void completeAndSeal(final DistributedRunnerContext context, final boolean updateDBMapping,
-                                 final boolean updateDBStats, final boolean updateDBTestRunHistory) {
+                                 final boolean updateDBStats, final boolean updateDBTestRunHistory)
+            throws MojoExecutionException {
+        boolean groupCompleted = false;
         try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
             DistributedRunnerPersist persist = new DistributedRunnerPersist(dataStore, context);
             DistributedRunGroup completed = persist.completeGroup(System.currentTimeMillis());
@@ -154,32 +181,22 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
                 // group left for this runner to seal from, so there is nothing further to do.
                 return;
             }
+            groupCompleted = true;
 
             new DistributedRunSealer(dataStore, context).sealIfElected(updateDBMapping, updateDBStats,
                     updateDBTestRunHistory, System.currentTimeMillis());
+        } catch (RuntimeException e) {
+            if (groupCompleted) {
+                throw new MojoExecutionException("Distributed run '" + context.getRunId()
+                        + "': runner '" + context.getRunnerKey() + "' completed group "
+                        + context.getGroupNumber() + ", but sealing the build failed - the group is "
+                        + "now marked COMPLETED even though the run was NOT sealed: "
+                        + e.getMessage(), e);
+            }
+            throw new MojoExecutionException("Distributed run '" + context.getRunId() + "': runner '"
+                    + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
+                    + " - this build will NOT be sealed, and the next build will redo the work: "
+                    + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Build the runner context this goal completes and seals under, from the fork properties
-     * file's own values rather than any value this mojo could derive itself. A claimed group is
-     * signalled by the presence of {@link DistributedForkProperties#PROP_GROUP_NUMBER}; its absence
-     * means the runner claimed none and is a legitimate surplus runner.
-     *
-     * @param forkProperties the properties read from the fork properties file
-     * @return the claimed or surplus context described by the file
-     * @throws IllegalArgumentException if the run id or runner key is missing or blank
-     * @throws NumberFormatException if the group number is present but not a number
-     */
-    private DistributedRunnerContext contextFromForkProperties(final Properties forkProperties) {
-        String runId = forkProperties.getProperty(DistributedForkProperties.PROP_RUN_ID);
-        String runnerKey = forkProperties.getProperty(DistributedForkProperties.PROP_RUNNER_KEY);
-        String groupNumber = forkProperties.getProperty(DistributedForkProperties.PROP_GROUP_NUMBER);
-
-        if (groupNumber == null || groupNumber.trim().isEmpty()) {
-            return DistributedRunnerContext.surplusRunner(runId, runnerKey);
-        }
-        return DistributedRunnerContext.forClaimedGroup(runId, runnerKey,
-                Integer.parseInt(groupNumber.trim()));
     }
 }
