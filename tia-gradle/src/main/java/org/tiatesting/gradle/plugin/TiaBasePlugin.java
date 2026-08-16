@@ -46,6 +46,14 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     private static final Logger LOGGER = Logging.getLogger(TiaBasePlugin.class);
 
+    /**
+     * Name of the distributed-run completion task. Public because the build-tool bridge that wires
+     * it as a test task's finalizer needs to know whether this build already registered one - a
+     * distributed run supports exactly one test task per runner, and the bridge fails with that
+     * explanation rather than letting Gradle's duplicate-task-name error stand in for it.
+     */
+    public static final String DIST_COMPLETE_TASK_NAME = "tia-dist-complete";
+
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
 
@@ -106,7 +114,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      *         with
      */
     public TaskProvider<TiaDistCompleteTask> createDistCompleteTask(final String testTaskPath) {
-        return project.getTasks().register("tia-dist-complete", TiaDistCompleteTask.class, task -> {
+        return project.getTasks().register(DIST_COMPLETE_TASK_NAME, TiaDistCompleteTask.class, task -> {
             task.setPlugin(this);
             task.setTestTaskPath(testTaskPath);
         });

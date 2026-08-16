@@ -597,6 +597,52 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
+     * Verify that a second distributed test task in the same build fails at configuration time with
+     * the one-test-task-per-runner explanation, not with Gradle's own duplicate-task-name error.
+     * Both test tasks would register a finalizer under the same {@code tia-dist-complete} name, and
+     * Gradle's message for that says nothing about why two distributed test tasks cannot work. The
+     * registry's own refusal is not reachable here either: it fires at execution time, after this
+     * configuration-time registration would already have failed.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldFailWhenASecondTestTaskIsAlsoDistributed(@TempDir File projectDir) {
+        // given two test tasks in one project, both covered by a distributed project extension
+        Test firstTestTask = testTaskWithTiaApplied(projectDir, null);
+        TiaBaseTaskExtension extension = projectExtension(firstTestTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-two-finalizers");
+        Test secondTestTask = secondTestTaskWithTiaApplied(firstTestTask, "integrationTest");
+
+        // when the project's afterEvaluate blocks run, wiring a finalizer for each test task
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> evaluate(firstTestTask));
+
+        // then the failure explains the rule rather than reporting a duplicate task name
+        String message = rootCauseMessage(thrown);
+        assertTrue(message.contains(secondTestTask.getPath()), message);
+        assertTrue(message.contains("exactly one test task per runner"), message);
+    }
+
+    /**
+     * Unwrap the message of a failure's root cause. Gradle wraps a failure thrown from an {@code
+     * afterEvaluate} block in a project-configuration exception, so the assertion has to look at
+     * what was actually thrown rather than at the wrapper's own message.
+     *
+     * @param thrown the exception caught from the configuration-time call
+     * @return the root cause's message, or the top-level message when there is no cause
+     */
+    private static String rootCauseMessage(final Throwable thrown) {
+        Throwable cause = thrown;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return String.valueOf(cause.getMessage());
+    }
+
+    /**
      * Verify that an ordinary, non-distributed build - {@code tia.distributed} left unset - gets
      * neither a {@code tia-dist-complete} task nor a finalizer on the test task, once the project's
      * {@code afterEvaluate} blocks run. A non-distributed Gradle build must gain no task and no
