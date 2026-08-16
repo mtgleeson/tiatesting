@@ -257,6 +257,17 @@ public class TiaJunit4Listener extends RunListener {
      * observed by this JVM - even though it never ran - so a class-level {@code @Ignore} does not
      * make the distributed completeness guard wait for it forever.
      *
+     * <p>Only a <b>class-level</b> skip counts as an observation, matching {@code
+     * TiaTestExecutionListener.executionSkipped}, which gates on {@code isExecutionForTestSuite},
+     * and {@code TiaSpockSkipExecutionListener}, which gates on a class-sourced container. A single
+     * {@code @Ignore}d method inside a class that otherwise runs says nothing about whether this
+     * JVM has finished with that class, and the observed set is the one signal the distributed
+     * completeness guard reads. The two are told apart by the method name: JUnit 4 reports a
+     * class-level skip with the class's own suite description, whose {@link
+     * Description#getMethodName()} is null, and a method-level skip with a test description naming
+     * the method. ({@link Description#isSuite()} is not usable here - it is false for both, since
+     * an ignored class's description carries no children.)
+     *
      * @param description the JUnit test description
      * @throws Exception an Exception
      */
@@ -269,9 +280,11 @@ public class TiaJunit4Listener extends RunListener {
         String testSuiteName = getTestSuiteName(description);
         // track the test suite was run by the runner but not executed (0 executions)
         runnerTestSuites.put(testSuiteName, 0);
-        // this JVM has observed the suite (as skipped), independent of any testClassesDir override
-        // applied by getRunnerTestSuites() - see the field's javadoc.
-        suitesObserved.add(testSuiteName);
+        if (description.getMethodName() == null){
+            // this JVM has observed the whole suite (as skipped), independent of any testClassesDir
+            // override applied by getRunnerTestSuites() - see the field's javadoc.
+            suitesObserved.add(testSuiteName);
+        }
 
         /*
         Note, we don't need to reset stats for Ignore:

@@ -194,8 +194,20 @@ class TiaJunit4ListenerDistributedTest {
      * @throws Exception if the JUnit 4 run-start hook fails, which its signature allows
      */
     private void runTheListener() throws Exception {
+        runTheListener(Description.createSuiteDescription(SUITE));
+    }
+
+    /**
+     * Run the same lifecycle as {@link #runTheListener()}, but with a caller-supplied description
+     * for the one {@code testIgnored} call, so a test can drive a class-level skip or a
+     * method-level one and assert on the difference in what the JVM is recorded as having observed.
+     *
+     * @param ignoredDescription the description to report as skipped before the run hooks
+     * @throws Exception if the JUnit 4 run-start hook fails, which its signature allows
+     */
+    private void runTheListener(final Description ignoredDescription) throws Exception {
         TiaJunit4Listener listener = new TiaJunit4Listener(new StubVCSReader());
-        listener.testIgnored(Description.createSuiteDescription(SUITE));
+        listener.testIgnored(ignoredDescription);
         listener.testRunStarted(null);
         listener.testRunFinished(null);
 
@@ -261,6 +273,36 @@ class TiaJunit4ListenerDistributedTest {
                 + history);
         assertEquals(RUN_ID, history.get(0).getRunId(),
                 "the row must be the aggregated distributed one, not a runner's own");
+    }
+
+    /**
+     * Verify that an {@code @Ignore}d <b>method</b> inside a class that otherwise runs is not
+     * recorded as an observation of the whole suite, matching the JUnit 5 and Spock skip listeners,
+     * which both gate on a class-level skip. The observed set is the one signal the distributed
+     * completeness guard reads, and a single skipped method says nothing about whether this JVM has
+     * finished with the class it belongs to.
+     *
+     * <p>Asserted through the guard, since that is what the distinction is for: with only a
+     * method-level skip reported, the runner has observed none of its group's assigned suites, so
+     * the completion must be refused and the run left unsealed.
+     *
+     * @throws Exception if the listener's run hooks fail
+     */
+    @Test
+    void shouldNotCountAMethodLevelSkipAsAnObservationOfTheWholeSuite() throws Exception {
+        // given
+        persistSingleGroupPlan();
+        givenAClaimedDistributedFork("runner-a");
+
+        // when - one method of the suite is skipped, rather than the suite itself
+        runTheListener(Description.createTestDescription(SUITE, "aSkippedTestMethod"));
+
+        // then
+        assertEquals(DistributedRunGroupStatus.CLAIMED,
+                dataStore.readDistributedRunGroups(RUN_ID).get(0).getStatus(),
+                "a skipped method is not the suite being accounted for, so the group must stay open");
+        assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
+                "and the run must not seal on a group that never accounted for its suites");
     }
 
     /**
