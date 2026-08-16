@@ -24,6 +24,15 @@ import java.util.Map;
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
     /**
+     * Name of the fork properties file written under {@link #getTiaBuildDir()}, carrying the
+     * system properties the forked test JVM needs plus the distributed-run handoff (resolved
+     * runner key, claimed group number). Shared here, rather than declared separately by the
+     * writer and the reader, so {@link AbstractTiaAgentMojo#writeForkPropertiesFile} and the
+     * {@code tia-dist-complete} goal that reads it back can never drift apart on the filename.
+     */
+    static final String FORK_PROPERTIES_FILENAME = "fork.properties";
+
+    /**
      * Maven project.
      */
     @Parameter(property = "project", readonly = true)
@@ -306,6 +315,18 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaBuildDir() {
         return tiaBuildDir;
+    }
+
+    /**
+     * Resolve the fork properties file's path under {@link #getTiaBuildDir()}. Centralised so the
+     * mojo that writes the file and the goal that later reads it back build the identical path
+     * from the same constant, rather than each concatenating {@link #getTiaBuildDir()} and
+     * {@link #FORK_PROPERTIES_FILENAME} separately.
+     *
+     * @return the absolute path of the fork properties file for this build
+     */
+    protected String getForkPropertiesFilename() {
+        return getTiaBuildDir() + "/" + FORK_PROPERTIES_FILENAME;
     }
 
     public String getTiaProjectDir(){

@@ -39,7 +39,6 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
     private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
     private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
-    private static final String FORK_PROPERTIES_FILENAME = "fork.properties";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -384,7 +383,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                     assignment.getRunnerKey(), assignment.getGroupNumber()));
         }
 
-        String filename = getTiaBuildDir() + "/" + FORK_PROPERTIES_FILENAME;
+        String filename = getForkPropertiesFilename();
         try {
             ForkSystemProperties.write(props, new File(filename));
         } catch (IOException e) {
