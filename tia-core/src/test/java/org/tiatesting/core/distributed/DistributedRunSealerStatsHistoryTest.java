@@ -118,7 +118,7 @@ class DistributedRunSealerStatsHistoryTest {
     void theSealWritesOneHistoryRowCarryingTheWholeBuildsFigures() {
         // given - two groups that between them ran 5 of the 8 tracked suites
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 2), trackedSuiteNames(2, 5)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 3, 1);
 
@@ -152,7 +152,7 @@ class DistributedRunSealerStatsHistoryTest {
     void theHistoryRowIsStampedWithTheTimeTheBuildWasPlanned() {
         // given
         seedTrackedSuites(2, 0);
-        persistPlan(RUN_ID, 1);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
@@ -171,7 +171,8 @@ class DistributedRunSealerStatsHistoryTest {
     @Test
     void twoRunnersPersistingProduceOneRowBetweenThemRatherThanOneEach() {
         // given
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(Collections.singletonList("com.example.ATest"),
+                Collections.singletonList("com.example.BTest")));
         TestRunnerService service = new TestRunnerService(dataStore);
         DistributedRunnerContext firstRunner = claim(RUN_ID, RUNNER_A);
         DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
@@ -206,7 +207,7 @@ class DistributedRunSealerStatsHistoryTest {
         // given - a 20s full-suite baseline and a build that ran 2 of 8 suites in 3s + 5s
         seedAllTestsBaseline(20_000L);
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
@@ -231,7 +232,7 @@ class DistributedRunSealerStatsHistoryTest {
     void theTiaLevelStatsAreIncrementedOnceForTheWholeBuild() {
         // given
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
@@ -255,7 +256,7 @@ class DistributedRunSealerStatsHistoryTest {
     void aBuildWithAFailedSuiteInAnyGroupCountsOnceAsAFailedRun() {
         // given
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 1);
 
@@ -276,7 +277,7 @@ class DistributedRunSealerStatsHistoryTest {
     void aBuildThatDoesNotUpdateStatsLeavesTheCoreStatsAlone() {
         // given
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 1);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
@@ -297,7 +298,7 @@ class DistributedRunSealerStatsHistoryTest {
     void aStatsOnlyBuildRecordsItsStatsWithoutAdvancingTheCommit() {
         // given
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 1);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
@@ -321,7 +322,7 @@ class DistributedRunSealerStatsHistoryTest {
     void aBuildThatIsNotRecordingHistoryWritesNoRow() {
         // given
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 1);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
@@ -344,7 +345,7 @@ class DistributedRunSealerStatsHistoryTest {
     void theBaselineAdvancesWhenTheGroupsBetweenThemRanEveryTrackedSuite() {
         // given - 4 tracked suites and two groups that between them ran all 4
         seedTrackedSuites(4, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 2), trackedSuiteNames(2, 4)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 2, 0);
 
@@ -375,7 +376,7 @@ class DistributedRunSealerStatsHistoryTest {
         // given - a 20s baseline, 8 tracked suites, and a build that ran 2 of them
         seedAllTestsBaseline(20_000L);
         seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
@@ -392,6 +393,54 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>A retry must not turn a partial build into an all-tests build.</b> {@code suites_ran} is an
+     * accumulating counter of executions - {@code reportGroupProgress} adds to it on every persist,
+     * so a Surefire retry within one runner's JVM legitimately sums into it. Deriving the ignored
+     * count by subtracting that counter from the tracked suite count therefore lets a partial build
+     * with enough reruns reach zero ignored suites and claim to have run everything, which folds its
+     * duration into the full-suite baseline permanently and advances every tracked library's mapping
+     * baseline as though every suite had been re-covered. The second of those is an under-selection
+     * path: the library's next build diffs from a commit whose suites it never actually ran.
+     *
+     * <p>The ignored count comes from what the plan assigned instead, which no retry can move.
+     */
+    @Test
+    void aRetriedGroupDoesNotInflateTheBuildIntoAnAllTestsRun() {
+        // given - a tracked library, 4 tracked suites, and one group assigned only 2 of them
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        seedTrackedSuites(4, 0);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
+        assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
+                "test setup expects a group to be available to claim");
+
+        // when - the runner reports twice for its one group, as a retried JVM does, taking the
+        // accumulated suites_ran to 4 - the tracked suite count - on a build that only ever covered 2
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, 2),
+                "test setup expects the first attempt's report to be accepted");
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, 2),
+                "test setup expects the retry's report to be accepted");
+        assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L),
+                "test setup expects the completion to be accepted");
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+
+        // then
+        assertEquals(4, dataStore.readDistributedRunGroups(RUN_ID).get(0).getSuitesRan(),
+                "the retry really did accumulate the execution counter past the suites covered");
+        assertEquals(2, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
+                "the ignored count must come from the plan's assignment, which the retry cannot move");
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(0L, stats.getNumAllTestsRuns(),
+                "a partial build must not count as an all-tests run however often it retried");
+        assertEquals(0L, stats.getAllTestsRunTime(),
+                "and must not drag the full-suite baseline down to its own partial duration");
+        assertEquals(4_000L, stats.getAvgRunTime(),
+                "its time belongs in the selected-run average instead");
+        assertNull(dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
+                "a partial build did not re-cover the library, so its mapping baseline must not "
+                        + "advance - doing so would silently under-select on the library's next build");
+    }
+
+    /**
      * Suites the developer disabled in source do not hold the baseline back. They would not run
      * without Tia either, so a build that ran everything else still ran everything Tia could have
      * selected - the same rule the single-host ignored-count applies.
@@ -400,7 +449,7 @@ class DistributedRunSealerStatsHistoryTest {
     void developerDisabledSuitesDoNotHoldTheBaselineBack() {
         // given - 4 tracked suites, one of them disabled in source, and a build that ran the other 3
         seedTrackedSuites(4, 1);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(1, 3), trackedSuiteNames(3, 4)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
@@ -446,7 +495,7 @@ class DistributedRunSealerStatsHistoryTest {
         // given - a tracked library whose mapping baseline predates this build
         dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
         seedTrackedSuites(2, 0);
-        persistPlan(RUN_ID, 1);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
@@ -465,7 +514,7 @@ class DistributedRunSealerStatsHistoryTest {
     void aRunnerThatLosesTheElectionRecordsNothing() {
         // given - two groups, only one of them complete
         seedTrackedSuites(4, 0);
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 2), trackedSuiteNames(2, 4)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
@@ -491,31 +540,44 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * Build and persist a distributed run plan with one suite per group. Groups 0 and 1 are assigned
-     * {@code com.example.ATest} and {@code com.example.BTest} respectively - the two suite names
-     * {@link #runResultFor} always reports as observed - so a persist driven through the real
-     * {@link TestRunnerService} (rather than {@link #completeGroup}'s raw counts) still finds its
-     * group's assignment inside its observed set.
+     * Build and persist a distributed run plan whose groups are assigned the given suite names.
+     *
+     * <p>The assignment is spelled out per test rather than generated, because it is what the
+     * sealer's ignored-suite count - and therefore the all-tests-run decision every baseline
+     * assertion here turns on - is derived from. Deriving it from the execution counter instead
+     * would let a retry inflate it, which is the bug {@link
+     * #aRetriedGroupDoesNotInflateTheBuildIntoAnAllTestsRun} covers.
      *
      * @param runId the run identifier to plan under
-     * @param groupCount how many groups the plan is split into
+     * @param suitesByGroup the suite names to assign, one list per group, in group-number order
      */
-    private void persistPlan(final String runId, final int groupCount) {
+    private void persistPlan(final String runId, final List<List<String>> suitesByGroup) {
+        int groupCount = suitesByGroup.size();
         List<DistributedRunGroup> groups = new ArrayList<>();
         Map<Integer, List<String>> suites = new HashMap<>();
         for (int i = 0; i < groupCount; i++) {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
-            if (i == 0) {
-                suites.put(i, Arrays.asList("com.example.ATest"));
-            } else if (i == 1) {
-                suites.put(i, Arrays.asList("com.example.BTest"));
-            } else {
-                suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
-            }
+            suites.put(i, suitesByGroup.get(i));
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
                         1000L * groupCount, PLANNED_AT_MS), groups, suites, null));
+    }
+
+    /**
+     * The names {@link #seedTrackedSuites} tracks, over a half-open index range, so a test can hand
+     * {@link #persistPlan} exactly the tracked suites it means the build to have been assigned.
+     *
+     * @param fromIndex the first suite index to name, inclusive
+     * @param toIndex the last suite index to name, exclusive
+     * @return the tracked suite names in that range
+     */
+    private static List<String> trackedSuiteNames(final int fromIndex, final int toIndex) {
+        List<String> names = new ArrayList<>();
+        for (int i = fromIndex; i < toIndex; i++) {
+            names.add("com.example.Suite" + i + "Test");
+        }
+        return names;
     }
 
     /**
@@ -527,13 +589,7 @@ class DistributedRunSealerStatsHistoryTest {
      * @param runId the run identifier to plan under
      */
     private void persistPlanWithNoAssignedSuites(final String runId) {
-        List<DistributedRunGroup> groups = new ArrayList<>();
-        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
-        Map<Integer, List<String>> suites = new HashMap<>();
-        suites.put(0, Collections.<String>emptyList());
-        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, "main", PLAN_COMMIT, 1, null, 1000L, PLANNED_AT_MS),
-                groups, suites, null));
+        persistPlan(runId, Collections.singletonList(Collections.<String>emptyList()));
     }
 
     /**

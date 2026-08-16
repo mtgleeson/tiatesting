@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
@@ -14,7 +15,10 @@ import org.tiatesting.core.persistence.SealedRunDataAssembler;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The end of a distributed build. Every runner that completes its group attempts the election; the
@@ -161,15 +165,21 @@ public final class DistributedRunSealer {
         String commitValue = run.getCommitValue();
         String branch = run.getBranch();
 
-        DistributedRunTotals totals =
-                DistributedRunTotals.from(dataStore.readDistributedRunGroups(context.getRunId()));
-        int ignoredSuiteCount = ignoredSuiteCount(totals);
+        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(context.getRunId());
+        DistributedRunTotals totals = DistributedRunTotals.from(groups);
+        int ignoredSuiteCount = ignoredSuiteCount(groups);
 
         // The all-tests-run test a single-host run applies is "Tia ignored zero suites this run".
         // The same question for a build split across runners can only be asked of the groups
-        // together, which is what makes it the sealer's to answer. A build in which no group ran
-        // anything is excluded: folding it into the full-suite baseline would drive that baseline,
-        // and every later savings figure, towards nothing.
+        // together, which is what makes it the sealer's to answer.
+        //
+        // The ignored half of it comes from what the plan assigned the groups, never from
+        // totals.getSuitesRan() - see ignoredSuiteCount for why the obvious
+        // "selectableSuites - suitesRan" simplification is wrong. The liveness half does read
+        // suitesRan, and safely: retry inflation can only make an already non-zero counter larger,
+        // never make a zero one non-zero, and a build in which no group ran anything must be
+        // excluded because folding it into the full-suite baseline would drive that baseline, and
+        // every later savings figure, towards nothing.
         boolean allTestsRun = totals.getSuitesRan() > 0 && ignoredSuiteCount == 0;
 
         TiaData tiaData = dataStore.getTiaCore();
@@ -290,29 +300,53 @@ public final class DistributedRunSealer {
      * How many tracked suites the build did not run - Tia's selection decision for the build as a
      * whole, and the same quantity a single-host run reports from its selector's ignore list.
      *
-     * <p>Counted rather than resolved by name because the plan's group suite lists are not the
-     * answer on their own: a seed run is planned as a single group with <em>no</em> suite names at
-     * all (its runner ignores nothing and runs everything), so a name-based union would report a
-     * seed run - the very run that must establish the baseline - as having covered nothing. The
-     * groups partition the selection, so no suite is counted twice and the sum of what they ran is
-     * the size of the union.
+     * <p><b>Read from the plan's assignment, not from the execution counter.</b> The obvious
+     * simplification - tracked selectable suites minus {@code DistributedRunTotals.getSuitesRan()} -
+     * is wrong, and wrong in the silent direction. {@code suites_ran} is deliberately an
+     * accumulating counter of <em>executions</em>: {@link DataStore#reportGroupProgress} adds to it
+     * on every persist, so a Surefire retry within one runner's JVM legitimately sums into it. A
+     * partial build with enough reruns therefore drives a difference-based ignored count to zero and
+     * flips {@code allTestsRun} to {@code true}, which folds the partial build's duration into the
+     * all-tests baseline permanently and advances every tracked library's mapping baseline commit as
+     * though every suite had just been re-covered - an under-selection path, and the exact failure
+     * class the distributed feature exists to close off. What the plan assigned each group cannot be
+     * moved by any number of retries, so it is what this counts against.
+     *
+     * <p><b>An empty union is a seed run, not a build that covered nothing.</b> A seed run is
+     * planned as a single group with <em>no</em> suite names at all - its runner ignores nothing and
+     * runs everything - so the assigned union being empty means the build ran the lot and its
+     * ignored count is zero. Reporting a seed run, the very run that must establish the baseline, as
+     * having covered nothing is the trap a name-based union has to be written around, which is why
+     * this case is handled explicitly rather than falling out of the count.
      *
      * <p>Suites the developer disabled in source are excluded, matching {@code
      * TestSelector.getTestsToIgnore}: they would not run without Tia either, so counting them would
      * hold the all-tests baseline down permanently in any project that has one.
      *
-     * @param totals the figures the build's groups add up to
-     * @return the number of tracked, non-developer-disabled suites the build did not run; never
-     *         negative
+     * <p>One small query per group, at seal time only - never on the hot read path.
+     *
+     * @param groups the run's groups, as read back from the datastore after the barrier
+     * @return the number of tracked, non-developer-disabled suites the plan did not assign to any
+     *         group; zero for a seed run, whose single group is assigned no suite names at all
      */
-    private int ignoredSuiteCount(final DistributedRunTotals totals) {
-        int selectableSuites = 0;
+    private int ignoredSuiteCount(final List<DistributedRunGroup> groups) {
+        Set<String> assignedSuites = new HashSet<>();
+        for (DistributedRunGroup group : groups) {
+            assignedSuites.addAll(dataStore.readDistributedRunGroupSuites(context.getRunId(),
+                    group.getGroupNumber()));
+        }
+
+        if (assignedSuites.isEmpty()) {
+            return 0;
+        }
+
+        int ignoredSuites = 0;
         for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
-            if (!tracker.isDeveloperDisabled()) {
-                selectableSuites++;
+            if (!tracker.isDeveloperDisabled() && !assignedSuites.contains(tracker.getName())) {
+                ignoredSuites++;
             }
         }
-        return Math.max(0, selectableSuites - totals.getSuitesRan());
+        return ignoredSuites;
     }
 
     /**
