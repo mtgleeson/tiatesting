@@ -1910,8 +1910,9 @@ public class JdbcDataStore implements DataStore {
      * changing the outcome.
      *
      * <p>Follows the exact three-step protocol from the "Distributed test runs" chapter in {@code
-     * WIKI.md}: (0) return the group this runner key already holds, if any; (1) read the
-     * lowest-numbered {@code PENDING} group number; (2) attempt a single-row update guarded by
+     * WIKI.md}: (0) return the group this runner key already holds, if it is still {@code CLAIMED};
+     * (1) read the lowest-numbered {@code PENDING} group number; (2) attempt a single-row update
+     * guarded by
      * {@code status = 'PENDING'} - rowcount 1 means this runner won it, rowcount 0 means another
      * runner won it first and step 1 is retried. The retry loop is bounded by the run's total group
      * count: every failed attempt permanently removes one group from the candidate pool for this
@@ -1920,10 +1921,19 @@ public class JdbcDataStore implements DataStore {
      * table is not converging as expected rather than ordinary contention, and is reported as a
      * {@link TiaPersistenceException} rather than spinning forever.
      *
+     * <p>Step 0 hands a group back only while it is still {@code CLAIMED}, and that is both halves
+     * of one rule. A runner key holding a {@code CLAIMED} group is the CI job retry the step exists
+     * for. A runner key holding a group in any other status has already finished with it: returning
+     * it would have the runner re-run its suites and then fail {@link #completeGroup}'s {@code
+     * status = 'CLAIMED'} predicate, leaving the run unable to seal, so this returns {@code null}
+     * instead - and {@code null} rather than a fresh {@code PENDING} group, because a runner that
+     * already worked its group must not take a second one and leave the first unworked by anybody.
+     *
      * @param runId the distributed run to claim a group from
      * @param runnerKey the calling runner's stable identity
      * @param claimedAtMs UTC epoch millis to record as the claim time
-     * @return the claimed group, or {@code null} when the run has no group left to claim
+     * @return the claimed group, or {@code null} when the run has no group left to claim or this
+     *         runner key already holds a group it has finished with
      */
     @Override
     public DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey,
@@ -1943,14 +1953,23 @@ public class JdbcDataStore implements DataStore {
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
 
-            // Step 0: a runner key that already holds a group in this run is a CI job retry
+            // Step 0: a runner key that already holds a CLAIMED group in this run is a CI job retry
             // re-claiming its own group - return it unchanged rather than attempting a new claim.
+            // Any other status means this runner already finished with that group, and it gets
+            // nothing: handing the group back would re-run its suites and then fail completeGroup's
+            // status = 'CLAIMED' predicate, so the run could never seal, while falling through to a
+            // fresh PENDING group would leave the group this runner took unworked by anybody else.
+            // The status is read here rather than filtered in the SELECT precisely so those two
+            // cases can be told apart - a filtered query answering "no row" cannot distinguish a
+            // runner that holds a finished group from one that holds none.
             try (PreparedStatement statement = connection.prepareStatement(claimedByRunnerSql)) {
                 statement.setString(1, runId);
                 statement.setString(2, runnerKey);
                 try (ResultSet resultSet = statement.executeQuery()) {
                     if (resultSet.next()) {
-                        return mapGroupRow(resultSet);
+                        DistributedRunGroup heldGroup = mapGroupRow(resultSet);
+                        return heldGroup.getStatus() == DistributedRunGroupStatus.CLAIMED
+                                ? heldGroup : null;
                     }
                 }
             }
