@@ -117,20 +117,27 @@ public class TiaDistCompleteTask extends DefaultTask {
      * other {@link RuntimeException}: a failure while completing the group (or opening the
      * datastore) leaves the group exactly as it was, safe for the next build to redo; a failure
      * while sealing happens only after the group already flipped to {@code COMPLETED}, so the
-     * message must say the group was completed rather than imply completion itself failed.
+     * message must say the group was completed rather than imply completion itself failed. A third
+     * case falls into the generic catch too: {@link DistributedRunCompleter#completeAndSeal}'s return
+     * value is tracked in {@code groupCompleted} so that a failure closing the datastore - part of
+     * this method's try-with-resources - after that call already returned successfully is told apart
+     * from a genuine completion failure, since the group has, in that case, already completed (and
+     * possibly sealed) despite the close failure.
      *
      * @param context the claimed runner context built from the claim record
      * @param claim the claim record whose update-DB flags the seal uses - never the flags read
      *              afresh from the extension, which may not agree with what the claimed test task
      *              actually ran under
-     * @throws GradleException if completing the group or sealing the build fails; the message
-     *                          distinguishes which of the two happened
+     * @throws GradleException if completing the group or sealing the build fails, or if the
+     *                          datastore fails to close afterwards; the message distinguishes which
+     *                          of the three happened
      */
     private void completeAndSeal(final DistributedRunnerContext context,
                                  final DistributedClaimRegistry.Claim claim) {
+        boolean groupCompleted = false;
         try (DataStore dataStore = plugin.buildDataStore(plugin.getVCSReader().getBranchName())) {
-            DistributedRunCompleter.completeAndSeal(dataStore, context, claim.isUpdateDBMapping(),
-                    claim.isUpdateDBStats(), claim.isUpdateDBTestRunHistory(),
+            groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context,
+                    claim.isUpdateDBMapping(), claim.isUpdateDBStats(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
             throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
@@ -138,6 +145,13 @@ public class TiaDistCompleteTask extends DefaultTask {
                     + ", but sealing the build failed - the group is now marked COMPLETED even "
                     + "though the run was NOT sealed: " + e.getCause().getMessage(), e.getCause());
         } catch (RuntimeException e) {
+            if (groupCompleted) {
+                throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
+                        + context.getRunnerKey() + "' completed group " + context.getGroupNumber()
+                        + ", but closing the datastore afterwards failed - the group's completion "
+                        + "(and any resulting seal) already took effect despite this failure: "
+                        + e.getMessage(), e);
+            }
             throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
                     + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
                     + " - this build will NOT be sealed, and the next build will redo the work: "

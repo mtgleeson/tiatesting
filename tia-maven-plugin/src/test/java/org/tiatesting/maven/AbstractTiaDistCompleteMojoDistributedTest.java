@@ -349,6 +349,65 @@ class AbstractTiaDistCompleteMojoDistributedTest {
     }
 
     /**
+     * Verify that a seal failure occurring after the group has already completed successfully is
+     * reported with wording distinct from a completion failure - proving the mojo's catch for
+     * {@link DistributedRunCompleter.SealFailedAfterCompletionException} is reached, and reached
+     * before the generic {@link RuntimeException} catch, rather than the two clauses collapsing
+     * into one message that misleads an operator into looking for a group row that is, in fact,
+     * already {@code COMPLETED}.
+     *
+     * @throws IOException if the fixture file cannot be written
+     */
+    @Test
+    void shouldReportSealFailureDistinctlyFromACompletionFailureAfterTheGroupHasCompleted()
+            throws IOException {
+        // given
+        persistPlan("run-10", 1);
+        claimAndObserveGroupZero("run-10", "runner-a");
+        writeForkProperties("run-10", "runner-a", 0, true);
+        TestMojo mojo = mojo();
+        mojo.failSeal = true;
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then - the message says the group completed and sealing failed, not that completion failed
+        assertTrue(thrown.getMessage().contains("completed group"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("sealing"), thrown.getMessage());
+        assertTrue(thrown.getMessage().toLowerCase().contains("marked completed"), thrown.getMessage());
+        assertTrue(!thrown.getMessage().contains("could not complete group"), thrown.getMessage());
+        assertEquals(DistributedRunGroupStatus.COMPLETED, readGroupZero("run-10").getStatus());
+    }
+
+    /**
+     * Verify that a datastore {@code close()} failure occurring after a successful completion is
+     * reported as such rather than as a completion failure - the try-with-resources block's close
+     * call sits in the same generic {@link RuntimeException} catch as a genuine completion failure,
+     * so without tracking whether the completion already succeeded, the message would wrongly claim
+     * the group was never completed and the next build should redo the work.
+     *
+     * @throws IOException if the fixture file cannot be written
+     */
+    @Test
+    void shouldReportADatastoreCloseFailureAfterSuccessfulCompletionDistinctly() throws IOException {
+        // given
+        persistPlan("run-11", 1);
+        claimAndObserveGroupZero("run-11", "runner-a");
+        writeForkProperties("run-11", "runner-a", 0, true);
+        TestMojo mojo = mojo();
+        mojo.failClose = true;
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then - the message says the group completed, not that completion itself failed
+        assertTrue(thrown.getMessage().contains("completed group"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("closing the datastore"), thrown.getMessage());
+        assertTrue(!thrown.getMessage().contains("could not complete group"), thrown.getMessage());
+        assertEquals(DistributedRunGroupStatus.COMPLETED, readGroupZero("run-11").getStatus());
+    }
+
+    /**
      * Verify the goal fails loudly when the fork properties file exists but cannot be read - the
      * documented "unreadable-but-present" case, distinct from an absent file, which the goal must
      * fail rather than silently treat as a no-op.
@@ -449,6 +508,8 @@ class AbstractTiaDistCompleteMojoDistributedTest {
     private final class TestMojo extends AbstractTiaDistCompleteMojo {
 
         private boolean failDataStore;
+        private boolean failSeal;
+        private boolean failClose;
 
         /**
          * @return a stub VCS reader reporting this test's fixed branch
@@ -460,7 +521,9 @@ class AbstractTiaDistCompleteMojoDistributedTest {
 
         /**
          * Build the datastore over this test's temp directory, or simulate a datastore that cannot
-         * be reached when {@link #failDataStore} is set.
+         * be reached when {@link #failDataStore} is set, one whose sealer election fails after a
+         * successful completion when {@link #failSeal} is set, or one whose {@code close()} fails
+         * after a successful completion when {@link #failClose} is set.
          *
          * @param branch the VCS branch name whose schema the store selects
          * @return an embedded datastore the mojo owns and closes
@@ -470,7 +533,74 @@ class AbstractTiaDistCompleteMojoDistributedTest {
             if (failDataStore) {
                 throw new RuntimeException("simulated datastore connection failure");
             }
+            if (failSeal) {
+                return new SealFailingDataStore();
+            }
+            if (failClose) {
+                return new CloseFailingDataStore();
+            }
             return openStore();
+        }
+    }
+
+    /**
+     * An embedded-H2 {@link JdbcDataStore} whose {@code close()} always throws after delegating to
+     * the real close, so a test can drive the "group completed, then closing the datastore failed"
+     * path without a genuinely broken database.
+     */
+    private final class CloseFailingDataStore extends JdbcDataStore {
+
+        /**
+         * Open an embedded H2 store over this test's temp database directory, on the fixed
+         * {@link #BRANCH}'s schema, the same construction {@link #openStore()} performs.
+         */
+        CloseFailingDataStore() {
+            super(new H2Dialect(),
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
+                    BranchSchema.schemaName(BRANCH));
+        }
+
+        /**
+         * Delegate to the real close, then simulate a close failure that happens after a successful
+         * completion has already taken effect.
+         */
+        @Override
+        public void close() {
+            super.close();
+            throw new RuntimeException("simulated datastore close failure");
+        }
+    }
+
+    /**
+     * An embedded-H2 {@link JdbcDataStore} whose {@code electSealer} always throws, so a test can
+     * drive the "group completed, then sealing failed" path without a genuinely broken database -
+     * {@code completeGroup} itself still succeeds, so the failure lands strictly after the group has
+     * flipped to {@code COMPLETED}.
+     */
+    private final class SealFailingDataStore extends JdbcDataStore {
+
+        /**
+         * Open an embedded H2 store over this test's temp database directory, on the fixed
+         * {@link #BRANCH}'s schema, the same construction {@link #openStore()} performs.
+         */
+        SealFailingDataStore() {
+            super(new H2Dialect(),
+                    new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
+                    BranchSchema.schemaName(BRANCH));
+        }
+
+        /**
+         * Simulate a sealer-election failure that happens after the group it belongs to has already
+         * completed.
+         *
+         * @param runId the run to elect within
+         * @param runnerKey the calling runner's identity
+         * @param sealedAtMs UTC epoch millis to record as the election time
+         * @return never returns
+         */
+        @Override
+        public boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs) {
+            throw new RuntimeException("simulated sealer election failure");
         }
     }
 

@@ -4,6 +4,7 @@ import org.junit.runner.Description;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunCompleter;
@@ -200,10 +201,12 @@ class TiaJunit4ListenerDistributedTest {
 
         DistributedRunnerContext context = DistributedForkProperties.contextFromSystemProperties();
         if (context != null && context.isClaimed()) {
-            boolean updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
-            boolean updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
-            boolean updateDBTestRunHistory =
-                    !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
+            boolean updateDBMapping = Boolean.parseBoolean(
+                    System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING));
+            boolean updateDBStats = Boolean.parseBoolean(
+                    System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_STATS));
+            boolean updateDBTestRunHistory = !"false".equalsIgnoreCase(
+                    System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
             DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping, updateDBStats,
                     updateDBTestRunHistory, System.currentTimeMillis());
         }
