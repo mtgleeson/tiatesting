@@ -168,13 +168,17 @@ class AbstractTiaDistCompleteMojoDistributedTest {
     }
 
     /**
-     * Build a mojo pointed at this test's temp build directory, ready for {@code execute()}.
+     * Build a mojo pointed at this test's temp build directory, ready for {@code execute()}. Tia
+     * is enabled and {@code tiaDBUrl} is set to a non-blank server-mode URL so the shared-database
+     * guard passes - individual tests override either field to exercise those guards directly.
      *
      * @return a mojo configured for this test's fixtures
      */
     private TestMojo mojo() {
         TestMojo mojo = new TestMojo();
         mojo.tiaBuildDir = buildDir.getAbsolutePath();
+        mojo.tiaEnabled = true;
+        mojo.tiaDBUrl = "jdbc:h2:tcp://localhost:9092/mem:tia";
         return mojo;
     }
 
@@ -360,6 +364,81 @@ class AbstractTiaDistCompleteMojoDistributedTest {
 
         // then
         assertTrue(thrown.getMessage().contains("NOT be sealed"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the goal fails loudly, naming that the run was not sealed, when it is pointed at a
+     * private embedded database instead of the shared datastore the run's runners coordinate
+     * through - the guard that catches a pipeline invoking this goal as a separate {@code mvn}
+     * command with the DB connection settings omitted, which would otherwise silently open an
+     * empty embedded database, find no claimed row, and exit as if already completed.
+     *
+     * @throws IOException if the fixture file cannot be written
+     */
+    @Test
+    void shouldFailLoudlyWhenPointedAtAnEmbeddedDatabase() throws IOException {
+        // given - a claimed runner, but tiaDBUrl is left blank, resolving to an embedded database
+        persistPlan("run-7", 1);
+        claimAndObserveGroupZero("run-7", "runner-a");
+        writeForkProperties("run-7", "runner-a", 0, true);
+        TestMojo mojo = mojo();
+        mojo.tiaDBUrl = null;
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then
+        assertTrue(thrown.getMessage().contains("NOT"), thrown.getMessage());
+        assertTrue(thrown.getMessage().toLowerCase().contains("embedded"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the goal fails loudly, naming the offending property, when the fork properties file's
+     * distributed handoff is malformed - a group number that is not a number, the shape a corrupted
+     * or hand-edited {@code fork.properties} could carry.
+     *
+     * @throws IOException if the fixture file cannot be written
+     */
+    @Test
+    void shouldFailLoudlyOnAMalformedGroupNumber() throws IOException {
+        // given - a fork properties file whose group number is not a number
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("tiaDistributed", "true");
+        props.put("tiaRunId", "run-8");
+        props.put("tiaDistributedRunnerKey", "runner-a");
+        props.put("tiaDistributedGroupNumber", "abc");
+        ForkSystemProperties.write(props, new File(buildDir, "fork.properties"));
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, () -> mojo().execute());
+
+        // then - the message names the offending property, from DistributedForkProperties'
+        // single copy of the group-number parsing
+        assertTrue(thrown.getMessage().contains("tiaDistributedGroupNumber"), thrown.getMessage());
+    }
+
+    /**
+     * Verify the goal does nothing, before even reading {@code fork.properties}, when Tia is
+     * disabled - a build with {@code tiaEnabled=false} must not act on a stale handoff file left
+     * over from an earlier distributed build, and must not fail on connection settings it was
+     * never going to use.
+     *
+     * @throws IOException if the fixture file cannot be written
+     */
+    @Test
+    void shouldNoOpWhenTiaIsDisabled() throws IOException {
+        // given - a stale, fully valid distributed handoff, but Tia is switched off and tiaDBUrl
+        // is deliberately left blank, so the goal must never reach the shared-database guard
+        persistPlan("run-9", 1);
+        claimAndObserveGroupZero("run-9", "runner-a");
+        writeForkProperties("run-9", "runner-a", 0, true);
+        TestMojo mojo = mojo();
+        mojo.tiaEnabled = false;
+        mojo.tiaDBUrl = null;
+
+        // when / then
+        assertDoesNotThrow(mojo::execute);
+        assertEquals(DistributedRunGroupStatus.CLAIMED, readGroupZero("run-9").getStatus());
     }
 
     /**

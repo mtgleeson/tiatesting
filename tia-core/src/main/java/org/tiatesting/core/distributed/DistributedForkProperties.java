@@ -2,6 +2,7 @@ package org.tiatesting.core.distributed;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * Carries a claimed distributed run across the build-JVM-to-forked-test-JVM boundary. Maven claims
@@ -90,13 +91,39 @@ public final class DistributedForkProperties {
      *                                  names the property to fix
      */
     public static DistributedRunnerContext contextFromSystemProperties() {
-        if (!Boolean.parseBoolean(System.getProperty(PROP_DISTRIBUTED))) {
+        return contextFromProperties(System.getProperties());
+    }
+
+    /**
+     * Resolve the distributed run context described by an arbitrary {@link Properties} instance,
+     * applying the same "blank group number means a surplus runner" rule {@link
+     * #contextFromSystemProperties()} applies to the live system properties - without touching
+     * this JVM's system properties.
+     *
+     * <p>This is the single copy of that rule. {@link #contextFromSystemProperties()} delegates to
+     * it for the fork's own resolution from its live system properties; a build-JVM step that reads
+     * the fork properties file back directly - without ever publishing it into its own process's
+     * system properties, since that process is not the fork - calls this overload with the
+     * {@link Properties} it read from the file instead. Either caller gets the same group-number
+     * parsing, via {@link #parseGroupNumber}, and so the same actionable message naming the
+     * offending property on a malformed value.
+     *
+     * @param properties the properties to resolve the context from - either the JVM's live system
+     *                   properties or a fork properties file's contents read back directly
+     * @return the context described by {@code properties}, or null when {@link #PROP_DISTRIBUTED}
+     *         is absent or false
+     * @throws IllegalArgumentException if {@code properties} describes a distributed run but its
+     *                                  run id or runner key is missing, or its group number is not
+     *                                  a number; the message names the property to fix
+     */
+    public static DistributedRunnerContext contextFromProperties(final Properties properties) {
+        if (!Boolean.parseBoolean(properties.getProperty(PROP_DISTRIBUTED))) {
             return null;
         }
 
-        String runId = System.getProperty(PROP_RUN_ID);
-        String runnerKey = System.getProperty(PROP_RUNNER_KEY);
-        String groupNumber = System.getProperty(PROP_GROUP_NUMBER);
+        String runId = properties.getProperty(PROP_RUN_ID);
+        String runnerKey = properties.getProperty(PROP_RUNNER_KEY);
+        String groupNumber = properties.getProperty(PROP_GROUP_NUMBER);
 
         if (groupNumber == null || groupNumber.trim().isEmpty()) {
             // A surplus runner: the pipeline fanned out wider than the plan's group count, so the

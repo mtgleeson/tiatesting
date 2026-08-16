@@ -361,9 +361,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     String writeForkPropertiesFile(final DistributedRunnerAssignment assignment){
         Map<String, String> props = new LinkedHashMap<>();
         props.put("tiaEnabled", String.valueOf(isTiaEnabled()));
-        props.put("tiaUpdateDBMapping", String.valueOf(isTiaUpdateDBMapping()));
-        props.put("tiaUpdateDBStats", String.valueOf(isTiaUpdateDBStats()));
-        props.put("tiaUpdateDBTestRunHistory", String.valueOf(isTiaUpdateDBTestRunHistory()));
+        props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
+        props.put(ForkSystemProperties.PROP_UPDATE_DB_STATS, String.valueOf(isTiaUpdateDBStats()));
+        props.put(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY, String.valueOf(isTiaUpdateDBTestRunHistory()));
         props.put("tiaProjectDir", getTiaProjectDir());
         props.put("tiaClassFilesDirs", getTiaClassFilesDirs());
         props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());
