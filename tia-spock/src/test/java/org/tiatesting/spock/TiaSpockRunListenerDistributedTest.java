@@ -42,9 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Cover the other half of the Gradle/Spock distributed runner: that the claim
- * {@link TiaSpockGlobalExtension} makes before the run actually reaches the persist at the end of
- * it. The claim was already wired up, but until the context reached
+ * Cover the other half of the Gradle/Spock distributed runner: that the runner context
+ * {@link TiaSpockGlobalExtension} resolves before the run actually reaches the persist at the end
+ * of it. That wiring was already in place, but until the context reached
  * {@code TestRunnerService.persistTestRunData} a distributed Gradle build persisted as a single
  * host - every runner rebuilding the method catalogue from an edge set holding only its own
  * group's suites, and stamping the commit as though the whole build were done. Nothing in the

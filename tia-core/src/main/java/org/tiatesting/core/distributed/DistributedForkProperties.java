@@ -5,19 +5,23 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Carries a claimed distributed run across the build-JVM-to-forked-test-JVM boundary. Maven claims
- * a group in the build JVM, before surefire forks; the forked JVM is what actually runs the suites,
- * completes the group and stands for election to seal the build. Neither of the two values the
- * claim produced can be reconstructed over there - the runner key may have been derived by the
- * claim, and the group number is only known to whoever won it - so both halves live here, in one
- * class and against the same constants, so the property the build plugin writes and the property
- * the test listener reads cannot drift apart. {@code DistributedRunSystemProperties} in
- * {@code tia-spock} is shaped the same way for the Gradle side of the same problem.
+ * Carries a claimed distributed run across the build-JVM-to-forked-test-JVM boundary. Both Maven
+ * and Gradle claim a group in the build JVM (Maven's build JVM before surefire forks; Gradle's
+ * daemon at test-task action time, before the test task forks) - the forked JVM is what actually
+ * runs the suites, completes the group and stands for election to seal the build. Neither of the
+ * two values the claim produced can be reconstructed over there - the runner key may have been
+ * derived by the claim, and the group number is only known to whoever won it - so both halves live
+ * here, in one class and against the same constants, so the property the build plugin writes and
+ * the property the test listener reads cannot drift apart between the two build tools, or between
+ * the two ends of one build tool's handoff.
  *
- * <p>The values travel in the fork properties file (see {@code ForkSystemProperties}), which the
- * Tia agent republishes as system properties at {@code premain} time, before any listener
- * constructs. That is why the read half here takes no arguments: by the time a listener asks, the
- * agent has already made the values look exactly like ordinary system properties.
+ * <p>On Maven the values travel in the fork properties file (see {@code ForkSystemProperties}),
+ * which the Tia agent republishes as system properties at {@code premain} time, before any listener
+ * constructs. On Gradle they travel as ordinary {@code Test} task system properties, set directly
+ * by {@code TiaSpockGitGradlePluginTestExtension#applyTo} - Gradle forwards a test task's system
+ * properties into its forked JVM itself, with no agent step in between. Either way, the read half
+ * here takes no arguments: by the time a listener asks, the values already look like ordinary
+ * system properties.
  *
  * <p>Nothing about how the build was split crosses this boundary, because the fork cannot act on
  * it - the split is the planner's decision and is already recorded in the plan the group was
