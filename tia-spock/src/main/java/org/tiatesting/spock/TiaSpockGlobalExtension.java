@@ -5,8 +5,9 @@ import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.extension.IGlobalExtension;
 import org.spockframework.runtime.model.SpecInfo;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
-import org.tiatesting.core.distributed.DistributedRunnerAssignment;
+import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
@@ -15,11 +16,11 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.spock.distributed.DistributedRunSystemProperties;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -54,28 +55,34 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
      * a distributed build. An ordinary build runs the test selection here. A distributed build
      * must not: the plan produced by {@code tia-dist-plan} already ran the VCS diff, the static
      * rules and the library-impact drain once, for every runner, and its output is in the shared
-     * database. So a distributed build claims a group from that plan instead - see
-     * {@link TiaSpockTestRunInitializer#claimDistributedRunGroup}.
+     * database. So a distributed build does not select, and does not claim either - the Gradle
+     * daemon already claimed this test task's group before the test JVM forked (see {@code
+     * TiaSpockGitGradlePluginTestExtension#applyTo}), and this constructor only resolves that
+     * claim's result from system properties, via {@link
+     * DistributedForkProperties#contextFromSystemProperties()}, and derives the two suite sets
+     * from the datastore. Claiming a second time here would take a second group and leave the
+     * first open forever, so the run would never seal.
      *
      * @param vcsReader the VCS reader for the workspace under test, or null when Tia is disabled;
-     *                  supplies the branch whose mapping is read and the commit a distributed
-     *                  runner's claim is checked against
-     * @throws IllegalStateException if this build is a distributed runner and cannot claim its
-     *                                share of the planned run - it fails rather than continue,
-     *                                since a runner that cannot tell whether its tests ran must
-     *                                never report green
+     *                  supplies the branch whose mapping is read
+     * @throws IllegalStateException if this build is a distributed runner but the shared plan its
+     *                                group was claimed from is no longer readable - for example a
+     *                                later build superseded it between the daemon's claim and this
+     *                                JVM starting - since a runner that cannot tell whether its
+     *                                share of the suite ran must never report green
      */
     public TiaSpockGlobalExtension(final VCSReader vcsReader){
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
 
         if (tiaEnabled){
-            // Resolved before the datastore is opened: this is what validates a distributed
-            // runner's preconditions, and a runner pointed at a database no other runner can
-            // reach should be told so rather than have a private database opened for it first.
-            // Null for every ordinary build, which therefore behaves exactly as it always did.
-            DistributedRunConfig distributedRunConfig =
-                    DistributedRunSystemProperties.runnerConfigFromSystemProperties();
+            // Resolved from the properties the Gradle daemon's test-task action already claimed
+            // with, before opening the datastore, since resolving is just a system-property read
+            // now - the preconditions this used to also validate here are the daemon's job (Task
+            // 2a moved them there, where the real reactor size is knowable). Null for every
+            // ordinary build, which therefore behaves exactly as it always did.
+            DistributedRunnerContext distributedRunnerContext =
+                    DistributedForkProperties.contextFromSystemProperties();
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
             // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
@@ -101,26 +108,30 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
             Set<String> testsToRun;
             LibraryImpactDrainResult drainResult;
-            // Null for an ordinary build, which is what keeps its persist on the single-host flow
-            // it has always taken.
-            DistributedRunnerContext distributedRunnerContext = null;
 
-            if (distributedRunConfig != null){
-                // A distributed runner claims its share of an existing plan instead of selecting.
-                // The plan already ran the diff and the library-impact drain once; repeating the
-                // drain per-runner would race, and applying its cleanup belongs to the run's
-                // sealer, so no drain result is carried here.
-                DistributedRunnerAssignment assignment =
-                        tiaSpockTestRunInitializer.claimDistributedRunGroup(distributedRunConfig);
-                ignoredTests = assignment.getTestsToIgnore();
-                testsToRun = assignment.getTestsToRun();
+            if (distributedRunnerContext != null){
+                // A distributed runner derives its suites from the group the daemon already
+                // claimed, instead of selecting or claiming here. The plan already ran the diff
+                // and the library-impact drain once; repeating the drain per-runner would race,
+                // and applying its cleanup belongs to the run's sealer, so no drain result is
+                // carried here.
+                Integer groupNumber = distributedRunnerContext.getGroupNumber();
+                testsToRun = distributedRunnerContext.isClaimed()
+                        ? new HashSet<>(dataStore.readDistributedRunGroupSuites(
+                                distributedRunnerContext.getRunId(), groupNumber.intValue()))
+                        : Collections.<String>emptySet();
+                // forRunner, not validated: this config exists only to key the coordinator's
+                // reads by the run id the group was claimed under - no group count or target run
+                // time is asked for, since that shape was already decided by the plan this
+                // context was resolved from.
+                DistributedRunConfig config = DistributedRunConfig.forRunner(
+                        distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
+                // Reuses the exact rule the daemon's claim itself used to derive the ignore list,
+                // so this fork cannot land on a different answer than the claim already committed
+                // to - a surplus runner (null groupNumber) ignores every suite, same as before.
+                ignoredTests = new DistributedRunCoordinator(dataStore, config).deriveTestsToIgnore(
+                        groupNumber, dataStore.getTestSuitesTracked().keySet());
                 drainResult = null;
-                // Converted from the claim just made, never re-derived: claiming again would take a
-                // second group and leave this one open forever, so the run would never seal. A
-                // surplus runner converts too, into a context holding no group - what it must not
-                // become is a null one, which would put it on the single-host path where it would
-                // seal a build whose other runners are still going.
-                distributedRunnerContext = assignment.toRunnerContext(distributedRunConfig.getRunId());
             } else {
                 // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
                 // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When

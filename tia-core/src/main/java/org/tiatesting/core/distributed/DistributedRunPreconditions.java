@@ -13,8 +13,9 @@ import java.util.List;
  * concerns. Four call sites call {@link #check} before doing anything else - in particular before
  * the datastore is opened or a group is claimed: the Maven and Gradle planning entry points
  * (the {@code tia-dist-plan} goal and task), which persist a plan, and the Maven and Gradle/Spock
- * claim-time entry points (the {@code prepare-agent} goal, and the forked test JVM's claim on the
- * Gradle/Spock side), which claim a group from one. So a misconfigured or disabled distributed run
+ * claim-time entry points (the {@code prepare-agent} goal, and the Gradle test-task action's claim
+ * on the Gradle/Spock side - the daemon, at task-action time, before the test JVM forks), which
+ * claim a group from one. So a misconfigured or disabled distributed run
  * fails fast with an actionable message instead of silently producing a broken plan, a corrupted
  * diff, or a claimable run persisted to the database while Tia is switched off.
  *
