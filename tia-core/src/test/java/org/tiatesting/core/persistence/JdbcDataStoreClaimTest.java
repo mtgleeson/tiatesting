@@ -175,6 +175,42 @@ class JdbcDataStoreClaimTest {
     }
 
     /**
+     * Verify that a runner key which already holds a <b>completed</b> group is given nothing at
+     * all - neither that group back, nor a fresh {@code PENDING} one.
+     *
+     * <p>Handing the completed group back would have the runner re-run suites it has already
+     * finished and then fail {@link DataStore#completeGroup}'s {@code status = 'CLAIMED'}
+     * predicate, leaving the run unable to seal. Handing it a fresh {@code PENDING} group instead
+     * would be worse: a runner that already worked one group would take a second, and the group it
+     * took would be worked by nobody. The retry-reclaims-its-own-group behaviour is only ever
+     * intended for a group still in {@code CLAIMED}.
+     */
+    @Test
+    void shouldReturnNullWhenTheRunnerKeyAlreadyHoldsACompletedGroup() {
+        // given - a runner that has already reported its group's one suite and completed it
+        persistPlanWithGroups("run-1", 3);
+        DistributedRunGroup firstClaim = dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", firstClaim.getGroupNumber(), "runner-a",
+                        1000L, 1, 0, 1),
+                "test setup expects the progress report to be accepted");
+        assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L),
+                "test setup expects the completion to be accepted");
+
+        // when - the same runner key claims again
+        DistributedRunGroup reclaimed = dataStore.claimNextPendingGroup("run-1", "runner-a", 9999L);
+
+        // then
+        assertNull(reclaimed, "a runner that has finished its group must not be handed one");
+        assertEquals(DistributedRunGroupStatus.COMPLETED,
+                dataStore.readDistributedRunGroups("run-1").get(firstClaim.getGroupNumber()).getStatus(),
+                "and the group it completed must be left exactly as it was");
+        DistributedRunGroup otherRunnerClaim = dataStore.claimNextPendingGroup("run-1", "runner-b", 10000L);
+        assertEquals(1, otherRunnerClaim.getGroupNumber(),
+                "and the next PENDING group must still be there for another runner, proving the "
+                        + "finished runner did not quietly take a second one");
+    }
+
+    /**
      * Verify that claiming against a run id nobody has planned returns {@code null} rather than
      * throwing, so a coordinator can treat "unplanned" and "exhausted" the same way at the call
      * site.
