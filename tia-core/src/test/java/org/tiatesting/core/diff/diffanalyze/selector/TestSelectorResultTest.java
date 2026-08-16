@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 /**
@@ -70,5 +71,52 @@ class TestSelectorResultTest {
 
         // then
         assertEquals(true, result.isRunAllTests());
+    }
+
+    /**
+     * Verifies that a seed run and a "nothing was impacted" selection - the two opposite
+     * instructions {@code runAllTests} exists to tell apart, both carrying an empty
+     * {@code testsToRun} and an empty {@code testsToIgnore} - are not equal, and do not share a
+     * hash code either. Comparing only the two suite sets made them indistinguishable, which is
+     * exactly the confusion the flag was added to prevent.
+     */
+    @Test
+    void equals_distinguishesASeedRunFromANothingImpactedSelection(){
+        // given
+        TestSelectorResult seedRun = new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, true);
+
+        // when
+        TestSelectorResult nothingImpacted = new TestSelectorResult(new HashSet<>(), new HashSet<>(),
+                null, 0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, false);
+
+        // then
+        assertNotEquals(seedRun, nothingImpacted,
+                "a seed run means run everything and an empty selection means run nothing - they "
+                        + "must not compare equal");
+        assertNotEquals(seedRun.hashCode(), nothingImpacted.hashCode());
+    }
+
+    /**
+     * Verifies that two results carrying the same selection decision still compare equal, so
+     * adding {@code runAllTests} to the comparison narrowed it only where it had to.
+     */
+    @Test
+    void equals_matchesTwoResultsCarryingTheSameSelection(){
+        // given
+        Set<String> testsToRun = new HashSet<>(Collections.singletonList("tracked1"));
+        Set<String> testsToIgnore = new HashSet<>(Collections.singletonList("ignored1"));
+
+        // when
+        TestSelectorResult first = new TestSelectorResult(new HashSet<>(testsToRun),
+                new HashSet<>(testsToIgnore), null, 100L, Collections.emptySet(), 0L,
+                Collections.emptyMap(), 0L, 0L, false);
+        TestSelectorResult second = new TestSelectorResult(new HashSet<>(testsToRun),
+                new HashSet<>(testsToIgnore), null, 999L, Collections.emptySet(), 0L,
+                Collections.emptyMap(), 0L, 0L, false);
+
+        // then
+        assertEquals(first, second, "the estimate fields are not part of the selection decision");
+        assertEquals(first.hashCode(), second.hashCode());
     }
 }
