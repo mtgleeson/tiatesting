@@ -8,15 +8,17 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
+import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
-import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
@@ -90,12 +92,11 @@ public class TiaSpockGitGradlePluginTestExtension {
                     forwardStaticTestSelectionRules(testTask, tiaTaskExtension);
                     // Claims this test task's share of a distributed run right here in the
                     // daemon, before the test JVM forks - see claimDistributedRun for why the
-                    // fork can no longer make this claim itself. The result is only used to
-                    // forward the claim below; Task 2b's finalizer task is what needs to read it
-                    // back after the test task's forked JVM(s) finish, and does not yet exist -
-                    // see the "Distributed test runs" chapter in WIKI.md for where that lands.
-                    DistributedRunnerAssignment distributedRunnerAssignment =
-                            claimDistributedRun(testTask, tiaTaskExtension);
+                    // fork can no longer make this claim itself. The claim is recorded in the
+                    // build's DistributedClaimRegistry as a side effect; the tiaDistComplete
+                    // finalizer reads it back from there after the test task's forked JVM(s)
+                    // finish - see the "Group assignment" chapter in WIKI.md.
+                    claimDistributedRun(testTask, tiaTaskExtension);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -349,7 +350,7 @@ public class TiaSpockGitGradlePluginTestExtension {
      * test JVM rather than once per test task - a build with {@code maxParallelForks > 1} could
      * claim several groups for what is meant to be a single runner - and left no daemon-side
      * record of which group a task's JVM held, which is what a later daemon-side "this group is
-     * finished" step (stage 9's task 2b, mirroring the Maven {@code tia-dist-complete} goal) needs
+     * finished" step ({@code tiaDistComplete}, mirroring the Maven {@code tia-dist-complete} goal) needs
      * to read back. Claiming here fixes both: one claim per test task, and a result the daemon
      * itself can see.
      *
@@ -373,32 +374,47 @@ public class TiaSpockGitGradlePluginTestExtension {
      * <p>{@link DistributedRunConfig#forRunner} builds the claim's configuration - a runner
      * configures only the run it belongs to and who it is, never a group count or a target run
      * time, since that shape is the planning job's decision and is already recorded in the plan
-     * being claimed from. The claim itself is {@link DistributedRunnerAssignment#claim}, the same
-     * method the Maven {@code prepare-agent} goal calls, so a Maven and a Gradle runner cannot
-     * disagree by even one suite about which suites a group owns. Only the resolved run id, runner
-     * key and group number are forwarded, via {@link DistributedForkProperties#forkProperties} -
-     * the exact property set and rendering Maven already writes to {@code fork.properties} - so
-     * {@link DistributedForkProperties#contextFromSystemProperties()} resolves the same context on
-     * either build tool. The suite lists themselves are not forwarded: they can be large, and the
-     * fork reads them from the shared database instead.
+     * being claimed from. The claim itself is made through {@link DistributedRunCoordinator#claim}
+     * directly rather than through {@link org.tiatesting.core.distributed.DistributedRunnerAssignment#claim},
+     * the same coordinator method the Maven {@code prepare-agent} goal calls, so a Maven and a
+     * Gradle runner cannot disagree by even one suite about which suites a group owns - but this
+     * daemon-side caller stops at the coordinator's {@link ClaimOutcome} rather than going on to
+     * derive the two suite lists {@code DistributedRunnerAssignment} would: nothing here reads
+     * them, the fork derives them for itself from the forwarded run id, runner key and group
+     * number, and deriving a copy that is immediately discarded would be work with no consumer.
+     * Only the resolved run id, runner key and group number are forwarded, via {@link
+     * DistributedForkProperties#forkProperties} - the exact property set and rendering Maven
+     * already writes to {@code fork.properties} - so {@link
+     * DistributedForkProperties#contextFromSystemProperties()} resolves the same context on either
+     * build tool. The suite lists themselves are not forwarded: they can be large, and the fork
+     * reads them from the shared database instead.
+     *
+     * <p>The claim is also recorded in this build's {@link DistributedClaimRegistry}, keyed by
+     * this test task's path. A second test task attempting a claim in the same build finds that
+     * entry and fails loudly - splitting a runner across two test tasks cannot be made to work, see
+     * {@link DistributedClaimRegistry#recordClaim} for why - rather than the two test tasks'
+     * claims silently colliding, one group being claimed twice and another left {@code PENDING}
+     * forever with the run never sealing and nothing telling the user why.
      *
      * @param testTask the test task whose forked JVM receives the claimed run id, runner key and
      *                 group number
      * @param tiaTaskExtension the test task's own resolved Tia extension - already merged with the
      *                         project-level extension by {@link #populateTestTaskExtension} - which
-     *                         carries the distributed master switch, the run id and the configured
-     *                         runner key
-     * @return this test task's claimed assignment, or null when this build is not a distributed
-     *         runner (nothing is forwarded to the fork in that case, either)
+     *                         carries the distributed master switch, the run id, the configured
+     *                         runner key and the update-DB flags the registry records for the finalizer
+     * @return this test task's recorded claim, or null when this build is not a distributed runner
+     *         (nothing is forwarded to the fork or recorded in the registry in that case, either)
      * @throws IllegalStateException if the distributed-run preconditions fail (Tia disabled, a
      *                                multi-project reactor, an embedded database, or local-changes
-     *                                checking enabled), or if no run is planned under the
-     *                                configured run id, or if the plan was built against a
-     *                                different commit than this workspace is on - all of which must
-     *                                fail this test task's build rather than let it start a forked
-     *                                JVM with no claim to run against
+     *                                checking enabled), if no run is planned under the configured
+     *                                run id, if the plan was built against a different commit than
+     *                                this workspace is on, or if a different test task already
+     *                                claimed in this build - all of which must fail this test
+     *                                task's build rather than let it start a forked JVM with no
+     *                                claim to run against, or with a claim that collides with
+     *                                another test task's
      */
-    private DistributedRunnerAssignment claimDistributedRun(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
+    private DistributedClaimRegistry.Claim claimDistributedRun(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
         if (!Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
             return null;
         }
@@ -427,20 +443,22 @@ public class TiaSpockGitGradlePluginTestExtension {
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
         VCSReader vcsReader = plugin.getVCSReader();
-        DistributedRunnerAssignment assignment;
+        ClaimOutcome outcome;
         // try-with-resources: this connection is only needed long enough to make the claim: it
         // must not stay open for the rest of the build, since nothing else this daemon-side action
         // does touches the datastore, and holding a shared-database connection open across the
         // whole test run would tie up a resource none of that work needs.
         try (DataStore dataStore = plugin.buildDataStore(vcsReader.getBranchName())) {
-            assignment = DistributedRunnerAssignment.claim(dataStore, config, vcsReader.getHeadCommit(),
-                    System.currentTimeMillis());
+            outcome = new DistributedRunCoordinator(dataStore, config)
+                    .claim(vcsReader.getHeadCommit(), System.currentTimeMillis());
         }
 
-        if (assignment.isClaimed()) {
-            LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {} and will run {} "
-                            + "test suite(s).", config.getRunId(), testTask.getPath(),
-                    assignment.getGroupNumber(), assignment.getTestsToRun().size());
+        Integer groupNumber = outcome.isClaimed()
+                ? Integer.valueOf(outcome.getGroup().getGroupNumber()) : null;
+
+        if (outcome.isClaimed()) {
+            LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",
+                    config.getRunId(), testTask.getPath(), groupNumber);
         } else {
             LOGGER.info("Tia distributed run '{}': test task '{}' claimed no group - every group "
                             + "was already claimed, so this test task will run no tests. This is "
@@ -449,12 +467,17 @@ public class TiaSpockGitGradlePluginTestExtension {
         }
 
         Map<String, String> properties = DistributedForkProperties.forkProperties(config.getRunId(),
-                assignment.getRunnerKey(), assignment.getGroupNumber());
+                outcome.getRunnerKey(), groupNumber);
         for (Map.Entry<String, String> property : properties.entrySet()) {
             testTask.systemProperty(property.getKey(), property.getValue());
         }
 
-        return assignment;
+        DistributedClaimRegistry registry =
+                DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
+        return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
+                groupNumber, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBStats()),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
     }
 
     /**
