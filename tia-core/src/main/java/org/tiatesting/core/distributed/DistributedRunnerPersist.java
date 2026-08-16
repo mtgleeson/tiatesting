@@ -160,7 +160,13 @@ public final class DistributedRunnerPersist {
      * @param suitesRan the number of suites this call's test plan executed
      * @param suitesFailed the number of this runner's suites currently failing
      * @param suitesObserved the number of suites this runner has observed so far (finished or
-     *                       skipped), cumulative across every test plan in this JVM
+     *                       skipped) that are also assigned to this group, cumulative across every
+     *                       test plan in this JVM. The caller (see {@code
+     *                       TestRunnerService#countObservedSuitesInGroup}) has already intersected
+     *                       {@link org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()}
+     *                       with this group's own assigned suites, so a foreign suite this JVM
+     *                       observed only because Tia's own deselection disabled it - never one of
+     *                       this group's suites - cannot inflate this figure
      * @return true when the guarded update applied, false when this runner's claim is no longer
      *         live
      */

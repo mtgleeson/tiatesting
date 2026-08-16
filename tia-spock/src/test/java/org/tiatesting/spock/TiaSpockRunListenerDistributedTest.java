@@ -3,7 +3,11 @@ package org.tiatesting.spock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.spockframework.runtime.model.SpecInfo;
+import org.junit.platform.engine.TestDescriptor;
+import org.junit.platform.engine.UniqueId;
+import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor;
+import org.junit.platform.engine.support.descriptor.ClassSource;
+import org.junit.platform.launcher.TestIdentifier;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -86,12 +90,17 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
-     * Drop anything a test recorded for its runner's JVM exit, close the data store so its embedded
-     * H2 database releases its file lock, then remove the temp directory.
+     * Drop anything a test recorded for its runner's JVM exit, clear the JVM-static skip observation
+     * a test may have written into via {@link #recordSpecObservedViaSkip}, close the data store so
+     * its embedded H2 database releases its file lock, then remove the temp directory. The skip set
+     * is otherwise never cleared within one JVM - production relies on that, since one Gradle test
+     * worker JVM runs exactly one build - but several {@code @Test} methods run in this one JVM, so
+     * a test that wrote into it must not leak a spec name into the next test's observation.
      */
     @AfterEach
     void tearDown() {
         DistributedRunCompletion.discardPendingCompletions();
+        SharedSpockSkipObservation.suitesObservedViaSkip().clear();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -152,17 +161,25 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
-     * Build a bare {@link SpecInfo} naming one spec, standing in for the real one Spock would build
-     * from the compiled spec class. Only {@code getPackage()}/{@code getName()} are read by anything
-     * this fixture exercises, so nothing beyond those two properties needs to be set.
+     * Drive the production skip-observation path directly, rather than the {@code
+     * TiaSpockRunListener.specSkipped} hook Spock never actually calls: build a class-level JUnit
+     * Platform {@link TestIdentifier} for the given spec name and feed it through a fresh {@link
+     * TiaSpockSkipExecutionListener}, exactly as the listener {@link TiaSpockLauncherSessionListener}
+     * registers would on a real skip. The identifier only needs a {@link ClassSource} naming the
+     * spec and a container type - nothing else the listener reads.
      *
-     * @return a spec named {@code com.example.ATest}
+     * @param specName the fully-qualified spec name to record as observed via the skip path
      */
-    private SpecInfo observedSpec() {
-        SpecInfo spec = new SpecInfo();
-        spec.setPackage("com.example");
-        spec.setName("ATest");
-        return spec;
+    private void recordSpecObservedViaSkip(final String specName) {
+        TestDescriptor descriptor = new AbstractTestDescriptor(UniqueId.forEngine("stub-spock-engine"),
+                specName, ClassSource.from(specName)) {
+            @Override
+            public Type getType() {
+                return Type.CONTAINER;
+            }
+        };
+        new TiaSpockSkipExecutionListener().executionSkipped(TestIdentifier.from(descriptor),
+                "stubbed skip for test");
     }
 
     /**
@@ -178,10 +195,11 @@ class TiaSpockRunListenerDistributedTest {
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits. specSkipped is called first so
-        // the completeness guard sees this fork having observed its one assigned suite - without it
-        // the guard would see zero observed against one assigned and block the completion.
-        listener.specSkipped(observedSpec());
+        // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
+        // records this fork's one assigned suite first, so the completeness guard sees it as
+        // observed - without it the guard would see zero observed against one assigned and block
+        // the completion.
+        recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
         DistributedRunCompletion.completePendingCompletions();
 
@@ -208,9 +226,9 @@ class TiaSpockRunListenerDistributedTest {
         DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits. specSkipped is called first so
-        // the completeness guard sees this fork having observed its one assigned suite.
-        listener.specSkipped(observedSpec());
+        // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
+        // records this fork's one assigned suite first, so the completeness guard sees it as observed.
+        recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
         DistributedRunCompletion.completePendingCompletions();
 

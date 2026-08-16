@@ -433,7 +433,11 @@ class DistributedRunSealerTest {
     @Test
     void aMethodReachableOnlyFromTheLastGroupToFinishSurvivesTheSeal() {
         // given - a two-group plan, and two runners each covering one method nothing else reaches
-        persistPlan(RUN_ID, 2, null);
+        // The plan assigns the suites these runners actually execute, so the completeness guard's
+        // intersection of observed against assigned is non-empty. Each runner observes both suites
+        // (Tia disables the other group's suite rather than filtering it out, so it is still
+        // reported as skipped), and only the one in its own group counts toward its completion.
+        persistPlanWithSuitesPerGroup(RUN_ID, "com.example.ATest", "com.example.BTest");
         TestRunnerService service = new TestRunnerService(dataStore);
         DistributedRunnerContext firstRunner = claim(RUN_ID, RUNNER_A);
         DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
@@ -542,6 +546,29 @@ class DistributedRunSealerTest {
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
                         1000L * groupCount, 1234L), groups, suites, drainResult));
+    }
+
+    /**
+     * Build and persist a plan whose groups carry caller-chosen suite names, one group per name, so
+     * a test driving the real persist can assign the same suites its runners actually execute. The
+     * generic {@link #persistPlan} names its suites after the group index, which is fine for tests
+     * that never run one - but a runner's completion is guarded on how many of <em>its own</em>
+     * assigned suites it observed, so a plan naming suites no runner touches can never complete.
+     *
+     * @param runId the run identifier to plan under
+     * @param suitePerGroup one suite name per group, in group order; the plan's group count is the
+     *                      number of names given
+     */
+    private void persistPlanWithSuitesPerGroup(final String runId, final String... suitePerGroup) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        Map<Integer, List<String>> suites = new HashMap<>();
+        for (int i = 0; i < suitePerGroup.length; i++) {
+            groups.add(DistributedRunGroup.pending(runId, i, 1000L));
+            suites.put(i, Arrays.asList(suitePerGroup[i]));
+        }
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", PLAN_COMMIT, suitePerGroup.length, null,
+                        1000L * suitePerGroup.length, 1234L), groups, suites, null));
     }
 
     /**

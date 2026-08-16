@@ -35,11 +35,16 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Set<String> testSuitesFailed;
     private final Set<String> testSuitesProcessed;
     /*
-    The suites this JVM has actually observed - those it has seen finish (afterSpec) or seen skipped
-    (specSkipped) - with no directory-scan or spec-visiting override, unlike the runnerTestSuites the
-    global extension hands to finishAllTests (which tracks every spec visitSpec sees, whether or not
-    this JVM ever got to run it). This, not that set, is what feeds the distributed completeness
-    guard: see TestRunResult#getSuitesObserved. One listener instance is used for the whole JVM (no
+    The suites this JVM has actually observed - those it has seen finish (afterSpec) - with no
+    directory-scan or spec-visiting override, unlike the runnerTestSuites the global extension hands
+    to finishAllTests (which tracks every spec visitSpec sees, whether or not this JVM ever got to
+    run it). Spec-level skips are NOT recorded here directly: Spock never calls IRunListener's own
+    specSkipped hook (verified against the compiled spock-core jar - only the delegating wrapper
+    listeners call it, the engine never does), so that observation is sourced instead from the JUnit
+    Platform's executionSkipped via TiaSpockSkipExecutionListener, which writes into the JVM-static
+    SharedSpockSkipObservation; finishAllTests merges that set in below before persisting. This
+    field, once merged, is what feeds the distributed completeness guard: see
+    TestRunResult#getSuitesObserved. One listener instance is used for the whole JVM (no
     Surefire-retry-style re-creation on the Gradle/Spock side), so a plain field is enough.
      */
     private final Set<String> suitesObserved;
@@ -130,31 +135,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
     }
 
     /**
-     * Called when a spec is skipped, whether by an {@code @Ignore}-style annotation or
-     * programmatically (Tia's own selection calls {@code spec.skip(...)}). Records the spec as
-     * observed by this JVM even though it never ran, so a skipped spec does not make the
-     * distributed completeness guard wait for it forever - mirroring the JUnit5 listener's
-     * {@code executionSkipped}.
-     *
-     * @param spec the spec that was skipped
-     */
-    @Override
-    public void specSkipped(SpecInfo spec) {
-        String specName = specificationUtil.getSpecName(spec);
-        log.info(specName + " was skipped!");
-        suitesObserved.add(specName);
-
-        /*
-        Note, we don't need to reset stats for Ignore:
-        1. when the test file spec is ignored, this method is not called.
-        2. when at least 1 test in the suite is ignored, this method is not called either.
-         */
-    }
-
-    /**
-     * Called once a spec has finished running (not when it was skipped - {@code specSkipped} covers
-     * that). Collects its coverage and records it as observed by this JVM, mirroring the JUnit5
-     * listener's {@code executionFinished}/{@code testSuiteFinished}.
+     * Called once a spec has finished running - not called at all when the spec was skipped, since
+     * Spock's engine never invokes {@code IRunListener.specSkipped} (verified against the compiled
+     * spock-core jar; see {@link TiaSpockSkipExecutionListener} for where the skip observation comes
+     * from instead). Collects its coverage and records it as observed by this JVM, mirroring the
+     * JUnit5 listener's {@code executionFinished}/{@code testSuiteFinished}.
      *
      * @param spec the spec that finished
      */
@@ -208,6 +193,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
         TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
+        // Merge in the specs this JVM's JUnit Platform listener saw skipped - see the field comment
+        // above and TiaSpockSkipExecutionListener for why that observation cannot come from Spock's
+        // own specSkipped hook. Merged here, once, rather than as each skip happens, since this is
+        // the one point every skip this JVM will ever see has already been recorded by.
+        suitesObserved.addAll(SharedSpockSkipObservation.suitesObservedViaSkip());
         // Spock is not affected by the JUnit5/JUnit4 retry-inflation bug: finishAllTests fires
         // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
         // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the

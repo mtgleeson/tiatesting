@@ -215,6 +215,31 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
+     * The {@code GREATEST} behaviour {@code JdbcDataStore.java}'s {@code reportGroupProgress} SQL
+     * relies on, isolated from every other test in this class: every existing progress test feeds a
+     * non-decreasing observed count across calls, so reverting the column write from {@code
+     * GREATEST(COALESCE(suites_observed, 0), ?)} to a plain {@code = ?} would still pass the whole
+     * suite. A smaller observed count following a larger one - the shape a late-arriving report with
+     * a shrunk view of the JVM's cumulative observed set could produce - must leave the larger,
+     * already-stored value in place rather than regress it.
+     */
+    @Test
+    void shouldNotLowerTheStoredObservedCountWhenALaterReportIsSmaller() {
+        // given - the first report observes 49 of the group's 50 assigned suites
+        persistPlanWithOneGroupOfSuites("run-1", 50);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 49));
+
+        // when - a later report in the same JVM carries a smaller observed count
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1_000L, 1, 0, 30));
+
+        // then
+        assertEquals(49, storedGroup("run-1", 0).getSuitesObserved(),
+                "a smaller later report must not regress the stored observed count below the "
+                        + "larger value an earlier report already established");
+    }
+
+    /**
      * Verify that completing a group that already reached {@code COMPLETED} returns {@code null}
      * and leaves the first completion's figures untouched, so a duplicate completion (a retried
      * process finishing a group its predecessor already finished) can never overwrite the recorded

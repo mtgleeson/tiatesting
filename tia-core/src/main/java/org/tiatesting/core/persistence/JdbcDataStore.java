@@ -3864,13 +3864,16 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Build the migration that backfills the {@code tia_distributed_run_group.suites_observed}
-     * column onto a group table created before the column was renamed from {@code
-     * suites_discovered}. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and a no-op on a table
-     * {@link #buildCreateDistributedRunGroupTableSql} just created, since that DDL already names the
-     * column. Without this, a datastore whose {@code tia_distributed_run_group} table already
-     * existed under the old name would never gain the new column and the next plan write would fail
-     * with "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never alters an
-     * already-existing table.
+     * column onto a group table created before the column existed. Idempotent via {@code ADD
+     * COLUMN IF NOT EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunGroupTableSql}
+     * just created, since that DDL already names the column. Covers two distinct prior shapes of the
+     * table: one created before distributed runs had a {@code suites_observed} concept at all, and
+     * one created back when the same column existed under its earlier name, {@code
+     * suites_discovered} - this migration only adds the new column in both cases, it does not rename
+     * or drop the old one, so a store migrated from the older name is left with both columns, the old
+     * one unused. Without this migration, either prior shape would fail the next plan write with
+     * "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never alters an already-existing
+     * table.
      *
      * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
      */

@@ -327,6 +327,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         updateTrackerStatsForFailedRun(testSuiteName);
     }
 
+    /**
+     * Record a test suite's completion: its stats, its coverage (when mapping is on) and, always,
+     * that this JVM observed it. Called once per suite per test plan, so the observed and
+     * runner-suite sets are additive across Surefire retries rather than replaced by the latest one.
+     *
+     * @param testIdentifier the identifier of the test suite that finished
+     */
     private void testSuiteFinished(TestIdentifier testIdentifier) {
         String testSuiteName = getTestSuiteName(testIdentifier);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);

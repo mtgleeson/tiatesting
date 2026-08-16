@@ -491,7 +491,11 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * Build and persist a distributed run plan with one suite per group.
+     * Build and persist a distributed run plan with one suite per group. Groups 0 and 1 are assigned
+     * {@code com.example.ATest} and {@code com.example.BTest} respectively - the two suite names
+     * {@link #runResultFor} always reports as observed - so a persist driven through the real
+     * {@link TestRunnerService} (rather than {@link #completeGroup}'s raw counts) still finds its
+     * group's assignment inside its observed set.
      *
      * @param runId the run identifier to plan under
      * @param groupCount how many groups the plan is split into
@@ -501,7 +505,13 @@ class DistributedRunSealerStatsHistoryTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         for (int i = 0; i < groupCount; i++) {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
-            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            if (i == 0) {
+                suites.put(i, Arrays.asList("com.example.ATest"));
+            } else if (i == 1) {
+                suites.put(i, Arrays.asList("com.example.BTest"));
+            } else {
+                suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            }
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,

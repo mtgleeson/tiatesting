@@ -232,25 +232,64 @@ public class TestRunnerService {
         //    to shrink it back to zero. suitesObserved also replaces what was stored (via GREATEST,
         //    see DataStore#reportGroupProgress), but for a different reason: getSuitesObserved() is
         //    already cumulative across every test plan in this JVM, so accumulating it here would
-        //    double-count. It is deliberately fed from getSuitesObserved(), not
-        //    getRunnerTestSuites() - the latter can be a project-wide directory scan on Maven
-        //    (testClassesDir) that carries no information about this runner's own progress, which is
-        //    exactly the bug that motivated splitting the two sets. suitesObserved is what the
-        //    completeness guard later reads, not suitesRan, so a suite the runner observed but never
-        //    executed (a disabled class, a Surefire/Gradle filter, a class deleted since the last
-        //    mapping run) does not block the group from completing. The status flip itself is not
-        //    made here: this runs once per finished test plan, and a retry is another test plan in
-        //    the same JVM, so flipping the group to COMPLETED here would release the barrier after
-        //    the first test plan while this runner is still executing tests. It is recorded instead,
-        //    and made once when the JVM exits.
+        //    double-count. It is deliberately fed from the intersection of getSuitesObserved() with
+        //    this group's own assigned suites (see countObservedSuitesInGroup), not from
+        //    getSuitesObserved() alone and not from getRunnerTestSuites(). getRunnerTestSuites() can
+        //    be a project-wide directory scan on Maven (testClassesDir) that carries no information
+        //    about this runner's own progress, which was the second bug in this guard's history; the
+        //    third was feeding the guard from the raw size of getSuitesObserved(), which on Maven
+        //    also counts every foreign suite this JVM's ByteBuddy-disabled classes fire
+        //    executionSkipped for - suites Tia deselected onto other groups, not suites this group
+        //    was ever assigned. Intersecting with the assigned list is what makes the count exact
+        //    regardless of how many foreign suites this JVM happened to observe. suitesObserved is
+        //    what the completeness guard later reads, not suitesRan, so a suite the runner observed
+        //    but never executed (a disabled class, a Surefire/Gradle filter, a class deleted since
+        //    the last mapping run) does not block the group from completing, as long as it is one of
+        //    this group's own assigned suites. The status flip itself is not made here: this runs
+        //    once per finished test plan, and a retry is another test plan in the same JVM, so
+        //    flipping the group to COMPLETED here would release the barrier after the first test plan
+        //    while this runner is still executing tests. It is recorded instead, and made once when
+        //    the JVM exits.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
-        int suitesObserved = testRunResult.getSuitesObserved() != null
-                ? testRunResult.getSuitesObserved().size() : 0;
+        int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),
+                distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
         runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved);
         DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
                 updateDBMapping, updateDBStats, updateDBTestRunHistory);
+    }
+
+    /**
+     * Scope a runner's observed-suite set down to the suites the plan actually assigned to its
+     * group, so the completeness guard can never be satisfied by suites this JVM observed for an
+     * unrelated reason. On Maven, Tia's own group-based deselection injects
+     * {@code @Disabled}/{@code @Ignore} onto every suite outside this runner's group; those classes
+     * are still discovered and loaded, so each one fires {@code executionSkipped} and lands in
+     * {@link TestRunResult#getSuitesObserved()} exactly like one of this group's own suites - a
+     * 500-suite project split into 10 groups of 50 would otherwise let group 0 see ~450 foreign
+     * suites, satisfying {@code observed >= assignedCount} on the very first persist regardless of
+     * how far this runner actually got. Comparing the same set on both sides - {@code |observed
+     * INTERSECT assigned|} rather than {@code |observed|} - is what makes the guard exact by
+     * construction. One extra read per persist, on the order of tens of rows for a group's suite
+     * list; not on the {@code select-tests} hot path.
+     *
+     * @param suitesObserved the suites this runner's JVM has observed so far (finished or skipped),
+     *                       potentially including suites outside this group's assignment; may be
+     *                       null or empty
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @return the count of suites in {@code suitesObserved} that are also assigned to this group
+     */
+    private int countObservedSuitesInGroup(final Set<String> suitesObserved, final String runId,
+                                           final int groupNumber) {
+        if (suitesObserved == null || suitesObserved.isEmpty()) {
+            return 0;
+        }
+
+        Set<String> assignedSuites = new HashSet<>(dataStore.readDistributedRunGroupSuites(runId, groupNumber));
+        assignedSuites.retainAll(suitesObserved);
+        return assignedSuites.size();
     }
 
     /**
