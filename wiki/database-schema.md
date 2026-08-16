@@ -3,11 +3,15 @@
 Tia stores everything in a single H2 database (embedded file or server mode) - or the equivalent
 Postgres schema, see the [pluggable datastore](pluggable-datastore.md) chapter. All DDL lives in
 `JdbcDataStore` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The tables
-fall into three clusters: the **mapping** cluster (what test covers what code - the bulk of the
+fall into four clusters: the **mapping** cluster (what test covers what code - the bulk of the
 data), the **library-impact** cluster (see the
-[library publish-time stamping](library-publish-time-stamping.md) chapter), and a few
+[library publish-time stamping](library-publish-time-stamping.md) chapter), the **distributed-run**
+cluster (see the [distributed test runs](distributed-test-runs.md) chapter), and a few
 **standalone** header/audit tables, one of which - `tia_id_block` - exists purely to allocate ids,
 not to store mapping or audit data.
+
+The distributed-run cluster is the only one whose rows are transient: they describe one in-flight
+build, and the next plan write for the branch clears them.
 
 ```mermaid
 erDiagram
@@ -18,6 +22,9 @@ erDiagram
     tia_library ||--o{ tia_pending_library_impacted_method : "FK (cascade)"
     tia_library_publish ||--o{ tia_pending_library_impacted_method : "by publish seq"
     tia_source_method ||--o{ tia_pending_library_impacted_method : "by method id"
+    tia_distributed_run ||--o{ tia_distributed_run_group : "by run id"
+    tia_distributed_run_group ||--o{ tia_distributed_run_group_suite : "by run id + group"
+    tia_distributed_run ||--o{ tia_distributed_run_method_stage : "by run id"
 
     tia_core {
         VARCHAR commit_value PK
@@ -107,11 +114,55 @@ erDiagram
         VARCHAR block_name PK
         BIGINT next_value
     }
+
+    tia_distributed_run {
+        VARCHAR run_id PK
+        VARCHAR branch
+        VARCHAR commit_value
+        VARCHAR status
+        INT group_count
+        BIGINT target_run_time_ms
+        BIGINT estimated_total_ms
+        BIGINT created_at
+        VARCHAR sealed_by
+        BIGINT sealed_at
+        BLOB drain_result
+    }
+
+    tia_distributed_run_group {
+        VARCHAR run_id PK
+        INT group_number PK
+        VARCHAR status
+        VARCHAR runner_key
+        BIGINT claimed_at
+        BIGINT completed_at
+        BIGINT estimated_ms
+        BIGINT actual_duration_ms
+        INT suites_ran
+        INT suites_failed
+        INT suites_observed
+    }
+
+    tia_distributed_run_group_suite {
+        VARCHAR run_id PK
+        INT group_number PK
+        VARCHAR test_suite_name PK
+    }
+
+    tia_distributed_run_method_stage {
+        VARCHAR run_id PK
+        INT id PK
+        VARCHAR method_name
+        INT line_number_start
+        INT line_number_end
+    }
 ```
 
 (`tia_core`, `tia_test_suites_failed`, `tia_test_run_history` and `tia_id_block` carry no foreign
 keys - they are linked only logically, by commit / branch / suite name, or - for `tia_id_block` -
-not linked to other rows at all; it is consulted, not joined against.)
+not linked to other rows at all; it is consulted, not joined against. The four
+`tia_distributed_run*` tables carry no declared foreign keys either - they are linked by `run_id`,
+and the plan write clears all four as a set before inserting, rather than relying on cascades.)
 
 ### Table purposes
 
@@ -147,6 +198,21 @@ not linked to other rows at all; it is consulted, not joined against.)
   next id to hand out. `allocateSourceClassIdBlock` locks a counter row with `SELECT ... FOR UPDATE`
   and advances it by the size of the block a writer needs, so concurrent writers reserve disjoint
   id ranges instead of both computing the same `MAX(id) + 1` and colliding on the primary key.
+- **tia_distributed_run** - one row per distributed run, keyed by the user-supplied `run_id`: the
+  branch and commit the plan was built from (authoritative for the seal), the run's `status`
+  (`OPEN` / `SEALED`), the plan's shape, and `sealed_by` / `sealed_at` - the election record whose
+  `IS NULL` predicate is what makes exactly one runner the sealer. `drain_result` carries the
+  library-impact drain the plan computed, for the sealer to apply once.
+- **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
+  `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
+  figures each persist accumulates. `suites_observed` is the one the completeness guard reads -
+  see the "Distributed test runs" chapter for why it is not `suites_ran`. Indexed on
+  (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
+- **tia_distributed_run_group_suite** - the plan's assignment: which suite names belong to which
+  group. Also the denominator the completeness guard counts.
+- **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the
+  sealer rebuilds `tia_source_method` from them. Staged rather than written directly because no
+  single runner sees the whole build's methods.
 
 The mapping read path runs this chain in reverse: a code change resolves changed files to
 `tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the
