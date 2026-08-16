@@ -491,9 +491,18 @@ public interface DataStore extends AutoCloseable {
      * safer than a plain replace (which could regress below an earlier, more-complete report
      * depending on write order) but does not make multi-fork correct - it is a known-unsupported
      * configuration for the mapping write already, and this call does not attempt to lift that.
-     * Gradle {@code maxParallelForks > 1} / {@code forkEvery > 0} does not have this problem: each
-     * fork constructs its own {@code TiaSpockGlobalExtension} and therefore claims its own group, so
-     * distinct forks never share a group key in the first place.
+     *
+     * <p>Gradle {@code maxParallelForks > 1} / {@code forkEvery > 0} breaks the same precondition
+     * for the same structural reason: {@code TiaSpockGitGradlePluginTestExtension.claimDistributedRun}
+     * claims once in the daemon and forwards the one run id, runner key and group number to the test
+     * task as system properties, which Gradle passes to <em>every</em> worker JVM, so all of them
+     * report against the same {@code (runId, groupNumber, runnerKey)}. Gradle's case is the worse of
+     * the two, because Gradle really does split the group's suites across its workers: no single
+     * worker ever observes the whole group, {@code GREATEST} converges on the largest worker's count
+     * which is strictly less than the group's assigned total, the completeness guard never passes,
+     * the group never completes and the run never seals - on a build that still exits green. That is
+     * why {@code claimDistributedRun} refuses both settings at configuration time rather than
+     * letting the run hang.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code

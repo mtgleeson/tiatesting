@@ -52,6 +52,15 @@ public class TiaSpockGitGradlePluginTestExtension {
         // therefore any finalizedBy wiring) is built before execution, so the finalizer must exist
         // before the doFirst action runs. See wireDistCompleteFinalizer for why this needs its own,
         // narrower resolution of the "distributed" flag rather than reusing populateTestTaskExtension.
+        //
+        // Depends on this method being reached while the project is still evaluating, because
+        // Project.afterEvaluate throws InvalidUserCodeException once evaluation is over. That holds
+        // today only because TiaSpockGitGradlePlugin.apply iterates project.getTasks().withType(
+        // Test.class) with a plain for-loop before it wires applyToDefaultTasks, which realizes
+        // every Test task during evaluation and so makes the configureEach action behind this call
+        // run then rather than later. Making that iteration lazy, or a Test task registered by a
+        // plugin applied after Tia, would push this past evaluation and break the build. The
+        // ProjectBuilder tests create their tasks eagerly and cannot catch it.
         task.getProject().afterEvaluate(p -> wireDistCompleteFinalizer(task, tiaProjectExtension, tiaTaskExtension));
 
         Action<Task> action = new Action<Task>() {
@@ -220,17 +229,18 @@ public class TiaSpockGitGradlePluginTestExtension {
 
     /**
      * Register the {@code tia-dist-complete} finalizer for this test task, and wire it as {@code
-     * testTask.finalizedBy(...)}, but only when this test task is configured for a distributed run
-     * - an ordinary, non-distributed Gradle build must gain no task and no finalizer.
+     * testTask.finalizedBy(...)}, but only when Tia is enabled and this test task is configured for
+     * a distributed run - an ordinary, non-distributed Gradle build must gain no task and no
+     * finalizer, and neither must a build that has Tia switched off, whatever else it configures.
      *
      * <p>Called from {@code project.afterEvaluate}, after the user's build script has finished
      * setting both the project-level and this task's own {@code tia { ... } } extension, since the
      * task graph - and therefore any {@code finalizedBy} wiring - is built before execution, while
      * {@link #populateTestTaskExtension} only merges the two extensions inside the test task's
      * {@code doFirst} action, which runs too late to affect the task graph. Rather than duplicate
-     * that whole merge this early, only the one flag a finalizer decision needs - {@code distributed}
-     * - is resolved here, with {@link #populateTestTaskExtension}'s same "task extension wins,
-     * project extension is the fallback" rule.
+     * that whole merge this early, only the two flags a finalizer decision needs - {@code enabled}
+     * and {@code distributed} - are resolved here, with {@link #populateTestTaskExtension}'s same
+     * "task extension wins, project extension is the fallback" rule.
      *
      * <p>Resolves the {@link TiaBasePlugin} applied to this project the same way {@link
      * #claimDistributedRun} does, via {@code withType} rather than {@code findPlugin}. Finding none
@@ -246,7 +256,18 @@ public class TiaSpockGitGradlePluginTestExtension {
      */
     private void wireDistCompleteFinalizer(final Test testTask, final TiaBaseTaskExtension tiaProjectExtension,
                                            final TiaBaseTaskExtension tiaTaskExtension) {
-        if (!resolveDistributedAtConfigurationTime(tiaProjectExtension, tiaTaskExtension)) {
+        // Disabled Tia is inert, exactly as it is on the Maven side, where
+        // AbstractTiaDistCompleteMojo.execute short-circuits on !isTiaEnabled() as its very first
+        // statement. Without this, a build with tia.distributed = true and Tia switched off would
+        // still register tia-dist-complete, still finalize the test task with it, and - with two
+        // distributed test tasks - still fail at configuration time on a guard for a run it was
+        // never going to make.
+        if (!resolveFlagAtConfigurationTime(tiaTaskExtension.getEnabled(), tiaProjectExtension.getEnabled())) {
+            return;
+        }
+
+        if (!resolveFlagAtConfigurationTime(tiaTaskExtension.getDistributed(),
+                tiaProjectExtension.getDistributed())) {
             return;
         }
 
@@ -279,19 +300,20 @@ public class TiaSpockGitGradlePluginTestExtension {
     }
 
     /**
-     * Resolve the {@code distributed} flag the same way {@link #populateTestTaskExtension} would,
-     * but standalone and safe to call at configuration time: this test task's own value if it set
-     * one, otherwise the project-level extension's value.
+     * Resolve one of the Tia extension's boolean flags the same way {@link
+     * #populateTestTaskExtension} would, but standalone and safe to call at configuration time:
+     * this test task's own value if it set one, otherwise the project-level extension's value.
      *
-     * @param tiaProjectExtension the project-level {@code tia { ... } } extension, the fallback
-     * @param tiaTaskExtension the test task's own {@code tia { ... } } extension, which wins when set
+     * <p>Used for both flags a finalizer decision needs - {@code enabled} and {@code distributed} -
+     * rather than duplicating the merge rule per flag, so the two cannot drift apart from each
+     * other or from {@link #populateTestTaskExtension}.
+     *
+     * @param taskValue the test task's own value for the flag, which wins when set
+     * @param projectValue the project-level extension's value for the flag, the fallback
      * @return true only when the resolved value is {@link Boolean#TRUE}
      */
-    private boolean resolveDistributedAtConfigurationTime(final TiaBaseTaskExtension tiaProjectExtension,
-                                                           final TiaBaseTaskExtension tiaTaskExtension) {
-        Boolean resolved = tiaTaskExtension.getDistributed() != null
-                ? tiaTaskExtension.getDistributed() : tiaProjectExtension.getDistributed();
-        return Boolean.TRUE.equals(resolved);
+    private boolean resolveFlagAtConfigurationTime(final Boolean taskValue, final Boolean projectValue) {
+        return Boolean.TRUE.equals(taskValue != null ? taskValue : projectValue);
     }
 
     /**
@@ -491,7 +513,10 @@ public class TiaSpockGitGradlePluginTestExtension {
      *         (nothing is forwarded to the fork or recorded in the registry in that case, either)
      * @throws IllegalStateException if the distributed-run preconditions fail (Tia disabled, a
      *                                multi-project reactor, an embedded database, or local-changes
-     *                                checking enabled), if no run is planned under the configured
+     *                                checking enabled), if this test task would run its group in
+     *                                more than one JVM (see {@link
+     *                                #refuseATestTaskThatForksMoreThanOneJvm}), if no run is planned
+     *                                under the configured
      *                                run id, if the plan was built against a different commit than
      *                                this workspace is on, or if a different test task already
      *                                claimed in this build - all of which must fail this test
@@ -524,6 +549,7 @@ public class TiaSpockGitGradlePluginTestExtension {
         DistributedRunPreconditions.check(true, plugin.getReactorProjects().size(),
                 plugin.getDbUrl(), plugin.getDbDialect(),
                 Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges()));
+        refuseATestTaskThatForksMoreThanOneJvm(testTask);
 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
@@ -563,6 +589,55 @@ public class TiaSpockGitGradlePluginTestExtension {
                 groupNumber, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBStats()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+    }
+
+    /**
+     * Refuse a distributed test task that would run its group in more than one JVM, rather than let
+     * the run hang - the same treatment the two-distributed-test-tasks case gets in {@link
+     * #wireDistCompleteFinalizer}, and for a failure that is even less legible without it.
+     *
+     * <p>{@code suites_observed} - the figure the completion's completeness guard reads - depends on
+     * one JVM working one group end to end, because it is written as {@code GREATEST(stored, value)}
+     * over a set that is only cumulative within a single JVM. See {@link
+     * DataStore#reportGroupProgress} for that contract. Both {@code maxParallelForks > 1} and
+     * {@code forkEvery > 0} break it here: {@link #claimDistributedRun} claims once, in the daemon,
+     * and forwards the one run id, runner key and group number as system properties, which Gradle
+     * hands to every worker JVM. Worse, Gradle really does split the group's suites across those
+     * workers, so no single worker ever observes the whole group: {@code GREATEST} settles on the
+     * largest worker's count, strictly less than the group's assigned total, the guard never passes,
+     * the group never completes and the run never seals. Nothing fails while that happens - the
+     * completion is a no-op both build tools treat as normal - so the user would get a green build
+     * and a Tia database that silently stopped advancing.
+     *
+     * <p>The check is exact rather than a heuristic: this action runs in the daemon, which holds the
+     * {@link Test} task, so it reads the two settings straight off it. Nothing beyond those two
+     * properties is inspected.
+     *
+     * @param testTask the distributed test task to check the forking settings of
+     * @throws IllegalStateException if the test task sets {@code maxParallelForks} above one or
+     *                                {@code forkEvery} above zero
+     */
+    private void refuseATestTaskThatForksMoreThanOneJvm(final Test testTask) {
+        String forkingSetting = null;
+        if (testTask.getMaxParallelForks() > 1) {
+            forkingSetting = "maxParallelForks = " + testTask.getMaxParallelForks();
+        } else if (testTask.getForkEvery() > 0) {
+            forkingSetting = "forkEvery = " + testTask.getForkEvery();
+        }
+
+        if (forkingSetting == null) {
+            return;
+        }
+
+        throw new IllegalStateException("Test task '" + testTask.getPath() + "' is configured for a "
+                + "distributed test run, but also sets " + forkingSetting + ". A distributed run "
+                + "needs one JVM per group: the group is claimed once here in the daemon and its "
+                + "run id, runner key and group number are forwarded to every worker JVM Gradle "
+                + "starts, while Gradle splits the group's suites across those workers - so no "
+                + "single worker ever observes the whole group, the completion's suites-observed "
+                + "guard would never be satisfied, the group would never complete and the run would "
+                + "never seal. Remove that setting from this test task and take the parallelism from "
+                + "the plan instead - more CI jobs, each one runner claiming one group.");
     }
 
     /**
