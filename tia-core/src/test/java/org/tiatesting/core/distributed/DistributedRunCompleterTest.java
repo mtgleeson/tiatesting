@@ -34,28 +34,27 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Lock the one thing that must happen once per test JVM rather than once per test plan: releasing
- * the barrier.
+ * Cover {@link DistributedRunCompleter#completeAndSeal}, the sequence that replaced the JVM shutdown
+ * hook this project used to release the distributed barrier from. Every completion here is driven by
+ * an explicit call, the way {@code AbstractTiaDistCompleteMojo} and {@code TiaDistCompleteTask} now
+ * make it, rather than by simulating a JVM exit - a test cannot exit the JVM it runs in, and there is
+ * no longer any pending state for it to simulate exiting into.
  *
- * <p>{@code persistTestRunData} runs on every {@code testPlanExecutionFinished}, and a Surefire
- * retry produces another test plan in the same JVM, so several persists per JVM is routine. The
- * mapping writes each of those persists makes are cumulative and safe, but completing the group is
- * not: it releases the barrier the sealer waits on, so a group completed after the first test plan
- * lets the build seal while this JVM is still executing tests - and the catalogue is then rebuilt
- * from an edge set missing everything the later test plans covered. That is silent under-selection,
- * the failure this whole feature exists to prevent.
- *
- * <p>These tests drive the completion directly rather than by exiting a JVM, since a test cannot
- * exit the JVM it runs in. What a real shutdown hook adds on top - that it runs at all, and that it
- * runs after the last test plan - is the JVM's contract, not this code's.
+ * <p>Two things this class exists to lock down that a plain "does it complete and seal" test would
+ * not: a test plan finishing is not the same event as the explicit completion (several persists in
+ * one JVM must not complete the group early, and the completion must still see everything those
+ * persists wrote), and a failure is no longer swallowed the way the shutdown hook swallowed it - it
+ * propagates, and {@link DistributedRunCompleter.SealFailedAfterCompletionException} is what tells a
+ * caller which side of the barrier it happened on.
  *
  * <p>Runs against a real embedded H2 {@link JdbcDataStore} subclassed to record its write calls, so
  * "nothing completed the group yet" is asserted as an absent write rather than inferred.
  */
-class DistributedRunCompletionTest {
+class DistributedRunCompleterTest {
 
     private static final String RUN_ID = "run-1";
     private static final String RUNNER_KEY = "runner-a";
@@ -77,7 +76,7 @@ class DistributedRunCompletionTest {
      */
     @BeforeEach
     void setUp() throws Exception {
-        tempDir = File.createTempFile("tia-distributed-completion-", "");
+        tempDir = File.createTempFile("tia-distributed-completer-", "");
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new RecordingDataStore(tempDir);
@@ -93,13 +92,10 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * Drop anything this test recorded for JVM exit before closing the store, so a test that
-     * deliberately leaves a completion pending cannot carry it into the next test - or into the
-     * real shutdown of the Gradle test JVM, where its store is long closed.
+     * Close the store so embedded H2 releases its file lock, then remove the temp directory.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -115,36 +111,12 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * The defect this stage fixes: the first of a JVM's test plans must not complete the group. Its
-     * completion would release the barrier while this JVM is still running tests, letting another
-     * runner seal a build whose coverage is not all written yet.
+     * The defect the barrier move fixed, seen from the new shared method's side: two test plans in
+     * one JVM must not complete the group on their own, and the explicit completion the build tool
+     * makes afterwards must be the only thing that does - once, not once per test plan.
      */
     @Test
-    void theFirstOfSeveralTestPlansDoesNotCompleteTheGroup() {
-        // given
-        persistPlan(RUN_ID, 2);
-        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-
-        // when - one test plan finishes and persists, and the JVM keeps running
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0),
-                context);
-
-        // then
-        assertEquals(0, Collections.frequency(dataStore.callOrder, "completeGroup"),
-                "a test plan finishing is not the JVM finishing, so nothing may release the "
-                        + "barrier yet. Call order: " + dataStore.callOrder);
-        assertEquals(DistributedRunGroupStatus.CLAIMED, readGroup(RUN_ID, 0).getStatus(),
-                "the group must still be claimed while the runner's JVM is alive");
-    }
-
-    /**
-     * Two test plans in one JVM complete the group exactly once, when the JVM exits. Completing it
-     * twice would be a second guarded write against an already-completed row, and a second sealer
-     * election with it.
-     */
-    @Test
-    void twoTestPlansInOneJvmCompleteTheGroupExactlyOnceAtJvmExit() {
+    void twoTestPlansInOneJvmCompleteTheGroupExactlyOnceWhenExplicitlyCompleted() {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
@@ -154,67 +126,31 @@ class DistributedRunCompletionTest {
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_SECOND_PLAN, METHOD_SECOND_PLAN, 1, 0),
                 context);
+        assertEquals(0, Collections.frequency(dataStore.callOrder, "completeGroup"),
+                "neither test plan finishing may complete the group on its own. Call order: "
+                        + dataStore.callOrder);
 
-        int writesBeforeExit = dataStore.callOrder.size();
-
-        // when - the JVM exits
-        DistributedRunCompletion.completePendingCompletions();
+        // when
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
 
         // then
-        List<String> writesAtExit = dataStore.callOrder.subList(writesBeforeExit,
-                dataStore.callOrder.size());
-        assertEquals(1, Collections.frequency(writesAtExit, "completeGroup"),
-                "the JVM exit is what completes the group. Writes at exit: " + writesAtExit);
         assertEquals(1, Collections.frequency(dataStore.callOrder, "completeGroup"),
-                "the group must be completed once for the JVM, not once per test plan. Call order: "
+                "the explicit completion must complete the group exactly once. Call order: "
                         + dataStore.callOrder);
         assertEquals(DistributedRunGroupStatus.COMPLETED, readGroup(RUN_ID, 0).getStatus(),
-                "the group must be complete once its runner's JVM has exited");
+                "the group must be complete once the build tool has explicitly completed it");
     }
 
     /**
-     * The counter-versus-state distinction task 2 fixes: each test plan's {@code suitesRan} and
-     * duration are per-attempt figures that must sum across the JVM's test plans, matching what a
-     * single-host run would produce across its several history rows, while {@code suitesFailed} is
-     * current state and must reflect only the latest report - a suite that passes on retry has to
-     * be able to leave the failed set, and accumulating it would instead record a fixed suite as
-     * permanently failed.
+     * The bug the barrier move exists to fix, seen from the mapping side: a second test plan's suite
+     * rows and staged trackers must still be written even though nothing has completed the group yet.
+     * With the group completed by the first test plan (the old, wrong behaviour), the second would
+     * find its claim dead and skip every write it had - so the coverage it observed would never reach
+     * the edge table the sealer rebuilds the catalogue from.
      */
     @Test
-    void theCompletedGroupSumsCountersButKeepsOnlyTheLatestFailedSet() {
-        // given
-        persistPlan(RUN_ID, 2);
-        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis() - 1000L,
-                resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0), context);
-
-        // when - a retry reports 3 more suites with 1 failure, then the JVM exits
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis() - 5000L,
-                resultFor(SUITE_SECOND_PLAN, METHOD_SECOND_PLAN, 3, 1), context);
-        DistributedRunCompletion.completePendingCompletions();
-
-        // then
-        DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(5, group.getSuitesRan(),
-                "the two test plans' suite counts must sum (2 + 3), not the last one replace the first");
-        assertEquals(1, group.getSuitesFailed(),
-                "the failed count must reflect only the latest report");
-        assertNotNull(group.getActualDurationMs());
-        assertTrue(group.getActualDurationMs() >= 6000L,
-                "the two test plans' durations must sum too (roughly 1000ms + 5000ms), was "
-                        + group.getActualDurationMs());
-    }
-
-    /**
-     * The bug the barrier move exists to fix, seen from the mapping side: a second test plan's
-     * suite rows and staged trackers must still be written. With the group completed by the first
-     * test plan, the second finds its claim dead and skips every write it had - so the coverage it
-     * observed never reaches the edge table the sealer rebuilds the catalogue from.
-     */
-    @Test
-    void aSecondTestPlansMappingWritesStillHappen() {
+    void aSecondTestPlansMappingWritesStillHappenBeforeTheExplicitCompletion() {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
@@ -238,85 +174,89 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * A surplus runner - one a pipeline fanned out wider than the plan's group count - has no group
-     * to complete, so it records nothing for JVM exit and the exit does nothing at all.
+     * {@code completeGroup} returning null - the claim died, or the group was already completed - is
+     * a normal outcome, so a second call after a successful one must return quietly rather than throw
+     * or attempt a second election.
      */
     @Test
-    void aSurplusRunnerRecordsNoCompletionForJvmExit() {
+    void aSecondCallAfterTheGroupIsAlreadyCompletedReturnsQuietlyWithoutAttemptingASecondElection() {
         // given
         persistPlan(RUN_ID, 1);
-        claimGroup(RUN_ID, "runner-b");
-        DistributedRunnerContext context = DistributedRunnerContext.surplusRunner(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis(), emptyResult(), context);
-        dataStore.callOrder.clear();
-
-        // when
-        DistributedRunCompletion.completePendingCompletions();
-
-        // then
-        assertEquals(Collections.<String>emptyList(), dataStore.callOrder,
-                "a runner with no group must have nothing to do when its JVM exits");
-        assertEquals(DistributedRunGroupStatus.CLAIMED, readGroup(RUN_ID, 0).getStatus(),
-                "a surplus runner must not complete the group another runner holds");
-    }
-
-    /**
-     * A completion that fails at JVM exit must leave evidence and let the JVM go. Anything thrown
-     * out of a shutdown hook vanishes without a trace, so the failure is caught, logged against the
-     * run and group it belongs to, and swallowed - the build simply does not seal, which is the
-     * safe direction.
-     */
-    @Test
-    void aCompletionThatFailsAtJvmExitDoesNotEscapeTheHook() {
-        // given
-        persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0),
+                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
-        dataStore.failCompleteGroup = true;
-        int writesBeforeExit = dataStore.callOrder.size();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
+        assertEquals(1, Collections.frequency(dataStore.callOrder, "electSealer"),
+                "test setup expects the first call to have stood for election");
+        dataStore.callOrder.clear();
 
         // when / then
-        assertDoesNotThrow(DistributedRunCompletion::completePendingCompletions,
-                "a shutdown hook that throws kills the exit path and hides the cause");
-        List<String> writesAtExit = dataStore.callOrder.subList(writesBeforeExit,
-                dataStore.callOrder.size());
-        assertTrue(writesAtExit.contains("completeGroup"),
-                "the exit must actually have attempted the completion that failed. Writes at exit: "
-                        + writesAtExit);
+        assertDoesNotThrow(() -> DistributedRunCompleter.completeAndSeal(dataStore, context, true,
+                        true, true, System.currentTimeMillis()),
+                "a rejected completion must not be reported as a failure");
+        assertEquals(Collections.singletonList("completeGroup"), dataStore.callOrder,
+                "the second call may attempt the guarded completion write, but that write must be "
+                        + "the only thing it does - it must not re-run the election. Call order: "
+                        + dataStore.callOrder);
     }
 
     /**
-     * A completion that failed is not left behind to be attempted again: the recording is taken
-     * before it is run, so one exit means one attempt however it turns out.
+     * The requirement this class replaces the shutdown hook's swallow-everything behaviour with: a
+     * failure completing the group must propagate rather than be caught and logged, since both
+     * callers are now ordinary build steps that must fail loudly. The group itself is left exactly as
+     * it was, since the failure happened before the completion took effect.
      */
     @Test
-    void aFailedCompletionIsNotRetriedOnALaterExit() {
+    void aFailureCompletingTheGroupPropagatesRatherThanBeingSwallowed() {
         // given
-        persistPlan(RUN_ID, 2);
+        persistPlan(RUN_ID, 1);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
         service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
-                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0),
+                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
         dataStore.failCompleteGroup = true;
-        int writesBeforeExit = dataStore.callOrder.size();
-        DistributedRunCompletion.completePendingCompletions();
-        assertTrue(dataStore.callOrder.subList(writesBeforeExit, dataStore.callOrder.size())
-                        .contains("completeGroup"),
-                "the first exit must have attempted the completion. Call order: "
-                        + dataStore.callOrder);
-        dataStore.failCompleteGroup = false;
-        dataStore.callOrder.clear();
 
-        // when
-        DistributedRunCompletion.completePendingCompletions();
+        // when / then
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                        System.currentTimeMillis()),
+                "a failure completing the group must not be swallowed");
+        assertTrue(thrown instanceof IllegalStateException,
+                "the original failure must propagate unwrapped, was: " + thrown);
+        assertEquals(DistributedRunGroupStatus.CLAIMED, readGroup(RUN_ID, 0).getStatus(),
+                "the group must be left exactly as it was when completing it failed");
+    }
 
-        // then
-        assertEquals(Collections.<String>emptyList(), dataStore.callOrder,
-                "a completion is attempted once per recording, not retried. Call order: "
-                        + dataStore.callOrder);
+    /**
+     * The design decision this class documents: a failure electing or sealing, once the group has
+     * already completed, is reported as {@link DistributedRunCompleter.SealFailedAfterCompletionException}
+     * rather than a plain failure, so a caller catching it can tell "never completed" apart from
+     * "completed, but the seal that followed it failed" - and the group really is left {@code
+     * COMPLETED}, matching what the exception reports.
+     */
+    @Test
+    void aFailureSealingAfterTheGroupCompletedIsReportedAsSealFailedAfterCompletion() {
+        // given
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+                System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
+                context);
+        dataStore.failElectSealer = true;
+
+        // when / then
+        DistributedRunCompleter.SealFailedAfterCompletionException thrown = assertThrows(
+                DistributedRunCompleter.SealFailedAfterCompletionException.class,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                        System.currentTimeMillis()),
+                "a failure sealing after the group completed must be reported distinctly");
+        assertTrue(thrown.getCause() instanceof IllegalStateException,
+                "the original failure must be preserved as the cause, was: " + thrown.getCause());
+        assertEquals(DistributedRunGroupStatus.COMPLETED, readGroup(RUN_ID, 0).getStatus(),
+                "the group must really be COMPLETED, matching what the exception reports - an "
+                        + "operator must not go looking for a row that is still CLAIMED");
     }
 
     /**
@@ -410,25 +350,15 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * Build the result a runner that executed nothing reports - what a surplus runner produces.
-     *
-     * @return an empty result for the surplus-runner path
-     */
-    private TestRunResult emptyResult() {
-        return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
-                new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0);
-    }
-
-    /**
      * An embedded-H2 {@link JdbcDataStore} that records the write calls these tests assert on and
-     * can be told to fail the completion, which is how the JVM-exit failure path is exercised
-     * without a broken database.
+     * can be told to fail the completion or the election, which is how the failure-propagation and
+     * seal-after-completion paths are exercised without a broken database.
      */
     private static final class RecordingDataStore extends JdbcDataStore {
 
         private final List<String> callOrder = new ArrayList<>();
         private boolean failCompleteGroup;
+        private boolean failElectSealer;
 
         /**
          * Open an embedded H2 store under a test-owned directory, in the same per-branch schema the
@@ -468,9 +398,8 @@ class DistributedRunCompletionTest {
         }
 
         /**
-         * Delegate the progress report, which is not subject to the JVM-exit failure path this
-         * class can simulate on the completion. Not recorded in {@code callOrder}: no test in this
-         * class asserts on where it falls in the write order.
+         * Delegate the progress report. Not recorded in {@code callOrder}: no test in this class
+         * asserts on where it falls in the write order.
          *
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
@@ -493,7 +422,7 @@ class DistributedRunCompletionTest {
 
         /**
          * Record and delegate the group completion, or fail it outright when the test has asked for
-         * the JVM-exit failure path.
+         * the completion-failure path.
          *
          * @param runId the run the group belongs to
          * @param groupNumber the group's zero-based index within the run
@@ -506,14 +435,14 @@ class DistributedRunCompletionTest {
                                                  final String runnerKey, final long completedAtMs) {
             callOrder.add("completeGroup");
             if (failCompleteGroup) {
-                throw new IllegalStateException("the database went away as the JVM was exiting");
+                throw new IllegalStateException("the database went away while completing the group");
             }
             return super.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
         }
 
         /**
-         * Record and delegate the sealer election, so a test can assert that a runner which never
-         * completed its group never stood for it.
+         * Record and delegate the sealer election, or fail it outright when the test has asked for
+         * the seal-after-completion failure path.
          *
          * @param runId the run to elect within
          * @param runnerKey the calling runner's identity
@@ -523,6 +452,9 @@ class DistributedRunCompletionTest {
         @Override
         public boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs) {
             callOrder.add("electSealer");
+            if (failElectSealer) {
+                throw new IllegalStateException("the database went away while electing the sealer");
+            }
             return super.electSealer(runId, runnerKey, sealedAtMs);
         }
     }

@@ -2,7 +2,6 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.distributed.DistributedRunCompletion;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.TestRunHistoryEntry;
@@ -148,8 +147,10 @@ public class TestRunnerService {
      *       test plans covered, dropping every method reachable only from those suites and making
      *       them invisible to the next build's diff. This runner's duration and suite counters are
      *       still reported on every persist, so they accumulate correctly across retries; only the
-     *       status flip is deferred, recorded with {@link DistributedRunCompletion} and made once,
-     *       when this JVM exits.</li>
+     *       status flip is deferred - not to this fork at all, but to the build tool step that runs
+     *       once every retry of this runner's tests has finished, since that is a fact only the
+     *       build tool can know and this fork cannot. See {@link DistributedRunCompleter} for the
+     *       step that makes the deferred completion.</li>
      * </ul>
      *
      * <p>The Tia-level run stats are deliberately not incremented here even when {@code
@@ -248,16 +249,15 @@ public class TestRunnerService {
         //    this group's own assigned suites. The status flip itself is not made here: this runs
         //    once per finished test plan, and a retry is another test plan in the same JVM, so
         //    flipping the group to COMPLETED here would release the barrier after the first test plan
-        //    while this runner is still executing tests. It is recorded instead, and made once when
-        //    the JVM exits.
+        //    while this runner is still executing tests. It is made instead by the build tool step
+        //    that runs once every retry has finished - see DistributedRunCompleter - since knowing
+        //    that no more retries are coming is a fact only the build tool has, not this fork.
         int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
         int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
         runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved);
-        DistributedRunCompletion.recordTestPlanPersist(dataStore, distributedRunnerContext,
-                updateDBMapping, updateDBStats, updateDBTestRunHistory);
     }
 
     /**

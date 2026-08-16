@@ -4,10 +4,8 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.distributed.DistributedForkProperties;
-import org.tiatesting.core.distributed.DistributedRunSealer;
+import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
-import org.tiatesting.core.distributed.DistributedRunnerPersist;
-import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 
@@ -65,10 +63,10 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      * that invokes this goal as a separate {@code mvn} command and omits the DB connection settings
      * would otherwise silently open a private, empty embedded database, find no claimed row, and
      * exit as if the group were already completed - leaving the run unsealed with nothing telling
-     * the user. Once past that guard, it completes the claimed group and, when that succeeds,
-     * stands for election to seal the build - see {@link DistributedRunnerPersist#completeGroup}
-     * and {@link DistributedRunSealer#sealIfElected} for what each step does and why a rejected
-     * completion (superseded, or already completed) is a normal outcome rather than a failure here.
+     * the user. Once past that guard, it hands off to {@link DistributedRunCompleter#completeAndSeal}
+     * for the sequence itself - completing the claimed group and, when that succeeds, standing for
+     * election to seal the build - see that method's javadoc for why a rejected completion
+     * (superseded, or already completed) is a normal outcome rather than a failure here.
      *
      * @throws MojoExecutionException if the fork properties file exists but cannot be read, if its
      *                                 distributed handoff is malformed, if this goal is not pointed
@@ -146,16 +144,17 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
     }
 
     /**
-     * Open the shared datastore and perform the completion and, when elected, the seal - in the
-     * order the run's correctness depends on: the group must be marked complete, releasing the
-     * barrier the sealer's catalogue rebuild waits on, before this runner may stand for election.
+     * Open the shared datastore and hand off to {@link DistributedRunCompleter#completeAndSeal} for
+     * the completion and, when elected, the seal.
      *
-     * <p>A failure is reported differently depending on which side of that barrier it happened on:
-     * a failure while completing the group (or opening the datastore) leaves the group exactly as
-     * it was, safe for the next build to redo; a failure while sealing happens only after the group
-     * already flipped to {@code COMPLETED}, so the message must say the group was completed rather
-     * than imply completion itself failed - an operator reading "could not complete group N" would
-     * otherwise go looking for a row that is, in fact, already marked completed.
+     * <p>A failure is reported differently depending on which side of the completion/seal barrier it
+     * happened on, which is why this catches {@link DistributedRunCompleter.SealFailedAfterCompletionException}
+     * separately from any other {@link RuntimeException}: a failure while completing the group (or
+     * opening the datastore) leaves the group exactly as it was, safe for the next build to redo; a
+     * failure while sealing happens only after the group already flipped to {@code COMPLETED}, so
+     * the message must say the group was completed rather than imply completion itself failed - an
+     * operator reading "could not complete group N" would otherwise go looking for a row that is, in
+     * fact, already marked completed.
      *
      * @param context the claimed runner context read from the fork properties file
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
@@ -170,29 +169,16 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
     private void completeAndSeal(final DistributedRunnerContext context, final boolean updateDBMapping,
                                  final boolean updateDBStats, final boolean updateDBTestRunHistory)
             throws MojoExecutionException {
-        boolean groupCompleted = false;
         try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-            DistributedRunnerPersist persist = new DistributedRunnerPersist(dataStore, context);
-            DistributedRunGroup completed = persist.completeGroup(System.currentTimeMillis());
-
-            if (completed == null) {
-                // A rejected completion is either "superseded" or "already completed", both of
-                // which DistributedRunnerPersist already logged the reason for. Neither has a
-                // group left for this runner to seal from, so there is nothing further to do.
-                return;
-            }
-            groupCompleted = true;
-
-            new DistributedRunSealer(dataStore, context).sealIfElected(updateDBMapping, updateDBStats,
+            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping, updateDBStats,
                     updateDBTestRunHistory, System.currentTimeMillis());
+        } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
+            throw new MojoExecutionException("Distributed run '" + context.getRunId()
+                    + "': runner '" + context.getRunnerKey() + "' completed group "
+                    + context.getGroupNumber() + ", but sealing the build failed - the group is "
+                    + "now marked COMPLETED even though the run was NOT sealed: "
+                    + e.getCause().getMessage(), e.getCause());
         } catch (RuntimeException e) {
-            if (groupCompleted) {
-                throw new MojoExecutionException("Distributed run '" + context.getRunId()
-                        + "': runner '" + context.getRunnerKey() + "' completed group "
-                        + context.getGroupNumber() + ", but sealing the build failed - the group is "
-                        + "now marked COMPLETED even though the run was NOT sealed: "
-                        + e.getMessage(), e);
-            }
             throw new MojoExecutionException("Distributed run '" + context.getRunId() + "': runner '"
                     + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
                     + " - this build will NOT be sealed, and the next build will redo the work: "

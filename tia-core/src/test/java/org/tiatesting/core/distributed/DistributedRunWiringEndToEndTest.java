@@ -69,8 +69,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * three assertions fails.
  *
  * <p>One runner also persists <b>twice</b>, as a Surefire retry makes it: the barrier is released
- * when a runner's JVM exits, not when one of its test plans finishes, and a method covered only by
- * the second test plan has to survive the seal too.
+ * by the build tool's explicit {@link DistributedRunCompleter#completeAndSeal} call, made once no
+ * more retries are coming, not by any one test plan finishing, and a method covered only by the
+ * second test plan has to survive the seal too.
  *
  * <p>Runs against a real datastore. {@code PostgresDistributedRunWiringEndToEndTest} re-runs the
  * same lifecycle against Postgres, which is what a real distributed build actually uses, since the
@@ -154,13 +155,11 @@ class DistributedRunWiringEndToEndTest {
     }
 
     /**
-     * Drop anything a test recorded for a runner's JVM exit, close the shared datastore, remove the
-     * temp directory if the fixture created one, and restore the system properties saved in
-     * {@link #setUp()}.
+     * Close the shared datastore, remove the temp directory if the fixture created one, and restore
+     * the system properties saved in {@link #setUp()}.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -327,10 +326,10 @@ class DistributedRunWiringEndToEndTest {
      *
      * <p>The first runner deliberately persists <b>twice</b>, which is what a Surefire retry of
      * failed tests produces: a second test plan in the same JVM, so a second persist. Complete the
-     * group in the persist and the first of those two test plans releases the barrier - the second
-     * then finds its claim dead, skips every write it had, and {@link #SUITE_RETRY}'s coverage
-     * never reaches the edge table the catalogue is rebuilt from. Its method is asserted at the end
-     * for exactly that reason.
+     * group after the first of those two test plans instead of waiting for the build tool to decide
+     * no more retries are coming, and the second test plan finds its claim dead, skips every write
+     * it had, and {@link #SUITE_RETRY}'s coverage never reaches the edge table the catalogue is
+     * rebuilt from. Its method is asserted at the end for exactly that reason.
      *
      * @throws Exception if the fork properties handoff fails
      */
@@ -359,21 +358,24 @@ class DistributedRunWiringEndToEndTest {
                 "a distributed runner writes no history row of its own");
 
         // when - Surefire retries in the same JVM, so a second test plan finishes and persists,
-        //        carrying a suite the first test plan never covered. Then that JVM exits.
+        //        carrying a suite the first test plan never covered. Then the Maven goal makes its
+        //        explicit completion, as it does once Surefire has finished retrying.
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(), mavenRunner);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner, true, true, true,
+                System.currentTimeMillis());
 
         // then - still nothing sealed, since the second group has not finished
         assertEquals(PRIOR_COMMIT, dataStore.getTiaCore().getCommitValue(),
-                "the first runner's JVM exiting must not seal a build whose other group is running");
+                "the first runner's completion must not seal a build whose other group is running");
 
-        // when - the Gradle runner finishes last, persists, and its JVM exits
+        // when - the Gradle runner finishes last, persists, and the Gradle task completes it
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 2000L,
                 runResultFor(SUITE_B, "com/example/B.java", METHOD_B, "com/example/B.b.()V"),
                 gradleRunner);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, gradleRunner, true, true, true,
+                System.currentTimeMillis());
 
         // then - exactly one seal, by the runner that finished last
         DistributedRun run = dataStore.readDistributedRun(RUN_ID);

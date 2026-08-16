@@ -5,10 +5,8 @@ import org.gradle.api.GradleException;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskAction;
 import org.slf4j.Logger;
-import org.tiatesting.core.distributed.DistributedRunSealer;
+import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
-import org.tiatesting.core.distributed.DistributedRunnerPersist;
-import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.persistence.DataStore;
 
 /**
@@ -78,9 +76,9 @@ public class TiaDistCompleteTask extends DefaultTask {
      * nothing because the pipeline fanned out wider than the plan's group count), both mean there is
      * nothing to complete and nothing to seal - logged at INFO and treated as success, never as a
      * failure. Otherwise the claimed group is completed and, on success, this runner stands for
-     * election to seal the build - see {@link DistributedRunnerPersist#completeGroup} and {@link
-     * DistributedRunSealer#sealIfElected} for what each step does and why a rejected completion
-     * (superseded, or already completed) is a normal outcome rather than a failure here.
+     * election to seal the build - see {@link DistributedRunCompleter#completeAndSeal} for what each
+     * step does and why a rejected completion (superseded, or already completed) is a normal
+     * outcome rather than a failure here.
      *
      * @throws GradleException if completing the group or sealing the build fails unexpectedly (for
      *                          example, the datastore is unreachable), naming that this build was
@@ -110,16 +108,16 @@ public class TiaDistCompleteTask extends DefaultTask {
     }
 
     /**
-     * Open the shared datastore and perform the completion and, when elected, the seal - in the
-     * order the run's correctness depends on: the group must be marked complete, releasing the
-     * barrier the sealer's catalogue rebuild waits on, before this runner may stand for election.
+     * Open the shared datastore and hand off to {@link DistributedRunCompleter#completeAndSeal} for
+     * the completion and, when elected, the seal.
      *
-     * <p>A failure is reported differently depending on which side of that barrier it happened on,
-     * mirroring {@code AbstractTiaDistCompleteMojo#completeAndSeal}: a failure while completing the
-     * group (or opening the datastore) leaves the group exactly as it was, safe for the next build
-     * to redo; a failure while sealing happens only after the group already flipped to {@code
-     * COMPLETED}, so the message must say the group was completed rather than imply completion
-     * itself failed.
+     * <p>A failure is reported differently depending on which side of the completion/seal barrier it
+     * happened on, mirroring {@code AbstractTiaDistCompleteMojo#completeAndSeal}, which is why this
+     * catches {@link DistributedRunCompleter.SealFailedAfterCompletionException} separately from any
+     * other {@link RuntimeException}: a failure while completing the group (or opening the
+     * datastore) leaves the group exactly as it was, safe for the next build to redo; a failure
+     * while sealing happens only after the group already flipped to {@code COMPLETED}, so the
+     * message must say the group was completed rather than imply completion itself failed.
      *
      * @param context the claimed runner context built from the claim record
      * @param claim the claim record whose update-DB flags the seal uses - never the flags read
@@ -130,29 +128,16 @@ public class TiaDistCompleteTask extends DefaultTask {
      */
     private void completeAndSeal(final DistributedRunnerContext context,
                                  final DistributedClaimRegistry.Claim claim) {
-        boolean groupCompleted = false;
         try (DataStore dataStore = plugin.buildDataStore(plugin.getVCSReader().getBranchName())) {
-            DistributedRunnerPersist persist = new DistributedRunnerPersist(dataStore, context);
-            DistributedRunGroup completed = persist.completeGroup(System.currentTimeMillis());
-
-            if (completed == null) {
-                // A rejected completion is either "superseded" or "already completed", both of
-                // which DistributedRunnerPersist already logged the reason for. Neither has a
-                // group left for this runner to seal from, so there is nothing further to do.
-                return;
-            }
-            groupCompleted = true;
-
-            new DistributedRunSealer(dataStore, context).sealIfElected(claim.isUpdateDBMapping(),
+            DistributedRunCompleter.completeAndSeal(dataStore, context, claim.isUpdateDBMapping(),
                     claim.isUpdateDBStats(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());
+        } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
+            throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
+                    + context.getRunnerKey() + "' completed group " + context.getGroupNumber()
+                    + ", but sealing the build failed - the group is now marked COMPLETED even "
+                    + "though the run was NOT sealed: " + e.getCause().getMessage(), e.getCause());
         } catch (RuntimeException e) {
-            if (groupCompleted) {
-                throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
-                        + context.getRunnerKey() + "' completed group " + context.getGroupNumber()
-                        + ", but sealing the build failed - the group is now marked COMPLETED even "
-                        + "though the run was NOT sealed: " + e.getMessage(), e);
-            }
             throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"
                     + context.getRunnerKey() + "' could not complete group " + context.getGroupNumber()
                     + " - this build will NOT be sealed, and the next build will redo the work: "

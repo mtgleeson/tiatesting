@@ -194,9 +194,10 @@ public final class DistributedRunnerPersist {
     /**
      * Mark this runner's group complete. Must be the caller's last write, since it is what releases
      * the barrier the sealer's catalogue rebuild waits on - which is why it is called once for the
-     * test JVM, from {@link DistributedRunCompletion}, and not once per finished test plan. Carries
-     * no measurements of its own; {@link #reportGroupProgress(long, int, int, int)} records those
-     * on every persist, and this call only ever flips the group's status.
+     * whole build tool step, from {@link DistributedRunCompleter#completeAndSeal}, and not once per
+     * finished test plan. Carries no measurements of its own; {@link
+     * #reportGroupProgress(long, int, int, int)} records those on every persist, and this call only
+     * ever flips the group's status.
      *
      * <p>A null return is either the straggler protection firing late - the claim died between
      * {@link #claimIsLive()} and here, so the mapping writes in between went to a run that no

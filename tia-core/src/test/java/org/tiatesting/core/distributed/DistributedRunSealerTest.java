@@ -93,12 +93,10 @@ class DistributedRunSealerTest {
     }
 
     /**
-     * Drop anything a test recorded for its runner's JVM exit, then close the store so embedded H2
-     * releases its file lock, then remove the temp directory.
+     * Close the store so embedded H2 releases its file lock, then remove the temp directory.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -442,11 +440,13 @@ class DistributedRunSealerTest {
         DistributedRunnerContext firstRunner = claim(RUN_ID, RUNNER_A);
         DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
 
-        // when - the first runner finishes and persists its whole share, and its JVM exits
+        // when - the first runner finishes and persists its whole share, and the build tool then
+        //        makes its explicit completion, as it does once no more retries are coming
         service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, true, false,
+                System.currentTimeMillis());
 
         // then - nothing has been sealed yet, because a group is still running
         assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue(),
@@ -456,11 +456,12 @@ class DistributedRunSealerTest {
         assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
                 "the run must stay open until every group has finished");
 
-        // when - the last group finishes, persists and its JVM exits
+        // when - the last group finishes, persists and the build tool completes it
         service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, true, false,
+                System.currentTimeMillis());
 
         // then - both groups' methods are in the catalogue, including the last group's
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -501,7 +502,8 @@ class DistributedRunSealerTest {
         service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), context);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, false,
+                System.currentTimeMillis());
 
         // then
         assertEquals("completeGroup", dataStore.callOrder.get(dataStore.callOrder.size() - 1),

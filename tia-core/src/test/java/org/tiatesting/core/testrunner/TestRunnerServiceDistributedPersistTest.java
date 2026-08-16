@@ -3,7 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.tiatesting.core.distributed.DistributedRunCompletion;
+import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
@@ -93,13 +93,10 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
-     * Drop anything a test recorded for its runner's JVM exit, then close the store so embedded H2
-     * releases its file lock, then remove the temp directory. A test process drives many runners
-     * through one JVM, so a recording left pending would otherwise outlive the store it names.
+     * Close the store so embedded H2 releases its file lock, then remove the temp directory.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -214,10 +211,11 @@ class TestRunnerServiceDistributedPersistTest {
      * {@code completeGroup} is the last write the runner makes. Completing the group is what
      * releases the barrier, so a group marked complete before its mapping rows land would let the
      * sealer rebuild the catalogue from an edge set still missing them - silent under-selection.
-     * It comes from the runner's JVM exit rather than from the persist, so the run of writes it has
-     * to follow is every test plan's, not just the last one's. {@code reportGroupProgress} is not
-     * subject to this ordering - it happens inside the persist itself, since it does not release
-     * the barrier - but it must still land before the completion that later reads it back.
+     * It comes from the build tool's explicit completion rather than from the persist, so the run of
+     * writes it has to follow is every test plan's, not just the last one's. {@code
+     * reportGroupProgress} is not subject to this ordering - it happens inside the persist itself,
+     * since it does not release the barrier - but it must still land before the completion that
+     * later reads it back.
      */
     @Test
     void distributedRunnerCompletesItsGroupAfterEveryMappingWrite() {
@@ -228,7 +226,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
 
         // then
         int completeIdx = dataStore.callOrder.indexOf("completeGroup");
@@ -270,7 +269,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, true, "new-commit", "main",
                 System.currentTimeMillis(), partialResult, context);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
@@ -296,7 +296,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, true, "new-commit", "main", runStart,
                 makeResult(), context);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
@@ -432,7 +433,8 @@ class TestRunnerServiceDistributedPersistTest {
         // when
         service.persistTestRunData(true, true, true, "new-commit", "main",
                 System.currentTimeMillis(), resultWithForeignSuites, context);
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
