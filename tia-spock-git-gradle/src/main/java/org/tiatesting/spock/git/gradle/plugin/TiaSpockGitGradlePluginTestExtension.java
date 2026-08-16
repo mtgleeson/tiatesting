@@ -1,6 +1,7 @@
 package org.tiatesting.spock.git.gradle.plugin;
 
 import org.gradle.api.Action;
+import org.gradle.api.GradleException;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
@@ -253,6 +254,24 @@ public class TiaSpockGitGradlePluginTestExtension {
                 .stream().findFirst().orElse(null);
         if (plugin == null) {
             return;
+        }
+
+        if (testTask.getProject().getTasks().getNames().contains(TiaBasePlugin.DIST_COMPLETE_TASK_NAME)) {
+            // A second distributed test task in the same build. Registering the finalizer again
+            // would fail with Gradle's own "a task with that name already exists" message, which
+            // says nothing about why two distributed test tasks cannot work - the same reason
+            // DistributedClaimRegistry.recordClaim refuses the second claim, only reached at
+            // execution time, after this configuration-time registration would already have failed.
+            // Checked against the task names rather than by looking the task up, so an ordinary
+            // build never realizes a task just to find out it is absent.
+            throw new GradleException("Test task '" + testTask.getPath() + "' is configured for a "
+                    + "distributed test run, but another test task in this build already is. A "
+                    + "distributed run supports exactly one test task per runner: the plan groups "
+                    + "suites across the whole project, so a second test task's group could hold "
+                    + "suites the first task cannot run, the completeness guard would never be "
+                    + "satisfied, and the run would never seal. Configure only one test task as "
+                    + "distributed per runner - run the other test task's share of the plan as a "
+                    + "separate runner (a separate CI job/process) instead.");
         }
 
         TaskProvider<TiaDistCompleteTask> completeTask = plugin.createDistCompleteTask(testTask.getPath());
