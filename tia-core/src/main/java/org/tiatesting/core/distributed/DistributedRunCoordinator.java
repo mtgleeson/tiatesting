@@ -208,12 +208,19 @@ public final class DistributedRunCoordinator {
      * when set, otherwise one derived from the run id, hostname and process id. The fallback lives
      * here rather than in each build tool so Maven and Gradle runners derive it identically.
      *
-     * <p>The derived key is unique per runner but <b>not stable across CI job attempts</b>, since a
-     * retried job is a new process. A retry therefore does not re-claim the group its first attempt
-     * held; it finds no {@code PENDING} group and exits as a no-op. That is safe - it never runs
-     * another runner's suites - but it does mean retries cannot rescue a run. Setting
-     * {@code tiaDistributedRunnerKey} to a value the CI system keeps stable across attempts (a job
-     * or matrix index rather than a build number) is what enables retry to re-claim.
+     * <p>The derived key is unique per runner, but <b>whether it is stable across CI job attempts
+     * depends on which build tool claims with it</b>, since the process it is derived from differs.
+     * On Maven the claim runs in the build JVM Maven starts fresh for every invocation, so a
+     * retried job always derives a new key and never re-claims the group its first attempt held -
+     * it finds no {@code PENDING} group and exits as a no-op. On Gradle the claim now runs in the
+     * daemon's test-task action, and a Gradle daemon commonly outlives any one build; if the same
+     * warm daemon serves a retried invocation, the hostname and process id - and therefore the
+     * derived key - are identical to the first attempt's, so the retry is indistinguishable from
+     * the original claim. That is still safe with respect to other runners' suites, but it is not
+     * the "always a fresh no-op" guarantee Maven gives. Setting {@code tiaDistributedRunnerKey} to
+     * a value the CI system keeps stable across attempts (a job or matrix index rather than a build
+     * number) is what makes a retry's identity deliberate on both build tools rather than an
+     * accident of whether a daemon happened to be warm.
      *
      * @return the runner identity to claim with; never null or blank
      */

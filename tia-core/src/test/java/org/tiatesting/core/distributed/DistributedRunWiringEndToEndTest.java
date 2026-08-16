@@ -55,8 +55,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>the <b>Maven/JUnit</b> runner claims in the build JVM and forwards its claim through the
  *       fork properties file, which the Tia agent republishes as system properties in the forked
  *       test JVM - so this test writes that file and reads it back;</li>
- *   <li>the <b>Gradle/Spock</b> runner claims inside the test JVM and converts the assignment it
- *       already holds, since claiming again would take a second group.</li>
+ *   <li>the <b>Gradle/Spock</b> runner claims in the daemon's test-task action, before the test
+ *       task forks, and builds the context its forked test JVM would resolve from the forwarded
+ *       runner key and group number - the same claim-then-forward shape as Maven's, minus the fork
+ *       properties file, since Gradle forwards a test task's system properties into its fork
+ *       itself.</li>
  * </ul>
  *
  * <p>What it asserts is what the whole stage exists for: exactly one seal for the build, exactly
@@ -316,8 +319,9 @@ class DistributedRunWiringEndToEndTest {
      * <em>later test plan of an earlier group</em> still in it too.
      *
      * <p>The first runner takes the Maven/JUnit route, its claim crossing a real fork properties
-     * file; the second takes the Gradle/Spock route, converting the assignment it already holds.
-     * Between the two persists the build is checked to be untouched: with the wiring broken, the
+     * file; the second takes the Gradle/Spock route, building the context its forked test JVM would
+     * resolve from the runner key and group number the daemon's claim forwards. Between the two
+     * persists the build is checked to be untouched: with the wiring broken, the
      * first runner would have sealed there and the method only the second group reaches would be
      * gone from the catalogue for good.
      *
@@ -337,7 +341,8 @@ class DistributedRunWiringEndToEndTest {
         TestRunnerService service = new TestRunnerService(dataStore);
         DistributedRunnerContext mavenRunner = throughTheMavenForkBoundary(claim("runner-a"));
         DistributedRunnerAssignment gradleAssignment = claim("runner-b");
-        DistributedRunnerContext gradleRunner = gradleAssignment.toRunnerContext(RUN_ID);
+        DistributedRunnerContext gradleRunner = DistributedRunnerContext.forClaimedGroup(RUN_ID,
+                gradleAssignment.getRunnerKey(), gradleAssignment.getGroupNumber().intValue());
 
         // when - the Maven runner's first test plan finishes and persists its share
         service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,

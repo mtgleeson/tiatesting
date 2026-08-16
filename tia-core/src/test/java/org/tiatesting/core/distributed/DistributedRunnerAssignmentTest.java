@@ -33,10 +33,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Cover {@link DistributedRunnerAssignment}: the one decision both build tools make when they run
  * in distributed mode - claim a group, then work out the two suite lists that go into the ignore
- * and selected files. Maven claims in the build JVM before surefire forks and Gradle/Spock claims
- * inside the test JVM, so the only thing keeping the two from drifting on which suites a runner
- * skips is that they share this class; these tests are therefore the coverage of that decision for
- * both of them.
+ * and selected files. Maven claims and derives via {@link DistributedRunnerAssignment#claim} in the
+ * build JVM before surefire forks; Gradle claims via the same {@link
+ * DistributedRunnerAssignment#claim} in the daemon's test-task action before the test task forks,
+ * then its forked test JVM re-derives the same two suite lists via {@link
+ * DistributedRunnerAssignment#forClaimedRunner} from the runner key and group number the daemon
+ * forwarded. The only thing keeping the two build tools from drifting on which suites a runner
+ * skips is that {@code claim} and {@code forClaimedRunner} share one derivation; these tests are
+ * therefore the coverage of that decision for both of them.
  *
  * <p>Uses a real embedded-H2 {@link JdbcDataStore} rather than a fake, following
  * {@link DistributedRunCoordinatorTest}'s fixture: the behaviour under test is what gets read back
@@ -297,21 +301,106 @@ class DistributedRunnerAssignmentTest {
     }
 
     /**
-     * Verify a claimed assignment converts into the context its persist is driven from, carrying
-     * the identity the claim was actually recorded under and the group it won. A Gradle runner
-     * claims and persists in the same JVM, so it converts the assignment it already holds rather
-     * than claiming a second time - re-deriving here would take another group and leave the first
-     * one open forever.
+     * Verify {@link DistributedRunnerAssignment#forClaimedRunner} - the entry point a Gradle fork
+     * calls directly, with no claim of its own - derives exactly the same suite lists {@link
+     * DistributedRunnerAssignment#claim} would for the identical runner key and group number: its
+     * own group's suites to run, and every other <em>tracked or planned</em> suite to ignore. The
+     * tracked set carries {@code DTest}, which the plan does not mention, so this fails if the
+     * ignore set were built from the plan's suites alone instead of unioning in the tracked set.
      */
     @Test
-    void shouldConvertAClaimedAssignmentIntoTheContextItsPersistUses() {
+    void shouldDeriveExactlyItsOwnGroupsSuitesToRunAndEveryOtherTrackedOrPlannedSuiteToIgnore() {
+        // given - a plan, and a tracked suite the plan does not mention
+        persistPlan("run-derive-claimed", "commit-1", twoGroupAssignment());
+        persistTracked("com.example.ATest", "com.example.BTest", "com.example.CTest",
+                "com.example.DTest");
+
+        // when - resolved the way a Gradle fork does: no claim call, only the runner key and group
+        // number the daemon's claim already forwarded
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
+                dataStore, config("run-derive-claimed", "runner-a"), "runner-a", Integer.valueOf(0));
+
+        // then
+        assertTrue(assignment.isClaimed());
+        assertEquals("runner-a", assignment.getRunnerKey());
+        assertEquals(Integer.valueOf(0), assignment.getGroupNumber());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")),
+                assignment.getTestsToRun());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.CTest", "com.example.DTest")),
+                assignment.getTestsToIgnore());
+    }
+
+    /**
+     * Verify {@link DistributedRunnerAssignment#forClaimedRunner} given a null group number - the
+     * shape a surplus runner's forwarded properties take - runs nothing and ignores every tracked
+     * or planned suite, with an empty set rather than null for the suites to run. A fork that
+     * treated a null group number as "nothing to subtract, but also nothing to ignore" would run
+     * every suite another runner already owns.
+     */
+    @Test
+    void shouldRunNothingAndIgnoreEverySuiteWhenTheGroupNumberIsNull() {
+        // given
+        persistPlan("run-derive-surplus", "commit-1", twoGroupAssignment());
+        persistTracked("com.example.ATest", "com.example.BTest", "com.example.CTest",
+                "com.example.DTest");
+
+        // when - a surplus runner: the daemon forwarded no group number because it claimed none
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
+                dataStore, config("run-derive-surplus", "runner-c"), "runner-c", null);
+
+        // then
+        assertFalse(assignment.isClaimed());
+        assertNull(assignment.getGroupNumber());
+        assertNotNull(assignment.getTestsToRun(), "a surplus runner must get an empty set, not null");
+        assertTrue(assignment.getTestsToRun().isEmpty(), assignment.getTestsToRun().toString());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest",
+                "com.example.CTest", "com.example.DTest")), assignment.getTestsToIgnore());
+    }
+
+    /**
+     * Verify {@link DistributedRunnerAssignment#forClaimedRunner} ignores a suite the plan mentions
+     * but Tia has no tracked mapping for yet - a brand-new test class. Nothing is tracked in this
+     * test, so this fails if the ignore set were built from the tracked set alone instead of
+     * unioning in the plan's own suites, which is deliberate: a new class must not be missed by
+     * every runner just because it has no mapping row yet.
+     */
+    @Test
+    void shouldIgnoreAPlannedButUntrackedSuiteWhenDerivingDirectly() {
+        // given - a suite in the plan that Tia has never tracked, i.e. brand new; nothing tracked
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, Collections.singletonList("com.example.BrandNewTest"));
+        persistPlan("run-derive-new", "commit-1", suitesByGroup);
+
+        // when - a surplus runner deriving directly, the way the Gradle fork does
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
+                dataStore, config("run-derive-new", "runner-b"), "runner-b", null);
+
+        // then
+        assertFalse(assignment.isClaimed());
+        assertEquals(new HashSet<>(Collections.singletonList("com.example.BrandNewTest")),
+                assignment.getTestsToIgnore());
+    }
+
+    /**
+     * Verify a claimed assignment carries exactly the identity and group a caller needs to build
+     * the context the fork's persist is driven from, via {@link
+     * DistributedRunnerContext#forClaimedGroup}. Both build tools' build JVMs forward
+     * {@link DistributedRunnerAssignment#getRunnerKey()} and {@link
+     * DistributedRunnerAssignment#getGroupNumber()} to the fork rather than the assignment itself
+     * (see {@code DistributedForkProperties#forkProperties}); this pins that those two values are
+     * the identity the claim was actually recorded under and the group it won, so a context built
+     * from them on the other side of that handoff matches.
+     */
+    @Test
+    void shouldClaimTheRunnerKeyAndGroupNumberTheForkPropertiesHandoffForwards() {
         // given
         persistPlan("run-context", "commit-1", twoGroupAssignment());
         DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
                 config("run-context", "runner-a"), "commit-1", 4242L);
 
         // when
-        DistributedRunnerContext context = assignment.toRunnerContext("run-context");
+        DistributedRunnerContext context = DistributedRunnerContext.forClaimedGroup("run-context",
+                assignment.getRunnerKey(), assignment.getGroupNumber().intValue());
 
         // then
         assertTrue(context.isClaimed());
@@ -321,12 +410,13 @@ class DistributedRunnerAssignmentTest {
     }
 
     /**
-     * Verify a surplus runner's assignment converts into a context holding no group rather than
-     * into no context at all. A null context would put it on the single-host persist, where it
-     * would rebuild the catalogue and seal a build whose other runners are still going.
+     * Verify a surplus assignment's runner key is still enough to build a context holding no group,
+     * via {@link DistributedRunnerContext#surplusRunner}, rather than no context at all. A null
+     * context would put a surplus fork on the single-host persist, where it would rebuild the
+     * catalogue and seal a build whose other runners are still going.
      */
     @Test
-    void shouldConvertASurplusAssignmentIntoAGrouplessContext() {
+    void shouldClaimTheRunnerKeyASurplusForkPropertiesHandoffForwards() {
         // given - both groups already claimed by other runners
         persistPlan("run-context-surplus", "commit-1", twoGroupAssignment());
         DistributedRunnerAssignment.claim(dataStore, config("run-context-surplus", "runner-a"),
@@ -337,7 +427,8 @@ class DistributedRunnerAssignmentTest {
                 config("run-context-surplus", "runner-c"), "commit-1", 3L);
 
         // when
-        DistributedRunnerContext context = surplus.toRunnerContext("run-context-surplus");
+        DistributedRunnerContext context = DistributedRunnerContext.surplusRunner(
+                "run-context-surplus", surplus.getRunnerKey());
 
         // then
         assertNotNull(context, "a surplus runner is still a distributed runner");

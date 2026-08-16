@@ -12,10 +12,13 @@ import java.util.Set;
  * the suites it must skip.
  *
  * <p>This is the whole of the runner-side decision, and it lives here rather than in either build
- * tool because both make it. Maven claims in the build JVM before surefire forks and Gradle/Spock
- * claims inside the test JVM, so the two entry points differ, but the answer they need must not:
- * if the Maven and Gradle runners disagreed by even one suite about who ignores what, a suite would
- * run twice or not at all while both builds reported success.
+ * tool because both make it. Maven claims in the build JVM before surefire forks; Gradle claims in
+ * the daemon's test-task action before the test task forks. Both build tools therefore call
+ * {@link #claim} in their build JVM and forward the resolved runner key and group number to the
+ * forked test JVM, which calls {@link #forClaimedRunner} to re-derive the same two suite lists
+ * without claiming again. The entry points differ, but the answer they need must not: if the Maven
+ * and Gradle runners disagreed by even one suite about who ignores what, a suite would run twice or
+ * not at all while both builds reported success.
  *
  * <p>Deliberately absent from this class is any repeat of the planning work. The plan already ran
  * the VCS diff, the static rules and the library-impact drain once, and its output is in the shared
@@ -33,9 +36,9 @@ public final class DistributedRunnerAssignment {
     private final Set<String> testsToRun;
 
     /**
-     * Store the resolved assignment. Private so instances can only come from {@link #claim}, which
-     * is the only thing that can guarantee the two suite lists are the complement of one another
-     * within the plan.
+     * Store the resolved assignment. Private so instances can only come from {@link #claim} or
+     * {@link #forClaimedRunner}, the only two callers that derive the two suite lists from the plan
+     * rather than accepting them from elsewhere.
      *
      * @param runnerKey the identity the claim was made under
      * @param groupNumber the claimed group, or null when no group was left to claim
@@ -82,15 +85,48 @@ public final class DistributedRunnerAssignment {
 
         Integer groupNumber = outcome.isClaimed()
                 ? Integer.valueOf(outcome.getGroup().getGroupNumber()) : null;
+        return forClaimedRunner(dataStore, config, outcome.getRunnerKey(), groupNumber);
+    }
+
+    /**
+     * Build the assignment for a runner identity and group number a claim already resolved,
+     * deriving the two suite lists from the plan and the tracked mapping rather than repeating the
+     * claim itself.
+     *
+     * <p>This is the one place both build tools' entry points meet. Maven's {@link #claim} calls it
+     * directly, right after claiming, because it claims and derives in the same call. The Gradle
+     * daemon claims separately - it must, since the claim happens before the test task forks and
+     * the derivation the fork needs happens after - so its fork calls this factory instead of
+     * {@link #claim}, with the runner key and group number the daemon already resolved and forwarded
+     * as system properties. Either caller lands on the identical derivation: a hand-written second
+     * copy of it is exactly what would let the two build tools silently disagree about which suites
+     * a runner skips.
+     *
+     * @param dataStore the shared datastore holding the plan; must be the same store the claim was
+     *                  made against
+     * @param config the validated run configuration naming the run the group was claimed from
+     * @param runnerKey the identity the claim was recorded under; must be the exact value the claim
+     *                  returned, not one re-derived here, or a later completion write would match no
+     *                  row
+     * @param groupNumber the group this runner claimed, or null when it claimed none - a surplus
+     *                    runner, which runs nothing and ignores everything
+     * @return the assignment for this runner key and group, claimed or surplus
+     * @throws IllegalStateException if no run is planned under the configured run id
+     * @throws IllegalArgumentException if a non-null {@code groupNumber} is not in the plan
+     */
+    public static DistributedRunnerAssignment forClaimedRunner(final DataStore dataStore,
+                                                                final DistributedRunConfig config,
+                                                                final String runnerKey,
+                                                                final Integer groupNumber) {
+        DistributedRunCoordinator coordinator = new DistributedRunCoordinator(dataStore, config);
         Set<String> testsToIgnore = coordinator.deriveTestsToIgnore(groupNumber,
                 dataStore.getTestSuitesTracked().keySet());
-        Set<String> testsToRun = outcome.isClaimed()
+        Set<String> testsToRun = groupNumber != null
                 ? new LinkedHashSet<>(dataStore.readDistributedRunGroupSuites(config.getRunId(),
                         groupNumber))
                 : Collections.<String>emptySet();
 
-        return new DistributedRunnerAssignment(outcome.getRunnerKey(), groupNumber, testsToIgnore,
-                testsToRun);
+        return new DistributedRunnerAssignment(runnerKey, groupNumber, testsToIgnore, testsToRun);
     }
 
     /**
@@ -119,28 +155,6 @@ public final class DistributedRunnerAssignment {
      * @return the runner identity the claim was made under; never null or blank
      */
     public String getRunnerKey() { return runnerKey; }
-
-    /**
-     * Convert this assignment into the context the runner's persist is driven from, so a build
-     * tool that claims and persists in the same JVM - Gradle/Spock - carries the claim it already
-     * made rather than making a second one. Re-deriving a context by claiming again would take
-     * another group, leave this one open forever, and the run would never seal.
-     *
-     * <p>A surplus runner converts too, into a context holding no group. That is deliberately not
-     * the same thing as no context: a null context is what an ordinary single-host run passes, and
-     * it would have this runner rebuild the method catalogue and stamp the commit for a build whose
-     * other runners are still going.
-     *
-     * @param runId the run this assignment was claimed from, which the context is keyed by; the
-     *              assignment does not carry it because the claim was made against a configuration
-     *              the caller already holds
-     * @return the context for this runner's persist, claimed or surplus
-     */
-    public DistributedRunnerContext toRunnerContext(final String runId) {
-        return groupNumber == null
-                ? DistributedRunnerContext.surplusRunner(runId, runnerKey)
-                : DistributedRunnerContext.forClaimedGroup(runId, runnerKey, groupNumber.intValue());
-    }
 
     /** @return the suite names this runner must not execute; every suite when it claimed no group */
     public Set<String> getTestsToIgnore() { return testsToIgnore; }

@@ -50,8 +50,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * group's suites, and stamping the commit as though the whole build were done. Nothing in the
  * build fails when that happens, which is why it is asserted here rather than left to inspection.
  *
- * <p>Driven against a real embedded-H2 {@link JdbcDataStore} following the fixture
- * {@code TiaSpockTestRunInitializerDistributedTest} uses: what is under test is which rows the
+ * <p>Driven against a real embedded-H2 {@link JdbcDataStore}, following the same fixture pattern as
+ * {@code DistributedRunnerAssignmentTest} in {@code tia-core}: what is under test is which rows the
  * persist writes, and a fake store would only assert that the listener calls the methods the test
  * already knows it calls.
  */
@@ -132,19 +132,21 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
-     * Claim the plan's group the way the Spock extension does, and convert the assignment into the
-     * context it hands to the listener - the exact path under test, rather than a context built by
-     * hand.
+     * Claim a group the way the Gradle daemon's test-task action does, then build the context the
+     * fork resolves from the runner key and group number the daemon forwards - the same shape
+     * {@code DistributedForkProperties#contextFromSystemProperties()} produces on the other side of
+     * that handoff, without going through real system properties here.
      *
      * @param runnerKey the identity to claim under
      * @return the claimed runner's context
      */
-    private DistributedRunnerContext claimAsTheExtensionDoes(final String runnerKey) {
+    private DistributedRunnerContext claimAsTheDaemonDoes(final String runnerKey) {
         DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
                 DistributedRunConfig.forRunner(RUN_ID, runnerKey), PLAN_COMMIT,
                 System.currentTimeMillis());
         assertTrue(assignment.isClaimed(), "test setup expects a group to be available to claim");
-        return assignment.toRunnerContext(RUN_ID);
+        return DistributedRunnerContext.forClaimedGroup(RUN_ID, assignment.getRunnerKey(),
+                assignment.getGroupNumber().intValue());
     }
 
     /**
@@ -192,7 +194,7 @@ class TiaSpockRunListenerDistributedTest {
     void shouldPersistThroughTheDistributedFlowWhenTheExtensionClaimedAGroup() {
         // given
         persistSingleGroupPlan(RUN_ID);
-        DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
+        DistributedRunnerContext context = claimAsTheDaemonDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
         // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
@@ -223,7 +225,7 @@ class TiaSpockRunListenerDistributedTest {
     void shouldRecordTheBuildsAggregatedHistoryRowAgainstTheRunId() {
         // given
         persistSingleGroupPlan(RUN_ID);
-        DistributedRunnerContext context = claimAsTheExtensionDoes("runner-a");
+        DistributedRunnerContext context = claimAsTheDaemonDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
         // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
@@ -249,7 +251,7 @@ class TiaSpockRunListenerDistributedTest {
     void shouldPersistOnTheSingleHostPathWhenTheBuildIsNotDistributed() {
         // given - a run planned and claimed by some other build, which this one must not touch
         persistSingleGroupPlan(RUN_ID);
-        claimAsTheExtensionDoes("another-build");
+        claimAsTheDaemonDoes("another-build");
 
         // when
         listenerFor(null).finishAllTests(Collections.singleton("com.example.ATest"),
