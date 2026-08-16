@@ -9,7 +9,7 @@ import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor;
 import org.junit.platform.engine.support.descriptor.ClassSource;
 import org.junit.platform.launcher.TestIdentifier;
 import org.tiatesting.core.diff.SourceFileDiffContext;
-import org.tiatesting.core.distributed.DistributedRunCompletion;
+import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
@@ -90,16 +90,15 @@ class TiaSpockRunListenerDistributedTest {
     }
 
     /**
-     * Drop anything a test recorded for its runner's JVM exit, clear the JVM-static skip observation
-     * a test may have written into via {@link #recordSpecObservedViaSkip}, close the data store so
-     * its embedded H2 database releases its file lock, then remove the temp directory. The skip set
-     * is otherwise never cleared within one JVM - production relies on that, since one Gradle test
-     * worker JVM runs exactly one build - but several {@code @Test} methods run in this one JVM, so
-     * a test that wrote into it must not leak a spec name into the next test's observation.
+     * Clear the JVM-static skip observation a test may have written into via
+     * {@link #recordSpecObservedViaSkip}, close the data store so its embedded H2 database releases
+     * its file lock, then remove the temp directory. The skip set is otherwise never cleared within
+     * one JVM - production relies on that, since one Gradle test worker JVM runs exactly one build -
+     * but several {@code @Test} methods run in this one JVM, so a test that wrote into it must not
+     * leak a spec name into the next test's observation.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         SharedSpockSkipObservation.suitesObservedViaSkip().clear();
         if (dataStore != null) {
             dataStore.close();
@@ -197,13 +196,15 @@ class TiaSpockRunListenerDistributedTest {
         DistributedRunnerContext context = claimAsTheDaemonDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
+        // when - the runner's tests finish, and then the Gradle task makes its explicit completion,
+        // as it does once the test task's workers have all finished. The skip-observation listener
         // records this fork's one assigned suite first, so the completeness guard sees it as
         // observed - without it the guard would see zero observed against one assigned and block
         // the completion.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, false, false, true,
+                System.currentTimeMillis());
 
         // then
         DistributedRunGroup group = dataStore.readDistributedRunGroups(RUN_ID).get(0);
@@ -228,11 +229,13 @@ class TiaSpockRunListenerDistributedTest {
         DistributedRunnerContext context = claimAsTheDaemonDoes("runner-a");
         TiaSpockRunListener listener = listenerFor(context);
 
-        // when - the runner's tests finish, and then its JVM exits. The skip-observation listener
-        // records this fork's one assigned suite first, so the completeness guard sees it as observed.
+        // when - the runner's tests finish, and then the Gradle task makes its explicit completion.
+        // The skip-observation listener records this fork's one assigned suite first, so the
+        // completeness guard sees it as observed.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompletion.completePendingCompletions();
+        DistributedRunCompleter.completeAndSeal(dataStore, context, false, false, true,
+                System.currentTimeMillis());
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();

@@ -5,7 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedForkProperties;
-import org.tiatesting.core.distributed.DistributedRunCompletion;
+import org.tiatesting.core.distributed.DistributedRunCompleter;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -105,13 +106,12 @@ class TiaTestExecutionListenerDistributedTest {
     }
 
     /**
-     * Drop anything a test recorded for its fork's JVM exit, close the datastore so embedded H2
-     * releases its file lock, remove the temp directory, and restore the system properties saved in
-     * {@link #setUp()} so these tests leave the JVM as they found it.
+     * Close the datastore so embedded H2 releases its file lock, remove the temp directory, and
+     * restore the system properties saved in {@link #setUp()} so these tests leave the JVM as they
+     * found it.
      */
     @AfterEach
     void tearDown() {
-        DistributedRunCompletion.discardPendingCompletions();
         if (dataStore != null) {
             dataStore.close();
         }
@@ -168,7 +168,8 @@ class TiaTestExecutionListenerDistributedTest {
     /**
      * Run a whole fork's lifecycle for a run in which the suite executed but no coverage was
      * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
-     * persist writes only its recording, and the fork's JVM exit does the completion and the seal.
+     * persist writes only its recording, and then the explicit completion the {@code
+     * tia-dist-complete} goal performs once Surefire has finished retrying is driven directly.
      *
      * <p>{@code SUITE} is pre-seeded into the shared data's observed set rather than driven through
      * real {@code executionFinished}/{@code executionSkipped} calls, standing in for the JUnit
@@ -177,10 +178,12 @@ class TiaTestExecutionListenerDistributedTest {
      * observed against the plan's one assigned suite and block every completion in this class,
      * regardless of which build tool or distributed logic is under test here.
      *
-     * <p>The exit is driven directly, since a test cannot exit the JVM it runs in. It is part of
-     * the lifecycle rather than something a test adds: the barrier is released when the fork
-     * finishes, not when one of its test plans does - and a Surefire retry makes several test plans
-     * per fork routine.
+     * <p>The completion is driven directly, since this fixture stops at the JUnit 5 listener
+     * boundary and does not stand up the goal that would otherwise make it. It reads the same
+     * distributed context and update-DB flags the listener itself resolved from system properties -
+     * mirroring what a real fork's build tool reads back after the fork has exited - rather than
+     * hard-coding them, so a test that changes those properties cannot silently drift out of step
+     * with what the listener actually persisted under.
      */
     private void runTheListener() {
         SharedTestRunData sharedTestRunData = new SharedTestRunData();
@@ -189,7 +192,16 @@ class TiaTestExecutionListenerDistributedTest {
                 new TiaTestExecutionListener(sharedTestRunData, new StubVCSReader());
         listener.testPlanExecutionStarted(null);
         listener.testPlanExecutionFinished(null);
-        DistributedRunCompletion.completePendingCompletions();
+
+        DistributedRunnerContext context = DistributedForkProperties.contextFromSystemProperties();
+        if (context != null && context.isClaimed()) {
+            boolean updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
+            boolean updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
+            boolean updateDBTestRunHistory =
+                    !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
+            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping, updateDBStats,
+                    updateDBTestRunHistory, System.currentTimeMillis());
+        }
     }
 
     /**
