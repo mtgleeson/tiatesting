@@ -320,7 +320,10 @@ class DistributedRunCompletionTest {
     }
 
     /**
-     * Build and persist a distributed run plan for the test's runners to claim from.
+     * Build and persist a distributed run plan for the test's runners to claim from. Group 0 - the
+     * one every test in this class claims - is assigned exactly {@link #SUITE_FIRST_PLAN} and
+     * {@link #SUITE_SECOND_PLAN}, the two suites {@link #resultFor} always reports as observed, so
+     * the completeness guard's intersection against the group's own assignment is non-empty.
      *
      * @param runId the run identifier to plan under
      * @param groupCount how many groups the plan is split into
@@ -330,7 +333,11 @@ class DistributedRunCompletionTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         for (int i = 0; i < groupCount; i++) {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
-            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            if (i == 0) {
+                suites.put(i, Arrays.asList(SUITE_FIRST_PLAN, SUITE_SECOND_PLAN));
+            } else {
+                suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
                 1000L * groupCount, 1234L);

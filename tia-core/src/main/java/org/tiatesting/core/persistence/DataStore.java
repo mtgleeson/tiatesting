@@ -475,14 +475,19 @@ public interface DataStore extends AutoCloseable {
      * claim above about {@code suitesObserved} - and therefore the correctness of {@code GREATEST}
      * over a plain replace - holds only when every call for a given {@code (runId, groupNumber,
      * runnerKey)} comes from the same JVM's shared, monotonically-growing observed set, exactly what
-     * a Surefire retry within one JVM is. With Gradle {@code maxParallelForks > 1} or {@code
-     * forkEvery > 0}, several independent JVMs can report against the same group under the same
-     * runner key, each with its own smaller observed set; {@code GREATEST} then converges on the
-     * largest single fork's count rather than the true union, which under-counts and can leave the
-     * completeness guard blocked even once every fork has finished. This is strictly safer than a
-     * plain replace (which could regress below an earlier, more-complete report depending on write
-     * order) but does not make multi-fork correct - it is a known-unsupported configuration for the
-     * mapping write already, and this call does not attempt to lift that.
+     * a Surefire retry within one JVM is. Maven {@code forkCount > 1} / {@code reuseForks=false} is
+     * what breaks this precondition: {@code AbstractTiaAgentMojo.writeForkPropertiesFile} writes one
+     * claimed group number and runner key into a single fork-properties file that every Surefire
+     * fork for the module reads, so several independent JVMs end up reporting against the same group
+     * under the same runner key, each with its own smaller observed set; {@code GREATEST} then
+     * converges on the largest single fork's count rather than the true union, which under-counts and
+     * can leave the completeness guard blocked even once every fork has finished. This is strictly
+     * safer than a plain replace (which could regress below an earlier, more-complete report
+     * depending on write order) but does not make multi-fork correct - it is a known-unsupported
+     * configuration for the mapping write already, and this call does not attempt to lift that.
+     * Gradle {@code maxParallelForks > 1} / {@code forkEvery > 0} does not have this problem: each
+     * fork constructs its own {@code TiaSpockGlobalExtension} and therefore claims its own group, so
+     * distinct forks never share a group key in the first place.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code

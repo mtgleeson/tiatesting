@@ -175,11 +175,12 @@ class TiaJunit4ListenerDistributedTest {
      * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
      * persist writes only its recording, and the fork's JVM exit does the completion and the seal.
      *
-     * <p>{@code testIgnored} is called once, with a {@link Description} for this class, before the
-     * run hooks - not to exercise the ignore path, but to give the listener's internally-tracked
-     * observed set one entry. Without it the completeness guard would see zero suites observed
-     * against the plan's one assigned suite and block every completion in this class; the guard
-     * compares counts only, so the observed suite need not be the same name the plan assigned.
+     * <p>{@code testIgnored} is called once, with a {@link Description} named after the plan's
+     * assigned suite, before the run hooks - not to exercise the ignore path, but to give the
+     * listener's internally-tracked observed set one entry. Without it the completeness guard would
+     * see none of the group's assigned suites observed and block every completion in this class. The
+     * name matters: the guard counts only the observed suites that are in this runner's own group,
+     * so a suite the plan never assigned would not count toward the completion.
      *
      * <p>The exit is driven directly, since a test cannot exit the JVM it runs in. It is part of
      * the lifecycle rather than something a test adds: the barrier is released when the fork
@@ -189,7 +190,7 @@ class TiaJunit4ListenerDistributedTest {
      */
     private void runTheListener() throws Exception {
         TiaJunit4Listener listener = new TiaJunit4Listener(new StubVCSReader());
-        listener.testIgnored(Description.createSuiteDescription(TiaJunit4ListenerDistributedTest.class));
+        listener.testIgnored(Description.createSuiteDescription(SUITE));
         listener.testRunStarted(null);
         listener.testRunFinished(null);
         DistributedRunCompletion.completePendingCompletions();

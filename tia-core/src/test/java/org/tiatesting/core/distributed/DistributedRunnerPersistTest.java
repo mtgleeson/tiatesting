@@ -7,6 +7,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.persistence.BranchSchema;
+import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
@@ -290,15 +291,18 @@ class DistributedRunnerPersistTest {
     /**
      * Task 2's accumulation contract, exercised through the persist wrapper: two progress reports
      * in the same JVM - the second reporting fewer suites ran than the first, as a Surefire retry of
-     * a smaller failing subset would - sum the ran counter and the duration, but let the later report
-     * replace both the failed set and the observed count outright: the failed set because it is
-     * current state, the observed count because the set it is drawn from is already cumulative per
-     * JVM, so summing it here would double-count. The ran and observed totals are deliberately kept
-     * different numbers below (52 vs 53) so a getter/column transposition between the two would fail
-     * this test - a shared value could not tell them apart.
+     * a smaller failing subset would - sum the ran counter and the duration. The failed set is
+     * replaced outright by the later report, since it is current state. The observed count is not
+     * replaced outright - it is written as the greater of the stored value and this report's value
+     * ({@code GREATEST}, see {@link DataStore#reportGroupProgress}) - because the set it is drawn
+     * from is already cumulative per JVM, so summing it here would double-count, while a plain
+     * replace would risk a late-arriving smaller report regressing it below an earlier, more-complete
+     * one. The ran and observed totals are deliberately kept different numbers below (52 vs 53) so a
+     * getter/column transposition between the two would fail this test - a shared value could not
+     * tell them apart.
      */
     @Test
-    void reportGroupProgressAccumulatesCountersButReplacesTheFailedAndObservedSets() {
+    void reportGroupProgressAccumulatesCountersReplacesFailedAndTakesTheGreaterObservedCount() {
         // given
         persistPlan(RUN_ID, 1);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);

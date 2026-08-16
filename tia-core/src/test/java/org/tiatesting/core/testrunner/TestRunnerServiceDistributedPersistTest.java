@@ -413,8 +413,66 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * <b>The case the intersection exists for.</b> On Maven, Tia's own group-based deselection
+     * injects {@code @Disabled}/{@code @Ignore} onto every suite outside this runner's group, and
+     * those classes are still discovered and loaded - so each one fires {@code executionSkipped} and
+     * lands in {@link TestRunResult#getSuitesObserved()} exactly like one of this group's own
+     * suites. A runner that observed only 2 of its own 3 assigned suites, plus 3 suites belonging to
+     * other groups, must record 2 and stay short of complete. Counting the raw observed set instead
+     * would see 5, satisfy {@code 5 >= 3} on the first persist, complete the group, release the
+     * barrier and let the build seal on an edge set this runner never finished writing.
+     */
+    @Test
+    void distributedRunnerDoesNotCountSuitesObservedThatBelongToAnotherGroup() {
+        // given - 3 suites assigned to this group, of which this JVM observed 2, plus 3 foreign ones
+        persistPlanWithOneGroupOfSuites(RUN_ID, 3);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        TestRunResult resultWithForeignSuites = makeResultWithForeignSuitesObserved();
+
+        // when
+        service.persistTestRunData(true, true, true, "new-commit", "main",
+                System.currentTimeMillis(), resultWithForeignSuites, context);
+        DistributedRunCompletion.completePendingCompletions();
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(2, group.getSuitesObserved(),
+                "only the observed suites assigned to this group may count (2), not the raw observed "
+                        + "set including the 3 suites Tia disabled for other groups (5)");
+        assertEquals(DistributedRunGroupStatus.CLAIMED, group.getStatus(),
+                "a group that observed only 2 of its 3 assigned suites must not complete, however "
+                        + "many foreign suites its JVM also saw");
+    }
+
+    /**
+     * Build a run result in the shape a Maven distributed runner actually produces: its observed set
+     * holds part of its own group's assignment plus every suite Tia deselected onto another group,
+     * since Tia disables those rather than filtering them out and the engine still reports them as
+     * skipped.
+     *
+     * @return a result observing 2 of the group's 3 assigned suites and 3 suites it was never
+     *         assigned
+     */
+    private TestRunResult makeResultWithForeignSuitesObserved() {
+        Set<String> runnerSuites = new HashSet<>(Arrays.asList(
+                "com.example.Suite0Test", "com.example.Suite1Test", "com.example.Suite2Test"));
+        Set<String> observed = new HashSet<>(Arrays.asList(
+                "com.example.Suite0Test", "com.example.Suite1Test",
+                "com.example.OtherGroupATest", "com.example.OtherGroupBTest",
+                "com.example.OtherGroupCTest"));
+
+        return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
+                runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
+                new TestStats(), null, 0, 2);
+    }
+
+    /**
      * Build and persist a distributed run plan, which also clears any previously planned run - the
-     * supersession a straggler runner has to survive.
+     * supersession a straggler runner has to survive. Group 0 - the one every single-runner test in
+     * this file claims - is assigned exactly the two suite names {@link #makeResult()} reports as
+     * observed, so the completeness guard's intersection against the group's own assignment is
+     * non-empty and these tests exercise a real completion rather than the vacuous "any suite
+     * observed, regardless of name" shape the guard used to allow.
      *
      * @param runId the run identifier to plan under
      * @param groupCount how many groups the plan is split into
@@ -424,7 +482,11 @@ class TestRunnerServiceDistributedPersistTest {
         Map<Integer, List<String>> suites = new HashMap<>();
         for (int i = 0; i < groupCount; i++) {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
-            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            if (i == 0) {
+                suites.put(i, Arrays.asList("com.example.SomeTest", "com.example.FailedTest"));
+            } else {
+                suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+            }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
                 1000L * groupCount, 1234L);
