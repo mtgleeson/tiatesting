@@ -33,6 +33,16 @@ import org.tiatesting.core.persistence.DataStore;
  * With no claim recorded for its test task, this task's action logs at INFO and exits successfully:
  * that is what a build that turned out not to be distributed looks like from here.
  *
+ * <p>Carries no shared-database precondition check of its own, unlike the Maven {@code
+ * tia-dist-complete} goal, and the asymmetry is deliberate rather than an omission. Maven needs one
+ * because its goal can be a separate {@code mvn} invocation with its own {@code -D} properties, so
+ * nothing stops a pipeline pointing the completion at a different database from the one the claim
+ * used. Gradle structurally cannot reach that state: the claim already enforces {@link
+ * org.tiatesting.core.distributed.DistributedRunPreconditions#check} against the owning {@link
+ * TiaBasePlugin}'s connection settings, this task reads its connection from that same plugin in
+ * that same daemon, and running it standalone finds no {@link DistributedClaimRegistry} entry and
+ * exits at the no-claim branch above. Adding a check here would guard a case that cannot arise.
+ *
  * <p>Implemented as a {@link DefaultTask} subclass, like {@link TiaDistPlanTask}, with its
  * dependencies - the owning {@link TiaBasePlugin} and the test task path whose claim it completes -
  * injected at registration time via {@link #setPlugin(TiaBasePlugin)} and {@link
