@@ -187,9 +187,23 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                     config, vcsReader.getHeadCommit(), System.currentTimeMillis());
 
             if (assignment.isClaimed()){
-                getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
-                        + assignment.getRunnerKey() + "' claimed group " + assignment.getGroupNumber()
-                        + " and will run " + assignment.getTestsToRun().size() + " test suite(s).");
+                // A seed run's group deliberately carries no suite names - there is no mapping yet
+                // to split - and its runner ignores nothing and executes everything it discovers.
+                // Reporting the assigned count there would say "will run 0 test suite(s)" about the
+                // one run that executes the entire suite.
+                if (assignment.isSeedRun()){
+                    getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
+                            + assignment.getRunnerKey() + "' claimed group "
+                            + assignment.getGroupNumber() + ". This is a seed run - there is no "
+                            + "stored mapping for this branch yet, so the plan carries no suite "
+                            + "names and this runner will execute every test it discovers and "
+                            + "record the mapping the next build plans from.");
+                } else {
+                    getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
+                            + assignment.getRunnerKey() + "' claimed group "
+                            + assignment.getGroupNumber() + " and will run "
+                            + assignment.getTestsToRun().size() + " test suite(s).");
+                }
             } else {
                 getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
                         + assignment.getRunnerKey() + "' claimed no group - every group was already "

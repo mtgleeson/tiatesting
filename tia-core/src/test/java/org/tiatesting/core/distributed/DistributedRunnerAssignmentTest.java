@@ -91,12 +91,27 @@ class DistributedRunnerAssignmentTest {
      *                      upwards with no gaps, since the group rows are derived from this map
      */
     private void persistPlan(String runId, String commitValue, Map<Integer, List<String>> suitesByGroup) {
+        persistPlan(runId, commitValue, suitesByGroup, false);
+    }
+
+    /**
+     * Persist a plan whose seed-run flag the caller chooses, so a test can tell a real seed run
+     * apart from a nothing-impacted build - the two produce identically empty groups, and only the
+     * persisted flag separates them.
+     *
+     * @param runId the run identifier to plan under
+     * @param commitValue the VCS commit the plan is pinned to
+     * @param suitesByGroup the suite names each group number owns
+     * @param seedRun whether the planner recorded this run as a seed run
+     */
+    private void persistPlan(String runId, String commitValue,
+                              Map<Integer, List<String>> suitesByGroup, boolean seedRun) {
         List<DistributedRunGroup> groups = new ArrayList<>();
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), null,
-                1000L * groups.size(), 5000L, false);
+                1000L * groups.size(), 5000L, seedRun);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
@@ -298,6 +313,58 @@ class DistributedRunnerAssignmentTest {
         assertTrue(assignment.isClaimed());
         assertTrue(assignment.getTestsToIgnore().isEmpty(), assignment.getTestsToIgnore().toString());
         assertTrue(assignment.getTestsToRun().isEmpty(), assignment.getTestsToRun().toString());
+    }
+
+    /**
+     * Verify a seed run's assignment reports itself as one, read from the persisted flag. The
+     * runner needs it to describe what it is about to do: a seed run's group carries no suite
+     * names, and reporting the assigned count without this would say the run that executes the
+     * entire suite will run nothing.
+     */
+    @Test
+    void shouldReportASeedRunFromThePersistedFlag() {
+        // given - the plan a seed run produces: one group, no suites, flag set
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, Collections.<String>emptyList());
+        persistPlan("run-seed-flag", "commit-1", suitesByGroup, true);
+
+        // when
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
+                config("run-seed-flag", "runner-a"), "commit-1", 1L);
+
+        // then
+        assertTrue(assignment.isSeedRun(), "a plan persisted as a seed run must report itself as one");
+        assertTrue(assignment.getTestsToRun().isEmpty(),
+                "a seed run's group carries no suite names, which is exactly why the flag is needed");
+    }
+
+    /**
+     * <b>The case the flag exists for.</b> A nothing-impacted build plans groups that are just as
+     * empty as a seed run's, so anything inferring "seed run" from an empty {@code testsToRun}
+     * would call this one too - and report a build that ran nothing as having run every test.
+     * Only the persisted flag separates them.
+     */
+    @Test
+    void shouldNotReportASeedRunForANothingImpactedPlanWhoseGroupsAreAlsoEmpty() {
+        // given - nothing was impacted, so both groups are empty, but this is not a seed run:
+        // suites are tracked and every one of them is being deliberately skipped
+        persistTracked("com.example.ATest", "com.example.BTest");
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, Collections.<String>emptyList());
+        suitesByGroup.put(1, Collections.<String>emptyList());
+        persistPlan("run-nothing-impacted", "commit-1", suitesByGroup, false);
+
+        // when
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
+                config("run-nothing-impacted", "runner-a"), "commit-1", 1L);
+
+        // then
+        assertFalse(assignment.isSeedRun(),
+                "an empty group list is not evidence of a seed run - a nothing-impacted build "
+                        + "produces the same shape and must not be reported as running everything");
+        assertTrue(assignment.getTestsToRun().isEmpty(), "nothing was impacted, so nothing runs");
+        assertFalse(assignment.getTestsToIgnore().isEmpty(),
+                "the tracked suites are all being skipped, which is what makes this not a seed run");
     }
 
     /**
