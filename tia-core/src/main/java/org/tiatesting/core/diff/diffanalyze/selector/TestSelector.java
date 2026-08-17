@@ -311,7 +311,7 @@ public class TestSelector {
      * and the library-owned diffs are excluded from source selection - under publish-time
      * stamping the library's own publish records their impacted methods, and the drain selects
      * the covering tests once the app resolves a build that contains them. In
-     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
+     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely - all
      * diffs are treated as source-project diffs so tests run immediately against local changes.
      *
      * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query

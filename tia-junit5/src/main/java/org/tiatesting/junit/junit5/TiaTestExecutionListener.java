@@ -116,7 +116,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     public TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
-        // updateDBTestRunHistory defaults to TRUE — log a row unless explicitly switched off.
+        // updateDBTestRunHistory defaults to TRUE - log a row unless explicitly switched off.
         // The inverse predicate handles a missing system property as "enabled".
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();

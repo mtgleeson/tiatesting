@@ -151,7 +151,7 @@ class JdbcDataStoreTestRunHistoryTest {
         dataStore.persistTestRunHistoryEntry(newest);
         List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
 
-        // then — ORDER BY run_timestamp DESC
+        // then - ORDER BY run_timestamp DESC
         assertEquals(3, result.size());
         assertEquals(newest.getId(), result.get(0).getId());
         assertEquals(middle.getId(), result.get(1).getId());
@@ -170,7 +170,7 @@ class JdbcDataStoreTestRunHistoryTest {
         dataStore.persistTestRunHistoryEntry(secondWithDifferentCounts);
         List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
 
-        // then — MERGE on the deterministic id keeps a single row; the second persist's values win.
+        // then - MERGE on the deterministic id keeps a single row; the second persist's values win.
         assertEquals(1, result.size());
         assertEquals(99, result.get(0).getNumSuitesRan());
         assertEquals(999L, result.get(0).getDurationMs());
