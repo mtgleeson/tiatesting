@@ -259,8 +259,9 @@ public final class DistributedRunSealer {
      *
      * <p>The row's duration is the serial-equivalent time, so it means the same thing as the
      * duration on the single-host rows either side of it and the savings frozen onto it stay
-     * comparable with theirs. The wall clock the build actually took is carried in its own column
-     * alongside. The row is stamped with the time the run was planned rather than with any runner's
+     * comparable with theirs - which is why it charges the runners' fixed per-JVM overhead once
+     * rather than once per group; see {@link DistributedRunTotals}. The wall clock the build
+     * actually took is carried in its own column alongside. The row is stamped with the time the run was planned rather than with any runner's
      * own start time, since that is the one timestamp every runner in the build shares.
      *
      * @param commitValue the commit the build ran against
@@ -290,10 +291,11 @@ public final class DistributedRunSealer {
         dataStore.persistTestRunHistoryEntry(entry);
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
-                        + "ignored={}, failed={}, serialMs={}, wallClockMs={}, savingsMs={}).",
+                        + "ignored={}, failed={}, serialMs={}, wallClockMs={}, "
+                        + "fixedOverheadChargedOnceMs={}, savingsMs={}).",
                 context.getRunId(), entry.getId(), totals.getGroupCount(), totals.getSuitesRan(),
                 ignoredSuiteCount, totals.getSuitesFailed(), totals.getSerialDurationMs(),
-                totals.getWallClockMs(), timeSavingsMs);
+                totals.getWallClockMs(), totals.getFixedOverheadMs(), timeSavingsMs);
     }
 
     /**

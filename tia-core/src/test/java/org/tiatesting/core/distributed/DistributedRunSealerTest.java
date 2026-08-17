@@ -614,7 +614,7 @@ class DistributedRunSealerTest {
     private void claimAndComplete(final String runId, final String runnerKey) {
         DistributedRunnerContext context = claim(runId, runnerKey);
         int groupNumber = context.getGroupNumber().intValue();
-        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, 1),
+        assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, 1000L, 1, 0, 1, 0L),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
                 "test setup expects the completion to be accepted");
@@ -861,9 +861,9 @@ class DistributedRunSealerTest {
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesObserved) {
+                                           final int suitesObserved, final long suitesDurationMs) {
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved);
+                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
         }
 
         /**

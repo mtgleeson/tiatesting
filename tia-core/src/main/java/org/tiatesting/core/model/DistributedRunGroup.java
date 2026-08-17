@@ -21,6 +21,7 @@ public final class DistributedRunGroup implements Serializable {
     private final int suitesRan;
     private final int suitesFailed;
     private final int suitesObserved;
+    private final long suitesDurationMs;
 
     /**
      * Full constructor, used by the read path so a persisted row round-trips exactly.
@@ -46,11 +47,22 @@ public final class DistributedRunGroup implements Serializable {
      *                       the same figure as {@code suitesRan}, since a suite Tia never got to run
      *                       (a disabled class, a Surefire filter, a class deleted since the last
      *                       mapping run) is observed (skipped) without ever being executed.
+     * @param suitesDurationMs summed measured run time of the suites this runner timed, in ms - the
+     *                         part of {@code actualDurationMs} that is attributable to a named
+     *                         suite. Like {@code suitesObserved} it is written via {@code GREATEST}
+     *                         rather than accumulated, since the tracker map it is summed from is
+     *                         already cumulative per JVM. The remainder,
+     *                         {@code actualDurationMs - suitesDurationMs}, is this runner's fixed
+     *                         per-JVM overhead, which is what lets the sealer charge that overhead
+     *                         once for the build instead of once per group - see
+     *                         {@code DistributedRunTotals}. Zero when suite timing was not
+     *                         collected ({@code updateDBStats} off), which the sealer treats as
+     *                         "no decomposition available" rather than as "no overhead".
      */
     public DistributedRunGroup(String runId, int groupNumber, DistributedRunGroupStatus status,
                                String runnerKey, Long claimedAtMs, Long completedAtMs,
                                long estimatedMs, Long actualDurationMs, int suitesRan,
-                               int suitesFailed, int suitesObserved) {
+                               int suitesFailed, int suitesObserved, long suitesDurationMs) {
         this.runId = runId;
         this.groupNumber = groupNumber;
         this.status = status;
@@ -62,6 +74,7 @@ public final class DistributedRunGroup implements Serializable {
         this.suitesRan = suitesRan;
         this.suitesFailed = suitesFailed;
         this.suitesObserved = suitesObserved;
+        this.suitesDurationMs = suitesDurationMs;
     }
 
     /**
@@ -74,7 +87,7 @@ public final class DistributedRunGroup implements Serializable {
      */
     public static DistributedRunGroup pending(String runId, int groupNumber, long estimatedMs) {
         return new DistributedRunGroup(runId, groupNumber, DistributedRunGroupStatus.PENDING,
-                null, null, null, estimatedMs, null, 0, 0, 0);
+                null, null, null, estimatedMs, null, 0, 0, 0, 0L);
     }
 
     /** @return the owning run's identifier */
@@ -120,6 +133,16 @@ public final class DistributedRunGroup implements Serializable {
     public int getSuitesObserved() { return suitesObserved; }
 
     /**
+     * @return the summed measured run time of the suites this runner timed, in ms - the part of
+     *         {@link #getActualDurationMs()} attributable to a named suite. The difference between
+     *         the two is the runner's fixed per-JVM overhead; see {@code DistributedRunTotals} for
+     *         why the sealer charges that overhead once per build rather than once per group. Zero
+     *         when suite timing was not collected, which is not the same statement as "this runner
+     *         had no overhead".
+     */
+    public long getSuitesDurationMs() { return suitesDurationMs; }
+
+    /**
      * Value equality across every field, so a persisted row can be asserted equal to the object
      * it was written from.
      *
@@ -136,6 +159,7 @@ public final class DistributedRunGroup implements Serializable {
                 && suitesRan == that.suitesRan
                 && suitesFailed == that.suitesFailed
                 && suitesObserved == that.suitesObserved
+                && suitesDurationMs == that.suitesDurationMs
                 && Objects.equals(runId, that.runId)
                 && status == that.status
                 && Objects.equals(runnerKey, that.runnerKey)
@@ -152,7 +176,8 @@ public final class DistributedRunGroup implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(runId, groupNumber, status, runnerKey, claimedAtMs, completedAtMs,
-                estimatedMs, actualDurationMs, suitesRan, suitesFailed, suitesObserved);
+                estimatedMs, actualDurationMs, suitesRan, suitesFailed, suitesObserved,
+                suitesDurationMs);
     }
 
     /**

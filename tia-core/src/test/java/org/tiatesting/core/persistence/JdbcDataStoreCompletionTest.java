@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Cover the four operations that close a distributed run against embedded H2:
- * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, int)} (the progress
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, int, 0L)} (the progress
  * report, where {@code suitesRan}/{@code actualDurationMs} accumulate and {@code suitesFailed}/
  * {@code suitesObserved} replace), {@link DataStore#completeGroup(String, int, String, long)}
  * (the guarded status flip that is also the straggler protection and the completeness guard),
@@ -151,7 +151,7 @@ class JdbcDataStoreCompletionTest {
         // given
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, 7));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, 7, 0L));
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
@@ -205,7 +205,7 @@ class JdbcDataStoreCompletionTest {
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
 
         // when
-        boolean applied = dataStore.reportGroupProgress("run-1", 0, "runner-b", 4321L, 7, 2, 7);
+        boolean applied = dataStore.reportGroupProgress("run-1", 0, "runner-b", 4321L, 7, 2, 7, 0L);
 
         // then
         assertFalse(applied);
@@ -228,14 +228,66 @@ class JdbcDataStoreCompletionTest {
         // given - the first report observes 49 of the group's 50 assigned suites
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 49));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 49, 0L));
 
         // when - a later report in the same JVM carries a smaller observed count
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1_000L, 1, 0, 30));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1_000L, 1, 0, 30, 0L));
 
         // then
         assertEquals(49, storedGroup("run-1", 0).getSuitesObserved(),
                 "a smaller later report must not regress the stored observed count below the "
+                        + "larger value an earlier report already established");
+    }
+
+    /**
+     * The suite-attributable share of a group's duration round-trips, and - unlike the duration
+     * itself - does not accumulate across the reports one JVM makes. The runner sums it from its
+     * shared suite-tracker map, which already carries every suite timed by every test plan the JVM
+     * has made, so a Surefire retry re-reports the same total; accumulating it would double-count
+     * the first attempt's suites and shrink the group's apparent overhead towards zero.
+     *
+     * <p>The asymmetry with {@code actual_duration_ms} - which legitimately grows by the retry's own
+     * window - is the point: it is what leaves the retry's cost outside the suite-attributable total
+     * and inside the overhead remainder, where {@code DistributedRunTotals} needs it to be.
+     */
+    @Test
+    void shouldNotAccumulateTheSuiteDurationAcrossOneJvmsReports() {
+        // given - the first attempt runs both suites, timing 30s of suite work in a 34s window
+        persistPlanWithGroups("run-1", 2);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 34_000L, 2, 1, 2, 30_000L));
+
+        // when - a retry of the failed test re-reports the same suite total in a fresh 6s window
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 6_000L, 1, 0, 2, 30_000L));
+
+        // then
+        DistributedRunGroup stored = storedGroup("run-1", 0);
+        assertEquals(40_000L, stored.getActualDurationMs().longValue(),
+                "the duration must accumulate across the JVM's reports - the retry really did cost "
+                        + "another 6s");
+        assertEquals(30_000L, stored.getSuitesDurationMs(),
+                "the suite-attributable time must not accumulate, since the retry re-reported the "
+                        + "same already-cumulative total rather than timing fresh suites");
+    }
+
+    /**
+     * A smaller later suite-duration report must not regress the stored value, for the same reason
+     * the observed count must not: {@code GREATEST} rather than a plain replace is what protects the
+     * column from a late-arriving report carrying a shrunk view of the JVM's totals.
+     */
+    @Test
+    void shouldNotLowerTheStoredSuiteDurationWhenALaterReportIsSmaller() {
+        // given
+        persistPlanWithGroups("run-1", 2);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 34_000L, 2, 0, 2, 30_000L));
+
+        // when
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 1_000L, 0, 0, 2, 900L));
+
+        // then
+        assertEquals(30_000L, storedGroup("run-1", 0).getSuitesDurationMs(),
+                "a smaller later report must not regress the stored suite duration below the "
                         + "larger value an earlier report already established");
     }
 
@@ -250,7 +302,7 @@ class JdbcDataStoreCompletionTest {
         // given
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, 7);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 7, 2, 7, 0L);
         dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // when
@@ -294,7 +346,7 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1, 0L);
         dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
 
         // when
@@ -317,9 +369,9 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1, 0L);
         dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
-        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, 1);
+        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, 1, 0L);
         dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
 
         // when
@@ -343,9 +395,9 @@ class JdbcDataStoreCompletionTest {
         persistPlanWithGroups("run-1", 2);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         dataStore.claimNextPendingGroup("run-1", "runner-b", 5100L);
-        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1);
+        dataStore.reportGroupProgress("run-1", 0, "runner-a", 100L, 1, 0, 1, 0L);
         dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
-        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, 1);
+        dataStore.reportGroupProgress("run-1", 1, "runner-b", 200L, 1, 0, 1, 0L);
         dataStore.completeGroup("run-1", 1, "runner-b", 9100L);
         dataStore.electSealer("run-1", "runner-a", 9500L);
 
@@ -368,7 +420,7 @@ class JdbcDataStoreCompletionTest {
         // given - 50 assigned suites, all 50 reported as run and observed
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 0, 50));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 0, 50, 0L));
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
@@ -392,7 +444,7 @@ class JdbcDataStoreCompletionTest {
         // given - 50 assigned suites, all 50 observed but only 49 executed (one @Disabled suite)
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 50));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 49, 0, 50, 0L));
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
@@ -418,7 +470,7 @@ class JdbcDataStoreCompletionTest {
         // given - attempt 1 reports every assigned suite with 3 failures; no further report follows
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 3, 50));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 40_000L, 50, 3, 50, 0L));
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
@@ -458,7 +510,7 @@ class JdbcDataStoreCompletionTest {
         // given - 50 assigned suites, a report covering only 30 of them
         persistPlanWithOneGroupOfSuites("run-1", 50);
         dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
-        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 24_000L, 30, 0, 30));
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 24_000L, 30, 0, 30, 0L));
 
         // when
         DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
@@ -568,7 +620,7 @@ class JdbcDataStoreCompletionTest {
         }
         for (int i = 0; i < runnerCount; i++) {
             DistributedRunGroup claimed = storedGroup(runId, i);
-            assertTrue(dataStore.reportGroupProgress(runId, i, claimed.getRunnerKey(), 100L, 1, 0, 1));
+            assertTrue(dataStore.reportGroupProgress(runId, i, claimed.getRunnerKey(), 100L, 1, 0, 1, 0L));
             assertNotNull(dataStore.completeGroup(runId, i, claimed.getRunnerKey(), 9000L));
         }
 

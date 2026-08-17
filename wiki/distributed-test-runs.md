@@ -418,10 +418,11 @@ would otherwise multiply the history - and every savings total computed from it 
 fan-out. `DistributedRunTotals` computes the figures from the group rows, and it carries two
 durations that are not interchangeable:
 
-- The **serial-equivalent** duration is the sum of every group's test time - what the same selection
-  would have cost on one host. This is the primary figure: the stats and the savings are computed
-  from it, so "time saved by not running unimpacted tests" keeps meaning the same thing and stays
-  comparable with the project's pre-distributed history.
+- The **serial-equivalent** duration is what the same selection would have cost on one host: every
+  group's suite-execution time, plus the fixed per-JVM overhead **once**. This is the primary
+  figure: the stats and the savings are computed from it, so "time saved by not running unimpacted
+  tests" keeps meaning the same thing and stays comparable with the project's pre-distributed
+  history.
 - The **wall clock** is the slowest group, recorded alongside so the user can see what the build
   actually took and whether the target was met. Making it primary would credit Tia with the
   parallelism the CI system provided and would quietly redefine `avgRunTime`.
@@ -429,6 +430,50 @@ durations that are not interchangeable:
 The row is stamped with the time the run was *planned*, since that is the one timestamp every runner
 in the build shares. See the [test-run history log](test-run-history.md) chapter for the table
 itself.
+
+#### The fixed overhead is charged once, not once per group
+
+The serial-equivalent figure is deliberately **not** a plain sum of the group durations. Every runner
+pays a fixed cost inside its measured window - engine start-up, class loading, the gaps between
+suites, the coverage dump - that a single-host run of the same suites would pay once. Summing
+charges it once per group, so a build fanned out ten ways looks minutes slower than the same
+selection run serially. That is not cosmetic: it under-reports savings on a partial build, and on an
+all-tests build it inflates the full-suite baseline that *every later* savings figure is measured
+against.
+
+So each runner reports the split rather than just the total. Alongside `actual_duration_ms` it
+records `suites_duration_ms` - the summed run time of the suites it timed - and the remainder is its
+measured overhead:
+
+```
+overhead(group)  = actual_duration_ms - suites_duration_ms   (clamped at 0)
+fixedOverhead    = min over groups of overhead(group)
+serialEquivalent = Σ actual_duration_ms - (measured groups - 1) × fixedOverhead
+```
+
+The **minimum** is the estimator, not the mean or the maximum: it is the largest amount every runner
+demonstrably paid, so subtracting `N-1` copies can never remove time that was not there. It also
+leaves the variable part of each group's overhead in the total, which is what a build with a
+Surefire retry needs - a retry re-runs failed tests without timing a fresh suite, so its wall time
+lands in that group's overhead remainder, and it is real time the build spent rather than a
+duplicated fixed cost.
+
+`suites_duration_ms` is written via `GREATEST` rather than accumulated, unlike `actual_duration_ms`.
+The runner sums it from its shared suite-tracker map, which already carries every suite timed by
+every test plan the JVM has made, so a retry re-reports the same total; accumulating it would
+double-count the first attempt's suites. That asymmetry is what keeps the retry's cost outside the
+suite-attributable total and inside the overhead remainder.
+
+**When the split is not available, nothing is corrected.** Suite times are only measured with
+`tiaUpdateDBStats` on, so a group can complete having run suites and report zero suite time. Reading
+that as "this group was pure overhead" would make the fixed overhead the whole of the fastest
+group's duration and gut the total, so any group that ran suites without reporting suite time
+disqualifies the whole build and the serial figure falls back to the plain sum. Falling back
+over-states the duration, which under-states savings; the alternative under-states the duration,
+which inflates the baseline - and only one of those two is safe to be wrong about.
+
+The overhead charged once is logged with the seal (`fixedOverheadChargedOnceMs`), so a build
+reporting `0` there is one where the fall back applied.
 
 The all-tests-run baseline that savings are measured against needs the sealer too. A single-host run
 advances that baseline only when it ignored zero suites, and no runner in a split build ever does -

@@ -367,6 +367,65 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * The baseline an all-tests distributed build sets charges each runner's fixed per-JVM overhead
+     * <b>once</b>, not once per group. Every runner pays that cost - engine start-up, class loading,
+     * the coverage dump - inside its measured window, and a single-host run of the same suites would
+     * pay it once, so summing the groups whole inflates the baseline by one copy per extra runner.
+     *
+     * <p>This is the direction that does lasting damage: the baseline is what <em>every later</em>
+     * savings figure is measured against, so an inflated one over-reports savings on every
+     * subsequent build, not just this one.
+     */
+    @Test
+    void theBaselineChargesTheRunnersFixedOverheadOnceNotOncePerGroup() {
+        // given - two groups that between them ran all 4 tracked suites, each paying 3s of fixed
+        // per-JVM overhead on top of its suite time
+        seedTrackedSuites(4, 0);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 2), trackedSuiteNames(2, 4)));
+        completeGroup(RUN_ID, 0, RUNNER_A, 13_000L, 10_000L, 2, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 8_000L, 5_000L, 2, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+
+        // then
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(18_000L, stats.getAllTestsRunTime(),
+                "the baseline must be the 15s of suite time plus one 3s overhead, not the 21s a "
+                        + "plain sum of the two groups would charge");
+        assertEquals(18_000L, dataStore.readTestRunHistory().get(0).getDurationMs(),
+                "and the history row's duration must agree with the baseline it just set");
+    }
+
+    /**
+     * The same correction on a partial build, seen through the figure the user actually reads. With
+     * the overhead charged once per group the build's duration exceeds the full-suite baseline, and
+     * since savings clamp at zero the build reports saving nothing at all - a build that really did
+     * skip most of the suite. Charging the overhead once restores the real figure.
+     */
+    @Test
+    void aPartialBuildsSavingsSurviveTheFixedOverheadBeingChargedOnce() {
+        // given - a 20s baseline, 8 tracked suites, and a build that ran 2 of them across two
+        // runners, each paying 3s of fixed overhead
+        seedAllTestsBaseline(20_000L);
+        seedTrackedSuites(8, 0);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
+        completeGroup(RUN_ID, 0, RUNNER_A, 13_000L, 10_000L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 8_000L, 5_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(18_000L, entry.getDurationMs(),
+                "the build's duration must charge the 3s overhead once, not once per runner");
+        assertEquals(2_000L, entry.getTimeSavingsMs(),
+                "a plain sum would put the build at 21s against a 20s baseline and report zero "
+                        + "savings for a build that skipped 6 of the 8 tracked suites");
+    }
+
+    /**
      * A build that ran only some of the tracked suites leaves the baseline where it was. The
      * baseline is the full-suite time, so folding a partial build's time into it would understate
      * the full-suite cost and quietly shrink every future savings figure.
@@ -415,9 +474,9 @@ class DistributedRunSealerStatsHistoryTest {
 
         // when - the runner reports twice for its one group, as a retried JVM does, taking the
         // accumulated suites_ran to 4 - the tracked suite count - on a build that only ever covered 2
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, 2),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, 2, 0L),
                 "test setup expects the first attempt's report to be accepted");
-        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, 2),
+        assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, 2, 0L),
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L),
                 "test setup expects the completion to be accepted");
@@ -711,12 +770,33 @@ class DistributedRunSealerStatsHistoryTest {
     private void completeGroup(final String runId, final int groupNumber, final String runnerKey,
                                final long actualDurationMs, final int suitesRan,
                                final int suitesFailed) {
+        completeGroup(runId, groupNumber, runnerKey, actualDurationMs, 0L, suitesRan, suitesFailed);
+    }
+
+    /**
+     * Claim a group, report the measurements a real runner would report - including how much of its
+     * duration went on named suites - and complete it. Reports {@code suitesRan} as the observed
+     * count too, standing in for the ordinary case where a runner observes exactly the suites it
+     * executes.
+     *
+     * @param runId the run the group belongs to
+     * @param groupNumber the group to claim and complete
+     * @param runnerKey the identity to claim under
+     * @param actualDurationMs the group's measured test-execution time
+     * @param suitesDurationMs the part of that time attributable to named suites; the remainder is
+     *                         the runner's fixed per-JVM overhead
+     * @param suitesRan the number of suites the runner executed
+     * @param suitesFailed the number of the runner's suites with at least one failed test
+     */
+    private void completeGroup(final String runId, final int groupNumber, final String runnerKey,
+                               final long actualDurationMs, final long suitesDurationMs,
+                               final int suitesRan, final int suitesFailed) {
         DistributedRunGroup claimed = dataStore.claimNextPendingGroup(runId, runnerKey, 5000L);
         assertNotNull(claimed, "test setup expects a group to be available to claim");
         assertEquals(groupNumber, claimed.getGroupNumber(),
                 "test setup expects the groups to be claimed in order");
         assertTrue(dataStore.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                suitesRan, suitesFailed, suitesRan),
+                suitesRan, suitesFailed, suitesRan, suitesDurationMs),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup(runId, groupNumber, runnerKey, 6000L),
                 "test setup expects the completion to be accepted");

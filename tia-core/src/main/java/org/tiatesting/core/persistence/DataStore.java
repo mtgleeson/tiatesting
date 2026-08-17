@@ -524,12 +524,21 @@ public interface DataStore extends AutoCloseable {
      * @param suitesObserved the number of suites the runner has observed so far (finished or
      *                       skipped), written as the greatest of this value and whatever was
      *                       already stored
+     * @param suitesDurationMs the summed measured run time, in ms, of every suite this runner has
+     *                         timed so far, written as the greatest of this value and whatever was
+     *                         already stored. Splits the group's duration into the part attributable
+     *                         to named suites and the remainder - the runner's fixed per-JVM
+     *                         overhead - so the sealer can charge that overhead once for the build
+     *                         rather than once per group; see {@code DistributedRunTotals}. Zero
+     *                         when suite timing was not collected ({@code updateDBStats} off), which
+     *                         the sealer reads as "no decomposition available", not "no overhead"
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                 final long actualDurationMs, final int suitesRan,
-                                final int suitesFailed, final int suitesObserved);
+                                final int suitesFailed, final int suitesObserved,
+                                final long suitesDurationMs);
 
     /**
      * Flip a runner's group to {@code COMPLETED}, releasing the barrier in {@link #electSealer}.

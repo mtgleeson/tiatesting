@@ -312,6 +312,37 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * The group also records how much of that duration went on named suites, summed from the run
+     * result's own trackers rather than passed in as a number. That split is what lets the sealer
+     * charge each runner's fixed per-JVM overhead once for the build instead of once per group; see
+     * {@code DistributedRunTotals}. Asserting it through a real {@link TestRunResult} is deliberate -
+     * a figure hand-written straight at the datastore would pass whatever the runner actually
+     * computed, which is the failure mode every earlier bug in this group's counters shared.
+     */
+    @Test
+    void completedGroupRecordsTheSuiteAttributableShareOfItsDuration() {
+        // given - two timed suites, 1200ms and 800ms, inside a runner window of at least 4s
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        long runStart = System.currentTimeMillis() - 4000L;
+        TestRunResult result = makeResultWithSuiteRunTimes(1200L, 800L);
+
+        // when
+        service.persistTestRunData(true, true, true, "new-commit", "main", runStart, result, context);
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                System.currentTimeMillis());
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(2000L, group.getSuitesDurationMs(),
+                "the group must record the summed run time of the suites this runner timed");
+        assertTrue(group.getActualDurationMs() > group.getSuitesDurationMs(),
+                "the runner's total window must exceed its suite time - the gap is the fixed "
+                        + "per-JVM overhead the sealer charges once, and a runner reporting no gap "
+                        + "would leave nothing to correct");
+    }
+
+    /**
      * The straggler protection: a runner whose plan rows a newer build's plan write has already
      * cleared writes nothing at all - no suite rows, no staged trackers, no failed set and no
      * completion. Persisting anyway would leave mapping rows from the superseded build's commit
@@ -574,6 +605,30 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * Build a run result carrying suites whose run times were measured, as a listener with
+     * {@code updateDBStats} on leaves them: each tracker's {@code avgRunTime} holds that suite's own
+     * measured duration by the time the test plan has finished.
+     *
+     * @param suiteRunTimesMs the measured run time of each suite, one suite per value
+     * @return a result whose trackers carry those run times
+     */
+    private TestRunResult makeResultWithSuiteRunTimes(final long... suiteRunTimesMs) {
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        Set<String> suiteNames = new HashSet<>();
+        for (int i = 0; i < suiteRunTimesMs.length; i++) {
+            String suiteName = "com.example.Suite" + i + "Test";
+            TestSuiteTracker tracker = new TestSuiteTracker(suiteName);
+            tracker.getTestStats().setAvgRunTime(suiteRunTimesMs[i]);
+            trackers.put(suiteName, tracker);
+            suiteNames.add(suiteName);
+        }
+
+        return new TestRunResult(trackers, new HashSet<String>(), suiteNames, suiteNames, suiteNames,
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0,
+                suiteRunTimesMs.length);
+    }
+
+    /**
      * Build the result a runner that executed nothing produces - what a surplus runner reports.
      *
      * @return an empty result for the surplus-runner path
@@ -736,10 +791,10 @@ class TestRunnerServiceDistributedPersistTest {
         public boolean reportGroupProgress(final String runId, final int groupNumber,
                                            final String runnerKey, final long actualDurationMs,
                                            final int suitesRan, final int suitesFailed,
-                                           final int suitesObserved) {
+                                           final int suitesObserved, final long suitesDurationMs) {
             callOrder.add("reportGroupProgress");
             return super.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs,
-                    suitesRan, suitesFailed, suitesObserved);
+                    suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
         }
 
         /**
