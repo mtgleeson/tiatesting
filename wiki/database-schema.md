@@ -127,6 +127,7 @@ erDiagram
         VARCHAR sealed_by
         BIGINT sealed_at
         BLOB drain_result
+        BOOLEAN seed_run
     }
 
     tia_distributed_run_group {
@@ -202,7 +203,12 @@ and the plan write clears all four as a set before inserting, rather than relyin
   branch and commit the plan was built from (authoritative for the seal), the run's `status`
   (`OPEN` / `SEALED`), the plan's shape, and `sealed_by` / `sealed_at` - the election record whose
   `IS NULL` predicate is what makes exactly one runner the sealer. `drain_result` carries the
-  library-impact drain the plan computed, for the sealer to apply once.
+  library-impact drain the plan computed, for the sealer to apply once. `seed_run` records that the
+  planner collapsed this run to a single group with no suite names because the branch had no stored
+  mapping yet - the seal reads it to tell that build (which ran everything and ignored nothing) from
+  a nothing-impacted one, whose groups carry empty suite lists too but which ignored every tracked
+  suite. Nothing else in the row separates the two, which is why the planner's answer is stored
+  rather than re-derived.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
   figures each persist accumulates. `suites_observed` is the one the completeness guard reads -

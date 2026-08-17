@@ -433,6 +433,13 @@ advances that baseline only when it ignored zero suites, and no runner in a spli
 so the sealer asks the question of the groups together (`suitesRan > 0` and zero ignored), which is
 what keeps the baseline moving once a project distributes its tests.
 
+The ignored half of that comes from what the plan **assigned** the groups, never from the
+accumulating `suites_ran` counter, which a retry within one JVM legitimately inflates. Where the
+assignment is empty it is answered from the run row's `seed_run` flag rather than from the plan's
+shape: a seed run's single group carries no suite names and ignored nothing, a nothing-impacted
+build's groups carry no suite names and ignored every tracked suite, and by seal time the two plans
+are indistinguishable - the seed run's own runners have already populated the tracked suite map.
+
 ## The CI step
 
 The shape is the same on both build tools and in every CI system: **run the plan step, read

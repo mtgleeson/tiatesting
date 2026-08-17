@@ -441,6 +441,82 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>A nothing-impacted build ignored every tracked suite, and a stray suite must not turn it
+     * into an all-tests build.</b> A selection that chose nothing still persists the configured
+     * number of groups, every one of them with an empty suite list - the same empty assignment a
+     * seed run's single group carries, and the reason the seed-run flag is read from the run row
+     * rather than guessed from the plan's shape.
+     *
+     * <p>Read the wrong way round, the ignored count is reported as zero, which is a straight
+     * regression in the history row on a routine build. Worse, it leaves {@code allTestsRun} resting
+     * entirely on {@code suitesRan > 0}, and one test class in the workspace that is in neither the
+     * tracked map nor the plan is on nobody's ignore list and runs anyway - which is exactly what
+     * this test's stray suite stands for. The consequences are asserted rather than the count alone:
+     * the full-suite baseline must not be overwritten with this build's duration, and the tracked
+     * library's mapping baseline must not advance, since that would silently under-select on the
+     * library's next build.
+     */
+    @Test
+    void aNothingImpactedBuildIgnoresEveryTrackedSuiteEvenWhenAStraySuiteRan() {
+        // given - a tracked library, 4 tracked suites, and the three-group plan a selection that
+        // chose nothing produces: every group present, every one of them assigned no suites
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        seedTrackedSuites(4, 0);
+        persistPlan(RUN_ID, Arrays.asList(Collections.<String>emptyList(),
+                Collections.<String>emptyList(), Collections.<String>emptyList()));
+
+        // when - the third group runs one suite nobody put on an ignore list, so suitesRan > 0
+        completeGroup(RUN_ID, 0, RUNNER_A, 40L, 0, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 40L, 0, 0);
+        completeGroup(RUN_ID, 2, "runner-c", 500L, 1, 0);
+        sealerFor("runner-c", 2).sealIfElected(true, true, true, 9000L);
+
+        // then
+        assertEquals(4, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
+                "a build assigned no suites at all ignored every tracked suite, not none");
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(0L, stats.getNumAllTestsRuns(),
+                "one stray suite must not make a build that ran nothing an all-tests run");
+        assertEquals(0L, stats.getAllTestsRunTime(),
+                "and must not overwrite the full-suite baseline with this build's duration");
+        assertNull(dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
+                "nor may it advance the library's mapping baseline off a build that re-covered "
+                        + "nothing - that is under-selection on the library's next build");
+    }
+
+    /**
+     * <b>A seed run still ignores nothing and is still an all-tests run.</b> Its single group is
+     * assigned no suite names because there was no stored mapping to name any from, but its runner
+     * runs the lot - so it must set the baseline the whole savings report is measured against and
+     * advance every tracked library's mapping baseline.
+     *
+     * <p>The tracked suites are seeded here deliberately: the seed run's own runners populate the
+     * tracked map before the sealer reads it, so by seal time a seed run looks exactly like the
+     * nothing-impacted build above. Only the flag the planner persisted tells them apart.
+     */
+    @Test
+    void aSeedRunIgnoresNothingAndSetsTheFullSuiteBaseline() {
+        // given - a tracked library and the map the seed run's own runner has just written
+        dataStore.persistTrackedLibrary(new TrackedLibrary(LIB, "/projects/lib", null));
+        seedTrackedSuites(4, 0);
+        persistSeedRunPlan(RUN_ID);
+
+        // when - the seed run's one group runs every suite in the project
+        completeGroup(RUN_ID, 0, RUNNER_A, 8_000L, 4, 0);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+
+        // then
+        assertEquals(0, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
+                "a seed run runs everything, so it ignored nothing");
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(1L, stats.getNumAllTestsRuns(), "and it counts as an all-tests run");
+        assertEquals(8_000L, stats.getAllTestsRunTime(),
+                "so its duration becomes the full-suite baseline later savings are measured against");
+        assertEquals(PLAN_COMMIT, dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
+                "and every tracked library was re-covered, so its mapping baseline advances");
+    }
+
+    /**
      * Suites the developer disabled in source do not hold the baseline back. They would not run
      * without Tia either, so a build that ran everything else still ran everything Tia could have
      * selected - the same rule the single-host ignored-count applies.
@@ -552,6 +628,34 @@ class DistributedRunSealerStatsHistoryTest {
      * @param suitesByGroup the suite names to assign, one list per group, in group-number order
      */
     private void persistPlan(final String runId, final List<List<String>> suitesByGroup) {
+        persistPlanOfKind(runId, suitesByGroup, false);
+    }
+
+    /**
+     * Build and persist the plan a seed run produces: the single group carrying no suite names that
+     * {@code DistributedRunPlanner.balance} collapses to when the branch has no stored mapping yet,
+     * with the run row's seed-run flag set as the planner sets it.
+     *
+     * <p>Only the flag separates this from {@link #persistPlanWithNoAssignedSuites}'s
+     * nothing-impacted plan, which is the whole reason the flag is persisted rather than worked out
+     * from the plan's shape at seal time.
+     *
+     * @param runId the run identifier to plan under
+     */
+    private void persistSeedRunPlan(final String runId) {
+        persistPlanOfKind(runId, Collections.singletonList(Collections.<String>emptyList()), true);
+    }
+
+    /**
+     * Build and persist a distributed run plan whose groups are assigned the given suite names,
+     * recording whether the planner produced it as a seed run.
+     *
+     * @param runId the run identifier to plan under
+     * @param suitesByGroup the suite names to assign, one list per group, in group-number order
+     * @param seedRun whether the run row records this plan as a seed run
+     */
+    private void persistPlanOfKind(final String runId, final List<List<String>> suitesByGroup,
+                                   final boolean seedRun) {
         int groupCount = suitesByGroup.size();
         List<DistributedRunGroup> groups = new ArrayList<>();
         Map<Integer, List<String>> suites = new HashMap<>();
@@ -561,7 +665,7 @@ class DistributedRunSealerStatsHistoryTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
-                        1000L * groupCount, PLANNED_AT_MS), groups, suites, null));
+                        1000L * groupCount, PLANNED_AT_MS, seedRun), groups, suites, null));
     }
 
     /**

@@ -385,6 +385,6 @@ class DistributedRunnerPersistTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, null,
-                        1000L * groupCount, 1234L), groups, suites, null));
+                        1000L * groupCount, 1234L, false), groups, suites, null));
     }
 }

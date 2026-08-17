@@ -167,7 +167,7 @@ public final class DistributedRunSealer {
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(context.getRunId());
         DistributedRunTotals totals = DistributedRunTotals.from(groups);
-        int ignoredSuiteCount = ignoredSuiteCount(groups);
+        int ignoredSuiteCount = ignoredSuiteCount(run, groups);
 
         // The all-tests-run test a single-host run applies is "Tia ignored zero suites this run".
         // The same question for a build split across runners can only be asked of the groups
@@ -312,12 +312,25 @@ public final class DistributedRunSealer {
      * class the distributed feature exists to close off. What the plan assigned each group cannot be
      * moved by any number of retries, so it is what this counts against.
      *
-     * <p><b>An empty union is a seed run, not a build that covered nothing.</b> A seed run is
-     * planned as a single group with <em>no</em> suite names at all - its runner ignores nothing and
-     * runs everything - so the assigned union being empty means the build ran the lot and its
-     * ignored count is zero. Reporting a seed run, the very run that must establish the baseline, as
-     * having covered nothing is the trap a name-based union has to be written around, which is why
-     * this case is handled explicitly rather than falling out of the count.
+     * <p><b>An empty union is answered from the persisted seed-run flag, never inferred.</b> Two
+     * opposite builds plan an empty assignment. A <em>seed run</em> - no stored mapping for the
+     * branch yet - is collapsed to a single group with no suite names, and its runner ignores
+     * nothing and runs everything, so its ignored count is genuinely zero. A <em>nothing-impacted</em>
+     * build - a real selection that chose no suites - persists the configured number of groups, every
+     * one of them with an empty suite list, and it ignored <em>every</em> tracked suite. Nothing in
+     * the plan's shape separates them: the group count does not (a nothing-impacted build configured
+     * for one group has one group too), the estimated total does not (both are zero), and the tracked
+     * suite map does not (the seed run's own runners populate it before the sealer reads it). So
+     * {@link DistributedRun#isSeedRun()}, written by the planner that knows the answer, is what
+     * decides here.
+     *
+     * <p>Getting that the wrong way round on a nothing-impacted build is not merely a wrong number in
+     * the history row. With the ignored count reported as zero, {@code allTestsRun} rests entirely on
+     * {@code suitesRan > 0}, and a single suite in the workspace that is in neither the tracked map
+     * nor the plan is on nobody's ignore list and runs anyway - enough to declare a build that ran
+     * one suite an all-tests run, overwrite the full-suite savings baseline with its duration and
+     * advance every tracked library's mapping baseline commit. That is under-selection on the
+     * libraries' next build, which is the failure class the distributed feature exists to close off.
      *
      * <p>Suites the developer disabled in source are excluded, matching {@code
      * TestSelector.getTestsToIgnore}: they would not run without Tia either, so counting them would
@@ -325,11 +338,12 @@ public final class DistributedRunSealer {
      *
      * <p>One small query per group, at seal time only - never on the hot read path.
      *
+     * @param run the run row this seal already read, carrying the planner's seed-run flag
      * @param groups the run's groups, as read back from the datastore after the barrier
      * @return the number of tracked, non-developer-disabled suites the plan did not assign to any
      *         group; zero for a seed run, whose single group is assigned no suite names at all
      */
-    private int ignoredSuiteCount(final List<DistributedRunGroup> groups) {
+    private int ignoredSuiteCount(final DistributedRun run, final List<DistributedRunGroup> groups) {
         Set<String> assignedSuites = new HashSet<>();
         for (DistributedRunGroup group : groups) {
             assignedSuites.addAll(dataStore.readDistributedRunGroupSuites(context.getRunId(),
@@ -337,7 +351,7 @@ public final class DistributedRunSealer {
         }
 
         if (assignedSuites.isEmpty()) {
-            return 0;
+            return run.isSeedRun() ? 0 : countTrackedSelectableSuites();
         }
 
         int ignoredSuites = 0;
@@ -347,6 +361,24 @@ public final class DistributedRunSealer {
             }
         }
         return ignoredSuites;
+    }
+
+    /**
+     * Count the tracked suites Tia could have selected for this build: every tracked suite the
+     * developer has not disabled in source. This is what a build that was assigned no suites at all
+     * ignored, and the same population {@link #ignoredSuiteCount} measures a non-empty assignment
+     * against, kept here so the two cannot disagree about which suites are selectable.
+     *
+     * @return the number of tracked, non-developer-disabled suites
+     */
+    private int countTrackedSelectableSuites() {
+        int selectable = 0;
+        for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
+            if (!tracker.isDeveloperDisabled()) {
+                selectable++;
+            }
+        }
+        return selectable;
     }
 
     /**

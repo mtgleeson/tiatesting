@@ -108,7 +108,7 @@ public final class DistributedRunPlanner {
         warnIfTargetMissed(result, config.getTargetRunTimeMs());
 
         DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs,
-                selection.getLibraryImpactDrainResult());
+                selection.getLibraryImpactDrainResult(), seedRun);
         int selectedSuiteCount = countSuites(runPlan);
         if (selectedSuiteCount != selection.getTestsToRun().size()) {
             throw new IllegalStateException("distributed run '" + config.getRunId()
@@ -339,13 +339,18 @@ public final class DistributedRunPlanner {
      * @param drainResult the library-impact drain the selection already performed, carried onto the
      *                    write bundle so it survives this process exiting, or null if nothing was
      *                    drained
+     * @param seedRun whether this plan was collapsed to a seed run, recorded on the run row because
+     *                the seal cannot tell a seed run's plan from a nothing-impacted one by its
+     *                shape - see {@code DistributedRunSealer.ignoredSuiteCount}
      * @return the validated plan, ready to persist
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
-                                            long createdAtMs, LibraryImpactDrainResult drainResult) {
+                                            long createdAtMs, LibraryImpactDrainResult drainResult,
+                                            boolean seedRun) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
-                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs);
+                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs,
+                seedRun);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
