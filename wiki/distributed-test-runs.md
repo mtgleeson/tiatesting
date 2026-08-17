@@ -313,7 +313,9 @@ strictly less than the group's assigned total - the completeness guard never pas
 completes and the run never seals. What the operator would see is a run stuck in `OPEN` with a group
 still `CLAIMED`, a stored commit value that never advanced, and a **green build**, because
 `completeAndSeal` returning `false` is an ordinary no-op to both build tools. Rather than let that
-happen, the Gradle plugin refuses either setting at configuration time with an explanation.
+happen, the Gradle plugin refuses either setting when the test task starts, with an explanation. The
+check runs in the test task's own action rather than at configuration time, so it reads the final
+value of `maxParallelForks` after everything that configures the task has had its say.
 
 ### Straggler protection
 

@@ -1930,8 +1930,11 @@ public class JdbcDataStore implements DataStore {
      * for. A runner key holding a group in any other status has already finished with it: returning
      * it would have the runner re-run its suites and then fail {@link #completeGroup}'s {@code
      * status = 'CLAIMED'} predicate, leaving the run unable to seal, so this returns {@code null}
-     * instead - and {@code null} rather than a fresh {@code PENDING} group, because a runner that
-     * already worked its group must not take a second one and leave the first unworked by anybody.
+     * instead - and {@code null} rather than a fresh {@code PENDING} group, because taking a second
+     * group would leave this runner key on two group rows, and step 0's own {@code SELECT} is
+     * unfiltered, unordered and unlimited: it takes the first row {@code ResultSet.next()} offers as
+     * the answer, so a runner key on two rows makes every later step-0 read for it non-deterministic.
+     * One runner key holds at most one group, and that is what keeps this step answerable.
      *
      * @param runId the distributed run to claim a group from
      * @param runnerKey the calling runner's stable identity
@@ -1962,10 +1965,13 @@ public class JdbcDataStore implements DataStore {
             // Any other status means this runner already finished with that group, and it gets
             // nothing: handing the group back would re-run its suites and then fail completeGroup's
             // status = 'CLAIMED' predicate, so the run could never seal, while falling through to a
-            // fresh PENDING group would leave the group this runner took unworked by anybody else.
-            // The status is read here rather than filtered in the SELECT precisely so those two
-            // cases can be told apart - a filtered query answering "no row" cannot distinguish a
-            // runner that holds a finished group from one that holds none.
+            // fresh PENDING group would leave this runner key holding two group rows - and this
+            // SELECT is unfiltered, unordered and unlimited, taking whatever resultSet.next() hands
+            // back as the answer, so from that point on every step-0 read for this runner is
+            // non-deterministic. Returning null keeps one runner key to at most one group.
+            // The status is read here rather than filtered in the SELECT precisely so the two cases
+            // can be told apart - a filtered query answering "no row" cannot distinguish a runner
+            // that holds a finished group from one that holds none.
             try (PreparedStatement statement = connection.prepareStatement(claimedByRunnerSql)) {
                 statement.setString(1, runId);
                 statement.setString(2, runnerKey);
