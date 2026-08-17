@@ -202,6 +202,55 @@ class DistributedRunStatusReportTest {
     }
 
     /**
+     * Verify a seed run's observed count renders as {@code n/a} rather than as the stored zero, and
+     * that its outstanding line reports suites run rather than a progress fraction. A seed run's
+     * group is assigned no suite names, so the completion guard it feeds reads {@code 0 >= 0} and is
+     * satisfied without the count ever moving - "observed 0 of all" would read as a runner that
+     * observed none of everything, when the number simply carries no information here.
+     */
+    @Test
+    void shouldNotReportASeedRunsMeaninglessObservedCountAsProgress() {
+        // given - a seed run whose runner has claimed its group and run three suites
+        persistPlan("build-1", "commit-abc", singleGroup(Collections.<String>emptyList()), true);
+        dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 3, 0, 0, 4_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("| all      | n/a      | 3   "),
+                "observed should be n/a for a seed run: " + report);
+        assertFalse(report.contains("of all assigned suite(s)"), report);
+        assertTrue(report.contains("a seed run, so it is working through every suite it discovers; "
+                + "3 run so far."), report);
+    }
+
+    /**
+     * Verify a zero duration renders as {@code 0ms} rather than as the empty string {@code
+     * ReportUtils.prettyDuration} returns for it. A seed run's estimate is genuinely zero - there is
+     * no stored mapping to estimate from - and a blank cell reads as missing data rather than as the
+     * measured zero it is. Caught against a real seed run rather than in review.
+     */
+    @Test
+    void shouldRenderAZeroDurationRatherThanLeavingItBlank() {
+        // given - a seed run planned with no estimate at all
+        List<DistributedRunGroup> groups = Collections.singletonList(
+                DistributedRunGroup.pending("build-1", 0, 0L));
+        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, null, 0L,
+                NOW_MS - 120_000L, true);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
+                singleGroup(Collections.<String>emptyList()), null));
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("Estimated:  0ms of test time across 1 group(s)"), report);
+        assertTrue(report.contains("| 0ms       |"), "the estimated column should read 0ms: " + report);
+    }
+
+    /**
      * Verify a nothing-impacted run - whose single group is just as empty as a seed run's, but which
      * is not flagged as one - reports its assigned count as the literal 0. This is the trap the seed
      * flag exists for: the two runs have identical group shapes, and only the persisted flag

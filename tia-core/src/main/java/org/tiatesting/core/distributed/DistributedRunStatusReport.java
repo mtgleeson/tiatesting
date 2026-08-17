@@ -56,6 +56,9 @@ public final class DistributedRunStatusReport {
     /** Rendered as a seed run's assigned suite count, which is zero names but every suite. */
     private static final String ALL_SUITES = "all";
 
+    /** Rendered where a value exists but carries no meaning, as opposed to one not yet reported. */
+    private static final String NOT_MEANINGFUL = "n/a";
+
     private DistributedRunStatusReport() {
     }
 
@@ -219,9 +222,9 @@ public final class DistributedRunStatusReport {
         }
         report.append("  Target:     ").append(run.getTargetRunTimeMs() == null
                         ? "none (fixed group count)"
-                        : ReportUtils.prettyDuration(run.getTargetRunTimeMs().longValue(), true))
+                        : duration(run.getTargetRunTimeMs().longValue()))
                 .append(lineSep);
-        report.append("  Estimated:  ").append(ReportUtils.prettyDuration(run.getEstimatedTotalMs(), true))
+        report.append("  Estimated:  ").append(duration(run.getEstimatedTotalMs()))
                 .append(" of test time across ").append(groups.size()).append(" group(s)").append(lineSep);
         report.append("  Sealed:     ").append(sealedDescription(run, nowMs));
     }
@@ -239,10 +242,10 @@ public final class DistributedRunStatusReport {
         if (run.getStatus() != DistributedRunStatus.SEALED || run.getSealedAtMs() == null) {
             long openForMs = nowMs - run.getCreatedAtMs();
             return openForMs <= 0 ? "not sealed"
-                    : "not sealed (open for " + ReportUtils.prettyDuration(openForMs, true) + ")";
+                    : "not sealed (open for " + duration(openForMs) + ")";
         }
         return "by runner '" + run.getSealedBy() + "' at " + timestamp(run.getSealedAtMs().longValue())
-                + " (" + ReportUtils.prettyDuration(run.getSealedAtMs().longValue() - run.getCreatedAtMs(), true)
+                + " (" + duration(run.getSealedAtMs().longValue() - run.getCreatedAtMs())
                 + " after the plan)";
     }
 
@@ -273,12 +276,12 @@ public final class DistributedRunStatusReport {
                     group.getStatus().toString(),
                     group.getRunnerKey() == null ? NOT_APPLICABLE : group.getRunnerKey(),
                     run.isSeedRun() ? ALL_SUITES : Integer.toString(assignedSuites.get(i).size()),
-                    reported ? Integer.toString(group.getSuitesObserved()) : NOT_APPLICABLE,
+                    observed(run, group, reported),
                     reported ? Integer.toString(group.getSuitesRan()) : NOT_APPLICABLE,
                     reported ? Integer.toString(group.getSuitesFailed()) : NOT_APPLICABLE,
-                    ReportUtils.prettyDuration(group.getEstimatedMs(), true),
+                    duration(group.getEstimatedMs()),
                     group.getActualDurationMs() == null ? NOT_APPLICABLE
-                            : ReportUtils.prettyDuration(group.getActualDurationMs().longValue(), true),
+                            : duration(group.getActualDurationMs().longValue()),
                     elapsed(group, nowMs));
         }
 
@@ -290,6 +293,27 @@ public final class DistributedRunStatusReport {
                 .append("every group completes.").append(lineSep);
         report.append("  Actual = measured test-execution time; Elapsed = wall clock since the ")
                 .append("group was claimed.");
+    }
+
+    /**
+     * Render a group's observed-suite count, which has three cases rather than two. A group that has
+     * reported nothing is dashed. A seed run's group is {@code n/a}: it was assigned no suite names,
+     * so the completion guard it feeds reads {@code 0 >= 0} and is satisfied without the count ever
+     * moving - printing the stored zero next to an assigned count of {@code all} would read as a
+     * runner that observed none of everything, when in fact the number simply carries no information
+     * for a seed run. Everything else shows the count, which is the figure the guard compares.
+     *
+     * @param run the run being reported on, whose seed flag decides whether the count means anything
+     * @param group the group whose count is being rendered
+     * @param reported whether this group has reported any progress at all
+     * @return the rendered count, {@code -}, or {@code n/a}
+     */
+    private static String observed(final DistributedRun run, final DistributedRunGroup group,
+                                    final boolean reported) {
+        if (!reported) {
+            return NOT_APPLICABLE;
+        }
+        return run.isSeedRun() ? NOT_MEANINGFUL : Integer.toString(group.getSuitesObserved());
     }
 
     /**
@@ -310,7 +334,7 @@ public final class DistributedRunStatusReport {
         long elapsedMs = until - group.getClaimedAtMs().longValue();
         // Negative only under clock skew between the planning host and this one, which is real on
         // CI. Reporting a negative duration would look like a bug in Tia rather than in the clocks.
-        return elapsedMs < 0 ? NOT_APPLICABLE : ReportUtils.prettyDuration(elapsedMs, true);
+        return elapsedMs < 0 ? NOT_APPLICABLE : duration(elapsedMs);
     }
 
     /**
@@ -369,12 +393,16 @@ public final class DistributedRunStatusReport {
                 String runningFor = elapsed(group, nowMs);
                 report.append("CLAIMED by '").append(group.getRunnerKey()).append("'")
                         .append(NOT_APPLICABLE.equals(runningFor) ? ""
-                                : " (running for " + runningFor + ")")
-                        .append(" - observed ")
-                        .append(group.getSuitesObserved()).append(" of ")
-                        .append(run.isSeedRun() ? ALL_SUITES
-                                : Integer.toString(assignedSuites.get(i).size()))
-                        .append(" assigned suite(s).");
+                                : " (running for " + runningFor + ")");
+                if (run.isSeedRun()) {
+                    // A seed run's group was assigned no suite names, so there is no "N of M" to
+                    // report progress against - its runner works through whatever it discovers.
+                    report.append(" - a seed run, so it is working through every suite it "
+                            + "discovers; ").append(group.getSuitesRan()).append(" run so far.");
+                } else {
+                    report.append(" - observed ").append(group.getSuitesObserved()).append(" of ")
+                            .append(assignedSuites.get(i).size()).append(" assigned suite(s).");
+                }
             }
         }
     }
@@ -431,6 +459,21 @@ public final class DistributedRunStatusReport {
     }
 
     /**
+     * Render a duration, rendering zero as {@code 0ms} rather than as the empty string {@link
+     * ReportUtils#prettyDuration} returns for it. Blank is right where a duration is one component
+     * of a sentence and a zero component is simply omitted, which is what that method is built for;
+     * it is wrong in a table cell and in "Estimated: X of test time", where an empty value reads as
+     * missing data rather than as a measured zero. A seed run's estimate is genuinely zero - there is
+     * no stored mapping to estimate from - and saying so is the point.
+     *
+     * @param durationMs the duration in ms
+     * @return the rendered duration, never empty
+     */
+    private static String duration(final long durationMs) {
+        return durationMs == 0 ? "0ms" : ReportUtils.prettyDuration(durationMs, true);
+    }
+
+    /**
      * Render a UTC epoch millis value in the JVM's local time zone, matching the format the history
      * report uses so timestamps read the same across Tia's console output.
      *
@@ -452,7 +495,7 @@ public final class DistributedRunStatusReport {
      */
     private static String ago(final long epochMs, final long nowMs) {
         long ageMs = nowMs - epochMs;
-        return ageMs <= 0 ? "" : " (" + ReportUtils.prettyDuration(ageMs, true) + " ago)";
+        return ageMs <= 0 ? "" : " (" + duration(ageMs) + " ago)";
     }
 
     /**

@@ -935,7 +935,7 @@ The two columns to read together are **Assigned** and **Observed**: a group comp
 - **A `PENDING` group** means no runner ever claimed it - your matrix fanned out fewer jobs than the plan has groups. Nothing will complete it on its own. Size the matrix from `groupCount` in `tia-run-plan.json`.
 - **Every group `COMPLETED` but the run still `OPEN`** means the barrier was reached and the seal itself failed. The next build's plan step will clear these rows and redo the work.
 
-A seed run's single group shows `all` in the Assigned column rather than `0`: its plan carries no suite names, because there is no mapping yet to draw them from, while its runner executes every suite it discovers.
+A seed run's single group shows `all` in the Assigned column rather than `0`: its plan carries no suite names, because there is no mapping yet to draw them from, while its runner executes every suite it discovers. Its Observed column shows `n/a` for the same reason - with nothing assigned, the completeness guard is satisfied without that count ever moving, so it carries no information. Read the Ran column instead.
 
 ### Full example (GitHub Actions)
 
