@@ -185,6 +185,13 @@ public class TestSelector {
         long captureOverheadMs = overhead.getCapturePerSuiteMs() * (long) testsToRun.size();
         long fixedOverheadMs = testsToRun.isEmpty() ? 0L : overhead.getFixedMs();
 
+        log.debug("Run time estimate: {} suite(s) selected taking {}ms of test time, plus {}ms of "
+                        + "coverage capture ({}ms per suite x {}) and {}ms of fixed per-JVM "
+                        + "overhead charged once. Serial-equivalent total {}ms, for a run that "
+                        + "collects coverage.", testsToRun.size(), totalMs, captureOverheadMs,
+                overhead.getCapturePerSuiteMs(), testsToRun.size(), fixedOverheadMs,
+                totalMs + captureOverheadMs + fixedOverheadMs);
+
         return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes,
                 captureOverheadMs, fixedOverheadMs);
     }
@@ -222,12 +229,22 @@ public class TestSelector {
     static OverheadModel overheadModel(final Map<String, TestSuiteTracker> tracked,
                                        final TestStats tiaStats){
         if (tiaStats.getNumOverheadMeasurements() > 0){
+            log.debug("Overhead model: measured - {}ms fixed per JVM and {}ms of coverage capture "
+                            + "per suite, averaged over {} distributed build(s). A distributed run "
+                            + "pays the fixed part once per group, so it is charged per group "
+                            + "rather than divided across them.", tiaStats.getFixedOverheadMs(),
+                    tiaStats.getCaptureOverheadPerSuiteMs(),
+                    tiaStats.getNumOverheadMeasurements());
             return new OverheadModel(tiaStats.getFixedOverheadMs(),
                     tiaStats.getCaptureOverheadPerSuiteMs());
         }
 
         long allTestsRunTimeMs = tiaStats.getAllTestsRunTime();
         if (allTestsRunTimeMs <= 0 || tracked.isEmpty()){
+            log.debug("Overhead model: none - {}, so no overhead is added to the estimate.",
+                    allTestsRunTimeMs <= 0
+                            ? "no all-tests baseline has been recorded yet"
+                            : "no test suites are tracked yet");
             return new OverheadModel(0L, 0L);
         }
         long sumAvg = 0L;
@@ -236,9 +253,20 @@ public class TestSelector {
         }
         long overhead = allTestsRunTimeMs - sumAvg;
         if (overhead <= 0){
+            log.debug("Overhead model: none - the {}ms all-tests baseline does not exceed the {}ms "
+                            + "sum of the {} tracked suite average(s), which is what a build that "
+                            + "runs its suites in parallel records. The overhead clamps to zero "
+                            + "rather than going negative.", allTestsRunTimeMs, sumAvg,
+                    tracked.size());
             return new OverheadModel(0L, 0L);
         }
-        return new OverheadModel(0L, overhead / tracked.size());
+        long capturePerSuiteMs = overhead / tracked.size();
+        log.debug("Overhead model: estimated - no distributed build has measured the split yet, so "
+                        + "the whole {}ms of overhead ({}ms baseline less {}ms of tracked suite "
+                        + "averages) is amortised across {} tracked suite(s) at {}ms each, with no "
+                        + "fixed per-JVM part. The first distributed run will measure the split.",
+                overhead, allTestsRunTimeMs, sumAvg, tracked.size(), capturePerSuiteMs);
+        return new OverheadModel(0L, capturePerSuiteMs);
     }
 
     /**
