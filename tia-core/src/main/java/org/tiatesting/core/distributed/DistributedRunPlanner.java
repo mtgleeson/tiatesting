@@ -224,6 +224,21 @@ public final class DistributedRunPlanner {
         // Tia produced before the two-part model existed.
         long fixedOverheadMs = collectingCoverage ? selection.getFixedOverheadMs() : 0L;
 
+        if (collectingCoverage) {
+            log.debug("Distributed run grouping: weighting {} suite(s) with {}ms of coverage "
+                            + "capture spread across them, and charging {}ms of fixed per-JVM "
+                            + "overhead once to each non-empty group. The fixed part is "
+                            + "deliberately kept out of the per-suite weights - it is the same on "
+                            + "every group, so it cannot change which suites group together.",
+                    weights.size(), selection.getCaptureOverheadMs(), fixedOverheadMs);
+        } else {
+            log.debug("Distributed run grouping: weighting {} suite(s) by test time alone. This "
+                            + "run does not collect coverage, so it pays neither the {}ms of "
+                            + "capture overhead nor the {}ms of fixed per-JVM overhead the "
+                            + "selection reports.", weights.size(),
+                    selection.getCaptureOverheadMs(), selection.getFixedOverheadMs());
+        }
+
         return groupCount != null
                 ? TestGroupBalancer.balanceIntoGroups(weights, groupCount, fixedOverheadMs)
                 : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups,
