@@ -12,14 +12,14 @@ import java.util.List;
  * resolved datastore, and whether local-changes checking is enabled are all plugin-layer
  * concerns. Four call sites call {@link #check} before doing anything else - in particular before
  * the datastore is opened or a group is claimed: the Maven and Gradle planning entry points
- * (the {@code tia-dist-plan} goal and task), which persist a plan, and the Maven and Gradle/Spock
+ * (the Maven {@code dist-plan} goal and the Gradle {@code tia-dist-plan} task), which persist a plan, and the Maven and Gradle/Spock
  * claim-time entry points (the {@code prepare-agent} goal, and the Gradle test-task action's claim
  * on the Gradle/Spock side - the daemon, at task-action time, before the test JVM forks), which
  * claim a group from one. So a misconfigured or disabled distributed run
  * fails fast with an actionable message instead of silently producing a broken plan, a corrupted
  * diff, or a claimable run persisted to the database while Tia is switched off.
  *
- * <p>Rule 1 - Tia must be enabled. {@code tia-dist-plan} opens the shared datastore and persists a
+ * <p>Rule 1 - Tia must be enabled. The plan step opens the shared datastore and persists a
  * claimable run; there is no read-only or preview form of it the way {@code select-tests} has one.
  * If Tia is disabled the user has asked for a plan they are not going to get, so this is checked
  * before anything else - a disabled user should be told they are disabled, not told their database
@@ -70,7 +70,7 @@ public final class DistributedRunPreconditions {
      * local-changes question moot.
      *
      * @param tiaEnabled       the resolved value of {@code tiaEnabled}; must be true, since {@code
-     *                         tia-dist-plan} opens the shared datastore and persists a claimable run
+     *                         the plan step opens the shared datastore and persists a claimable run
      *                         with no read-only preview form
      * @param projectCount     the number of projects taking part in the current build (a Maven
      *                         reactor's project count, or the equivalent for a Gradle multi-project
@@ -111,7 +111,7 @@ public final class DistributedRunPreconditions {
             throw new IllegalStateException(
                     "Distributed test runs require the planning step to run exactly once for the "
                             + "whole build, and require each runner to claim exactly one group, but "
-                            + "this build has " + projectCount + " projects - the Maven tia-dist-plan "
+                            + "this build has " + projectCount + " projects - the Maven dist-plan "
                             + "goal and the Gradle plan task are each bound per module rather than once "
                             + "across a multi-module build, and the Maven prepare-agent goal is bound "
                             + "the same way, so on a reactor of more than one project each would run "

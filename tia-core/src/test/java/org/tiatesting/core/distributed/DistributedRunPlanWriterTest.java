@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link DistributedRunPlanWriter}, covering the three properties the {@code
- * tia-dist-plan} goal's file write depends on: creating a missing build directory, writing an
+ * dist-plan} goal's file write depends on: creating a missing build directory, writing an
  * explicit UTF-8 encoding rather than the platform default, and surfacing a failure to the caller
  * instead of swallowing it.
  */
@@ -27,7 +27,7 @@ class DistributedRunPlanWriterTest {
     /**
      * Verify that {@link DistributedRunPlanWriter#write} creates the build directory - including
      * any missing parent directories - when it does not already exist, then writes the plan file
-     * into it. This is the case a standalone {@code tia-dist-plan} invocation hits when {@code
+     * into it. This is the case a standalone {@code dist-plan} invocation hits when {@code
      * target/} has not been created yet by an earlier build phase.
      *
      * @throws IOException never expected here; propagating it fails the test with the real cause

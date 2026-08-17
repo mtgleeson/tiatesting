@@ -111,7 +111,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     // Claims this test task's share of a distributed run right here in the
                     // daemon, before the test JVM forks - see claimDistributedRun for why the
                     // fork can no longer make this claim itself. The claim is recorded in the
-                    // build's DistributedClaimRegistry as a side effect; the tiaDistComplete
+                    // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
                     // finalizer reads it back from there after the test task's forked JVM(s)
                     // finish - see the "Distributed test runs" chapter in WIKI.md.
                     claimDistributedRun(testTask, tiaTaskExtension);
@@ -467,7 +467,7 @@ public class TiaSpockGitGradlePluginTestExtension {
      * per forked test JVM rather than once per test task - a build with {@code maxParallelForks > 1} could
      * claim several groups for what is meant to be a single runner - and left no daemon-side
      * record of which group a task's JVM held, which is what a later daemon-side "this group is
-     * finished" step ({@code tiaDistComplete}, mirroring the Maven {@code tia-dist-complete} goal) needs
+     * finished" step ({@code tia-dist-complete}, mirroring the Maven {@code dist-complete} goal) needs
      * to read back. Claiming here fixes both: one claim per test task, and a result the daemon
      * itself can see.
      *

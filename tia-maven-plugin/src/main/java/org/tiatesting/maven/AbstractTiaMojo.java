@@ -28,7 +28,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * system properties the forked test JVM needs plus the distributed-run handoff (resolved
      * runner key, claimed group number). Shared here, rather than declared separately by the
      * writer and the reader, so {@link AbstractTiaAgentMojo#writeForkPropertiesFile} and the
-     * {@code tia-dist-complete} goal that reads it back can never drift apart on the filename.
+     * {@code dist-complete} goal that reads it back can never drift apart on the filename.
      */
     static final String FORK_PROPERTIES_FILENAME = "fork.properties";
 
@@ -273,7 +273,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Resolve the Maven projects taking part in the current build session, so a distributed-run
      * precondition can see more than just the module currently executing. Both {@code
-     * tia-dist-plan} and {@code prepare-agent} are bound to per-module Maven phases, not to an
+     * dist-plan} and {@code prepare-agent} are bound to per-module Maven phases, not to an
      * aggregator goal, so on a multi-module reactor each runs once per module - a caller that read
      * only {@link #getProject()} would see just its own module and never detect that more than one
      * module is taking part. Exposed as its own overridable method, rather than reading {@link
@@ -292,7 +292,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Append the reactor's project artifact ids to a distributed-run precondition failure message
      * when the failure is the multi-project-reactor rule, so both distributed-run entry points -
-     * the {@code tia-dist-plan} goal and the {@code prepare-agent} goal - report exactly which
+     * the {@code dist-plan} goal and the {@code prepare-agent} goal - report exactly which
      * modules were found in the reactor. Shared here rather than duplicated per mojo since {@code
      * tia-core} has no Maven type to name the projects with itself; this method converts {@link
      * #getReactorProjects()}'s {@link MavenProject} list to plain artifact-id strings and delegates

@@ -200,7 +200,7 @@ class DistributedRunWiringEndToEndTest {
     }
 
     /**
-     * Plan the build the way {@code tia-dist-plan} does: two groups, one suite each, pinned to the
+     * Plan the build the way the plan step does: two groups, one suite each, pinned to the
      * commit the runners' workspaces are on.
      */
     private void planTheBuild() {

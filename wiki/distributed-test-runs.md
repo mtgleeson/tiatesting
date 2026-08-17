@@ -25,7 +25,7 @@ and never backwards.
 
 ### What the plan step does
 
-The plan is written by the Maven `tia-dist-plan` goal (`AbstractTiaDistPlanMojo`) or the Gradle
+The plan is written by the Maven `dist-plan` goal (`AbstractTiaDistPlanMojo`) or the Gradle
 `tia-dist-plan` task (`TiaDistPlanTask`). The two are deliberately the same sequence, and share
 every piece of logic that produces a value:
 
@@ -153,7 +153,7 @@ Around that, `DistributedRunCoordinator.claim` adds two checks that fail the bui
 that does not:
 
 - **No run row under the configured `tiaRunId`** - this build was superseded by a later one whose
-  plan write cleared these rows, or `tia-dist-plan` was never run for this id. Its tests were never
+  plan write cleared these rows, or the plan step was never run for this id. Its tests were never
   going to run under this id.
 - **A commit mismatch** between the plan and the runner's workspace - the plan's suite lists were
   chosen by diffing one commit, so running them against another would test different code than they
@@ -210,7 +210,7 @@ the integration requirement with a correctness consequence attached.
 | Claim | **each runner's build JVM** (Maven build JVM; Gradle daemon) | one group flips `PENDING -> CLAIMED` under this runner's key |
 | Run | the forked test JVM | executes its group's suites; every other suite is on its ignore list |
 | Report progress | the forked test JVM, once per test plan | mapping rows, failed set, staged method trackers, and a guarded progress update on the group row |
-| Complete | **each runner's build JVM**, `tia-dist-complete` | the group flips `CLAIMED -> COMPLETED`, releasing the barrier |
+| Complete | **each runner's build JVM**, the completion step | the group flips `CLAIMED -> COMPLETED`, releasing the barrier |
 | Elect | each runner's build JVM, immediately after its completion | one conditional `UPDATE` that only one runner can win |
 | Seal | the winning runner's build JVM | catalogue, drain cleanup, stats, commit value, one history row; run flips to `SEALED` |
 
@@ -501,12 +501,12 @@ system exposes one: `${{ github.run_id }}`, `$CI_PIPELINE_ID`, `$BUILD_TAG`, `$C
 ### Maven: the completion must be its own always-run step
 
 **Maven aborts the lifecycle when the test goal fails.** A pipeline that chains goals in one
-command (`mvn verify tia-junit5-git:tia-dist-complete`) will never reach the completion on a runner
+command (`mvn verify tia-junit5-git:dist-complete`) will never reach the completion on a runner
 whose tests failed. That runner's group stays `CLAIMED`, the barrier never opens, and **the run never
 seals**, even though every other runner did its job. The build then looks like a plain test failure
 while quietly having thrown away the whole run's mapping work.
 
-So the pipeline must invoke `tia-dist-complete` explicitly, in its own step, **whatever the test
+So the pipeline must invoke the completion step explicitly, in its own step, **whatever the test
 result**:
 
 ```yaml
@@ -520,7 +520,7 @@ result**:
 
 - name: Complete this runner's group
   if: always()          # <- the whole point: runs even when the tests failed
-  run: mvn tia-junit5-git:tia-dist-complete
+  run: mvn tia-junit5-git:dist-complete
 ```
 
 and the planning job that produced the matrix:
@@ -528,7 +528,7 @@ and the planning job that produced the matrix:
 ```yaml
 - name: Plan
   run: >
-    mvn tia-junit5-git:tia-dist-plan
+    mvn tia-junit5-git:dist-plan
     -DtiaDistributed=true
     -DtiaRunId=${{ github.run_id }}
     -DtiaDistributedTargetRunTime=1500000
@@ -557,7 +557,7 @@ test:
   script:
     - set +e; mvn verify -DtiaDistributed=true -DtiaRunId=$CI_PIPELINE_ID
                          -DtiaDistributedRunnerKey=$CI_NODE_INDEX; rc=$?; set -e
-    - mvn tia-junit5-git:tia-dist-complete    # always runs, and its failure is visible
+    - mvn tia-junit5-git:dist-complete    # always runs, and its failure is visible
     - exit $rc
 ```
 
@@ -639,7 +639,7 @@ the groups that are not `COMPLETED`:
 | Group state | What happened |
 |---|---|
 | `PENDING`, never claimed | The pipeline started fewer jobs than the plan's `groupCount`. **Those suites did not run.** |
-| `CLAIMED`, never completed | The runner died, or its `tia-dist-complete` step never ran (the Maven lifecycle-abort trap above), or the completion was refused. |
+| `CLAIMED`, never completed | The runner died, or its completion step never ran (the Maven lifecycle-abort trap above), or the completion was refused. |
 
 When the completion was *refused*, the log says so, and it says which of four cases it was.
 `DistributedRunnerPersist.describeRejectedCompletion` reads the group row back on the failure path
@@ -662,7 +662,7 @@ stops selecting tests. So there is no "force complete" and no override.
 
 **What to do: nothing, in almost every case.** An unsealed run is the safe direction - the stored
 commit stayed where it was, so the next build re-selects and re-runs that work. The next
-`tia-dist-plan` clears the stale run's rows outright (warning about it first, naming the incomplete
+The plan step clears the stale run's rows outright (warning about it first, naming the incomplete
 groups), and the build proceeds normally. The only thing worth acting on is the *cause*: a
 `PENDING` group means the fan-out step is reading the group count wrong, and a `CLAIMED` group that
 never completed usually means the completion step is not wired to always run.
@@ -672,7 +672,7 @@ never completed usually means the completion step is not wired to always run.
 A distributed run requires a **single-project build**, and `DistributedRunPreconditions` rule 4
 enforces it at **both** plan time and claim time.
 
-Both entry points need the rule because neither is an aggregator. The Maven `tia-dist-plan` goal and
+Both entry points need the rule because neither is an aggregator. The Maven `dist-plan` goal and
 the Gradle plan task are bound per module, and Maven's `prepare-agent` - where the claim happens -
 is bound to the `INITIALIZE` phase, so Maven runs it once per reactor module. That means:
 
@@ -683,7 +683,7 @@ is bound to the `INITIALIZE` phase, so Maven runs it once per reactor module. Th
 - **On the claim side**, each module's `prepare-agent` execution would claim its own group, so a
   runner process ends up holding several groups instead of the one it is meant to hold.
 
-The claim path is independently reachable - `mvn -pl <module> tia-dist-plan` followed by `mvn test`
+The claim path is independently reachable - `mvn -pl <module> dist-plan` followed by `mvn test`
 at the parent plans against a reactor of one and then claims against a reactor of several - which is
 why guarding only the plan step is not enough.
 
@@ -799,7 +799,7 @@ The consequences, plainly:
   anywhere shared and is not read by anything but that build's fork and its completion step.
 
 The other side of that boundary is a deliberate design choice worth stating, because it is what
-makes a safe pipeline possible: **`tia-dist-complete` reads its connection settings from its own
+makes a safe pipeline possible: **the completion step reads its connection settings from its own
 parameters, never from `fork.properties`.** It reads only the run id, runner key, group number and
 the three update-DB flags out of that file - the values that describe the claim and cannot be
 re-derived - and takes `tiaDBUrl`, `tiaDBUser` and `tiaDBPassword` from its own configuration. So a

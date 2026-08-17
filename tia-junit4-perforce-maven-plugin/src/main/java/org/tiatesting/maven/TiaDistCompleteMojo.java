@@ -5,7 +5,7 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.P4Reader;
 
-@Mojo(name = "tia-dist-complete", defaultPhase = LifecyclePhase.NONE)
+@Mojo(name = "dist-complete", defaultPhase = LifecyclePhase.NONE)
 public class TiaDistCompleteMojo extends AbstractTiaDistCompleteMojo {
     @Override
     public VCSReader getVCSReader() {

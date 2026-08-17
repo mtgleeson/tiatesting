@@ -40,7 +40,7 @@ class TiaDistPlanTaskTest {
 
     /**
      * Verify that {@link TiaBasePlugin#createDistPlanTask()} registers a {@code tia-dist-plan}
-     * task of type {@link TiaDistPlanTask}, mirroring the Maven module's {@code tia-dist-plan}
+     * task of type {@link TiaDistPlanTask}, mirroring the Maven module's {@code dist-plan}
      * goal name.
      */
     @Test

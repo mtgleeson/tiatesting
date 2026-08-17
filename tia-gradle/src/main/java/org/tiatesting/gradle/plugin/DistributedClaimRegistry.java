@@ -25,7 +25,7 @@ import java.util.WeakHashMap;
  * claims silently colliding.
  *
  * <p>It is also the daemon's only surviving record of a claim once the test task's forked JVM(s)
- * have run and exited: the {@code tiaDistComplete} finalizer reads it back by test task path
+ * have run and exited: the {@code tia-dist-complete} finalizer reads it back by test task path
  * to know which run, runner key, group and update-DB flags to seal with, since none of that
  * survives in the forked JVM once it exits.
  *
@@ -118,7 +118,7 @@ public final class DistributedClaimRegistry {
     }
 
     /**
-     * Look up the claim recorded for a test task path, for the daemon-side {@code tiaDistComplete} finalizer to read back after that test task's forked JVM(s) have run and
+     * Look up the claim recorded for a test task path, for the daemon-side {@code tia-dist-complete} finalizer to read back after that test task's forked JVM(s) have run and
      * exited.
      *
      * @param testTaskPath the {@link org.gradle.api.Task#getPath()} of the test task whose claim
@@ -130,7 +130,7 @@ public final class DistributedClaimRegistry {
     }
 
     /**
-     * One test task's recorded distributed-run claim: everything the {@code tiaDistComplete} finalizer needs to seal
+     * One test task's recorded distributed-run claim: everything the {@code tia-dist-complete} finalizer needs to seal
      * with, since none of it survives in the forked test JVM once it exits.
      */
     public static final class Claim {

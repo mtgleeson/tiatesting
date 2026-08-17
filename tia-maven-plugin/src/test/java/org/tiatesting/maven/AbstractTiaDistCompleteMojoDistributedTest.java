@@ -625,7 +625,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
          */
         @Override
         public String getHeadCommit() {
-            throw new UnsupportedOperationException("tia-dist-complete must not read the head commit");
+            throw new UnsupportedOperationException("dist-complete must not read the head commit");
         }
 
         /**
@@ -642,7 +642,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
                                                         final List<String> sourceFilesDirs,
                                                         final List<String> testFilesDirs,
                                                         final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("tia-dist-complete must not diff");
+            throw new UnsupportedOperationException("dist-complete must not diff");
         }
 
         /**
@@ -655,7 +655,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
         @Override
         public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs,
                                          final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("tia-dist-complete must not diff");
+            throw new UnsupportedOperationException("dist-complete must not diff");
         }
 
         /**
@@ -667,7 +667,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
          */
         @Override
         public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("tia-dist-complete must not diff");
+            throw new UnsupportedOperationException("dist-complete must not diff");
         }
 
         /**

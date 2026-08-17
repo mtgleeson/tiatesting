@@ -555,7 +555,7 @@ class DistributedRunPlannerTest {
      * org.tiatesting.core.distributed.TestGroupBalancer} alone never checked - because it shares
      * {@link DistributedRunConfig#validateGroupingShape} with {@link DistributedRunConfig#validated}.
      * Before the fix, a {@code select-tests} preview with this exact misconfiguration would render
-     * happily while the real {@code tia-dist-plan} goal failed on the same input.
+     * happily while the real {@code dist-plan} goal failed on the same input.
      */
     @Test
     void balance_maxGroupsWithFixedGroupCount_throwsNamingBothProperties() {

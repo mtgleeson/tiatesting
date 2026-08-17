@@ -20,7 +20,7 @@ import java.util.Map;
 /**
  * Turns a test selection into a persisted distributed run plan - the point where balancing
  * ({@link TestGroupBalancer}) and persistence ({@link DataStore#persistDistributedRunPlan})
- * finally meet. The {@code tia-dist-plan} Maven goal and Gradle task each call {@link #plan} once
+ * finally meet. The Maven {@code dist-plan} goal and the Gradle {@code tia-dist-plan} task each call {@link #plan} once
  * per build and write the returned {@link DistributedRunPlanSummary} to disk and the console;
  * nothing in this class touches a filesystem or a build-tool API, which is what keeps it
  * unit-testable against a real embedded H2 datastore without either of those.
@@ -120,7 +120,7 @@ public final class DistributedRunPlanner {
         dataStore.persistDistributedRunPlan(runPlan);
 
         // The one line that says what the pipeline must now do. The console summary and
-        // tia-run-plan.json carry the same facts, but only for the tia-dist-plan step's own
+        // tia-run-plan.json carry the same facts, but only for the plan step's own
         // output - this reaches whatever log a CI system actually keeps.
         log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) split "
                         + "across {} group(s), estimated {}ms in total with the heaviest group at "
