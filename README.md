@@ -429,6 +429,15 @@ Number of failed runs: 0 (0%)
 
 "All tests run time" is the average time to run the full suite (runs where Tia ignored nothing); compare it against "Average run time" (Tia-selected runs) to see the time Tia saves. The percentage on the "Average run time" line is the selected-run time as a share of the full-suite time, and "Total savings over all runs" sums the time saved across every recorded partial run.
 
+Once the project has run [distributed builds](#distributed-test-runs), the average-run-time line is qualified and a second one appears beneath it:
+
+```
+Average run time (serial equivalent): 638ms (96%)
+Average distributed run time: 553ms (83%) over 3 distributed run(s)
+```
+
+"Average run time" is the **serial equivalent** - what each run's selection would have cost on one host - averaged over **every** run, and it is the figure savings are computed from in both modes. "Average distributed run time" is the **wall clock** those builds actually waited for, averaged over **distributed runs only**, which is why the run count is stated: the two lines average different populations, so without it the pair reads as though the same builds got faster. Both percentages are against the same full-suite baseline, so they are directly comparable. A project that has never run a distributed build sees neither the qualifier nor the second line. See [Which time is which](#which-time-is-which).
+
 Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below. Pending failed tests (forced to re-run) are shown by the select-tests task.
 
 **Maven, Junit5 and Git**
@@ -611,6 +620,23 @@ Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Sav
 2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    5m 12s         79%  yes      550e8400
 2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       -                -  no       7c3e1a09
 ```
+
+When any run in view was a [distributed build](#distributed-test-runs), two further columns appear after `Duration`:
+
+```
+Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall clock  Groups  Savings  Savings %  Mapping  Id
+-------------------  ------  --------  ---  -------  ------  --------  ----------  ------  -------  ---------  -------  --------
+2026-08-17 22:35:46  main    6097d683    2        1       0  615ms     506ms            2  49ms            7%  yes      3fd70a70
+2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms     664ms            1  -                -  yes      17972bd5
+```
+
+- **`Duration`** is the **serial equivalent** in both modes - what that run's selection would have cost on one host. It stays the figure `Savings` is computed from, so a project's history remains comparable across the build where distributed mode was switched on.
+- **`Wall clock`** is what the distributed build actually waited for: its slowest group. This is the parallel build time. A single-host run dashes it.
+- **`Groups`** is how many groups the run was split across.
+
+The two are equal when a run had one group - the second row above is a seed run, which is always a single group covering everything. Note that `Savings` is measured against `Duration`, so it never includes the speed-up from distributing; that gain is the gap between `Duration` and `Wall clock`. See [Which time is which](#which-time-is-which).
+
+A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
 
 **Maven, Junit5 and Git**
 ```
@@ -883,6 +909,29 @@ The **distributed run time** is the heaviest group - what you actually wait for,
 The **serial equivalent** is what the same selection would cost on one host. It is deliberately the same number a non-distributed build prints, because that is the figure Tia records and computes savings from in both modes, so savings keep meaning "time saved by not running unimpacted tests" rather than quietly absorbing the parallelism your CI system provided. If that line and the savings look unchanged by distributing, that is why - only the wall clock moves. The same two figures appear again in the history table after the run, as its `Duration` and `Wall clock` columns.
 
 One caveat on the distributed estimate: each runner also re-pays the fixed per-JVM start-up cost that a single-host run pays once, and Tia's stored stats do not separate that fixed cost from the per-suite capture cost, so it cannot be added here. Treat the figure as a floor.
+
+### Which time is which
+
+Tia reports several different durations across its commands. They divide into exactly two kinds, and the same two words are used for them everywhere:
+
+- **Serial equivalent** - what the selection costs on one host. Savings are computed from this in *both* modes, so "savings" keeps meaning *time saved by not running unimpacted tests* and never silently absorbs the parallelism your CI system provided.
+- **Wall clock** - what the build actually waited for: the heaviest group, since the groups run in parallel.
+
+| Command | Figure | Which kind | Notes |
+|---|---|---|---|
+| `select-tests` | `Estimated total run time (serial equivalent)` | serial | Predicted from stored per-suite averages. Identical in both modes. |
+| `select-tests` | `Estimated savings` | serial | Baseline minus the serial estimate. |
+| `select-tests` | `Estimated distributed run time` | wall clock | The heaviest group. A floor - see the caveat above. |
+| `status` | `Average run time (serial equivalent)` | serial | Averaged over **every** run. The `(serial equivalent)` qualifier appears only once the project has distributed builds. |
+| `status` | `Average distributed run time` | wall clock | Averaged over **distributed runs only**, which is why the run count is stated. |
+| `status` | `All tests run time` | serial | The full-suite baseline every percentage above is measured against. |
+| `history` | `Duration` | serial | Per run. What `Savings` is computed from. |
+| `history` | `Wall clock` | wall clock | Per run. Blank/`-` for a single-host run. |
+| `dist-status` | `Estimated` | serial | The planner's weight for that one group. |
+| `dist-status` | `Actual` | measured | That group's measured test-execution time this run. |
+| `dist-status` | `Elapsed` | measured | Wall clock since the group was **claimed** - on Maven that is `prepare-agent` at `initialize`, so it includes compilation and the rest of the build, not just tests. |
+
+The one that catches people out: **`Savings` never includes the speed-up from distributing.** It is measured against the serial equivalent by design. The parallel gain is the gap between `Duration` and `Wall clock` in the history, not something folded into the savings figure.
 
 Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
 

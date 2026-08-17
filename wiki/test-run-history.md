@@ -44,6 +44,27 @@ Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Sav
 
 The number of rows is configurable: `mvn <plugin>:history -DtiaHistoryLast=N` for Maven, `./gradlew tia-history --last=N` for Gradle. The default is **20**, chosen so the output fits in a terminal screen without scrolling. Values `<= 0` (or non-numeric for `--last`) fail fast with a clear error.
 
+When any run in view was a distributed build, two further columns appear after `Duration` -
+`Wall clock` and `Groups`:
+
+```
+Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall clock  Groups  Savings  Savings %  Mapping  Id
+-------------------  ------  --------  ---  -------  ------  --------  ----------  ------  -------  ---------  -------  --------
+2026-08-17 22:35:46  main    6097d683    2        1       0  615ms     506ms            2  49ms            7%  yes      3fd70a70
+2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms     664ms            1  -                -  yes      17972bd5
+```
+
+`Duration` keeps its meaning in both modes - it is the **serial equivalent**, what the run's
+selection would have cost on one host - which is why it stays the column `Savings` is computed
+from and why a project's history stays comparable across the build where distributed mode was
+switched on. `Wall clock` is what the distributed build actually waited for: its slowest group.
+The two are equal when a run had a single group, as the seed run above did. A single-host row in a
+mixed history dashes both extra columns rather than showing zeros, which would read as a build that
+took no time and used no groups; a history with no distributed run in view renders neither column,
+so the table is exactly as it was for a project that does not distribute. See
+["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row)
+for how the sealer computes the pair, and why the wall clock is deliberately not the primary figure.
+
 Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the time that run saved versus running the full suite, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
 
 
