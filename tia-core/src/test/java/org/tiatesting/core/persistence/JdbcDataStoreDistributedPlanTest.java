@@ -407,48 +407,24 @@ class JdbcDataStoreDistributedPlanTest {
     }
 
     /**
-     * Verify that the {@code suites_duration_ms} column is backfilled onto a group table created
-     * before the column existed, for the same reason {@code seed_run} is backfilled onto the run
-     * table: {@code CREATE TABLE IF NOT EXISTS} never alters an existing table, so without the
-     * migration every plan write against a database an earlier build wrote would fail with "column
-     * not found".
-     *
-     * <p>Pre-existing rows must default to 0, which the sealer reads as "no suite-time split was
-     * recorded" and answers by falling back to the plain sum of the group durations - not as "this
-     * group was pure overhead", which would gut the build's serial duration.
-     *
-     * @throws Exception if the pre-migration table cannot be recreated
+     * Verify that a freshly planned group starts with a zero {@code suites_duration_ms}, the value
+     * the group table's DDL defaults it to. Nothing has reported progress yet, so there is no
+     * suite-time split to record, and the sealer must read the zero as "no split was recorded" -
+     * falling back to the plain sum of the group durations - not as "this group was pure overhead",
+     * which would gut the build's serial duration.
      */
     @Test
-    void shouldBackfillTheSuitesDurationColumnOntoAGroupTableThatPredatesIt() throws Exception {
-        // given - the group table exactly as an earlier build of the branch created it
-        try (Connection connection = dataStore.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate("DROP TABLE tia_distributed_run_group");
-            statement.executeUpdate("CREATE TABLE tia_distributed_run_group ("
-                    + "run_id VARCHAR(255) NOT NULL, group_number INT NOT NULL, "
-                    + "status VARCHAR(16) NOT NULL, runner_key VARCHAR(255), claimed_at BIGINT, "
-                    + "completed_at BIGINT, estimated_ms BIGINT NOT NULL, actual_duration_ms BIGINT, "
-                    + "suites_ran INT DEFAULT 0, suites_failed INT DEFAULT 0, "
-                    + "suites_observed INT DEFAULT 0, PRIMARY KEY (run_id, group_number))");
-        }
-        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
-                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+    void shouldPlanAGroupWithAZeroSuitesDuration() {
+        // given
+        DistributedRunPlan plan = samplePlan("run-planned-group", null);
 
-        try {
-            // when
-            migratedStore.persistDistributedRunPlan(samplePlan("run-migrated-group", null));
+        // when
+        dataStore.persistDistributedRunPlan(plan);
 
-            // then
-            assertEquals(0L,
-                    migratedStore.readDistributedRunGroups("run-migrated-group").get(0)
-                            .getSuitesDurationMs(),
-                    "the migration must add suites_duration_ms to a table that predates it, and a "
-                            + "freshly planned group must start at 0 rather than fail the write");
-        } finally {
-            migratedStore.close();
-        }
+        // then
+        assertEquals(0L,
+                dataStore.readDistributedRunGroups("run-planned-group").get(0).getSuitesDurationMs(),
+                "a planned group must start at 0 until a runner reports its suite time");
     }
 
     /**
