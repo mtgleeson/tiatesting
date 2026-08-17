@@ -1,5 +1,7 @@
 package org.tiatesting.core.distributed;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.DistributedRunGroup;
 
 import java.util.List;
@@ -55,8 +57,11 @@ import java.util.List;
  * {@code fixedOverhead} the whole of the fastest group's duration and gut the total, so any group
  * that ran suites without reporting suite time disqualifies the whole build and the serial figure
  * falls back to the plain sum - the behaviour that predates the split. Falling back over-states the
- * duration, which under-states savings; the alternative under-states the duration, which inflates
- * the baseline. Only one of those two is safe to be wrong about.
+ * duration, which under-reports savings and makes Tia look worse than it is; applying a correction
+ * off a figure that was never measured under-states the duration, which over-reports savings and
+ * claims credit the build did not earn. Only one of those two is safe to be wrong about. The
+ * fall-back error is also bounded - at worst it is the behaviour that predates the split - whereas
+ * a correction computed from an unmeasured split can drive the total towards zero.
  *
  * <p>The suite counters are plain sums because the plan assigns each suite to exactly one group, so
  * no suite can be counted twice.
@@ -64,6 +69,8 @@ import java.util.List;
  * <p>See the distributed test runs chapter in {@code WIKI.md} for how these figures are reported.
  */
 public final class DistributedRunTotals {
+
+    private static final Logger log = LoggerFactory.getLogger(DistributedRunTotals.class);
 
     private final int groupCount;
     private final long serialDurationMs;
@@ -130,6 +137,12 @@ public final class DistributedRunTotals {
         long serialDurationMs = Math.max(0L,
                 summedDurationMs - (long) Math.max(0, measuredGroups - 1) * fixedOverheadMs);
 
+        log.debug("Distributed run totals: {} group(s), {} with a recorded duration. Summed "
+                        + "duration {}ms, fixed per-JVM overhead {}ms charged once (deducted {} "
+                        + "time(s)), giving a serial-equivalent duration of {}ms against a wall "
+                        + "clock of {}ms.", groups.size(), measuredGroups, summedDurationMs,
+                fixedOverheadMs, Math.max(0, measuredGroups - 1), serialDurationMs, wallClockMs);
+
         return new DistributedRunTotals(groups.size(), serialDurationMs, wallClockMs, suitesRan,
                 suitesFailed, fixedOverheadMs);
     }
@@ -158,10 +171,20 @@ public final class DistributedRunTotals {
             if (group.getSuitesRan() > 0 && group.getSuitesDurationMs() <= 0L) {
                 // This group ran suites but timed none of them, so its whole duration would look
                 // like overhead. That is the un-decomposable case: correct nothing at all.
+                log.debug("Distributed run: group {} ran {} suite(s) but reported no suite time, "
+                                + "so the build's per-JVM overhead cannot be measured. Charging the "
+                                + "overhead once is skipped for the whole build and the "
+                                + "serial-equivalent duration falls back to the plain sum of the "
+                                + "group durations. Suite times are only recorded when "
+                                + "tiaUpdateDBStats is enabled.",
+                        group.getGroupNumber(), group.getSuitesRan());
                 return 0L;
             }
 
             long overheadMs = Math.max(0L, groupDurationMs.longValue() - group.getSuitesDurationMs());
+            log.debug("Distributed run: group {} took {}ms, of which {}ms was attributable to named "
+                            + "suites, leaving {}ms of per-JVM overhead.", group.getGroupNumber(),
+                    groupDurationMs, group.getSuitesDurationMs(), overheadMs);
             minOverheadMs = Math.min(minOverheadMs, overheadMs);
         }
 

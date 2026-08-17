@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -31,6 +34,8 @@ import java.util.Properties;
  * feed.
  */
 public final class DistributedForkProperties {
+
+    private static final Logger log = LoggerFactory.getLogger(DistributedForkProperties.class);
 
     /** System property carrying the distributed-run master switch. */
     public static final String PROP_DISTRIBUTED = "tiaDistributed";
@@ -122,6 +127,11 @@ public final class DistributedForkProperties {
      */
     public static DistributedRunnerContext contextFromProperties(final Properties properties) {
         if (!Boolean.parseBoolean(properties.getProperty(PROP_DISTRIBUTED))) {
+            // Logged because the two outcomes are indistinguishable afterwards: a build that is
+            // genuinely not distributed and a distributed runner whose handoff failed to reach it
+            // both take the single-host persist from here, and only the second is a fault.
+            log.debug("No distributed run context was forwarded to this JVM, so it persists as a "
+                    + "single host. Expected for any build that is not a distributed run.");
             return null;
         }
 
@@ -133,11 +143,16 @@ public final class DistributedForkProperties {
             // A surplus runner: the pipeline fanned out wider than the plan's group count, so the
             // build JVM claimed nothing and forwarded no group. It has nothing to persist, but it
             // is still a distributed runner and must not take the single-host path.
+            log.info("Distributed run '{}': this JVM is runner '{}' and holds no group, so it runs "
+                    + "no tests and persists nothing. Expected when the pipeline starts more jobs "
+                    + "than the plan has groups.", runId, runnerKey);
             return DistributedRunnerContext.surplusRunner(runId, runnerKey);
         }
 
-        return DistributedRunnerContext.forClaimedGroup(runId, runnerKey,
-                parseGroupNumber(groupNumber));
+        int parsedGroupNumber = parseGroupNumber(groupNumber);
+        log.info("Distributed run '{}': this JVM is runner '{}' and holds group {}, so it persists "
+                + "as one runner of a distributed build.", runId, runnerKey, parsedGroupNumber);
+        return DistributedRunnerContext.forClaimedGroup(runId, runnerKey, parsedGroupNumber);
     }
 
     /**
