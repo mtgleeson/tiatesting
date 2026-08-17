@@ -248,7 +248,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     // Include the mapping overhead in the estimate when the actual run being
                     // previewed will collect coverage (the configured updateDBMapping).
                     System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep,
-                            Boolean.TRUE.equals(getUpdateDBMapping())));
+                            Boolean.TRUE.equals(getUpdateDBMapping()), isDistributedPreviewConfigured()));
                     printDistributedRunPreviewIfConfigured(result, lineSep);
                 }
             }
@@ -288,11 +288,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      *                output
      */
     void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection, final String lineSep) {
-        Integer groupCount = getDistributedGroupCount();
-        Long targetRunTimeMs = getDistributedTargetRunTime();
-        if (groupCount == null && targetRunTimeMs == null) {
+        if (!isDistributedPreviewConfigured()) {
             return;
         }
+        Integer groupCount = getDistributedGroupCount();
+        Long targetRunTimeMs = getDistributedTargetRunTime();
 
         try {
             GroupingResult grouping = DistributedRunPlanner.balance(selection,
@@ -303,6 +303,20 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
         }
+    }
+
+    /**
+     * Report whether this build has configured a distributed run shape, and therefore whether the
+     * grouping preview will be printed. Shared by {@link
+     * #printDistributedRunPreviewIfConfigured(TestSelectorResult, String)} and the estimate block
+     * above it, which labels its total as the serial equivalent only when a grouping preview follows
+     * to report the wall clock - the two must agree, or the estimate would name a companion block
+     * that never appears.
+     *
+     * @return true when either a group count or a target run time is configured
+     */
+    private boolean isDistributedPreviewConfigured() {
+        return getDistributedGroupCount() != null || getDistributedTargetRunTime() != null;
     }
 
     /**

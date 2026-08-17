@@ -436,6 +436,16 @@ The row is stamped with the time the run was *planned*, since that is the one ti
 in the build shares. See the [test-run history log](test-run-history.md) chapter for the table
 itself.
 
+The same two durations, under the same two names, are what the *estimate* side reports before the
+run: `DistributedRunDurations` prints them in both the `select-tests` grouping preview and the plan
+step's console summary. That matters because `select-tests` prints its estimate block first, and
+that estimate is the **serial equivalent** - deliberately the same number a non-distributed build
+would print, since it is the figure savings are computed from either way. Left unlabelled beside a
+grouping showing a lighter heaviest group, it reads as an estimate that ignored the distribution.
+It has not: the two figures answer different questions, and only the wall clock changes when the
+build is split. So the estimate line says `(serial equivalent)` whenever a grouping preview follows
+it, and the preview names the wall clock underneath.
+
 #### The fixed overhead is charged once, not once per group
 
 The serial-equivalent figure is deliberately **not** a plain sum of the group durations. Every runner

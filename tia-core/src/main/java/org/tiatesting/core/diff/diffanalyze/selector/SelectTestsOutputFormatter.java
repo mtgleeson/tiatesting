@@ -71,10 +71,18 @@ public class SelectTestsOutputFormatter {
      *                               {@link TestSelectorResult#getMappingOverheadMs()} - coverage
      *                               capture is not part of the stored per-suite times - so the
      *                               displayed total, percentage and savings reflect a coverage run.
+     * @param distributedPreview whether a distributed run grouping preview follows this block. The
+     *                           estimate itself is identical either way - deliberately, since it is
+     *                           the serial-equivalent figure Tia records and computes savings from
+     *                           in both modes - but a build that will be split across runners does
+     *                           not wait for it, so it is labelled rather than left to be read as
+     *                           the time the build takes. The grouping preview below then reports
+     *                           the wall clock; see {@code DistributedRunDurations}.
      * @return the formatted estimate block, or an empty string when no estimate applies
      */
     public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep,
-                                             final boolean includeMappingOverhead){
+                                             final boolean includeMappingOverhead,
+                                             final boolean distributedPreview){
         if (result.getTestsToRun().isEmpty()){
             return "";
         }
@@ -86,7 +94,8 @@ public class SelectTestsOutputFormatter {
 
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);
-        sb.append("Estimated total run time: ")
+        sb.append(distributedPreview ? "Estimated total run time (serial equivalent): "
+                        : "Estimated total run time: ")
           .append(ReportUtils.prettyDuration(selectedMs, true));
 
         // When an all-tests-run baseline exists, show what fraction of the full-suite time the

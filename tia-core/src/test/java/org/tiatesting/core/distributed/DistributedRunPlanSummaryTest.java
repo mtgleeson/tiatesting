@@ -2,6 +2,7 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -219,12 +220,14 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
-     * Verifies that the console summary block names the heaviest group time, not just the
-     * average, so a developer reading build output sees the wall-clock figure a job timeout
-     * should be set from.
+     * Verifies that the console summary block names the heaviest group time as the wall clock, and
+     * the summed group time as the serial equivalent, so a developer reading build output can tell
+     * which figure a job timeout should be set from and which is the cost Tia records. Both numbers
+     * were previously printed with neither named, which is the ambiguity {@link
+     * DistributedRunDurations} exists to remove.
      */
     @Test
-    void toConsoleSummary_mentionsHeaviestGroupTime() {
+    void toConsoleSummary_namesTheWallClockAndTheSerialEquivalent() {
         // given - a plan whose heaviest group is heavier than the average group
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
@@ -234,8 +237,37 @@ class DistributedRunPlanSummaryTest {
         String consoleSummary = summary.toConsoleSummary();
 
         // then
-        assertTrue(consoleSummary.contains("1450000"),
-                "console summary should mention the heaviest group time: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Wall clock: 1450000ms - the heaviest group"),
+                "console summary should name the heaviest group as the wall clock: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Serial equivalent: 6900000ms"),
+                "console summary should name the summed time as the serial equivalent: " + consoleSummary);
+    }
+
+    /**
+     * Verifies that the plan summary's duration lines are byte-for-byte the wording {@link
+     * DistributedRunPreviewFormatter#formatPreview} prints for the same grouping, so a developer who
+     * read the {@code select-tests} preview meets the identical two lines once the plan is
+     * persisted. Mirrors the miss-reason parity test below; both guard against the two blocks
+     * drifting into describing the same two figures differently.
+     */
+    @Test
+    void toConsoleSummary_durationLines_matchPreviewFormatterWording() {
+        // given - a plan and the equivalent grouping result, with the same two durations
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 2, null, true, false, false, 3000L, 2000L, 2, false);
+        GroupingResult grouping = new GroupingResult(Arrays.asList(
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 1000L),
+                new SuiteGroup(1, Collections.singletonList("Suite1"), 2000L)),
+                true, false, false);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+        String preview = DistributedRunPreviewFormatter.formatPreview(grouping, null, false, "\n");
+
+        // then
+        String sharedLines = DistributedRunDurations.format(2000L, 3000L, "\n");
+        assertTrue(consoleSummary.contains(sharedLines), consoleSummary);
+        assertTrue(preview.contains(sharedLines), preview);
     }
 
     /**

@@ -231,9 +231,10 @@ public final class DistributedRunPlanSummary {
                     .append("mapping; the next build will plan normally.\n");
         }
         summary.append("  Groups: ").append(groupCount)
-                .append(", average ").append(avgGroupMs)
-                .append("ms per group, heaviest ").append(heaviestGroupMs).append("ms\n");
+                .append(", average ").append(avgGroupMs).append("ms per group\n");
         if (!seedRun) {
+            summary.append(DistributedRunDurations.format(heaviestGroupMs, totalEstimatedMs, "\n"))
+                    .append("\n");
             if (targetMs == null) {
                 summary.append("  Target: none (static group count)\n");
             } else {
@@ -251,8 +252,7 @@ public final class DistributedRunPlanSummary {
                 }
             }
         }
-        summary.append("  Total estimated time: ").append(totalEstimatedMs)
-                .append("ms across ").append(selectedSuiteCount).append(" selected suites\n");
+        summary.append("  Selected suites: ").append(selectedSuiteCount).append("\n");
         return summary.toString();
     }
 

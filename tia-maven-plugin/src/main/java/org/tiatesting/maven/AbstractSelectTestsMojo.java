@@ -60,7 +60,8 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
                 System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, "\n"));
                 // Include the mapping overhead in the estimate when the actual run being previewed
                 // will collect coverage (the configured updateDBMapping).
-                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n", isTiaUpdateDBMapping()));
+                System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, "\n",
+                        isTiaUpdateDBMapping(), isDistributedPreviewConfigured()));
                 printDistributedRunPreviewIfConfigured(result);
             }
         }
@@ -95,11 +96,11 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
      *                   suites and their estimated run times are what the preview balances
      */
     void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection) {
-        Integer groupCount = getTiaDistributedGroupCount();
-        Long targetRunTimeMs = getTiaDistributedTargetRunTime();
-        if (groupCount == null && targetRunTimeMs == null) {
+        if (!isDistributedPreviewConfigured()) {
             return;
         }
+        Integer groupCount = getTiaDistributedGroupCount();
+        Long targetRunTimeMs = getTiaDistributedTargetRunTime();
 
         try {
             GroupingResult grouping = DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
@@ -109,6 +110,19 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
         }
+    }
+
+    /**
+     * Report whether this build has configured a distributed run shape, and therefore whether the
+     * grouping preview will be printed. Shared by {@link #printDistributedRunPreviewIfConfigured}
+     * and the estimate block above it, which labels its total as the serial equivalent only when a
+     * grouping preview follows to report the wall clock - the two must agree, or the estimate would
+     * name a companion block that never appears.
+     *
+     * @return true when either a group count or a target run time is configured
+     */
+    private boolean isDistributedPreviewConfigured() {
+        return getTiaDistributedGroupCount() != null || getTiaDistributedTargetRunTime() != null;
     }
 
     /**
