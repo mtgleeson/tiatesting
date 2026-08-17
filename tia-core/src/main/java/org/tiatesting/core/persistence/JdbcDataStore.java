@@ -3909,26 +3909,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Build the migration that backfills the {@code tia_distributed_run_group.suites_observed}
-     * column onto a group table created before the column existed. Idempotent via {@code ADD
-     * COLUMN IF NOT EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunGroupTableSql}
-     * just created, since that DDL already names the column. Covers two distinct prior shapes of the
-     * table: one created before distributed runs had a {@code suites_observed} concept at all, and
-     * one created back when the same column existed under its earlier name, {@code
-     * suites_discovered} - this migration only adds the new column in both cases, it does not rename
-     * or drop the old one, so a store migrated from the older name is left with both columns, the old
-     * one unused. Without this migration, either prior shape would fail the next plan write with
-     * "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never alters an already-existing
-     * table.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddSuitesObservedColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN IF NOT EXISTS "
-                + COL_SUITES_OBSERVED + " INT DEFAULT 0";
-    }
-
-    /**
      * Build the migration that backfills the {@code tia_distributed_run.seed_run} column onto a run
      * table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and
      * a no-op on a table {@link #buildCreateDistributedRunTableSql} just created, since that DDL
@@ -3951,38 +3931,20 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Build the migration that backfills the {@code tia_distributed_run_group.suites_duration_ms}
-     * column onto a group table created before the column existed. Idempotent via {@code ADD COLUMN
-     * IF NOT EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunGroupTableSql} just
-     * created, since that DDL already names the column. Without it, a store whose group table
-     * predates the column would fail the next plan write with "column not found" - {@code CREATE
-     * TABLE IF NOT EXISTS} alone never alters an already-existing table.
-     *
-     * <p>Pre-existing rows default to 0, which reads as "no suite-time decomposition was recorded
-     * for this group". That is the safe way round: {@code DistributedRunTotals} treats a group that
-     * ran suites without one as un-decomposable and falls back to summing the group durations
-     * whole, which is the behaviour that predates the column. Reading 0 as "this group had no
-     * suite-attributable time" instead would make its entire duration look like fixed overhead.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddSuitesDurationMsColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN IF NOT EXISTS "
-                + COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0";
-    }
-
-    /**
      * Ensure the four distributed-run tables, the group-status index and the additive {@code
-     * suites_observed}, {@code seed_run} and {@code suites_duration_ms} columns exist. Idempotent
-     * via {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both
-     * creates everything on a new database and backfills it onto a database created before
-     * distributed runs existed, before {@code suites_observed} was renamed from {@code
-     * suites_discovered}, before {@code seed_run} was recorded on the run row, or before {@code
-     * suites_duration_ms} split a group's duration into its suite-attributable and overhead parts.
+     * seed_run} column exist. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code
+     * ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new database and backfills the
+     * run row's seed flag onto a database created before it was recorded.
      *
-     * <p>All eight DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
+     * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
+     * pre-release with no external databases to preserve, so a database is simply created with
+     * them. Only {@code seed_run} is backfilled, because getting it wrong on an existing run row
+     * corrupts the full-suite baseline rather than merely failing the write.
+     *
+     * <p>All six DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be seven wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be six wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * @param connection the connection to issue the DDL on
@@ -3995,9 +3957,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
-            statement.addBatch(buildAddSuitesObservedColumnSql());
             statement.addBatch(buildAddSeedRunColumnSql());
-            statement.addBatch(buildAddSuitesDurationMsColumnSql());
             statement.executeBatch();
         }
     }
