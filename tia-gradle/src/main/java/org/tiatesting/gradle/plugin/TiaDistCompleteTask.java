@@ -12,7 +12,7 @@ import org.tiatesting.core.persistence.DataStore;
 /**
  * Gradle task that closes out one runner's share of a distributed test run: completes its claimed
  * group and, if this runner happens to be the last one to finish, seals the build. The Gradle
- * equivalent of the Maven {@code tia-dist-complete} goal ({@code AbstractTiaDistCompleteMojo}).
+ * equivalent of the Maven {@code dist-complete} goal ({@code AbstractTiaDistCompleteMojo}).
  *
  * <p>This task exists because only the build tool knows when a test task's retries are finished.
  * Gradle wires it as a {@code finalizedBy} finalizer of the distributed test task, which runs once

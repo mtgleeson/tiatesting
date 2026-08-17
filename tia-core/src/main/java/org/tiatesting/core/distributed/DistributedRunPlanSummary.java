@@ -4,8 +4,9 @@ package org.tiatesting.core.distributed;
  * An immutable summary of a distributed run plan: the facts a CI pipeline and a human both need
  * once the balancer has decided on groups. {@link DistributedRunPlanner} builds one of these from
  * a validated {@link DistributedRunConfig} and the {@link GroupingResult} the balancer produced.
- * The {@code tia-dist-plan} goal and task then write {@link #toJson()} to
- * {@code ${tiaBuildDir}/tia-run-plan.json} and print {@link #toConsoleSummary()}.
+ * The Maven {@code dist-plan} goal and the Gradle {@code tia-dist-plan} task then write
+ * {@link #toJson()} to {@code ${tiaBuildDir}/tia-run-plan.json} and print
+ * {@link #toConsoleSummary()}.
  *
  * <p>{@link #toJson()} is a published contract, not a debug dump: a user's CI pipeline parses it
  * to decide how many jobs to start. Its field names, order and shape are fixed and must not
@@ -208,8 +209,7 @@ public final class DistributedRunPlanSummary {
     }
 
     /**
-     * Render this summary as the short human-readable block the {@code tia-dist-plan} goal and
-     * task print to the console alongside writing {@link #toJson()}. Unlike the JSON document, this text has no consumer
+     * Render this summary as the short human-readable block the plan step prints to the console alongside writing {@link #toJson()}. Unlike the JSON document, this text has no consumer
      * other than a human reading build output, so most of its wording is free to evolve - except
      * the two target-miss reason lines, which share their exact text with {@link
      * DistributedRunPreviewFormatter#formatPreview} via {@link DistributedRunMissReasons}, so a

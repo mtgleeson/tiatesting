@@ -88,7 +88,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
      * #getTiaDistributedGroupCount()} and {@link #getTiaDistributedTargetRunTime()} set) must not
      * abort this command. {@link DistributedRunPlanner#balance} throws {@link
      * IllegalArgumentException} for every way the grouping shape can be invalid, so that is caught
-     * here and printed as a skip notice instead of propagating - the real {@code tia-dist-plan}
+     * here and printed as a skip notice instead of propagating - the real {@code dist-plan}
      * goal is still the one place a bad configuration fails the build.
      *
      * @param selection the test selection already computed by {@link #execute()}, whose selected

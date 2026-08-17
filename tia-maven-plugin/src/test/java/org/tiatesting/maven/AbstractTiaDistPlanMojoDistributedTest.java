@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers the multi-project-reactor precondition {@link AbstractTiaDistPlanMojo} adds on top of
- * {@link org.tiatesting.core.distributed.DistributedRunPreconditions#check}: {@code tia-dist-plan}
+ * {@link org.tiatesting.core.distributed.DistributedRunPreconditions#check}: {@code dist-plan}
  * is not bound as a Maven aggregator, so on a reactor of more than one project it would run once
  * per project and each project's plan write would clear the previous project's plan from the
  * shared database. These tests never open a datastore - the precondition is checked, and this test

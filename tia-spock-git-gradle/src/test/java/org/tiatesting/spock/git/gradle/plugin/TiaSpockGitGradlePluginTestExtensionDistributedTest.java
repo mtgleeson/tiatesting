@@ -287,7 +287,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      * Verify the daemon claims this test task's group and forwards the run id, the claimed group
      * number, and - critically - the runner key the claim actually recorded, never a re-derived
      * one: a forwarded key that did not match the claimed row would let the later "this group is
-     * finished" step ({@code tiaDistComplete}) match no row and leave the group open forever. Also
+     * finished" step ({@code tia-dist-complete}) match no row and leave the group open forever. Also
      * verifies the plan's other group is untouched - still {@code PENDING}, with no runner key or
      * claim time - so this test does not merely catch a double claim incidentally were one to
      * happen: it asserts directly that a single test-task claim takes exactly the one group it

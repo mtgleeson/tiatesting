@@ -4,7 +4,7 @@ package org.tiatesting.core.distributed;
  * The wording for the two independent reasons {@link GroupingResult#isTargetMet()} can be false,
  * shared verbatim between {@link DistributedRunPreviewFormatter} (the {@code select-tests}
  * grouping preview) and {@link DistributedRunPlanSummary#toConsoleSummary()} (the persisted {@code
- * tia-dist-plan} summary) so the two commands can never drift on how they explain a missed target -
+ * plan summary) so the two commands can never drift on how they explain a missed target -
  * a preview that describes a miss one way and a real plan that describes the identical miss another
  * way would defeat the point of previewing first. Package-private since both consumers live in this
  * package.

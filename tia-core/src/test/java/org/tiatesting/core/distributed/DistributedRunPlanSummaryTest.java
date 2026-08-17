@@ -242,7 +242,7 @@ class DistributedRunPlanSummaryTest {
      * Verifies that the console summary's max-groups miss reason names the exact same
      * wording {@link DistributedRunPreviewFormatter#formatPreview} uses for its "lever:" line for
      * the identical grouping outcome, so a developer who saw a miss explained in the {@code
-     * select-tests} preview sees the identical explanation once {@code tia-dist-plan} persists the
+     * select-tests} preview sees the identical explanation once the plan step persists the
      * real plan - the "prints the same" requirement, extended to the miss reasons.
      */
     @Test

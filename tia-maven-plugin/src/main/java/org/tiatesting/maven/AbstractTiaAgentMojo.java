@@ -55,7 +55,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      *
      * <p>How the two suite lists are arrived at is the one thing that differs between an ordinary
      * and a distributed build. An ordinary build runs the test selection here. A distributed build
-     * must not: the plan produced by {@code tia-dist-plan} already ran the VCS diff, the static
+     * must not: the plan produced by {@code dist-plan} already ran the VCS diff, the static
      * rules and the library-impact drain once, for every runner, and its output is in the shared
      * database. So a distributed build claims a group from that plan instead - see
      * {@link #claimDistributedRunGroup()}.
@@ -222,7 +222,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private DistributedRunConfig validatedDistributedRunConfig() throws MojoExecutionException {
         List<MavenProject> reactorProjects = getReactorProjects();
         try {
-            // The reactor-size rule belongs here too, not only on tia-dist-plan: prepare-agent is
+            // The reactor-size rule belongs here too, not only on dist-plan: prepare-agent is
             // bound to the INITIALIZE phase, so Maven runs it once per reactor module rather than
             // once for the whole build. On a multi-module reactor each module's execution would
             // claim its own group from the plan, so suites end up assigned to a group whose runner

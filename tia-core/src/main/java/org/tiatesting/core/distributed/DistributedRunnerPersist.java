@@ -37,8 +37,8 @@ import java.util.Map;
  *       rows would let the sealer rebuild the catalogue from an edge set still missing them -
  *       silent under-selection on the next build. "Last" means last for the whole build, not for
  *       one test plan: only the build tool knows when the last retry of this runner's tests has
- *       finished, so it is made once, from the build JVM, by the build tool's {@code
- *       tia-dist-complete} step - see {@link DistributedRunCompleter#completeAndSeal} - rather than
+ *       finished, so it is made once, from the build JVM, by the build tool's completion step -
+ *       see {@link DistributedRunCompleter#completeAndSeal} - rather than
  *       by the persist that stages, which runs once per test plan inside the forked test JVM. See
  *       the distributed test runs chapter in {@code WIKI.md} for the mechanism that arranges
  *       this.</li>

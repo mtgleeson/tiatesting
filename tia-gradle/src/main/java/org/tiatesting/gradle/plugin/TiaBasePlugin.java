@@ -77,7 +77,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * Register the {@code tia-dist-plan} task - plans a distributed test run by running the same
      * test selection a normal build would, then splitting the selected suites into groups
      * persisted to the shared database so a CI pipeline can fan out one job per group. Mirrors the
-     * Maven {@code tia-dist-plan} goal's sequence exactly: both call {@link
+     * Maven {@code dist-plan} goal's sequence exactly: both call {@link
      * org.tiatesting.core.distributed.DistributedRunPreconditions#check}, build a {@code
      * DistributedRunConfig}, run selection, hand it to {@link
      * org.tiatesting.core.distributed.DistributedRunPlanner#plan}, and write the result via {@link
@@ -95,7 +95,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     /**
      * Register the {@code tia-dist-complete} task for one distributed test task - completes that
      * test task's claimed group and, if this runner happens to be the last one to finish, seals the
-     * distributed build. The Gradle equivalent of the Maven {@code tia-dist-complete} goal.
+     * distributed build. The Gradle equivalent of the Maven {@code dist-complete} goal.
      *
      * <p>Unlike {@link #createDistPlanTask()}, which every build registers unconditionally at
      * plugin-apply time, this task must exist only for a distributed build: a non-distributed

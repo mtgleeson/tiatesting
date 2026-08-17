@@ -175,7 +175,7 @@ class TiaJunit4ListenerDistributedTest {
      * Run a whole fork's lifecycle for a run in which the suite executed but no coverage was
      * collected, which is all this fixture needs: the flags leave mapping and stats off, so the
      * persist writes only its recording, and then the explicit completion the {@code
-     * tia-dist-complete} goal performs once Surefire has finished retrying is driven directly.
+     * dist-complete} goal performs once Surefire has finished retrying is driven directly.
      *
      * <p>{@code testIgnored} is called once, with a {@link Description} named after the plan's
      * assigned suite, before the run hooks - not to exercise the ignore path, but to give the

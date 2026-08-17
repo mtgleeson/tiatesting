@@ -6,7 +6,7 @@ import org.tiatesting.core.persistence.DataStore;
 /**
  * The one sequence every distributed runner performs to close out its share of a build: complete
  * its claimed group and, if that completion is accepted, stand for election to seal the run. Both
- * build tools' {@code tia-dist-complete} step - the Maven goal ({@code AbstractTiaDistCompleteMojo})
+ * build tools' completion step - the Maven {@code dist-complete} goal ({@code AbstractTiaDistCompleteMojo})
  * and the Gradle task ({@code TiaDistCompleteTask}) - call this once, after their own build-specific
  * mechanism has established that no more retries of this runner's tests are coming. That is what
  * used to be decided by a JVM shutdown hook inside the forked test JVM: nothing inside a fork can

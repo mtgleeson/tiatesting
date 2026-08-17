@@ -113,7 +113,7 @@ public final class DistributedRunConfig {
      * from and the identity it claims under.
      *
      * <p>Deliberately does not ask for the grouping properties {@link #validated} requires. How the
-     * build was split is decided once, by {@code tia-dist-plan}, and is already recorded in the
+     * build was split is decided once, by the plan step, and is already recorded in the
      * plan the runner is about to claim from; a runner neither reads those values nor could act on
      * them. Requiring them here would do two unhelpful things: force every runner job to repeat
      * configuration that only the planning job uses, and accept a value that disagrees with the one

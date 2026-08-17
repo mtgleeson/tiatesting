@@ -95,7 +95,8 @@ public final class DistributedRunCoordinator {
                     + "' but this runner's workspace is on commit '" + workspaceCommitValue
                     + "'. The plan's test selection was made by diffing '" + planCommitValue
                     + "', so running it here would test different code than it was chosen for. "
-                    + "Check out the planned commit on every runner, or re-run tia-dist-plan for "
+                    + "Check out the planned commit on every runner, or re-run the plan step "
+                    + "(Maven dist-plan, Gradle tia-dist-plan) for "
                     + "the commit the runners are actually on.");
         }
 
@@ -210,7 +211,8 @@ public final class DistributedRunCoordinator {
         if (run == null) {
             throw new IllegalStateException("No distributed run is planned under tiaRunId '"
                     + config.getRunId() + "'. Either this build was superseded by a later one, "
-                    + "whose plan cleared these rows, or tia-dist-plan was never run for this id. "
+                    + "whose plan cleared these rows, or the plan step (Maven dist-plan, Gradle "
+                    + "tia-dist-plan) was never run for this id. "
                     + "This runner cannot know which tests it was meant to run, so it fails rather "
                     + "than reporting a passing build that ran nothing.");
         }

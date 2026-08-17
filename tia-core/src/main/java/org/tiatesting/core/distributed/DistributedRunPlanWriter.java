@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 /**
  * Writes the distributed run plan JSON document to {@code <tiaBuildDir>/tia-run-plan.json}. Lives
  * in {@code tia-core} - rather than the Maven plugin module it was first written for - so both the
- * Maven {@code tia-dist-plan} goal and the Gradle {@code tia-dist-plan} task call this one
+ * Maven {@code dist-plan} goal and the Gradle {@code tia-dist-plan} task call this one
  * implementation instead of each writing the file themselves; the three properties that matter for
  * this write - parent-directory creation, an explicit UTF-8 charset, and surfacing any failure to
  * the caller rather than swallowing it - are exercised directly by a unit test rather than through
