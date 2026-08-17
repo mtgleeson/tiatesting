@@ -39,8 +39,8 @@ class DistributedRunPreviewFormatterTest {
     }
 
     /**
-     * Verify that a static-groups preview (no configured target) reports the group count and average
-     * group time, both of the run's durations, and an explicit "no target" line rather than a target
+     * Verify that a static-groups preview (no configured target) reports the group count, the
+     * average and heaviest group time, and an explicit "no target" line rather than a target
      * verdict, since a fixed group count has no target to meet.
      */
     @Test
@@ -52,45 +52,39 @@ class DistributedRunPreviewFormatterTest {
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
 
         // then it reports the groups and weights and states no target applies
-        assertTrue(preview.contains("Groups: 2, average 1500ms per group"), preview);
+        assertTrue(preview.contains("Groups: 2, average 1500ms per group, heaviest 2000ms"), preview);
         assertTrue(preview.contains("Target: none (static group count)"), preview);
         assertFalse(preview.contains("not met"), preview);
     }
 
     /**
-     * Verify the preview names both of the run's durations and says which is which: the heaviest
-     * group as the wall clock the build waits for, and the summed weight as the serial equivalent.
-     *
-     * <p>This is the block's whole reason for existing in this shape. It is printed directly beneath
-     * the {@code select-tests} estimate, which reports the serial-equivalent figure - the same number
-     * a non-distributed build prints, deliberately, since that is what Tia records and computes
-     * savings from in both modes. Reporting the heaviest group as a bare number beside it left a
-     * reader to guess which figure answered "how long will this build take", and the natural guess
-     * is the wrong one.
+     * Verify the heaviest group is reported here as grouping context - the figure the target verdict
+     * is a verdict on - and that the block does not also state it as a duration. Its meaning as the
+     * wall clock a distributed build waits for is reported by the {@code select-tests} estimate
+     * block printed immediately above this one; saying it in both places said the same thing twice,
+     * three lines apart.
      */
     @Test
-    void previewNamesTheWallClockAndTheSerialEquivalentSeparately() {
-        // given a grouping whose two figures differ: heaviest 2000ms, total 3000ms
+    void previewReportsTheHeaviestGroupAsShapeNotAsADuration() {
+        // given a grouping whose heaviest group differs from its average
         GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
 
-        // then both are named, and neither is left as an unlabelled number
-        assertTrue(preview.contains("Wall clock: 2000ms - the heaviest group"), preview);
-        assertTrue(preview.contains("Serial equivalent: 3000ms - what the same selection costs"),
-                preview);
-        assertTrue(preview.contains("it is not what a distributed build waits for"), preview);
+        // then
+        assertTrue(preview.contains("heaviest 2000ms"), preview);
+        assertFalse(preview.contains("Wall clock:"), preview);
+        assertFalse(preview.contains("Serial equivalent:"), preview);
     }
 
     /**
-     * Verify a seed run's preview reports neither duration. Its grouping is a single empty group, so
-     * both figures are zero and neither describes anything the run will do - the runner executes
-     * every suite it discovers, which the seed-run line above already says. Printing "Wall clock:
-     * 0ms" would contradict it.
+     * Verify a seed run's preview prints no target verdict. Its grouping is a single collapsed
+     * group, so the configured group count and target were both ignored and there is no verdict to
+     * give - the seed-run line says that instead.
      */
     @Test
-    void seedRunPreviewReportsNeitherDuration() {
+    void seedRunPreviewReportsNoTargetVerdict() {
         // given a seed run's collapsed grouping
         GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
 
@@ -98,9 +92,8 @@ class DistributedRunPreviewFormatterTest {
         String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
 
         // then
-        assertFalse(preview.contains("Wall clock:"), preview);
-        assertFalse(preview.contains("Serial equivalent:"), preview);
         assertTrue(preview.contains("Seed run:"), preview);
+        assertFalse(preview.contains("Target:"), preview);
     }
 
     /**

@@ -240,29 +240,42 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     // in this case (see TestSelectorResult#isRunAllTests), so it is checked first
                     // and reported distinctly from "nothing selected" below.
                     System.out.println("all (no stored mapping for this branch yet)");
-                    printDistributedRunPreviewIfConfigured(result, lineSep);
+                    printDistributedRunPreview(result, buildDistributedGroupingIfConfigured(result),
+                            lineSep);
                 } else if (testsToRun.isEmpty()){
                     System.out.println("none");
                 } else {
                     System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
+                    // Balanced before the estimate is printed, not inside the preview below it,
+                    // because the estimate block reports the heaviest group as the time a
+                    // distributed build waits for. Balancing once and passing the result down also
+                    // keeps the balancer's debug logging to a single account of the packing.
+                    GroupingResult grouping = buildDistributedGroupingIfConfigured(result);
                     // Include the mapping overhead in the estimate when the actual run being
                     // previewed will collect coverage (the configured updateDBMapping).
                     System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep,
-                            Boolean.TRUE.equals(getUpdateDBMapping()), isDistributedPreviewConfigured()));
-                    printDistributedRunPreviewIfConfigured(result, lineSep);
+                            Boolean.TRUE.equals(getUpdateDBMapping()),
+                            grouping == null ? null : Long.valueOf(grouping.getHeaviestGroupMs())));
+                    printDistributedRunPreview(result, grouping, lineSep);
                 }
             }
         });
     }
 
     /**
-     * Print the distributed run grouping preview when the user has configured a distributed run
-     * group count or target run time in the {@code tia { ... }} extension, so a developer running
+     * Balance the selection into groups for preview purposes when the user has configured a
+     * distributed run group count or target run time in the {@code tia { ... }} extension, so a
+     * developer running
      * {@code tia-select-tests} can see how the selection would be split across runners without
      * creating an actual plan. A user who has not configured either property sees no change at all
      * in this task's output - {@link #getDistributedGroupCount()} and {@link
-     * #getDistributedTargetRunTime()} are both {@code null} unless explicitly set, so this method
-     * is a no-op for every non-distributed build.
+     * #getDistributedTargetRunTime()} are both {@code null} unless explicitly set, so this returns
+     * {@code null} for every non-distributed build.
+     *
+     * <p>Separate from {@link #printDistributedRunPreview} because the grouping is needed before the
+     * preview is printed: the estimate block above it reports the heaviest group as the time a
+     * distributed build waits for. Balancing once and passing the result to both consumers also
+     * keeps {@code TestGroupBalancer}'s debug logging to one account of how the suites were packed.
      *
      * <p>Calls {@link DistributedRunPlanner#balance}, never {@link DistributedRunPlanner#plan} -
      * {@code plan} persists a claimable run to the shared database, which a preview must not do.
@@ -284,34 +297,46 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * @param selection the test selection already computed by {@link #createSelectTestsTask()},
      *                   whose selected suites and their estimated run times are what the preview
      *                   balances
-     * @param lineSep the line separator to use between lines, matching the rest of this task's
-     *                output
+     * @return the grouping to preview, or null when no distributed shape is configured or the
+     *         configured one is invalid (in which case a skip notice has been printed)
      */
-    void printDistributedRunPreviewIfConfigured(final TestSelectorResult selection, final String lineSep) {
+    GroupingResult buildDistributedGroupingIfConfigured(final TestSelectorResult selection) {
         if (!isDistributedPreviewConfigured()) {
-            return;
+            return null;
         }
-        Integer groupCount = getDistributedGroupCount();
-        Long targetRunTimeMs = getDistributedTargetRunTime();
-
         try {
-            GroupingResult grouping = DistributedRunPlanner.balance(selection,
-                    Boolean.TRUE.equals(getUpdateDBMapping()), groupCount, targetRunTimeMs,
-                    getDistributedMaxGroups());
-            System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping, targetRunTimeMs,
-                    selection.isRunAllTests(), lineSep));
+            return DistributedRunPlanner.balance(selection, Boolean.TRUE.equals(getUpdateDBMapping()),
+                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups());
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
+            return null;
         }
     }
 
     /**
-     * Report whether this build has configured a distributed run shape, and therefore whether the
-     * grouping preview will be printed. Shared by {@link
-     * #printDistributedRunPreviewIfConfigured(TestSelectorResult, String)} and the estimate block
-     * above it, which labels its total as the serial equivalent only when a grouping preview follows
-     * to report the wall clock - the two must agree, or the estimate would name a companion block
-     * that never appears.
+     * Print the grouping preview block for an already-balanced grouping, or nothing at all when
+     * there is none - a non-distributed build, or one whose configured shape {@link
+     * #buildDistributedGroupingIfConfigured} rejected and already reported.
+     *
+     * @param selection the test selection the grouping was balanced from; its {@link
+     *                   TestSelectorResult#isRunAllTests()} is what tells the formatter to render
+     *                   the block as a seed run's
+     * @param grouping the balanced grouping to describe, or null to print nothing
+     * @param lineSep the line separator to use between lines, matching the rest of this task's
+     *                output
+     */
+    void printDistributedRunPreview(final TestSelectorResult selection, final GroupingResult grouping,
+                                     final String lineSep) {
+        if (grouping == null) {
+            return;
+        }
+        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
+                getDistributedTargetRunTime(), selection.isRunAllTests(), lineSep));
+    }
+
+    /**
+     * Report whether this build has configured a distributed run shape, and therefore whether a
+     * grouping is balanced for the estimate block and the preview below it.
      *
      * @return true when either a group count or a target run time is configured
      */

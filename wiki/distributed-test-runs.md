@@ -437,14 +437,35 @@ in the build shares. See the [test-run history log](test-run-history.md) chapter
 itself.
 
 The same two durations, under the same two names, are what the *estimate* side reports before the
-run: `DistributedRunDurations` prints them in both the `select-tests` grouping preview and the plan
-step's console summary. That matters because `select-tests` prints its estimate block first, and
-that estimate is the **serial equivalent** - deliberately the same number a non-distributed build
-would print, since it is the figure savings are computed from either way. Left unlabelled beside a
-grouping showing a lighter heaviest group, it reads as an estimate that ignored the distribution.
-It has not: the two figures answer different questions, and only the wall clock changes when the
-build is split. So the estimate line says `(serial equivalent)` whenever a grouping preview follows
-it, and the preview names the wall clock underneath.
+run. `select-tests` prints them in its estimate block:
+
+```
+Estimated total run time (serial equivalent): 497ms (75%)
+Estimated savings: 167ms (25%)
+Estimated distributed run time: 275ms (41%) - the heaviest group, which is what the build waits for.
+```
+
+The first line is deliberately the same number a non-distributed build would print, since it is the
+figure savings are computed from either way. Left unlabelled beside a grouping whose heaviest group
+is lighter, it reads as an estimate that ignored the distribution. It has not - the two figures
+answer different questions, and only the wall clock changes when the build is split - so the label
+and the third line are both added whenever a grouping is balanced for the preview. The plan step
+prints no estimate block, so its console summary names the two itself via `DistributedRunDurations`.
+
+The grouping preview beneath the estimate reports the **shape** of the split only - group count,
+average and heaviest weight, target verdict. Its heaviest figure is the number the target verdict is
+a verdict on; the same number's meaning as a duration is the estimate block's job, and stating it in
+both places said the same thing twice, three lines apart.
+
+**The distributed estimate is a floor.** The heaviest group's weight already carries its suites'
+share of the mapping overhead - `TestGroupBalancer.suiteWeights` divides the selection's total
+overhead across its suites - but each runner also re-pays the fixed per-JVM start-up cost that a
+single-host run pays once. That fixed part cannot be separated at estimate time:
+`TestSelector.computeOverheadPerSuiteMs` derives the overhead as
+`allTestsRunTime - Σ per-suite averages`, which is `fixed + perSuiteCapture × N` collapsed into one
+number, and dividing it by the suite count amortises the fixed part away. Only the seal side can
+measure the split, from `actual_duration_ms - suites_duration_ms` per group, which is exactly what
+the serial-equivalent correction above uses.
 
 #### The fixed overhead is charged once, not once per group
 

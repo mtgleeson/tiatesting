@@ -2,7 +2,6 @@ package org.tiatesting.core.distributed;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -241,33 +240,6 @@ class DistributedRunPlanSummaryTest {
                 "console summary should name the heaviest group as the wall clock: " + consoleSummary);
         assertTrue(consoleSummary.contains("Serial equivalent: 6900000ms"),
                 "console summary should name the summed time as the serial equivalent: " + consoleSummary);
-    }
-
-    /**
-     * Verifies that the plan summary's duration lines are byte-for-byte the wording {@link
-     * DistributedRunPreviewFormatter#formatPreview} prints for the same grouping, so a developer who
-     * read the {@code select-tests} preview meets the identical two lines once the plan is
-     * persisted. Mirrors the miss-reason parity test below; both guard against the two blocks
-     * drifting into describing the same two figures differently.
-     */
-    @Test
-    void toConsoleSummary_durationLines_matchPreviewFormatterWording() {
-        // given - a plan and the equivalent grouping result, with the same two durations
-        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 2, null, true, false, false, 3000L, 2000L, 2, false);
-        GroupingResult grouping = new GroupingResult(Arrays.asList(
-                new SuiteGroup(0, Collections.singletonList("Suite0"), 1000L),
-                new SuiteGroup(1, Collections.singletonList("Suite1"), 2000L)),
-                true, false, false);
-
-        // when
-        String consoleSummary = summary.toConsoleSummary();
-        String preview = DistributedRunPreviewFormatter.formatPreview(grouping, null, false, "\n");
-
-        // then
-        String sharedLines = DistributedRunDurations.format(2000L, 3000L, "\n");
-        assertTrue(consoleSummary.contains(sharedLines), consoleSummary);
-        assertTrue(preview.contains(sharedLines), preview);
     }
 
     /**

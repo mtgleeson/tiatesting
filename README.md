@@ -871,17 +871,18 @@ gradle tia-dist-plan
 ```
 Estimated total run time (serial equivalent): 497ms (75%)
 Estimated savings: 167ms (25%)
+Estimated distributed run time: 275ms (41%) - the heaviest group, which is what the build waits for.
 
 Distributed run grouping preview (not persisted):
-  Groups: 2, average 248ms per group
-  Wall clock: 275ms - the heaviest group, which is what the build waits for since the groups run in parallel.
-  Serial equivalent: 497ms - what the same selection costs on one host. This is the
-    figure Tia records and computes savings from in both modes, so a project's history stays
-    comparable; it is not what a distributed build waits for.
+  Groups: 2, average 248ms per group, heaviest 275ms
   Target: none (static group count)
 ```
 
-The **wall clock** is the heaviest group - what you wait for, and what a job timeout has to accommodate. The **serial equivalent** is what the same selection would cost on one host; it is deliberately the same number a non-distributed build prints, because that is the figure Tia records and computes savings from in both modes, so savings keep meaning "time saved by not running unimpacted tests" rather than quietly absorbing the parallelism your CI system provided. If the estimate looks unchanged by distributing, that is why - only the wall clock moves.
+The **distributed run time** is the heaviest group - what you actually wait for, and what a job timeout has to accommodate. It already includes that group's suites' share of the mapping overhead, since the balancer weights suites with it.
+
+The **serial equivalent** is what the same selection would cost on one host. It is deliberately the same number a non-distributed build prints, because that is the figure Tia records and computes savings from in both modes, so savings keep meaning "time saved by not running unimpacted tests" rather than quietly absorbing the parallelism your CI system provided. If that line and the savings look unchanged by distributing, that is why - only the wall clock moves. The same two figures appear again in the history table after the run, as its `Duration` and `Wall clock` columns.
+
+One caveat on the distributed estimate: each runner also re-pays the fixed per-JVM start-up cost that a single-host run pays once, and Tia's stored stats do not separate that fixed cost from the per-suite capture cost, so it cannot be added here. Treat the figure as a floor.
 
 Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
 
