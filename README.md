@@ -12,6 +12,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Usage](#usage)
 - [Configuration Options](#configuration-options)
 - [Static test selection rules](#static-test-selection-rules)
+- [Distributed test runs](#distributed-test-runs)
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Branch isolation (schema per branch)](#branch-isolation-schema-per-branch)
@@ -731,6 +732,12 @@ gradle tia-text-report
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaDistributed|distributed|true, false|When true this build takes part in a [distributed test run](#distributed-test-runs): the selection is split into groups across CI runners that coordinate through a shared database. Requires `tiaDBUrl` / `dbUrl` (a shared datastore - embedded H2 is rejected) and `tiaCheckLocalChanges` / `checkLocalChanges` disabled.| false |false|
+|tiaRunId|runId|<string>|The shared identifier every job in one distributed build must agree on, so each runner finds the same run's rows in the shared database. Must be the **same** for every job in a build and **different** for every build - a CI pipeline/run id is the natural value.| |true (when distributed)|
+|tiaDistributedGroupCount|distributedGroupCount|<integer>|Split the selection into exactly this many groups, minimising the heaviest one. Mutually exclusive with `tiaDistributedTargetRunTime` - exactly one of the two must be set.| |one of the two|
+|tiaDistributedTargetRunTime|distributedTargetRunTime|<milliseconds>|Work out how many groups are needed to bring the wall-clock test time under this target, and use the fewest that do. Mutually exclusive with `tiaDistributedGroupCount`. Meeting the target is best effort - see [Distributed test runs](#distributed-test-runs).| |one of the two|
+|tiaDistributedMaxGroups|distributedMaxGroups|<integer>|Ceiling on the number of groups when balancing for `tiaDistributedTargetRunTime`. A spend limit, not a goal - Tia uses the fewest groups that meet the target, not this many. Rejected alongside a fixed `tiaDistributedGroupCount`, where it would be meaningless.| no ceiling |false|
+|tiaDistributedRunnerKey|distributedRunnerKey|<string>|Per-runner identity used by the claim protocol to tell concurrent runners apart. Set it to something **stable across job retries** (a CI matrix index) so a retried job is handed back its own group instead of claiming a second one.| derived from run id + hostname + pid |false|
 |tiaStaticTestSelectionRules|staticTestSelectionRules|nested list of rules|User-declared rules of the form "if a changed file matches this path regex, force-run these suites". Used for change drivers Tia's coverage-driven mapping can't see (SQL migrations, properties, schema files). Rules are additive: their selected suites are unioned into the suites already selected from the coverage mapping. See [Static test selection rules](#static-test-selection-rules) below for the configuration syntax.| empty (no rules)                                                                              |false|
 
 ## Static test selection rules
@@ -795,6 +802,124 @@ tia {
 ```
 
 Invalid rules (missing required fields, unknown mode, regex that fails to compile) fail at build configuration time, before any tests run, so configuration errors surface immediately rather than at test-run time.
+
+## Distributed test runs
+
+Normally Tia assumes it is the only thing running: one build computes one selection, runs it, and writes one set of results. Splitting that naively across CI runners gives you N independent Tia runs that each compute their own selection and each try to write their own mapping - wasteful, and against a shared database actively unsafe.
+
+A distributed test run makes Tia aware of the topology instead: **one logical build, N runners, one shared database**. A planning step computes the selection once and splits it into groups; each runner claims exactly one group and runs only that group's suites; the runner that finishes last is elected to seal the build and write the mapping, stats and single history row.
+
+Tests still run **sequentially inside each runner** - the parallelism is across hosts only, because Tia relies on one-suite-at-a-time execution in a single JVM to attribute coverage to the right suite.
+
+For the mechanism (the claim protocol, the completeness guard, how the two durations are reported, what happens to a run stuck in `OPEN`) see the [distributed test runs](wiki/distributed-test-runs.md) WIKI chapter.
+
+### Requirements
+
+- **A shared database** - `tiaDBUrl` / `dbUrl` pointing at server-mode H2 or Postgres. Embedded H2 is rejected: the runners coordinate entirely through the datastore.
+- **A single-project build.** Multi-module reactors are refused at configuration time. Use `mvn -pl <module>` to distribute one module's tests.
+- **`tiaCheckLocalChanges` / `checkLocalChanges` off.** A distributed run is a primary build of a committed state.
+- **One JVM per runner.** Maven `forkCount > 1` / `reuseForks=false` and Gradle `maxParallelForks > 1` / `forkEvery > 0` break the one-JVM-per-group assumption. Gradle refuses both; on Maven it is your responsibility.
+
+### The pipeline shape
+
+Three job types, in order:
+
+1. **Plan** - one job runs `dist-plan`, which writes the plan and `<tiaBuildDir>/tia-run-plan.json`.
+2. **Run** - N jobs, each running the tests normally with `tiaDistributed=true` and the same `tiaRunId`. Each claims one group.
+3. **Complete** - each runner job runs `dist-complete` **whatever the test result**.
+
+Step 3 is not optional on Maven, and it is the one thing people get wrong. A test failure aborts the Maven lifecycle, so a completion chained onto the same command never runs on exactly the runners you most need it from. The group stays `CLAIMED`, the barrier never opens, and the whole build's mapping work is discarded. Give it its own always-run step. On Gradle no pipeline change is needed - the completion task is a `finalizedBy` finalizer, and finalizers run even when the task they finalize fails.
+
+### Plan - split the selection into groups
+
+Run once per build, before the runner jobs start. Writes the plan to the shared database and `tia-run-plan.json` alongside a console summary.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedTargetRunTime=1500000 -DtiaDistributedMaxGroups=10
+```
+(substitute `tia-junit5-perforce`, `tia-junit4-git` or `tia-junit4-perforce` for the other flavours)
+
+**Gradle, Spock and Git**
+```
+gradle tia-dist-plan
+```
+
+`tia-run-plan.json` is a published contract - its field names, order and shape are fixed so a pipeline can parse it:
+```json
+{
+  "runId": "gh-1284471",
+  "branch": "main",
+  "commit": "87a5110",
+  "seedRun": false,
+  "groupCount": 5,
+  "avgGroupMs": 1380000,
+  "heaviestGroupMs": 1450000,
+  "targetMs": 1500000,
+  "targetMet": true,
+  "clampedToMaxGroups": false,
+  "singleSuiteExceedsTarget": false,
+  "totalEstimatedMs": 6900000,
+  "selectedSuiteCount": 412
+}
+```
+Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
+
+Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - one group with everything, ignoring your configured group count, because there is no mapping yet to split. `seedRun: true` says so.
+
+### Complete - close out this runner's group
+
+Run once per runner job, after its tests, **whatever the result**. Completes the group, and if this runner finished last, seals the build.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-complete
+```
+
+**Gradle, Spock and Git**
+```
+(nothing - the tia-dist-complete task is wired as a finalizer of the test task automatically)
+```
+
+It is safe to run unconditionally: on a build that was not distributed there is nothing to complete, and it logs that and exits successfully. It reads the run id, runner key and group number back out of the build directory rather than re-deriving them - a runner key it derived for itself would carry a different process id, match no claimed row, and leave the group open forever. Its own configuration only has to supply `tiaEnabled`, `tiaBuildDir` and the database connection settings, which normally already live in your pom.
+
+### Full example (GitHub Actions)
+
+```yaml
+plan:
+  runs-on: ubuntu-latest
+  outputs:
+    groups: ${{ steps.plan.outputs.groups }}
+  steps:
+    - run: >
+        mvn tia-junit5-git:dist-plan
+        -DtiaDistributed=true
+        -DtiaRunId=${{ github.run_id }}
+        -DtiaDistributedTargetRunTime=1500000
+        -DtiaDistributedMaxGroups=10
+    - id: plan
+      run: echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
+
+test:
+  needs: plan
+  strategy:
+    fail-fast: false
+    matrix:
+      group: ${{ fromJson(needs.plan.outputs.groups) }}
+  steps:
+    - name: Run this runner's group
+      run: >
+        mvn verify
+        -DtiaDistributed=true
+        -DtiaRunId=${{ github.run_id }}
+        -DtiaDistributedRunnerKey=${{ matrix.group }}
+
+    - name: Complete this runner's group
+      if: always()          # <- the whole point: runs even when the tests failed
+      run: mvn tia-junit5-git:dist-complete
+```
+
+Two details worth copying: `fail-fast: false`, so one failing group does not cancel the others and strand their claims, and a `tiaDistributedRunnerKey` taken from the matrix index, so a retried job resumes its own group rather than claiming a second one.
 
 ## What is Tia
 Tia ia a free test impact analysis library. It analyses changes made to source code and automatically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the efficiency of developers by cutting down the time required to get feedback on changes. 

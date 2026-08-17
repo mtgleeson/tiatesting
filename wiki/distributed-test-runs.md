@@ -15,6 +15,11 @@ parallelism is across hosts only, because Tia relies on one-suite-at-a-time exec
 JVM so JaCoCo can attribute coverage to the right suite (see "Multi-fork persist" in the
 [persist flow and crash safety](persist-flow-and-crash-safety.md) chapter).
 
+This chapter covers the mechanism. For setting a distributed run up - the `dist-plan` /
+`dist-complete` goals, the six configuration properties and their Gradle equivalents, and a
+copy-paste CI pipeline - see the README's
+[Distributed test runs](../README.md#distributed-test-runs) section.
+
 The run's state lives in four tables - `tia_distributed_run` (one row per logical build),
 `tia_distributed_run_group` (one row per group), `tia_distributed_run_group_suite` (which suites
 belong to which group), and `tia_distributed_run_method_stage` (the runners' staged method
