@@ -35,7 +35,62 @@ class DistributedRunPreviewFormatterTest {
         for (int i = 0; i < groupWeightsMs.length; i++) {
             groups.add(new SuiteGroup(i, Collections.singletonList("Suite" + i), groupWeightsMs[i]));
         }
-        return new GroupingResult(groups, targetMet, clampedToMaxGroups, singleSuiteExceedsTarget);
+        return new GroupingResult(groups, targetMet, clampedToMaxGroups, singleSuiteExceedsTarget, false);
+    }
+
+    /**
+     * Verify that a target missed because the fixed per-JVM cost alone meets it names that as the
+     * lever, and does not name the single-suite one. The two are different problems with different
+     * fixes: a heavy suite can be split, but a target below what starting a test JVM costs cannot be
+     * met by any change to the selection - only by raising the target. Before the fixed cost was
+     * modelled at all this plan reported a met target, leaving a user adding runners that each
+     * brought another copy of the cost that was blowing the budget.
+     */
+    @Test
+    void previewNamesTheFixedOverheadWhenItAloneMeetsTheTarget() {
+        // given
+        GroupingResult result = new GroupingResult(
+                Collections.singletonList(
+                        new SuiteGroup(0, Collections.singletonList("Suite0"), 700L)),
+                false, false, false, true);
+
+        // when
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
+                false, "\n");
+
+        // then
+        assertTrue(preview.contains("Target: 500ms - not met"),
+                "a target no group count can reach must be reported as missed");
+        assertTrue(preview.contains(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET),
+                "the per-JVM cost must be named as the lever, since it is the only one that "
+                        + "applies");
+        assertFalse(preview.contains(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET),
+                "no suite is at fault, so naming one would send the user after the wrong fix");
+    }
+
+    /**
+     * The three miss reasons are independent, so a plan that hits more than one reports all of
+     * them rather than stopping at the first.
+     */
+    @Test
+    void previewNamesEveryMissReasonThatApplies() {
+        // given - clamped, over the per-JVM floor, and carrying an over-long suite
+        GroupingResult result = new GroupingResult(
+                Collections.singletonList(
+                        new SuiteGroup(0, Collections.singletonList("Suite0"), 900L)),
+                false, true, true, true);
+
+        // when
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
+                false, "\n");
+
+        // then
+        assertTrue(preview.contains(DistributedRunMissReasons.MAX_GROUPS_LIMITING),
+                "the ceiling reason must be reported");
+        assertTrue(preview.contains(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET),
+                "the per-JVM reason must be reported");
+        assertTrue(preview.contains(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET),
+                "the single-suite reason must be reported");
     }
 
     /**

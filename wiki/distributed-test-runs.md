@@ -98,17 +98,26 @@ Target mode therefore **minimises runners, it does not maximise speed**. A targe
 Expect the group count to vary between builds - a one-line change selects fewer tests and needs
 fewer runners than a dependency bump does. That is the feature working.
 
-**Meeting the target is best effort, and missing it never fails the build or drops tests.** Two
-independent causes, both reported on the summary and in `tia-run-plan.json`:
+**Meeting the target is best effort, and missing it never fails the build or drops tests.** Three
+independent causes, all reported on the summary and in `tia-run-plan.json`. Any can apply without
+the others, and more than one can apply at once, so all that apply are listed:
 
 | Cause | Flag | What helps |
 |---|---|---|
 | `tiaDistributedMaxGroups` is lower than the target needs | `clampedToMaxGroups: true` | Raise the ceiling, or accept the longer build. |
-| A single suite is longer than the whole target | `singleSuiteExceedsTarget: true` | Nothing about the group count - no amount of splitting divides one suite. Split the suite or raise the target. |
+| The fixed per-JVM cost alone meets or exceeds the target | `fixedOverheadExceedsTarget: true` | Nothing you can do to the tests. Every runner pays this before it executes a suite, so adding runners only adds copies of it. Raise the target. |
+| A single suite is longer than what is left of the target after that cost | `singleSuiteExceedsTarget: true` | Nothing about the group count - no amount of splitting divides one suite. Split the suite or raise the target. |
 
-The second case also changes the packing: the capacity is raised to `max(target, heaviestSuite)`, so
-a suite that puts the target out of reach no matter what does not also inflate the runner count.
-Same makespan, fewer runners.
+**The target is a budget for the whole group, not just its suites.** A runner pays the fixed per-JVM
+cost - engine start-up, class loading, the final coverage dump - before it runs anything, so the
+budget available for suites is `target - fixed`, and a group meets the target only when its suites
+plus that cost come in under it. See ["The two-part overhead
+model"](#the-two-part-overhead-model) for where the fixed figure comes from; until a project has run
+one distributed build it is zero and the target behaves exactly as it did before.
+
+The last two cases also change the packing: the capacity is raised to `max(target - fixed,
+heaviestSuite)`, so anything that puts the target out of reach no matter what does not also inflate
+the runner count. Same makespan, fewer runners.
 
 Every ordering decision is broken deterministically - by weight descending, then by suite name
 ascending. Two runners deriving different groupings from the same selection would be undebuggable.
@@ -539,6 +548,70 @@ assignment is empty it is answered from the run row's `seed_run` flag rather tha
 shape: a seed run's single group carries no suite names and ignored nothing, a nothing-impacted
 build's groups carry no suite names and ignored every tracked suite, and by seal time the two plans
 are indistinguishable - the seed run's own runners have already populated the tracked suite map.
+
+### The two-part overhead model
+
+A distributed build is the only thing that can tell Tia what a test JVM costs to start, and it does
+so as a side effect of the durations it already records.
+
+Tia's run-time estimate long modelled overhead as a single per-suite number: the full-suite baseline
+minus the sum of the tracked suite averages, divided by the tracked suite count. That is the model
+
+```
+runTotal = Σ suite averages + capture × suites
+```
+
+with a term missing. Real overhead is `fixed + capture × suites`, where `fixed` is what a JVM pays
+once - engine start-up, class loading, the final coverage dump - and `capture` is JaCoCo's per-suite
+collection. Dividing the whole overhead by the suite count keeps only `capture` and amortises
+`fixed` away. On a single host that is self-consistent: divide by the tracked count, multiply back
+up by the selected count, and the total comes out right. **The moment a build is split it is wrong**,
+because each runner is its own JVM and pays `fixed` in full - the cost is duplicated per group while
+the estimate divided it. On the fixture this was first measured against, two runners paid 519ms of
+overhead between them where one host paid 300ms, and the estimate spread that 300ms three ways.
+
+One equation cannot separate two unknowns, which is why the split was never available. A distributed
+build supplies a second one at a different suite count:
+
+```
+wholeRunOverhead  = fixed + capture × trackedSuites      (from the all-tests baseline)
+meanGroupOverhead = fixed + capture × meanGroupSuites    (from this build's group rows)
+```
+
+Nothing new is measured. Every runner already reports `suites_duration_ms` alongside
+`actual_duration_ms`, precisely so the sealer can charge the fixed cost once when computing the
+serial-equivalent duration; `DistributedRunOverheadModel` combines the same numbers a second way.
+The solve runs at seal time and folds its answer into rolling averages on `tia_core`
+(`fixed_overhead_ms`, `capture_overhead_per_suite_ms`, `num_overhead_measurements`).
+
+**A group's suite count comes from the plan, not from `suites_ran`.** That counter accumulates
+executions, so a Surefire retry inside a runner's JVM sums into it - and here it would inflate the
+suite count on exactly the group whose overhead the retry also inflated, corrupting both sides of the
+equation at once. What the plan assigned a group cannot be moved by any number of retries.
+
+**A seed run is excluded.** Its single group is assigned no suite names because it runs everything,
+so reading that assignment as a group that ran nothing would push a full-suite run's entire overhead
+into `fixed`. It is degenerate in any case: one group covering every suite restates the whole-run
+equation rather than adding to it.
+
+**Every failure to solve is a skip, never a guess.** A group that ran suites without timing any of
+them (the same disqualification `DistributedRunTotals` applies), a build whose groups average the
+full tracked suite count, or a solve that comes out negative all leave the stored averages exactly as
+they were. Writing a zero instead would drag both constants towards nothing and undo every earlier
+measurement - which matters more here than for a trend, because the pair is consumed as constants.
+
+**The mean here, the minimum in `DistributedRunTotals`.** The two read the same per-group
+measurement and estimate it differently on purpose, and neither should be "corrected" to match the
+other. The totals subtract from a duration the build actually took, so they need the largest amount
+every runner *demonstrably* paid - a floor. This is a forecast, and a forecast wants the expected
+value.
+
+Both constants are `0` for a project that has never distributed a build, which is the signal to fall
+back to the single-number model. No configuration, no threshold: the estimate self-corrects after
+the first distributed run. See ["The select-tests run-time estimate and its overhead
+model"](select-tests-run-time-estimate.md) for how the pair is then consumed, and ["How suites are
+packed into groups"](#how-suites-are-packed-into-groups) for why `fixed` is charged once per group
+and never enters the packing weights.
 
 ## The CI step
 

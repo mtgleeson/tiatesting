@@ -92,7 +92,27 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
+    }
+
+    /**
+     * Build the same three-suite selection as {@link #threeSuiteSelection()} but carrying a
+     * measured fixed per-JVM cost, so tests can assert it is charged once per group rather than
+     * divided across them or folded into the per-suite weights. Carries no capture overhead, so
+     * the suite weights are exactly the recorded run times and the arithmetic stays legible.
+     *
+     * @param fixedOverheadMs the per-JVM cost the selection reports, in ms
+     * @return the selection
+     */
+    private static TestSelectorResult threeSuiteSelectionWithFixedOverhead(long fixedOverheadMs) {
+        Map<String, Long> runTimes = new HashMap<>();
+        runTimes.put("com.example.ATest", 30000L);
+        runTimes.put("com.example.BTest", 20000L);
+        runTimes.put("com.example.CTest", 10000L);
+        Set<String> testsToRun = new HashSet<>(runTimes.keySet());
+        return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, fixedOverheadMs,
+                false);
     }
 
     /**
@@ -110,7 +130,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
     }
 
     /**
@@ -121,7 +141,7 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, false);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false);
     }
 
     /**
@@ -134,7 +154,7 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult runAllTestsSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, true);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true);
     }
 
     /**
@@ -509,6 +529,45 @@ class DistributedRunPlannerTest {
         assertTrue(result.getGroups().get(0).getSuiteNames().isEmpty());
         assertTrue(result.isTargetMet());
         assertEquals(0L, result.getTotalEstimatedMs());
+    }
+
+    /**
+     * The fixed per-JVM cost the selection carries reaches every group, once each. This is the
+     * whole point of carrying it apart from the capture overhead: a split build duplicates it, so
+     * three groups cost three copies where one host would have paid one.
+     */
+    @Test
+    void balance_chargesTheSelectionsFixedOverheadOncePerGroup() {
+        // given - three suites totalling 60s, and a 5s per-JVM cost
+        TestSelectorResult selection = threeSuiteSelectionWithFixedOverhead(5000L);
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, true, 3, null, null);
+
+        // then - each of the three groups carries one suite and one copy of the cost
+        assertEquals(3, result.getGroupCount());
+        assertEquals(75000L, result.getTotalEstimatedMs(),
+                "60s of suites plus three copies of the 5s start-up: splitting the build "
+                        + "duplicates that cost rather than dividing it");
+        assertEquals(35000L, result.getHeaviestGroupMs(),
+                "the heaviest group is its 30s suite plus its own 5s start-up");
+    }
+
+    /**
+     * A run that does not collect coverage pays no fixed cost, matching how the capture overhead is
+     * gated: the measured value includes the final coverage dump, which such a run never performs.
+     */
+    @Test
+    void balance_withoutCoverageChargesNoFixedOverhead() {
+        // given
+        TestSelectorResult selection = threeSuiteSelectionWithFixedOverhead(5000L);
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 3, null, null);
+
+        // then
+        assertEquals(60000L, result.getTotalEstimatedMs(),
+                "with no coverage collected there is no per-JVM coverage cost to charge");
     }
 
     /**

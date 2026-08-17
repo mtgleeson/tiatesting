@@ -34,7 +34,9 @@ public class TestSelectorResult {
 
     private final long allTestsRunTimeMs;
 
-    private final long mappingOverheadMs;
+    private final long captureOverheadMs;
+
+    private final long fixedOverheadMs;
 
     private final boolean runAllTests;
 
@@ -60,10 +62,17 @@ public class TestSelectorResult {
      * @param allTestsRunTimeMs the Tia-level all-tests-run baseline (ms): the recorded average
      *                          time to run the full suite, used to show estimated savings. May be
      *                          {@code 0} when no full-suite run has been recorded yet
-     * @param mappingOverheadMs the additional time (ms) a mapping-update run would pay for the
-     *                          selected suites (per-suite coverage capture + amortised whole-run
-     *                          costs). Added to {@code estimatedRunTimeMs} only when the run being
-     *                          estimated will collect coverage; {@code 0} when not derivable
+     * @param captureOverheadMs the coverage-collection time (ms) the selected suites would add
+     *                          between them. Per-suite, so it scales with the selection and is the
+     *                          part a distributed build divides across its groups. Added to
+     *                          {@code estimatedRunTimeMs} only when the run being estimated will
+     *                          collect coverage; {@code 0} when not derivable
+     * @param fixedOverheadMs the time (ms) a test JVM pays once however few suites it runs - engine
+     *                        start-up, class loading, the final coverage dump. Charged once per
+     *                        runner, so a distributed build pays a copy per group rather than
+     *                        dividing it, which is the whole reason it is carried separately from
+     *                        {@code captureOverheadMs}. Added only for a coverage run; {@code 0}
+     *                        for an empty selection, and until a distributed build has measured it
      * @param runAllTests {@code true} only when no mapping is stored yet for the tracked branch
      *                    and every test must run because Tia has nothing to select against;
      *                    {@code false} for a normal selection. Both {@code testsToRun} and
@@ -78,8 +87,8 @@ public class TestSelectorResult {
                                Set<String> selectedTestsWithoutStats,
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
-                               long allTestsRunTimeMs, long mappingOverheadMs,
-                               boolean runAllTests) {
+                               long allTestsRunTimeMs, long captureOverheadMs,
+                               long fixedOverheadMs, boolean runAllTests) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -88,7 +97,8 @@ public class TestSelectorResult {
         this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
         this.selectedTestRunTimesMs = selectedTestRunTimesMs;
         this.allTestsRunTimeMs = allTestsRunTimeMs;
-        this.mappingOverheadMs = mappingOverheadMs;
+        this.captureOverheadMs = captureOverheadMs;
+        this.fixedOverheadMs = fixedOverheadMs;
         this.runAllTests = runAllTests;
     }
 
@@ -158,13 +168,25 @@ public class TestSelectorResult {
     }
 
     /**
-     * @return the additional time (ms) a mapping-update run would pay for the selected suites
-     *         (per-suite coverage capture + amortised whole-run costs). Callers add this to
-     *         {@link #getEstimatedRunTimeMs()} only when the run being estimated collects coverage;
-     *         {@code 0} when there is no baseline to derive it from
+     * @return the coverage-collection time (ms) the selected suites would add between them.
+     *         Per-suite, so it scales with the selection and is what a distributed build divides
+     *         across its groups. Callers add this to {@link #getEstimatedRunTimeMs()} only when the
+     *         run being estimated collects coverage; {@code 0} when there is nothing to derive it
+     *         from
      */
-    public long getMappingOverheadMs() {
-        return mappingOverheadMs;
+    public long getCaptureOverheadMs() {
+        return captureOverheadMs;
+    }
+
+    /**
+     * @return the time (ms) a test JVM pays once however few suites it runs. Charged once per
+     *         runner, so a distributed build pays a copy per group rather than dividing it - which
+     *         is why it is carried apart from {@link #getCaptureOverheadMs()}. Added only for a
+     *         coverage run; {@code 0} for an empty selection, and until a distributed build has
+     *         measured it
+     */
+    public long getFixedOverheadMs() {
+        return fixedOverheadMs;
     }
 
     /**

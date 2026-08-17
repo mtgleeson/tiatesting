@@ -68,10 +68,13 @@ public class SelectTestsOutputFormatter {
      * @param lineSep the line separator to use between lines (e.g. {@code "\n"} or
      *                {@link System#lineSeparator()})
      * @param includeMappingOverhead whether the run being estimated will collect coverage (update
-     *                               the mapping). When {@code true} the per-suite estimate gains
-     *                               {@link TestSelectorResult#getMappingOverheadMs()} - coverage
-     *                               capture is not part of the stored per-suite times - so the
-     *                               displayed total, percentage and savings reflect a coverage run.
+     *                               the mapping). When {@code true} the estimate gains both
+     *                               {@link TestSelectorResult#getCaptureOverheadMs()} and
+     *                               {@link TestSelectorResult#getFixedOverheadMs()} - neither is
+     *                               part of the stored per-suite times - so the displayed total,
+     *                               percentage and savings reflect a coverage run. The fixed part is
+     *                               added <b>once</b> here: this total is what one host would take,
+     *                               and one host starts one test JVM.
      * @param distributedWallClockMs the heaviest group's weight in ms when this selection is being
      *                               previewed for a distributed run, or {@code null} for a
      *                               single-host build. When supplied, the total above is labelled
@@ -79,9 +82,12 @@ public class SelectTestsOutputFormatter {
      *                               deliberately, since it is the figure Tia records and computes
      *                               savings from in both modes - and a further line reports this
      *                               value as the time a split build actually waits for. Already
-     *                               includes each of that group's suites' share of the mapping
-     *                               overhead, since the balancer weights suites with it; see
-     *                               {@code TestGroupBalancer.suiteWeights}.
+     *                               includes that group's suites' share of the capture overhead and
+     *                               its own copy of the fixed per-JVM cost, both applied by the
+     *                               balancer; see {@code TestGroupBalancer.suiteWeights}. That copy
+     *                               is why this line can exceed the serial total divided by the
+     *                               group count - splitting a build duplicates the fixed cost rather
+     *                               than dividing it.
      * @return the formatted estimate block, or an empty string when no estimate applies
      */
     public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep,
@@ -91,10 +97,14 @@ public class SelectTestsOutputFormatter {
             return "";
         }
 
-        // A mapping-update run also pays per-suite coverage capture, which is not in the stored
-        // per-suite times; fold it in only when the previewed run collects coverage.
+        // A mapping-update run also pays per-suite coverage capture and its JVM's fixed start-up
+        // cost, neither of which is in the stored per-suite times; fold both in only when the
+        // previewed run collects coverage. The fixed part is added once, not once per suite - this
+        // is the serial-equivalent total, and one host starts one test JVM however it is later
+        // split. The distributed line below reports the copy per group separately.
         long selectedMs = result.getEstimatedRunTimeMs()
-                + (includeMappingOverhead ? result.getMappingOverheadMs() : 0L);
+                + (includeMappingOverhead
+                        ? result.getCaptureOverheadMs() + result.getFixedOverheadMs() : 0L);
 
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);

@@ -20,7 +20,7 @@ wiki can also be read front to back.
   `generateLargeTiaDb` / `profileSelectTests` harness for measuring the hot read path.
 - [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, the
   `history` task and the HTML History tab.
-- [The select-tests run-time estimate and its mapping overhead](wiki/select-tests-run-time-estimate.md) -
+- [The select-tests run-time estimate and its overhead model](wiki/select-tests-run-time-estimate.md) -
   how the estimate is built and why coverage-collecting runs get an amortised overhead figure.
 - [Database schema (tables and relationships)](wiki/database-schema.md) - every table, its purpose
   and the relationships between the mapping, library-impact and audit clusters.

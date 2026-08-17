@@ -70,4 +70,4 @@ Column widths are computed dynamically from the data so the table stays compact 
 
 ---
 
-Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [The select-tests run-time estimate and its mapping overhead](select-tests-run-time-estimate.md)
+Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [The select-tests run-time estimate and its overhead model](select-tests-run-time-estimate.md)

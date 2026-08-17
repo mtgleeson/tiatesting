@@ -28,7 +28,7 @@ class DistributedRunPlanSummaryTest {
     void toJson_dynamicGroupsPlan_producesExactDocument() {
         // given - a dynamic-groups plan matching the worked sample in the WIKI chapter
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -47,6 +47,7 @@ class DistributedRunPlanSummaryTest {
                 + "  \"targetMet\": true,\n"
                 + "  \"clampedToMaxGroups\": false,\n"
                 + "  \"singleSuiteExceedsTarget\": false,\n"
+                + "  \"fixedOverheadExceedsTarget\": false,\n"
                 + "  \"totalEstimatedMs\": 6900000,\n"
                 + "  \"selectedSuiteCount\": 412\n"
                 + "}";
@@ -63,7 +64,7 @@ class DistributedRunPlanSummaryTest {
     void toJson_staticGroupsMode_rendersTargetMsAsJsonNull() {
         // given - a static-groups plan, which has no target run time
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 4, null, true, false, false, 4000000L,
+                "gh-1284471", "main", "87a5110", 4, null, true, false, false, false, 4000000L,
                 1050000L, 300, false);
 
         // when
@@ -85,7 +86,7 @@ class DistributedRunPlanSummaryTest {
         // given - a branch name with a literal double quote and a literal backslash
         String branchWithSpecialChars = "feature/say-\"hi\"\\ok";
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", branchWithSpecialChars, "87a5110", 5, 1500000L, true, false, false,
+                "gh-1284471", branchWithSpecialChars, "87a5110", 5, 1500000L, true, false, false, false,
                 6900000L, 1450000L, 412, false);
 
         // when
@@ -105,7 +106,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_dividesTotalByGroupCount() {
         // given - a total that does not divide evenly by the group count
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 3, 1000L, true, false, false, 1000L, 400L, 10, false);
+                "gh-1", "main", "abc123", 3, 1000L, true, false, false, false, 1000L, 400L, 10, false);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -123,7 +124,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_zeroGroupCount_doesNotDivideByZero() {
         // given - a plan with no groups at all (an empty selection)
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, 0L, 0L, 0, false);
+                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, false, 0L, 0L, 0, false);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -141,7 +142,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_targetMet_mentionsGroupCountAndMetStatus() {
         // given - a plan whose target was met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -163,7 +164,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_targetNotMet_mentionsGroupCountAndNotMetStatus() {
         // given - a plan whose target was not met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, 16000000L,
+                "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, false, 16000000L,
                 2200000L, 900, false);
 
         // when
@@ -185,7 +186,7 @@ class DistributedRunPlanSummaryTest {
     void getHeaviestGroupMs_returnsConstructorValue() {
         // given - a plan whose heaviest group is well above the average
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -205,7 +206,7 @@ class DistributedRunPlanSummaryTest {
     void toJson_includesHeaviestGroupMsDistinctFromAvgGroupMs() {
         // given - a plan whose heaviest group is heavier than the average group
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -229,7 +230,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_namesTheWallClockAndTheSerialEquivalent() {
         // given - a plan whose heaviest group is heavier than the average group
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -253,9 +254,9 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_maxGroupsMissReason_matchesPreviewFormatterWording() {
         // given - a plan summary and a preview grouping result that both report the same miss
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 2, 6000L, false, true, false, 18000L, 9000L, 2, false);
+                "gh-1", "main", "abc123", 2, 6000L, false, true, false, false, 18000L, 9000L, 2, false);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
-                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false);
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false, false);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -277,9 +278,9 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_singleSuiteMissReason_matchesPreviewFormatterWording() {
         // given - a plan summary and a preview grouping result that both report the same miss
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 1, 6000L, false, false, true, 9000L, 9000L, 1, false);
+                "gh-1", "main", "abc123", 1, 6000L, false, false, true, false, 9000L, 9000L, 1, false);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
-                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true);
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true, false);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -293,6 +294,33 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
+     * Verifies the same for the third miss reason: the console summary's per-JVM miss reason names
+     * the exact same wording the preview formatter uses. This one matters most of the three to keep
+     * in step, because it is the only reason a developer cannot act on by changing the selection -
+     * a preview and a plan disagreeing about whether it applies would send them after a fix that
+     * cannot work.
+     */
+    @Test
+    void toConsoleSummary_fixedOverheadMissReason_matchesPreviewFormatterWording() {
+        // given - a plan summary and a preview grouping result that both report the same miss
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1", "main", "abc123", 1, 500L, false, false, false, true, 700L, 700L, 1, false);
+        GroupingResult preview = new GroupingResult(Collections.singletonList(
+                new SuiteGroup(0, Collections.singletonList("Suite0"), 700L)), false, false, false,
+                true);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 500L, false, "\n");
+
+        // then
+        assertTrue(consoleSummary.contains("reason: " + DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET),
+                "console summary should use the shared per-JVM wording: " + consoleSummary);
+        assertTrue(previewText.contains("lever: " + DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET),
+                "preview should use the shared per-JVM wording: " + previewText);
+    }
+
+    /**
      * Verifies that {@link DistributedRunPlanSummary#isSeedRun()} round-trips through the
      * constructor to its getter unchanged, for a plan that is not a seed run.
      */
@@ -300,7 +328,7 @@ class DistributedRunPlanSummaryTest {
     void isSeedRun_notASeedRun_returnsFalse() {
         // given - an ordinary, non-seed plan
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
+                "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
                 1450000L, 412, false);
 
         // when
@@ -318,7 +346,7 @@ class DistributedRunPlanSummaryTest {
     void isSeedRun_seedRun_returnsTrue() {
         // given - a seed run's summary: one group, no suites, zero estimated time
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, null, true, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, true);
 
         // when
         boolean seedRun = summary.isSeedRun();
@@ -336,7 +364,7 @@ class DistributedRunPlanSummaryTest {
     void toJson_seedRun_includesSeedRunTrueField() {
         // given - a seed run's summary
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, null, true, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, true);
 
         // when
         String json = summary.toJson();
@@ -355,7 +383,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_seedRun_namesSeedRunAndOmitsTargetVerdict() {
         // given - a seed run's summary, as if planned against a dynamic-groups config
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, 1500000L, true, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, 1500000L, true, false, false, false, 0L, 0L, 0, true);
 
         // when
         String consoleSummary = summary.toConsoleSummary();

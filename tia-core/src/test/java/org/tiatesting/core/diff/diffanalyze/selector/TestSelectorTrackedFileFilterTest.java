@@ -131,7 +131,10 @@ class TestSelectorTrackedFileFilterTest {
         // then - base is the per-suite sum (no overhead folded in); overhead is reported separately
         assertTrue(result.getTestsToRun().contains(SUITE_NAME));
         assertEquals(100L, result.getEstimatedRunTimeMs());
-        assertEquals(400L, result.getMappingOverheadMs());
+        assertEquals(400L, result.getCaptureOverheadMs());
+        assertEquals(0L, result.getFixedOverheadMs(),
+                "this project has never distributed a build, so nothing has measured the per-JVM "
+                        + "cost and the whole overhead stays in the per-suite term");
     }
 
     /**
