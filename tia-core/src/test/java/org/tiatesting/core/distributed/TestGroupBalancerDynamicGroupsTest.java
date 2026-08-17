@@ -65,7 +65,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(4, result.getGroupCount());
@@ -86,7 +86,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(10L, result.getHeaviestGroupMs());
@@ -106,7 +106,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 6, "B", 4, "C", 4, "D", 2);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(2, result.getGroupCount());
@@ -129,7 +129,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = weights("Dominant", 15, "B", 6, "C", 4, "D", 3, "E", 2);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         // packing to capacity 10 would give three groups; capacity 15 gives two, same makespan
@@ -152,7 +152,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3, 0L);
 
         // then
         assertFalse(result.isTargetMet());
@@ -172,7 +172,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 3, 0L);
 
         // then
         assertEquals(3, result.getGroupCount());
@@ -199,7 +199,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 12);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 12, 0L);
 
         // then
         assertEquals(4, result.getGroupCount());
@@ -217,7 +217,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 5, "B", 5, "C", 5, "D", 5);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(2, result.getGroupCount());
@@ -236,7 +236,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = new HashMap<>();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(1, result.getGroupCount());
@@ -255,7 +255,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = weights("OnlyTest", 3);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         assertEquals(1, result.getGroupCount());
@@ -282,8 +282,8 @@ class TestGroupBalancerDynamicGroupsTest {
         }
 
         // when
-        GroupingResult first = TestGroupBalancer.balanceForTargetRunTime(firstMap, 10L, null);
-        GroupingResult second = TestGroupBalancer.balanceForTargetRunTime(secondMap, 10L, null);
+        GroupingResult first = TestGroupBalancer.balanceForTargetRunTime(firstMap, 10L, null, 0L);
+        GroupingResult second = TestGroupBalancer.balanceForTargetRunTime(secondMap, 10L, null, 0L);
 
         // then
         assertEquals(first.getGroupCount(), second.getGroupCount());
@@ -305,7 +305,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         List<String> assignedSuiteNames = new ArrayList<>();
@@ -329,7 +329,7 @@ class TestGroupBalancerDynamicGroupsTest {
         Map<String, Long> suiteWeights = nineSuites();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
         for (int i = 0; i < result.getGroups().size(); i++) {
@@ -350,7 +350,7 @@ class TestGroupBalancerDynamicGroupsTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0));
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0, 0L));
 
         // then
         assertTrue(thrown.getMessage().contains("maxGroups"), thrown.getMessage());
@@ -368,7 +368,7 @@ class TestGroupBalancerDynamicGroupsTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0));
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, 0, 0L));
 
         // then
         assertTrue(thrown.getMessage().contains("maxGroups"), thrown.getMessage());
@@ -386,7 +386,7 @@ class TestGroupBalancerDynamicGroupsTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, -1L, null));
+                () -> TestGroupBalancer.balanceForTargetRunTime(suiteWeights, -1L, null, 0L));
 
         // then
         assertTrue(thrown.getMessage().contains("targetRunTimeMs"), thrown.getMessage());

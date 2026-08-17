@@ -888,6 +888,7 @@ gradle tia-dist-plan
   "targetMet": true,
   "clampedToMaxGroups": false,
   "singleSuiteExceedsTarget": false,
+  "fixedOverheadExceedsTarget": false,
   "totalEstimatedMs": 6900000,
   "selectedSuiteCount": 412
 }

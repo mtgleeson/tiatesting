@@ -59,7 +59,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 9, "B", 7, "C", 6, "D", 5, "E", 4);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3, 0L);
 
         // then
         assertEquals(3, result.getGroupCount());
@@ -82,7 +82,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = weights("Zebra", 5, "Apple", 5, "Mango", 5);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3, 0L);
 
         // then
         assertEquals(Arrays.asList("Apple"), result.getGroups().get(0).getSuiteNames());
@@ -101,7 +101,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 5, "B", 5);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4, 0L);
 
         // then
         assertEquals(Arrays.asList("A"), result.getGroups().get(0).getSuiteNames());
@@ -121,7 +121,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 5);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3, 0L);
 
         // then
         assertEquals(3, result.getGroupCount());
@@ -139,7 +139,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = new HashMap<>();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2, 0L);
 
         // then
         assertEquals(2, result.getGroupCount());
@@ -158,7 +158,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = weights("A", 100, "B", 1);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2, 0L);
 
         // then
         assertTrue(result.isTargetMet());
@@ -178,7 +178,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = nineSuiteFixture();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4, 0L);
 
         // then
         List<String> assignedSuiteNames = new ArrayList<>();
@@ -202,7 +202,7 @@ class TestGroupBalancerStaticGroupsTest {
         Map<String, Long> suiteWeights = nineSuiteFixture();
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4, 0L);
 
         // then
         for (int i = 0; i < result.getGroups().size(); i++) {
@@ -222,7 +222,7 @@ class TestGroupBalancerStaticGroupsTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> TestGroupBalancer.balanceIntoGroups(suiteWeights, 0));
+                () -> TestGroupBalancer.balanceIntoGroups(suiteWeights, 0, 0L));
 
         // then
         assertTrue(thrown.getMessage().contains("groupCount"), thrown.getMessage());
@@ -236,7 +236,7 @@ class TestGroupBalancerStaticGroupsTest {
     void shouldReturnAnUnmodifiableGroupsList() {
         // given
         Map<String, Long> suiteWeights = weights("A", 5);
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 1);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 1, 0L);
 
         // when
         List<SuiteGroup> groups = result.getGroups();

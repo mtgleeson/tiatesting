@@ -37,27 +37,33 @@ public final class TestGroupBalancer {
      *
      * <p>The supplied per-suite times come from the existing selection estimate and already carry
      * the median fallback for suites that have never recorded a run, so nothing is recomputed
-     * here. The only addition is the mapping overhead: the cost of JaCoCo coverage capture plus
-     * the amortised whole-run costs that no per-suite average includes. That is supplied as a
-     * total for the whole selection, matching what the estimate reports, and divided back out
-     * here. It is added only for runs that collect coverage, since a run with mapping updates off
-     * does not pay it.
+     * here. The only addition is the capture overhead: the cost of JaCoCo's per-suite coverage
+     * collection, which no per-suite average includes. That is supplied as a total for the whole
+     * selection, matching what the estimate reports, and divided back out here. It is added only
+     * for runs that collect coverage, since a run with mapping updates off does not pay it.
+     *
+     * <p><b>The fixed per-JVM overhead is deliberately not here.</b> It is the same constant on
+     * every group, so it cannot change which suites belong together, and folding it into the
+     * weights would corrupt the capacity arithmetic in {@link #balanceForTargetRunTime} - each
+     * suite would appear to carry a whole JVM's start-up cost, and a group of five suites would be
+     * charged five copies of a cost paid once. It is charged once per group where a group's total
+     * is assembled instead.
      *
      * @param perSuiteRunTimesMs estimated run time in ms per suite, median fallback already
      *                           applied; may be empty
-     * @param totalMappingOverheadMs the mapping overhead in ms for the whole selection, not per
-     *                               suite; must not be negative
+     * @param totalCaptureOverheadMs the coverage-capture overhead in ms for the whole selection,
+     *                               not per suite; must not be negative
      * @param collectingCoverage whether this run will collect coverage and therefore pay the
-     *                           mapping overhead
+     *                           capture overhead
      * @return a new map of weights in ms keyed by suite name; the supplied map is not modified
-     * @throws IllegalArgumentException if {@code totalMappingOverheadMs} is negative
+     * @throws IllegalArgumentException if {@code totalCaptureOverheadMs} is negative
      */
     public static Map<String, Long> suiteWeights(final Map<String, Long> perSuiteRunTimesMs,
-                                                 final long totalMappingOverheadMs,
+                                                 final long totalCaptureOverheadMs,
                                                  final boolean collectingCoverage) {
-        if (totalMappingOverheadMs < 0) {
+        if (totalCaptureOverheadMs < 0) {
             throw new IllegalArgumentException(
-                    "mapping overhead must not be negative, was " + totalMappingOverheadMs);
+                    "capture overhead must not be negative, was " + totalCaptureOverheadMs);
         }
         requireNoNullWeights(perSuiteRunTimesMs);
         Map<String, Long> weights = new HashMap<>();
@@ -65,7 +71,7 @@ public final class TestGroupBalancer {
             return weights;
         }
         long overheadPerSuiteMs = collectingCoverage
-                ? totalMappingOverheadMs / perSuiteRunTimesMs.size()
+                ? totalCaptureOverheadMs / perSuiteRunTimesMs.size()
                 : 0L;
         for (Map.Entry<String, Long> entry : perSuiteRunTimesMs.entrySet()) {
             weights.put(entry.getKey(), entry.getValue() + overheadPerSuiteMs);
@@ -82,13 +88,17 @@ public final class TestGroupBalancer {
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
      * @param groupCount how many groups to produce; must be at least 1
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once, added to every group that
+     *                        was given at least one suite; must not be negative
      * @return the grouping, always reporting the target as met and not clamped, since a fixed
      *         group count has neither a target nor a ceiling
-     * @throws IllegalArgumentException if {@code groupCount} is below 1
+     * @throws IllegalArgumentException if {@code groupCount} is below 1 or {@code fixedOverheadMs}
+     *                                  is negative
      */
     public static GroupingResult balanceIntoGroups(final Map<String, Long> suiteWeightsMs,
-                                                   final int groupCount) {
-        GroupingResult result = lptIntoGroups(suiteWeightsMs, groupCount);
+                                                   final int groupCount,
+                                                   final long fixedOverheadMs) {
+        GroupingResult result = lptIntoGroups(suiteWeightsMs, groupCount, fixedOverheadMs);
         log.debug("Distributed run grouping (fixed count): balanced {} suite(s) into {} group(s) "
                         + "by longest-processing-time, heaviest group {}ms.",
                 suiteWeightsMs.size(), groupCount, result.getHeaviestGroupMs());
@@ -104,14 +114,18 @@ public final class TestGroupBalancer {
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
      * @param groupCount how many groups to produce; must be at least 1
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once; must not be negative
      * @return the grouping, always reporting the target as met and not clamped
-     * @throws IllegalArgumentException if {@code groupCount} is below 1
+     * @throws IllegalArgumentException if {@code groupCount} is below 1 or {@code fixedOverheadMs}
+     *                                  is negative
      */
     private static GroupingResult lptIntoGroups(final Map<String, Long> suiteWeightsMs,
-                                                final int groupCount) {
+                                                final int groupCount,
+                                                final long fixedOverheadMs) {
         if (groupCount < 1) {
             throw new IllegalArgumentException("groupCount must be at least 1, was " + groupCount);
         }
+        requireFixedOverheadNotNegative(fixedOverheadMs);
         requireNoNullWeights(suiteWeightsMs);
         List<List<String>> groupSuites = new ArrayList<>(groupCount);
         long[] groupWeights = new long[groupCount];
@@ -130,7 +144,8 @@ public final class TestGroupBalancer {
             groupWeights[lightest] += suiteWeightsMs.get(suiteName);
         }
 
-        return new GroupingResult(toSuiteGroups(groupSuites, groupWeights), true, false, false);
+        return new GroupingResult(toSuiteGroups(groupSuites, groupWeights, fixedOverheadMs), true,
+                false, false, false);
     }
 
     /**
@@ -143,22 +158,38 @@ public final class TestGroupBalancer {
      * heaviest group - FFD fills groups to capacity, so the re-balance usually produces a faster
      * build for the same number of runners, but not always.
      *
-     * <p>Meeting the target is best effort. When {@code maxGroups} is too low, or when a single
-     * suite is longer than the whole target, the result still contains a usable plan balanced by
-     * time and reports {@code targetMet == false} rather than failing.
+     * <p><b>The target is a budget for the whole group, and a group's cost starts above zero.</b>
+     * Every runner pays {@code fixedOverheadMs} before it executes a single suite, so the budget
+     * available for suites is {@code target - fixed}, and a group meets the target only when its
+     * suites plus that fixed cost come in under it. The fixed part still never enters the per-suite
+     * weights - see {@link #suiteWeights} - it bounds the capacity and is charged once per group.
+     *
+     * <p>When {@code fixedOverheadMs} is at or above the target, no group count can meet it: adding
+     * runners adds copies of a cost that already exceeds the budget on its own. That is reported as
+     * its own miss reason rather than being folded into "a single suite is too long", because the
+     * lever is different - the suite case is fixed by splitting or speeding up one suite, this one
+     * cannot be fixed by any change to the selection.
+     *
+     * <p>Meeting the target is best effort. When {@code maxGroups} is too low, when a single suite
+     * is longer than the budget, or when the fixed cost alone exceeds the target, the result still
+     * contains a usable plan balanced by time and reports {@code targetMet == false} rather than
+     * failing.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
      * @param targetRunTimeMs the wall-clock test run time to aim for, in ms; must not be negative
      * @param maxGroups an optional ceiling on the group count, or null for no ceiling; if
      *                  supplied, must be at least 1
-     * @return the grouping, reporting whether the target was met, whether the ceiling bound it,
-     *         and whether a single suite alone was heavier than the target
-     * @throws IllegalArgumentException if {@code targetRunTimeMs} is negative, or if
-     *                                  {@code maxGroups} is non-null and below 1
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once, before any suite runs;
+     *                        must not be negative
+     * @return the grouping, reporting whether the target was met and each of the three independent
+     *         reasons it might not have been
+     * @throws IllegalArgumentException if {@code targetRunTimeMs} or {@code fixedOverheadMs} is
+     *                                  negative, or if {@code maxGroups} is non-null and below 1
      */
     public static GroupingResult balanceForTargetRunTime(final Map<String, Long> suiteWeightsMs,
                                                          final long targetRunTimeMs,
-                                                         final Integer maxGroups) {
+                                                         final Integer maxGroups,
+                                                         final long fixedOverheadMs) {
         if (targetRunTimeMs < 0) {
             throw new IllegalArgumentException(
                     "targetRunTimeMs must not be negative, was " + targetRunTimeMs);
@@ -166,12 +197,13 @@ public final class TestGroupBalancer {
         if (maxGroups != null && maxGroups < 1) {
             throw new IllegalArgumentException("maxGroups must be at least 1, was " + maxGroups);
         }
+        requireFixedOverheadNotNegative(fixedOverheadMs);
         requireNoNullWeights(suiteWeightsMs);
 
         if (suiteWeightsMs.isEmpty()) {
             log.debug("Distributed run grouping (dynamic): nothing was selected, so the plan is a "
                     + "single empty group.");
-            return lptIntoGroups(suiteWeightsMs, 1);
+            return lptIntoGroups(suiteWeightsMs, 1, fixedOverheadMs);
         }
 
         long heaviestSuiteMs = 0L;
@@ -180,13 +212,18 @@ public final class TestGroupBalancer {
                 heaviestSuiteMs = weight;
             }
         }
-        // A single suite longer than the whole target is the one fact both the capacity floor
-        // below and the caller's diagnostics need, so it is derived once here and threaded
-        // through rather than being re-derived from the weight map a second time.
-        boolean singleSuiteExceedsTarget = heaviestSuiteMs > targetRunTimeMs;
-        // A suite longer than the whole target puts the target out of reach no matter how many
-        // groups are used, so pack to the achievable floor instead: same makespan, fewer runners.
-        long capacityMs = Math.max(targetRunTimeMs, heaviestSuiteMs);
+
+        // What is left of the target once the runner's own start-up is paid for. This, not the
+        // target itself, is what the suites have to fit inside.
+        long suiteBudgetMs = targetRunTimeMs - fixedOverheadMs;
+        // The three facts the capacity floor below and the caller's diagnostics both need, derived
+        // once here and threaded through rather than re-derived from the weight map a second time.
+        boolean fixedOverheadExceedsTarget = suiteBudgetMs <= 0L;
+        boolean singleSuiteExceedsTarget = !fixedOverheadExceedsTarget
+                && heaviestSuiteMs > suiteBudgetMs;
+        // Anything that puts the target out of reach no matter how many groups are used means
+        // packing to the achievable floor instead: same makespan, fewer runners.
+        long capacityMs = Math.max(suiteBudgetMs, heaviestSuiteMs);
 
         List<List<String>> bins = firstFitDecreasing(suiteWeightsMs, capacityMs);
         boolean clampedToMaxGroups = maxGroups != null && bins.size() > maxGroups;
@@ -194,11 +231,13 @@ public final class TestGroupBalancer {
 
         GroupingResult packing;
         if (groupCount == bins.size()) {
-            packing = new GroupingResult(toSuiteGroups(bins, weighGroups(bins, suiteWeightsMs)),
-                    false, clampedToMaxGroups, singleSuiteExceedsTarget);
+            packing = new GroupingResult(
+                    toSuiteGroups(bins, weighGroups(bins, suiteWeightsMs), fixedOverheadMs),
+                    false, clampedToMaxGroups, singleSuiteExceedsTarget, fixedOverheadExceedsTarget);
             // FFD fills groups to capacity; LPT spreads them. Same group count either way, so
             // take whichever finishes sooner. It is not always LPT - see the nine-suite case.
-            GroupingResult rebalanced = lptIntoGroups(suiteWeightsMs, groupCount);
+            // Both carry the same per-group fixed cost, so it cannot decide the comparison.
+            GroupingResult rebalanced = lptIntoGroups(suiteWeightsMs, groupCount, fixedOverheadMs);
             if (rebalanced.getHeaviestGroupMs() < packing.getHeaviestGroupMs()) {
                 packing = rebalanced;
             }
@@ -206,30 +245,42 @@ public final class TestGroupBalancer {
             // Clamped below what the packing needed. FFD's bins do not fit in the reduced count,
             // so there is nothing to compare against: minimising the heaviest group is now the
             // whole objective, which is exactly what LPT does.
-            packing = lptIntoGroups(suiteWeightsMs, groupCount);
+            packing = lptIntoGroups(suiteWeightsMs, groupCount, fixedOverheadMs);
         }
 
+        // The heaviest group already carries its own copy of the fixed cost, so this compares
+        // against the whole target rather than the suite budget.
         boolean targetMet = packing.getHeaviestGroupMs() <= targetRunTimeMs;
 
         log.debug("Distributed run grouping (dynamic): packed {} suite(s) against a target of {}ms "
-                        + "into {} group(s), heaviest {}ms. First-fit needed {} group(s); ceiling "
-                        + "{}; heaviest single suite {}ms. Target met: {}.", suiteWeightsMs.size(),
+                        + "into {} group(s), heaviest {}ms (including {}ms of per-JVM overhead). "
+                        + "First-fit needed {} group(s); ceiling {}; heaviest single suite {}ms "
+                        + "against a suite budget of {}ms. Target met: {}.", suiteWeightsMs.size(),
                 targetRunTimeMs, packing.getGroups().size(), packing.getHeaviestGroupMs(),
-                bins.size(), maxGroups == null ? "none" : maxGroups, heaviestSuiteMs, targetMet);
+                fixedOverheadMs, bins.size(), maxGroups == null ? "none" : maxGroups,
+                heaviestSuiteMs, suiteBudgetMs, targetMet);
         if (clampedToMaxGroups) {
             log.debug("Distributed run grouping: the ceiling of {} group(s) bound the plan - "
                             + "first-fit wanted {} to hit the target.", maxGroups, bins.size());
         }
+        if (fixedOverheadExceedsTarget) {
+            log.debug("Distributed run grouping: each runner pays {}ms of per-JVM overhead before "
+                            + "it runs a single suite, which is at or above the {}ms target, so no "
+                            + "group count can reach the target. The suites were packed to the "
+                            + "achievable floor of {}ms instead.", fixedOverheadMs, targetRunTimeMs,
+                    capacityMs);
+        }
         if (singleSuiteExceedsTarget) {
             log.debug("Distributed run grouping: the heaviest single suite takes {}ms, longer than "
-                            + "the {}ms target, so no group count can reach the target and the "
+                            + "the {}ms left of the target once each runner's {}ms of per-JVM "
+                            + "overhead is paid for, so no group count can reach the target and the "
                             + "suites were packed to the achievable floor of {}ms instead.",
-                    heaviestSuiteMs, targetRunTimeMs, capacityMs);
+                    heaviestSuiteMs, suiteBudgetMs, fixedOverheadMs, capacityMs);
         }
         logGroupAssignment(packing);
 
         return new GroupingResult(packing.getGroups(), targetMet, clampedToMaxGroups,
-                singleSuiteExceedsTarget);
+                singleSuiteExceedsTarget, fixedOverheadExceedsTarget);
     }
 
     /**
@@ -332,17 +383,41 @@ public final class TestGroupBalancer {
     /**
      * Convert the balancer's parallel working structures into the immutable result type.
      *
+     * <p>This is where the fixed per-JVM cost is charged, once per group - never in the weights the
+     * packing decided on. A group that was given no suites is charged nothing: an empty group runs
+     * no tests, and charging it would put a non-zero estimate on a build that has nothing to do.
+     *
      * @param groupSuites suite names per group, indexed by group number
-     * @param groupWeights summed weight per group, indexed by group number
+     * @param groupWeights summed suite weight per group, indexed by group number, without the fixed
+     *                     per-JVM cost
+     * @param fixedOverheadMs the per-JVM cost in ms to add to each group that has at least one suite
      * @return one {@link SuiteGroup} per entry, in group-number order
      */
     private static List<SuiteGroup> toSuiteGroups(final List<List<String>> groupSuites,
-                                                  final long[] groupWeights) {
+                                                  final long[] groupWeights,
+                                                  final long fixedOverheadMs) {
         List<SuiteGroup> groups = new ArrayList<>(groupSuites.size());
         for (int i = 0; i < groupSuites.size(); i++) {
-            groups.add(new SuiteGroup(i, groupSuites.get(i), groupWeights[i]));
+            long estimatedMs = groupSuites.get(i).isEmpty()
+                    ? groupWeights[i]
+                    : groupWeights[i] + fixedOverheadMs;
+            groups.add(new SuiteGroup(i, groupSuites.get(i), estimatedMs));
         }
         return groups;
+    }
+
+    /**
+     * Reject a negative per-JVM overhead at the entry point, rather than letting it silently shrink
+     * a group's estimate or, in the dynamic path, inflate the suite budget above the target.
+     *
+     * @param fixedOverheadMs the per-JVM cost in ms to validate
+     * @throws IllegalArgumentException if {@code fixedOverheadMs} is negative
+     */
+    private static void requireFixedOverheadNotNegative(final long fixedOverheadMs) {
+        if (fixedOverheadMs < 0) {
+            throw new IllegalArgumentException(
+                    "fixed overhead must not be negative, was " + fixedOverheadMs);
+        }
     }
 
     /**

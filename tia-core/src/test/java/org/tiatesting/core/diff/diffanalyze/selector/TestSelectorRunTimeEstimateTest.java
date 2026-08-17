@@ -34,7 +34,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "test2", "test3");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(600L, estimate.getEstimatedRunTimeMs());
@@ -55,7 +55,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "test2", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(100L + 200L + 200L, estimate.getEstimatedRunTimeMs());
@@ -77,7 +77,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest1", "newTest2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(400L, estimate.getEstimatedRunTimeMs());
@@ -98,7 +98,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -120,7 +120,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         // median of [100, 200] (lower of two middles) = 100; total = 100 + 100
@@ -143,7 +143,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("newTest");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(20L, estimate.getMedianRunTimeMsAppliedToMissing());
@@ -163,7 +163,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = Collections.emptySet();
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(0L, estimate.getEstimatedRunTimeMs());
@@ -185,7 +185,7 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("zeroTest", "test1");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(100L, estimate.getEstimatedRunTimeMs());
@@ -196,23 +196,25 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
-     * The mapping overhead is reported separately from the base estimate: it's the full-run
-     * baseline minus the sum of per-suite times, amortised across the tracked suites and
-     * multiplied by the number of suites selected. The base estimate stays the bare per-suite sum.
+     * With no distributed build to have measured the split, the whole overhead falls back to the
+     * per-suite term: the full-run baseline minus the sum of per-suite times, amortised across the
+     * tracked suites and multiplied by the number of suites selected. The base estimate stays the
+     * bare per-suite sum, and the fixed per-JVM term stays zero - the behaviour that predates the
+     * two-part model, unchanged.
      */
     @Test
-    void estimateRunTime_reportsAmortisedMappingOverheadSeparately(){
+    void estimateRunTime_reportsAmortisedCaptureOverheadSeparately(){
         // given - 3 tracked suites summing to 600ms; full-run baseline 900ms => 300ms overhead
         // over 3 suites = 100ms/suite. Two suites selected.
         Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
         Set<String> testsToRun = setOf("test1", "test2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 900L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(900L));
 
         // then - base is the per-suite sum; overhead is 100ms/suite x 2 selected = 200ms
         assertEquals(300L, estimate.getEstimatedRunTimeMs());
-        assertEquals(200L, estimate.getMappingOverheadMs());
+        assertEquals(200L, estimate.getCaptureOverheadMs());
     }
 
     /**
@@ -226,11 +228,11 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1", "test2");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 400L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(400L));
 
         // then - base only, no overhead
         assertEquals(300L, estimate.getEstimatedRunTimeMs());
-        assertEquals(0L, estimate.getMappingOverheadMs());
+        assertEquals(0L, estimate.getCaptureOverheadMs());
     }
 
     /**
@@ -243,11 +245,97 @@ class TestSelectorRunTimeEstimateTest {
         Set<String> testsToRun = setOf("test1");
 
         // when
-        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, 0L);
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
 
         // then
         assertEquals(100L, estimate.getEstimatedRunTimeMs());
-        assertEquals(0L, estimate.getMappingOverheadMs());
+        assertEquals(0L, estimate.getCaptureOverheadMs());
+    }
+
+    /**
+     * Once a distributed build has measured the split, the stored constants replace the derived
+     * single number: the capture term scales with the selection while the fixed term is reported
+     * apart from it, so a caller splitting the run can charge a copy per runner instead of dividing
+     * one copy across them.
+     */
+    @Test
+    void estimateRunTime_storedOverheadModelSplitsTheTwoTerms(){
+        // given - a measured 150ms per-JVM cost and 50ms per suite, with two suites selected
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("test1", "test2");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked,
+                statsWithOverheadModel(900L, 150L, 50L));
+
+        // then
+        assertEquals(300L, estimate.getEstimatedRunTimeMs(),
+                "the base estimate stays the bare per-suite sum");
+        assertEquals(100L, estimate.getCaptureOverheadMs(),
+                "the capture term scales with the selection: 50ms x 2 selected");
+        assertEquals(150L, estimate.getFixedOverheadMs(),
+                "the fixed term is the per-JVM cost as measured, not multiplied by anything");
+    }
+
+    /**
+     * The stored measurement wins over the figure derivable from the baseline. The two describe the
+     * same overhead - one measured, one inferred - so applying both would double-count it.
+     */
+    @Test
+    void estimateRunTime_storedOverheadModelWinsOverTheDerivedFallback(){
+        // given - the baseline alone would derive 100ms per suite; the measurement says 50ms
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("test1");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked,
+                statsWithOverheadModel(900L, 150L, 50L));
+
+        // then
+        assertEquals(50L, estimate.getCaptureOverheadMs(),
+                "the measured 50ms per suite must be used, not the 100ms the baseline implies");
+    }
+
+    /**
+     * An empty selection is charged no fixed cost. A build that runs no suites starts no test JVM,
+     * and charging it would put a non-zero estimate on a build that has nothing to do.
+     */
+    @Test
+    void estimateRunTime_emptySelectionPaysNoFixedOverhead(){
+        // given
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L));
+        Set<String> testsToRun = setOf();
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked,
+                statsWithOverheadModel(900L, 150L, 50L));
+
+        // then
+        assertEquals(0L, estimate.getFixedOverheadMs(),
+                "a build that runs nothing starts no JVM to pay for");
+        assertEquals(0L, estimate.getCaptureOverheadMs(), "and collects no coverage either");
+    }
+
+    /**
+     * A project that has never distributed a build has no measurement to read, so the fixed term
+     * stays zero and the estimate is exactly what it was before the two-part model existed. This is
+     * what makes the change invisible until a project's first distributed run.
+     */
+    @Test
+    void estimateRunTime_neverDistributedReportsNoFixedOverhead(){
+        // given
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("test1", 100L), entry("test2", 200L), entry("test3", 300L));
+        Set<String> testsToRun = setOf("test1", "test2");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked,
+                statsWithBaseline(900L));
+
+        // then
+        assertEquals(0L, estimate.getFixedOverheadMs(),
+                "with nothing measured there is no fixed term to charge");
+        assertEquals(200L, estimate.getCaptureOverheadMs(),
+                "and the whole overhead stays in the per-suite term, as it always was");
     }
 
     /**
@@ -307,5 +395,38 @@ class TestSelectorRunTimeEstimateTest {
      */
     private static Set<String> setOf(String... values){
         return new LinkedHashSet<>(Arrays.asList(values));
+    }
+
+    /**
+     * Build the Tia-level stats of a project that has recorded a full-suite baseline but has never
+     * run a distributed build, so the two overhead constants have never been measured. This is the
+     * state every project is in until it distributes for the first time, and the state in which the
+     * estimate must behave exactly as it did before the two-part model existed.
+     *
+     * @param allTestsRunTimeMs the full-suite baseline to record, in ms
+     * @return the Tia-level stats
+     */
+    private static TestStats statsWithBaseline(long allTestsRunTimeMs){
+        TestStats stats = new TestStats();
+        stats.setAllTestsRunTime(allTestsRunTimeMs);
+        return stats;
+    }
+
+    /**
+     * Build the Tia-level stats of a project whose distributed builds have measured the split
+     * between the per-JVM cost and the per-suite capture cost.
+     *
+     * @param allTestsRunTimeMs the full-suite baseline to record, in ms
+     * @param fixedOverheadMs the measured per-JVM cost, in ms
+     * @param captureOverheadPerSuiteMs the measured per-suite capture cost, in ms
+     * @return the Tia-level stats
+     */
+    private static TestStats statsWithOverheadModel(long allTestsRunTimeMs, long fixedOverheadMs,
+                                                    long captureOverheadPerSuiteMs){
+        TestStats stats = statsWithBaseline(allTestsRunTimeMs);
+        stats.setFixedOverheadMs(fixedOverheadMs);
+        stats.setCaptureOverheadPerSuiteMs(captureOverheadPerSuiteMs);
+        stats.setNumOverheadMeasurements(1);
+        return stats;
     }
 }

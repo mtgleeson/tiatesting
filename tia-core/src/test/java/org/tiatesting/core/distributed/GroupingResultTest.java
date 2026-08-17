@@ -33,7 +33,7 @@ class GroupingResultTest {
         List<SuiteGroup> groups = new ArrayList<>();
         groups.add(new SuiteGroup(0, createSuiteList("suite.ATest"), 1000L));
         groups.add(new SuiteGroup(1, createSuiteList("suite.BTest"), 2000L));
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // when - the caller mutates the original list after construction
         groups.add(new SuiteGroup(2, createSuiteList("suite.CTest"), 3000L));
@@ -55,7 +55,7 @@ class GroupingResultTest {
         List<SuiteGroup> inputGroups = new ArrayList<>();
         inputGroups.add(new SuiteGroup(0, createSuiteList("suite.XTest"), 1000L));
         inputGroups.add(new SuiteGroup(1, createSuiteList("suite.YTest"), 2000L));
-        GroupingResult result = new GroupingResult(inputGroups, true, false, false);
+        GroupingResult result = new GroupingResult(inputGroups, true, false, false, false);
 
         // when - attempting to mutate the returned list
         List<SuiteGroup> returnedList = result.getGroups();
@@ -85,7 +85,7 @@ class GroupingResultTest {
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new GroupingResult(groups, true, false, false));
+                () -> new GroupingResult(groups, true, false, false, false));
 
         // then
         assertTrue(thrown.getMessage().contains("group number"), thrown.getMessage());
@@ -104,7 +104,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(2, createSuiteList("suite.Medium"), 3000L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then - the heaviest is 5000
         assertEquals(5000L, result.getHeaviestGroupMs(),
@@ -124,7 +124,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(2, createSuiteList("suite.C"), 5000L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then - the heaviest is still 5000
         assertEquals(5000L, result.getHeaviestGroupMs(),
@@ -144,7 +144,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(2, createSuiteList("suite.C"), 6000L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then - total is 1000 + 3000 + 6000 = 10000
         assertEquals(10000L, result.getTotalEstimatedMs(),
@@ -164,7 +164,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(2, createSuiteList("suite.C"), 2000L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then - total is 2000 + 2000 + 2000 = 6000
         assertEquals(6000L, result.getTotalEstimatedMs(),
@@ -180,7 +180,7 @@ class GroupingResultTest {
         List<SuiteGroup> groups = new ArrayList<>();
 
         // when
-        GroupingResult result = new GroupingResult(groups, false, false, false);
+        GroupingResult result = new GroupingResult(groups, false, false, false, false);
 
         // then - both are 0
         assertEquals(0L, result.getHeaviestGroupMs(), "heaviest should be 0");
@@ -200,7 +200,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(2, createSuiteList("suite.C"), 3000L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then
         assertEquals(3, result.getGroupCount(), "group count should be 3");
@@ -217,13 +217,13 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(0, createSuiteList("suite.Test"), 1000L));
 
         // when - creating with targetMet = true
-        GroupingResult resultMet = new GroupingResult(groups, true, false, false);
+        GroupingResult resultMet = new GroupingResult(groups, true, false, false, false);
 
         // then
         assertTrue(resultMet.isTargetMet(), "should return true when constructor passed true");
 
         // when - creating with targetMet = false
-        GroupingResult resultNotMet = new GroupingResult(groups, false, false, false);
+        GroupingResult resultNotMet = new GroupingResult(groups, false, false, false, false);
 
         // then
         assertFalse(resultNotMet.isTargetMet(), "should return false when constructor passed false");
@@ -240,14 +240,14 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(0, createSuiteList("suite.Test"), 1000L));
 
         // when - creating with clampedToMaxGroups = true
-        GroupingResult resultClamped = new GroupingResult(groups, true, true, false);
+        GroupingResult resultClamped = new GroupingResult(groups, true, true, false, false);
 
         // then
         assertTrue(resultClamped.isClampedToMaxGroups(),
                 "should return true when constructor passed true");
 
         // when - creating with clampedToMaxGroups = false
-        GroupingResult resultNotClamped = new GroupingResult(groups, true, false, false);
+        GroupingResult resultNotClamped = new GroupingResult(groups, true, false, false, false);
 
         // then
         assertFalse(resultNotClamped.isClampedToMaxGroups(),
@@ -266,14 +266,14 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(0, createSuiteList("suite.Test"), 1000L));
 
         // when - creating with singleSuiteExceedsTarget = true
-        GroupingResult resultExceeds = new GroupingResult(groups, false, false, true);
+        GroupingResult resultExceeds = new GroupingResult(groups, false, false, true, false);
 
         // then
         assertTrue(resultExceeds.isSingleSuiteExceedsTarget(),
                 "should return true when constructor passed true");
 
         // when - creating with singleSuiteExceedsTarget = false
-        GroupingResult resultWithin = new GroupingResult(groups, true, false, false);
+        GroupingResult resultWithin = new GroupingResult(groups, true, false, false, false);
 
         // then
         assertFalse(resultWithin.isSingleSuiteExceedsTarget(),
@@ -293,7 +293,7 @@ class GroupingResultTest {
         groups.add(new SuiteGroup(3, createSuiteList("suite.Fast2"), 2500L));
 
         // when
-        GroupingResult result = new GroupingResult(groups, true, false, false);
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // then - verify all properties
         assertEquals(4, result.getGroupCount(), "should have 4 groups");

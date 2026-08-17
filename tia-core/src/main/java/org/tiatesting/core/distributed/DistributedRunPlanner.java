@@ -131,8 +131,8 @@ public final class DistributedRunPlanner {
         return new DistributedRunPlanSummary(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), runPlan.getRun().getTargetRunTimeMs(), result.isTargetMet(),
                 result.isClampedToMaxGroups(), result.isSingleSuiteExceedsTarget(),
-                result.getTotalEstimatedMs(), result.getHeaviestGroupMs(), selectedSuiteCount,
-                seedRun);
+                result.isFixedOverheadExceedsTarget(), result.getTotalEstimatedMs(),
+                result.getHeaviestGroupMs(), selectedSuiteCount, seedRun);
     }
 
     /**
@@ -215,12 +215,19 @@ public final class DistributedRunPlanner {
         }
 
         Map<String, Long> weights = TestGroupBalancer.suiteWeights(
-                selection.getSelectedTestRunTimesMs(), selection.getMappingOverheadMs(),
+                selection.getSelectedTestRunTimesMs(), selection.getCaptureOverheadMs(),
                 collectingCoverage);
 
+        // Charged once per group rather than divided across them, and gated on the same flag the
+        // capture overhead is: a run that does not collect coverage does not pay either. Zero until
+        // a distributed build has measured it, which makes every figure below identical to what
+        // Tia produced before the two-part model existed.
+        long fixedOverheadMs = collectingCoverage ? selection.getFixedOverheadMs() : 0L;
+
         return groupCount != null
-                ? TestGroupBalancer.balanceIntoGroups(weights, groupCount)
-                : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups);
+                ? TestGroupBalancer.balanceIntoGroups(weights, groupCount, fixedOverheadMs)
+                : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups,
+                        fixedOverheadMs);
     }
 
     /**
@@ -235,7 +242,7 @@ public final class DistributedRunPlanner {
     private static GroupingResult seedGroupingResult() {
         List<SuiteGroup> groups = Collections.singletonList(
                 new SuiteGroup(0, Collections.<String>emptyList(), 0L));
-        return new GroupingResult(groups, true, false, false);
+        return new GroupingResult(groups, true, false, false, false);
     }
 
     /**

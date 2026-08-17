@@ -36,6 +36,9 @@ erDiagram
         BIGINT num_fail_runs
         BIGINT all_tests_run_time
         BIGINT num_all_tests_runs
+        BIGINT fixed_overhead_ms
+        BIGINT capture_overhead_per_suite_ms
+        BIGINT num_overhead_measurements
     }
 
     tia_test_suite {
@@ -170,7 +173,13 @@ and the plan write clears all four as a set before inserting, rather than relyin
 
 - **tia_core** - single-row header: the sealed `commit_value` the mapping is valid for, the branch,
   and the Tia-level aggregate run stats (selected-run average `avg_run_time`, full-suite baseline
-  `all_tests_run_time`, run/success/fail counts).
+  `all_tests_run_time`, run/success/fail counts). It also carries the two-part overhead model -
+  `fixed_overhead_ms` (what a test JVM costs to start, charged once per runner) and
+  `capture_overhead_per_suite_ms` (JaCoCo's per-suite dump), as rolling averages over the
+  `num_overhead_measurements` distributed builds that measured them. All three are `0` until a
+  project runs its first distributed build, which is the signal for the estimate to fall back to
+  the older single-number overhead. See the "The two-part overhead model" section of the
+  distributed test runs chapter.
 - **tia_test_suite** - one row per tracked test suite: name, source file, per-suite run stats, the
   `developer_disabled` flag (suite disabled in source by the developer, not ignored by Tia), and the
   `unsealed` flag - set when this suite's mapping edges were written by a run whose seal has not
@@ -229,4 +238,4 @@ The mapping read path runs this chain in reverse: a code change resolves changed
 
 ---
 
-Prev: [The select-tests run-time estimate and its mapping overhead](select-tests-run-time-estimate.md) | [Back to the Wiki index](../WIKI.md) | Next: [Persist flow and crash safety](persist-flow-and-crash-safety.md)
+Prev: [The select-tests run-time estimate and its overhead model](select-tests-run-time-estimate.md) | [Back to the Wiki index](../WIKI.md) | Next: [Persist flow and crash safety](persist-flow-and-crash-safety.md)

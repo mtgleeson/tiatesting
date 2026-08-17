@@ -32,6 +32,7 @@ public final class DistributedRunPlanSummary {
     private final boolean targetMet;
     private final boolean clampedToMaxGroups;
     private final boolean singleSuiteExceedsTarget;
+    private final boolean fixedOverheadExceedsTarget;
     private final long totalEstimatedMs;
     private final long heaviestGroupMs;
     private final int selectedSuiteCount;
@@ -49,8 +50,12 @@ public final class DistributedRunPlanSummary {
      * @param targetMet whether the heaviest group came in at or under {@code targetMs}; always
      *                  true for static groups, which have no target
      * @param clampedToMaxGroups whether the group count was limited by the configured ceiling
-     * @param singleSuiteExceedsTarget whether a single suite's weight alone exceeds {@code
-     *                                 targetMs}, so no group count could have met it
+     * @param singleSuiteExceedsTarget whether a single suite's weight alone exceeds what is left
+     *                                 of {@code targetMs} once each runner's fixed per-JVM cost is
+     *                                 paid for, so no group count could have met it
+     * @param fixedOverheadExceedsTarget whether the fixed per-JVM cost is on its own at or above
+     *                                   {@code targetMs}, so no group count can meet it and adding
+     *                                   runners only adds copies of that cost
      * @param totalEstimatedMs the summed estimated run time of every group, in ms
      * @param heaviestGroupMs the weight of the heaviest group in ms - the run's expected
      *                        wall-clock test time, since the groups execute in parallel; unlike
@@ -63,7 +68,8 @@ public final class DistributedRunPlanSummary {
      */
     public DistributedRunPlanSummary(String runId, String branch, String commit, int groupCount,
                                       Long targetMs, boolean targetMet, boolean clampedToMaxGroups,
-                                      boolean singleSuiteExceedsTarget, long totalEstimatedMs,
+                                      boolean singleSuiteExceedsTarget,
+                                      boolean fixedOverheadExceedsTarget, long totalEstimatedMs,
                                       long heaviestGroupMs, int selectedSuiteCount,
                                       boolean seedRun) {
         this.runId = runId;
@@ -74,6 +80,7 @@ public final class DistributedRunPlanSummary {
         this.targetMet = targetMet;
         this.clampedToMaxGroups = clampedToMaxGroups;
         this.singleSuiteExceedsTarget = singleSuiteExceedsTarget;
+        this.fixedOverheadExceedsTarget = fixedOverheadExceedsTarget;
         this.totalEstimatedMs = totalEstimatedMs;
         this.heaviestGroupMs = heaviestGroupMs;
         this.selectedSuiteCount = selectedSuiteCount;
@@ -109,12 +116,19 @@ public final class DistributedRunPlanSummary {
     public boolean isClampedToMaxGroups() { return clampedToMaxGroups; }
 
     /**
-     * @return whether a single suite's weight alone exceeds the target, so no group count could
-     *         have met it
+     * @return whether a single suite's weight alone exceeds what is left of the target once each
+     *         runner's fixed per-JVM cost is paid for, so no group count could have met it
      */
     public boolean isSingleSuiteExceedsTarget() { return singleSuiteExceedsTarget; }
 
-    /** @return the summed estimated run time of every group, in ms */
+    /**
+     * @return whether the fixed per-JVM cost is on its own at or above the target, so no group count
+     *         can meet it and adding runners only adds copies of that cost
+     */
+    public boolean isFixedOverheadExceedsTarget() { return fixedOverheadExceedsTarget; }
+
+    /** @return the summed estimated run time of every group, in ms, each carrying its own copy of
+     *          the fixed per-JVM cost */
     public long getTotalEstimatedMs() { return totalEstimatedMs; }
 
     /**
@@ -159,6 +173,7 @@ public final class DistributedRunPlanSummary {
         json.append("  \"targetMet\": ").append(targetMet).append(",\n");
         json.append("  \"clampedToMaxGroups\": ").append(clampedToMaxGroups).append(",\n");
         json.append("  \"singleSuiteExceedsTarget\": ").append(singleSuiteExceedsTarget).append(",\n");
+        json.append("  \"fixedOverheadExceedsTarget\": ").append(fixedOverheadExceedsTarget).append(",\n");
         json.append("  \"totalEstimatedMs\": ").append(totalEstimatedMs).append(",\n");
         json.append("  \"selectedSuiteCount\": ").append(selectedSuiteCount).append("\n");
         json.append("}");
@@ -245,6 +260,11 @@ public final class DistributedRunPlanSummary {
                         summary.append("    reason: ").append(DistributedRunMissReasons.MAX_GROUPS_LIMITING)
                                 .append("\n");
                     }
+                    if (fixedOverheadExceedsTarget) {
+                        summary.append("    reason: ")
+                                .append(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET)
+                                .append("\n");
+                    }
                     if (singleSuiteExceedsTarget) {
                         summary.append("    reason: ").append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET)
                                 .append("\n");
@@ -271,6 +291,7 @@ public final class DistributedRunPlanSummary {
                 + ", targetMs=" + targetMs + ", targetMet=" + targetMet
                 + ", clampedToMaxGroups=" + clampedToMaxGroups
                 + ", singleSuiteExceedsTarget=" + singleSuiteExceedsTarget
+                + ", fixedOverheadExceedsTarget=" + fixedOverheadExceedsTarget
                 + ", totalEstimatedMs=" + totalEstimatedMs
                 + ", selectedSuiteCount=" + selectedSuiteCount + "}";
     }

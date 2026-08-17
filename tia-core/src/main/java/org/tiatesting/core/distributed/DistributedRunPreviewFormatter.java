@@ -21,9 +21,13 @@ public final class DistributedRunPreviewFormatter {
     /**
      * Render the grouping preview block: the group count, the average and heaviest group time, and
      * whether the configured target was met. When it was not met, names which configured lever
-     * would help - a max-group ceiling that is limiting the group count, a single suite longer than
-     * the whole target, or both, since {@link GroupingResult#isClampedToMaxGroups()} and {@link
-     * GroupingResult#isSingleSuiteExceedsTarget()} are independent causes that can apply at once.
+     * would help - a max-group ceiling that is limiting the group count, a fixed per-JVM cost that
+     * meets the target on its own, a single suite longer than what is left of the target after that
+     * cost, or any combination, since {@link GroupingResult#isClampedToMaxGroups()},
+     * {@link GroupingResult#isFixedOverheadExceedsTarget()} and
+     * {@link GroupingResult#isSingleSuiteExceedsTarget()} are independent causes that can apply at
+     * once. The per-JVM reason is printed before the single-suite one because it is the one no
+     * change to the selection can fix.
      *
      * <p>This block describes the <b>shape</b> of the split, not what it will cost. The heaviest
      * group appears here as the figure the target verdict below it is a verdict on, while the same
@@ -78,6 +82,10 @@ public final class DistributedRunPreviewFormatter {
                     if (result.isClampedToMaxGroups()) {
                         preview.append(lineSep).append("    lever: ")
                                 .append(DistributedRunMissReasons.MAX_GROUPS_LIMITING);
+                    }
+                    if (result.isFixedOverheadExceedsTarget()) {
+                        preview.append(lineSep).append("    lever: ")
+                                .append(DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET);
                     }
                     if (result.isSingleSuiteExceedsTarget()) {
                         preview.append(lineSep).append("    lever: ")
