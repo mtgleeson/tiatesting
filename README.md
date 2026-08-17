@@ -866,6 +866,23 @@ gradle tia-dist-plan
   "selectedSuiteCount": 412
 }
 ```
+`select-tests` also previews the grouping without persisting anything, whenever `tiaDistributedGroupCount` / `tiaDistributedTargetRunTime` is set. Both it and the plan step's console summary report **two durations**, and they answer different questions:
+
+```
+Estimated total run time (serial equivalent): 497ms (75%)
+Estimated savings: 167ms (25%)
+
+Distributed run grouping preview (not persisted):
+  Groups: 2, average 248ms per group
+  Wall clock: 275ms - the heaviest group, which is what the build waits for since the groups run in parallel.
+  Serial equivalent: 497ms - what the same selection costs on one host. This is the
+    figure Tia records and computes savings from in both modes, so a project's history stays
+    comparable; it is not what a distributed build waits for.
+  Target: none (static group count)
+```
+
+The **wall clock** is the heaviest group - what you wait for, and what a job timeout has to accommodate. The **serial equivalent** is what the same selection would cost on one host; it is deliberately the same number a non-distributed build prints, because that is the figure Tia records and computes savings from in both modes, so savings keep meaning "time saved by not running unimpacted tests" rather than quietly absorbing the parallelism your CI system provided. If the estimate looks unchanged by distributing, that is why - only the wall clock moves.
+
 Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
 
 Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - one group with everything, ignoring your configured group count, because there is no mapping yet to split. `seedRun: true` says so.

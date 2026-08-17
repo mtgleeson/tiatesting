@@ -19,11 +19,19 @@ public final class DistributedRunPreviewFormatter {
     }
 
     /**
-     * Render the grouping preview block: the group count, the average and heaviest group time, and
-     * whether the configured target was met. When it was not met, names which configured lever
-     * would help - a max-group ceiling that is limiting the group count, a single suite longer than
-     * the whole target, or both, since {@link GroupingResult#isClampedToMaxGroups()} and {@link
-     * GroupingResult#isSingleSuiteExceedsTarget()} are independent causes that can apply at once.
+     * Render the grouping preview block: the group count and average group time, the run's two
+     * durations via {@link DistributedRunDurations}, and whether the configured target was met. When
+     * it was not met, names which configured lever would help - a max-group ceiling that is limiting
+     * the group count, a single suite longer than the whole target, or both, since {@link
+     * GroupingResult#isClampedToMaxGroups()} and {@link GroupingResult#isSingleSuiteExceedsTarget()}
+     * are independent causes that can apply at once.
+     *
+     * <p>The heaviest group is reported through {@link DistributedRunDurations} rather than as a
+     * bare number on the group-count line, because this block is printed directly beneath {@code
+     * select-tests}'s estimate block and that estimate is the serial-equivalent figure - the same
+     * number a non-distributed build would print, deliberately. Showing a heaviest-group weight
+     * without naming it as the wall clock left the reader to guess which of the two answered "how
+     * long will this build take", and the natural guess is the wrong one.
      *
      * <p>When {@code seedRun} is true - the selection carries no stored mapping for this branch
      * yet, so {@link DistributedRunPlanner#balance} collapsed {@code result} to a single empty
@@ -58,10 +66,15 @@ public final class DistributedRunPreviewFormatter {
                     .append("record the mapping for the next build.").append(lineSep);
         }
         preview.append("  Groups: ").append(result.getGroupCount())
-                .append(", average ").append(avgGroupMs)
-                .append("ms per group, heaviest ").append(result.getHeaviestGroupMs()).append("ms");
+                .append(", average ").append(avgGroupMs).append("ms per group");
 
         if (!seedRun) {
+            // The heaviest group used to be reported on the Groups line above as a bare number.
+            // It is named here instead, beside the serial-equivalent total, because the whole
+            // confusion this block exists to prevent is not knowing which of the two figures the
+            // estimate printed above it is.
+            preview.append(lineSep).append(DistributedRunDurations.format(result.getHeaviestGroupMs(),
+                    result.getTotalEstimatedMs(), lineSep));
             if (targetRunTimeMs == null) {
                 preview.append(lineSep).append("  Target: none (static group count)");
             } else {
