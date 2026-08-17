@@ -33,7 +33,7 @@ import static j2html.TagCreator.thead;
 import static j2html.TagCreator.tr;
 
 /**
- * Renders the Tia "History" page — a sortable, searchable table of past test-run rows from
+ * Renders the Tia "History" page - a sortable, searchable table of past test-run rows from
  * {@code tia_test_run_history}. Each row's timestamp is emitted as an HTML5 {@code <time>}
  * element carrying the UTC epoch ms in a {@code data-epoch-ms} attribute; the page-level
  * inline script swaps the displayed text for the viewer's local-time rendering on load.

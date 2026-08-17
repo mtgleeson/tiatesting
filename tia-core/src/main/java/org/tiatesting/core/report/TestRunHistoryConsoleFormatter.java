@@ -83,7 +83,7 @@ public final class TestRunHistoryConsoleFormatter {
      * @param limit    maximum number of rows to render (the total count in the header always reflects
      *                 {@code entries.size()}); values {@code <= 0} are treated as zero rows
      * @param lineSep  line separator (typically {@code System.lineSeparator()}) so callers control EOL style
-     * @return the formatted output — empty-history sentence, or a header line + blank line + table
+     * @return the formatted output - empty-history sentence, or a header line + blank line + table
      */
     public static String formatHistory(List<TestRunHistoryEntry> entries, int limit, String lineSep) {
         if (entries == null || entries.isEmpty()) {

@@ -9,8 +9,8 @@ import java.util.UUID;
  * Immutable record of a single Tia test-run, persisted to the {@code tia_test_run_history} table
  * so the HTML report can show a history of executions for the current branch.
  *
- * <p>The {@code id} is deterministic — derived from {@code branch}, {@code commit}, and
- * {@code runTimestampMs} via {@link UUID#nameUUIDFromBytes(byte[])} — so the same logical run
+ * <p>The {@code id} is deterministic - derived from {@code branch}, {@code commit}, and
+ * {@code runTimestampMs} via {@link UUID#nameUUIDFromBytes(byte[])} - so the same logical run
  * always maps to the same id and re-inserts of the same row are idempotent.
  *
  * <p>{@code runTimestampMs} is stored as UTC epoch milliseconds (the value returned by

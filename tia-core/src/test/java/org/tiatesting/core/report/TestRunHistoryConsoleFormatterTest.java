@@ -144,7 +144,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * The Branch column should widen to match the longest branch value present — dynamic-width
+     * The Branch column should widen to match the longest branch value present - dynamic-width
      * is the difference between a readable table and one that either wraps or has huge gaps.
      */
     @Test
@@ -160,7 +160,7 @@ class TestRunHistoryConsoleFormatterTest {
         String output = TestRunHistoryConsoleFormatter.formatHistory(
                 Arrays.asList(shortBranchEntry, longBranchEntry), 20, LF);
 
-        // then — the header line's Branch label should be left-padded with enough trailing
+        // then - the header line's Branch label should be left-padded with enough trailing
         // spaces that the column widens to match the long branch value.
         String[] lines = output.split(LF, -1);
         String columnHeader = lines[2];
@@ -174,7 +174,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * A run with zero failed suites still renders as plain "0" — no pluralisation or hiding.
+     * A run with zero failed suites still renders as plain "0" - no pluralisation or hiding.
      */
     @Test
     void zeroFailed_rendersAsZero() {
@@ -186,7 +186,7 @@ class TestRunHistoryConsoleFormatterTest {
         String output = TestRunHistoryConsoleFormatter.formatHistory(
                 Collections.singletonList(entry), 20, LF);
 
-        // then — find the data row (after the separator) and verify the Failed column shows 0.
+        // then - find the data row (after the separator) and verify the Failed column shows 0.
         String[] lines = output.split(LF, -1);
         String dataRow = lines[4];
         assertTrue(dataRow.matches(".*\\b0\\b.*"), "Failed column should contain 0. Row: " + dataRow);
@@ -211,7 +211,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * Mapping flag renders as {@code yes} / {@code no} — the compact table form, not the HTML
+     * Mapping flag renders as {@code yes} / {@code no} - the compact table form, not the HTML
      * report's "updated / not updated" wording.
      */
     @Test
@@ -239,7 +239,7 @@ class TestRunHistoryConsoleFormatterTest {
      */
     @Test
     void dateTime_rendersInLocalTimeZone() {
-        // given — fix a UTC instant, compute its local representation in the running JVM.
+        // given - fix a UTC instant, compute its local representation in the running JVM.
         long epochMs = 1_700_000_000_000L;
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
