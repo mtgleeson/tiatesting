@@ -31,7 +31,7 @@ class SelectTestsOutputFormatterTest {
         TestSelectorResult result = buildResult(setOf(), 0L, setOf(), 0L, perTestMap());
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertEquals("", output);
@@ -50,7 +50,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         // 1500ms is >= 1s, so the ms component is dropped
@@ -69,7 +69,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 2000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (75%)"
@@ -78,30 +78,88 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * When a distributed grouping preview follows, the total is labelled as the serial equivalent -
-     * and every figure in the block is otherwise byte-for-byte identical to the non-distributed
-     * output. That identity is the point: the estimate is deliberately the same number in both
-     * modes, because it is what Tia records and computes savings from either way. Only the label
-     * changes, so the reader does not take it for the time a split build waits for; the grouping
-     * preview below reports that.
+     * When a distributed grouping is supplied, the block gains a third line reporting the heaviest
+     * group as the time the build waits for, and the total above it is labelled as the serial
+     * equivalent.
+     *
+     * <p>The two existing figures are unchanged, which is the point: the estimate and the savings
+     * are deliberately the same numbers a single-host build prints, because they are what Tia
+     * records and computes savings from in either mode. Only the wall clock is mode-dependent, so
+     * only it is added.
      */
     @Test
-    void formatEstimateBlock_distributedPreview_labelsTheTotalAsSerialEquivalentAndChangesNothingElse(){
-        // given - the same inputs as the baseline case above
+    void formatEstimateBlock_distributedGrouping_addsTheWallClockAndLabelsTheTotal(){
+        // given - the same inputs as the baseline case above, with a 900ms heaviest group
         Set<String> testsToRun = setOf("test1", "test2");
         TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
                 perTestMap("test1", 500L, "test2", 1000L), 2000L);
 
-        // when - rendered once for a distributed preview and once without
-        String distributed = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, true);
-        String singleHost = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        // when - rendered once for a distributed grouping and once without
+        String distributed = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(900L));
+        String singleHost = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
+
+        // then - 900ms of a 2000ms all-tests baseline is 45%
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 1s (75%)"
+                + LINE_SEP + "Estimated savings: 500ms (25%)"
+                + LINE_SEP + "Estimated distributed run time: 900ms (45%) - the heaviest group, "
+                + "which is what the build waits for.";
+        assertEquals(expected, distributed);
+        // the cost and savings figures themselves are identical in both modes
+        assertTrue(singleHost.contains("Estimated total run time: 1s (75%)"), singleHost);
+        assertTrue(singleHost.contains("Estimated savings: 500ms (25%)"), singleHost);
+    }
+
+    /**
+     * With no all-tests-run baseline recorded, the distributed line still reports the wall clock but
+     * omits its percentage, matching how the total line above it drops its own bracket. A percentage
+     * of an unrecorded baseline would be a division by zero dressed up as a measurement.
+     */
+    @Test
+    void formatEstimateBlock_distributedGroupingNoBaseline_omitsTheWallClockPercentage(){
+        // given - no all-tests baseline
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 1000L), 0L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(900L));
 
         // then
-        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 1s (75%)"
-                + LINE_SEP + "Estimated savings: 500ms (25%)";
-        assertEquals(expected, distributed);
-        assertEquals(distributed.replace(" (serial equivalent)", ""), singleHost,
-                "only the label may differ between the two modes");
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 1s"
+                + LINE_SEP + "Estimated distributed run time: 900ms - the heaviest group, "
+                + "which is what the build waits for.";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * The distributed line sits above the new-tests note, so the note stays the last thing in the
+     * block as it is in single-host output - it qualifies the estimate, and a reader who stops at
+     * the first blank line should have already seen every figure.
+     */
+    @Test
+    void formatEstimateBlock_distributedGroupingWithMissingStats_keepsTheNoteLast(){
+        // given - a selection with one test that has no recorded stats
+        Set<String> testsToRun = setOf("test1", "newTest");
+        Set<String> withoutStats = setOf("newTest");
+        TestSelectorResult result = buildResult(testsToRun, 700L, withoutStats, 200L,
+                perTestMap("test1", 500L, "newTest", 200L), 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(500L));
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 700ms (70%)"
+                + LINE_SEP + "Estimated savings: 300ms (30%)"
+                + LINE_SEP + "Estimated distributed run time: 500ms (50%) - the heaviest group, "
+                + "which is what the build waits for."
+                + LINE_SEP + LINE_SEP
+                + "Note: 1 selected test(s) have not previously been run by Tia. "
+                + "A median run time of 200ms (calculated from all tracked test suites) "
+                + "was used for them.";
+        assertEquals(expected, output);
     }
 
     /**
@@ -116,7 +174,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 0L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertEquals(LINE_SEP + "Estimated total run time: 1s", output);
@@ -134,7 +192,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 1500L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (150%)"
@@ -154,7 +212,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms (70%)"
@@ -179,7 +237,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true, null);
 
         // then - total is base+overhead (2s), 50% of the 4s baseline, saving 2s (50%)
         String expected = LINE_SEP + "Estimated total run time: 2s (50%)"
@@ -199,7 +257,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then - base 1s, 25% of 4s, saving 3s (75%)
         String expected = LINE_SEP + "Estimated total run time: 1s (25%)"
@@ -221,7 +279,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms" + LINE_SEP + LINE_SEP
@@ -246,7 +304,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("newTest", 0L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertTrue(output.contains("Estimated total run time: "), "Output: " + output);

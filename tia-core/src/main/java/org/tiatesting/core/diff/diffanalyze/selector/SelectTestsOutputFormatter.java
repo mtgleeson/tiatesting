@@ -12,8 +12,9 @@ import java.util.Map;
  * <ul>
  *   <li>{@link #formatSelectedTestsList} — the tab-indented list of selected tests with each
  *       test's estimated runtime in brackets after its name.</li>
- *   <li>{@link #formatEstimateBlock} — the total estimated runtime, plus a single-line note
- *       when some selected tests have no recorded run-time data.</li>
+ *   <li>{@link #formatEstimateBlock} — the total estimated runtime, the savings against an
+ *       all-tests baseline, the distributed run time when one is being previewed, plus a
+ *       single-line note when some selected tests have no recorded run-time data.</li>
  * </ul>
  *
  * <p>All durations are formatted with the {@code dropMsWhenAboveSecond} flag on
@@ -71,18 +72,21 @@ public class SelectTestsOutputFormatter {
      *                               {@link TestSelectorResult#getMappingOverheadMs()} - coverage
      *                               capture is not part of the stored per-suite times - so the
      *                               displayed total, percentage and savings reflect a coverage run.
-     * @param distributedPreview whether a distributed run grouping preview follows this block. The
-     *                           estimate itself is identical either way - deliberately, since it is
-     *                           the serial-equivalent figure Tia records and computes savings from
-     *                           in both modes - but a build that will be split across runners does
-     *                           not wait for it, so it is labelled rather than left to be read as
-     *                           the time the build takes. The grouping preview below then reports
-     *                           the wall clock; see {@code DistributedRunDurations}.
+     * @param distributedWallClockMs the heaviest group's weight in ms when this selection is being
+     *                               previewed for a distributed run, or {@code null} for a
+     *                               single-host build. When supplied, the total above is labelled
+     *                               as the serial equivalent - it is identical either way,
+     *                               deliberately, since it is the figure Tia records and computes
+     *                               savings from in both modes - and a further line reports this
+     *                               value as the time a split build actually waits for. Already
+     *                               includes each of that group's suites' share of the mapping
+     *                               overhead, since the balancer weights suites with it; see
+     *                               {@code TestGroupBalancer.suiteWeights}.
      * @return the formatted estimate block, or an empty string when no estimate applies
      */
     public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep,
                                              final boolean includeMappingOverhead,
-                                             final boolean distributedPreview){
+                                             final Long distributedWallClockMs){
         if (result.getTestsToRun().isEmpty()){
             return "";
         }
@@ -94,7 +98,7 @@ public class SelectTestsOutputFormatter {
 
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);
-        sb.append(distributedPreview ? "Estimated total run time (serial equivalent): "
+        sb.append(distributedWallClockMs != null ? "Estimated total run time (serial equivalent): "
                         : "Estimated total run time: ")
           .append(ReportUtils.prettyDuration(selectedMs, true));
 
@@ -109,6 +113,20 @@ public class SelectTestsOutputFormatter {
             sb.append(" (").append(selectedPercent).append("%)");
             sb.append(lineSep).append("Estimated savings: ")
               .append(formatSavingsDuration(savingsMs)).append(" (").append(savingsPercent).append("%)");
+        }
+
+        // The distributed line goes last so the two totals read in the order they are derived: the
+        // serial-equivalent cost and its savings first (both mode-independent), then what a split
+        // build actually waits for.
+        if (distributedWallClockMs != null){
+            sb.append(lineSep).append("Estimated distributed run time: ")
+              .append(ReportUtils.prettyDuration(distributedWallClockMs.longValue(), true));
+            if (allTestsRunTimeMs > 0){
+                sb.append(" (")
+                  .append(Math.round((double) distributedWallClockMs.longValue() / allTestsRunTimeMs * 100))
+                  .append("%)");
+            }
+            sb.append(" - the heaviest group, which is what the build waits for.");
         }
 
         if (!result.getSelectedTestsWithoutStats().isEmpty()){

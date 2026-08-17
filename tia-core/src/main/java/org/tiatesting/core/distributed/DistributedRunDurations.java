@@ -1,16 +1,21 @@
 package org.tiatesting.core.distributed;
 
 /**
- * The two lines that name a distributed run's two durations and say which is which. Shared by the
- * {@code select-tests} grouping preview ({@link DistributedRunPreviewFormatter}) and the plan step's
- * console summary ({@link DistributedRunPlanSummary#toConsoleSummary()}) so the two cannot drift,
- * the same way {@link DistributedRunMissReasons} is shared between them for target-miss reasons.
+ * The two lines that name a distributed run's two durations and say which is which, for the plan
+ * step's console summary ({@link DistributedRunPlanSummary#toConsoleSummary()}).
  *
- * <p>Exists because both blocks previously printed both figures without saying what either was. A
- * user reading "Estimated total run time: 497ms" above a grouping showing a 275ms heaviest group
- * has no way to tell that the first is deliberately the same number a non-distributed build would
- * print, and reasonably concludes the estimate has ignored the distribution. It has not: the two
- * figures answer different questions and only one of them changes when a build is split.
+ * <p>The plan step needs them because it prints no estimate block: {@code dist-plan} reports a
+ * persisted plan, and its reader - usually whoever is setting a CI job's timeout - has nothing else
+ * on screen telling them which of the two figures the build will actually wait for. On the {@code
+ * select-tests} side the same job is done by {@code SelectTestsOutputFormatter.formatEstimateBlock},
+ * which reports both durations in the estimate itself, so the grouping preview beneath it is left
+ * to describe the shape of the split alone.
+ *
+ * <p>Exists because the plan summary previously printed both figures without saying what either
+ * was. A user reading "Estimated total run time: 497ms" beside a grouping showing a 275ms heaviest
+ * group has no way to tell that the first is deliberately the same number a non-distributed build
+ * would print, and reasonably concludes the estimate has ignored the distribution. It has not: the
+ * two figures answer different questions and only one of them changes when a build is split.
  *
  * <ul>
  *   <li>The <b>wall clock</b> is the heaviest group, since the build is not finished until that
@@ -34,10 +39,10 @@ public final class DistributedRunDurations {
 
     /**
      * Render the wall-clock and serial-equivalent lines for a grouping, indented two spaces to sit
-     * inside the preview and plan-summary blocks that print them.
+     * inside the plan summary block that prints them.
      *
      * <p>Both values are rendered in raw milliseconds rather than through {@code
-     * ReportUtils.prettyDuration}, matching the surrounding lines in both blocks, which report group
+     * ReportUtils.prettyDuration}, matching the surrounding lines in that block, which report group
      * weights the same way.
      *
      * @param heaviestGroupMs the weight of the heaviest group in ms - the run's expected wall clock,

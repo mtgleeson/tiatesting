@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers the Maven entry point's contract that
- * {@link AbstractSelectTestsMojo#printDistributedRunPreviewIfConfigured} must never let a
+ * {@link AbstractSelectTestsMojo#printDistributedRunPreview} must never let a
  * misconfigured distributed grouping abort the read-only {@code select-tests} goal.
  */
 class AbstractSelectTestsMojoTest {
@@ -30,6 +30,18 @@ class AbstractSelectTestsMojoTest {
         public VCSReader getVCSReader() {
             return null;
         }
+    }
+
+    /**
+     * Balance the selection and print its preview, the two-step sequence {@code execute()} performs
+     * so the estimate block above the preview can report the heaviest group. Wrapped here so each
+     * test drives the same pair of calls the goal itself makes rather than only the printing half.
+     *
+     * @param mojo the goal under test
+     * @param selection the selection to balance and preview
+     */
+    private static void previewFor(final TestMojo mojo, final TestSelectorResult selection) {
+        mojo.printDistributedRunPreview(selection, mojo.buildDistributedGroupingIfConfigured(selection));
     }
 
     /**
@@ -67,7 +79,7 @@ class AbstractSelectTestsMojoTest {
      * offending property is printed and the read-only command completes normally.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_invalidGroupingShape_doesNotThrowAndPrintsSkipNotice() {
+    void printDistributedRunPreview_invalidGroupingShape_doesNotThrowAndPrintsSkipNotice() {
         // given a mojo configured with a distributed grouping shape balance() rejects
         TestMojo mojo = new TestMojo();
         mojo.tiaDistributedGroupCount = 4;
@@ -80,7 +92,7 @@ class AbstractSelectTestsMojoTest {
             System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
 
             // when
-            assertDoesNotThrow(() -> mojo.printDistributedRunPreviewIfConfigured(twoSuiteSelection()));
+            assertDoesNotThrow(() -> previewFor(mojo, twoSuiteSelection()));
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
@@ -102,7 +114,7 @@ class AbstractSelectTestsMojoTest {
      * prints the ordinary preview block, unaffected by the new try/catch.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_validGroupingShape_printsPreview() {
+    void printDistributedRunPreview_validGroupingShape_printsPreview() {
         // given a mojo configured with a valid, static-groups grouping shape
         TestMojo mojo = new TestMojo();
         mojo.tiaDistributedGroupCount = 2;
@@ -114,7 +126,7 @@ class AbstractSelectTestsMojoTest {
             System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
 
             // when
-            mojo.printDistributedRunPreviewIfConfigured(twoSuiteSelection());
+            previewFor(mojo, twoSuiteSelection());
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
@@ -130,7 +142,7 @@ class AbstractSelectTestsMojoTest {
 
     /**
      * Verifies the seed-run handling at the {@code execute()} branch this class tests
-     * indirectly: {@link AbstractSelectTestsMojo#printDistributedRunPreviewIfConfigured} still
+     * indirectly: {@link AbstractSelectTestsMojo#printDistributedRunPreview} still
      * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
      * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection
      * shape {@code execute()} passes on the "all (no stored mapping for this branch yet)" branch.
@@ -139,7 +151,7 @@ class AbstractSelectTestsMojoTest {
      * proves that collapse reaches the console unchanged.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_seedSelection_printsSeedRunPreview() {
+    void printDistributedRunPreview_seedSelection_printsSeedRunPreview() {
         // given a mojo configured with a distributed grouping shape, previewing a seed selection
         TestMojo mojo = new TestMojo();
         mojo.tiaDistributedGroupCount = 2;
@@ -151,7 +163,7 @@ class AbstractSelectTestsMojoTest {
             System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
 
             // when
-            mojo.printDistributedRunPreviewIfConfigured(seedSelection());
+            previewFor(mojo, seedSelection());
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {

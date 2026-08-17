@@ -38,6 +38,20 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
+     * Balance the selection and print its preview, the two-step sequence the {@code
+     * tia-select-tests} task performs so the estimate block above the preview can report the
+     * heaviest group. Wrapped here so each test drives the same pair of calls the task itself makes
+     * rather than only the printing half.
+     *
+     * @param plugin the plugin under test
+     * @param selection the selection to balance and preview
+     */
+    private static void previewFor(final TiaBasePlugin plugin, final TestSelectorResult selection) {
+        plugin.printDistributedRunPreview(selection,
+                plugin.buildDistributedGroupingIfConfigured(selection), "\n");
+    }
+
+    /**
      * Build a selection of two suites with distinct, known run times, so a grouping preview has
      * something concrete to balance.
      *
@@ -140,7 +154,7 @@ class TiaBasePluginDistributedTest {
 
     /**
      * Verifies at the Gradle entry point that {@link
-     * TiaBasePlugin#printDistributedRunPreviewIfConfigured} with a distributed grouping
+     * TiaBasePlugin#printDistributedRunPreview} with a distributed grouping
      * configuration that {@link org.tiatesting.core.distributed.DistributedRunPlanner#balance}
      * rejects (both a fixed group count and a max-group ceiling, the shape a shared parent pom
      * makes easy to produce) does not throw out of what would otherwise be a
@@ -148,7 +162,7 @@ class TiaBasePluginDistributedTest {
      * complete normally.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_invalidGroupingShape_doesNotThrowAndPrintsSkipNotice(
+    void printDistributedRunPreview_invalidGroupingShape_doesNotThrowAndPrintsSkipNotice(
             @TempDir File projectDir) {
         // given a plugin configured with a distributed grouping shape balance() rejects
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
@@ -164,7 +178,7 @@ class TiaBasePluginDistributedTest {
 
             // when
             assertDoesNotThrow(() ->
-                    plugin.printDistributedRunPreviewIfConfigured(twoSuiteSelection(), "\n"));
+                    previewFor(plugin, twoSuiteSelection()));
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
@@ -186,7 +200,7 @@ class TiaBasePluginDistributedTest {
      * prints the ordinary preview block, unaffected by the new try/catch.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_validGroupingShape_printsPreview(@TempDir File projectDir) {
+    void printDistributedRunPreview_validGroupingShape_printsPreview(@TempDir File projectDir) {
         // given a plugin configured with a valid, static-groups grouping shape
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
@@ -199,7 +213,7 @@ class TiaBasePluginDistributedTest {
             System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
 
             // when
-            plugin.printDistributedRunPreviewIfConfigured(twoSuiteSelection(), "\n");
+            previewFor(plugin, twoSuiteSelection());
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
@@ -215,7 +229,7 @@ class TiaBasePluginDistributedTest {
 
     /**
      * Verifies the seed-run handling at the Gradle {@code createSelectTestsTask} branch this
-     * class tests indirectly: {@link TiaBasePlugin#printDistributedRunPreviewIfConfigured} still
+     * class tests indirectly: {@link TiaBasePlugin#printDistributedRunPreview} still
      * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
      * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection
      * shape {@code createSelectTestsTask} passes on the "all (no stored mapping for this branch
@@ -224,7 +238,7 @@ class TiaBasePluginDistributedTest {
      * so this also proves that collapse reaches the console unchanged on the Gradle side.
      */
     @Test
-    void printDistributedRunPreviewIfConfigured_seedSelection_printsSeedRunPreview(@TempDir File projectDir) {
+    void printDistributedRunPreview_seedSelection_printsSeedRunPreview(@TempDir File projectDir) {
         // given a plugin configured with a distributed grouping shape, previewing a seed selection
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
@@ -237,7 +251,7 @@ class TiaBasePluginDistributedTest {
             System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8.name()));
 
             // when
-            plugin.printDistributedRunPreviewIfConfigured(seedSelection(), "\n");
+            previewFor(plugin, seedSelection());
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
