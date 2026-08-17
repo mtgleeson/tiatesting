@@ -256,9 +256,11 @@ public class TiaSpockGitGradlePluginTestExtension {
      */
     private void wireDistCompleteFinalizer(final Test testTask, final TiaBaseTaskExtension tiaProjectExtension,
                                            final TiaBaseTaskExtension tiaTaskExtension) {
-        // Disabled Tia is inert, exactly as it is on the Maven side, where
+        // Disabled Tia is inert, as it is on the Maven side, where
         // AbstractTiaDistCompleteMojo.execute short-circuits on !isTiaEnabled() as its very first
-        // statement. Without this, a build with tia.distributed = true and Tia switched off would
+        // statement. Not quite the same gate - see resolveFlagAtConfigurationTime for the one case
+        // (--tests) this cannot see this early, and why it is harmless. Without this, a build with
+        // tia.distributed = true and Tia switched off would
         // still register tia-dist-complete, still finalize the test task with it, and - with two
         // distributed test tasks - still fail at configuration time on a guard for a run it was
         // never going to make.
@@ -307,6 +309,14 @@ public class TiaSpockGitGradlePluginTestExtension {
      * <p>Used for both flags a finalizer decision needs - {@code enabled} and {@code distributed} -
      * rather than duplicating the merge rule per flag, so the two cannot drift apart from each
      * other or from {@link #populateTestTaskExtension}.
+     *
+     * <p>For {@code enabled} this is narrower than {@link #isEnabled}, which additionally switches
+     * Tia off when the user passes {@code --tests} - a decision that cannot be made this early,
+     * since the finalizer wiring happens before the task's filter is read. So {@code ./gradlew test
+     * --tests Foo} on a distributed build still registers and wires {@code tia-dist-complete}, which
+     * is a wider gate than Maven's {@code !isTiaEnabled()} short-circuit, not an equal one. It is
+     * harmless: no claim is made, so the finalizer finds no {@link DistributedClaimRegistry} entry
+     * for the test task and exits at its no-claim branch without touching the datastore.
      *
      * @param taskValue the test task's own value for the flag, which wins when set
      * @param projectValue the project-level extension's value for the flag, the fallback
@@ -362,13 +372,13 @@ public class TiaSpockGitGradlePluginTestExtension {
      * Pre-resolve library metadata on the Gradle side and forward it to the test JVM as flat
      * system properties. The test JVM uses {@link LibraryMetadataSystemProperties} to rebuild a
      * {@code LibraryImpactAnalysisConfig} so {@code TestSelector} can run reconcile / partition /
-     * stamp / drain in-process — without needing a Gradle {@code Project} reference.
+     * stamp / drain in-process - without needing a Gradle {@code Project} reference.
      *
      * <p>Why pre-resolve here: {@link LibraryJarResolver} requires either the current Gradle
      * {@code Project} or a Tooling-API connection. Neither is available inside the forked test JVM.
      * The plugin runs the resolver once at task-action time and forwards the results.
      *
-     * <p>The {@code tiaLibraryJars} CSV (set above) is a separate concern — it feeds JaCoCo so
+     * <p>The {@code tiaLibraryJars} CSV (set above) is a separate concern - it feeds JaCoCo so
      * library classes are included in coverage. The metadata forwarded here drives TIA's selection
      * logic.
      */
@@ -593,8 +603,14 @@ public class TiaSpockGitGradlePluginTestExtension {
 
     /**
      * Refuse a distributed test task that would run its group in more than one JVM, rather than let
-     * the run hang - the same treatment the two-distributed-test-tasks case gets in {@link
-     * #wireDistCompleteFinalizer}, and for a failure that is even less legible without it.
+     * the run hang, for a failure that is even less legible without the refusal.
+     *
+     * <p>Called from {@link #claimDistributedRun}, which runs in the test task's own {@code doFirst}
+     * action - so this fails the build when the test task <b>starts</b>, not at configuration time
+     * like {@link #wireDistCompleteFinalizer}'s two-distributed-test-tasks guard. That is the right
+     * moment for this particular check rather than merely the convenient one: it reads the final
+     * value of {@code maxParallelForks} and {@code forkEvery}, after everything that configures the
+     * task has had its say, and it still fails before a single worker JVM is forked.
      *
      * <p>{@code suites_observed} - the figure the completion's completeness guard reads - depends on
      * one JVM working one group end to end, because it is written as {@code GREATEST(stored, value)}

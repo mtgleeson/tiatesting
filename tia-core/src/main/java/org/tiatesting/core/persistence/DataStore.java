@@ -20,7 +20,7 @@ import java.util.Set;
 public interface DataStore extends AutoCloseable {
 
     /**
-     * Release any process-level resources the data store holds open — in particular the H2
+     * Release any process-level resources the data store holds open - in particular the H2
      * MVStore file lock that {@code DB_CLOSE_DELAY=-1} keeps in place for the lifetime of the
      * JVM. Maven and Gradle plugin task code <strong>must</strong> call {@code close()} when
      * done with a data store so the file lock is released before a forked test JVM (e.g.
@@ -334,7 +334,7 @@ public interface DataStore extends AutoCloseable {
     void deletePendingLibraryImpactedMethods(final String groupArtifact, final long publishSeq);
 
     /**
-     * Persist a single Tia test-run history entry. Idempotent on the entry's deterministic id —
+     * Persist a single Tia test-run history entry. Idempotent on the entry's deterministic id -
      * re-inserts of the same logical run are a no-op (MERGE on primary key).
      *
      * @param entry the entry to persist
@@ -426,8 +426,10 @@ public interface DataStore extends AutoCloseable {
      * unchanged if so, without attempting a new claim. A runner key holding a group in any other
      * status has already finished with it and is given nothing at all: handing the group back would
      * re-run its suites and then fail {@link #completeGroup}'s {@code status = 'CLAIMED'} predicate,
-     * so the run could never seal, while giving it a fresh {@code PENDING} group instead would leave
-     * the group it already took unworked by anybody else. Otherwise repeatedly reads the
+     * so the run could never seal, while giving it a fresh {@code PENDING} group instead would put
+     * that runner key on two group rows - and the "does this runner already hold a group" lookup is
+     * a single unordered read of the rows under that key, so from then on it has no one answer.
+     * One runner key holds at most one group. Otherwise repeatedly reads the
      * lowest-numbered {@code PENDING} group and attempts a single-row compare-and-swap update
      * guarded by {@code status = 'PENDING'}: two runners racing for the same candidate both attempt
      * that update, the database serialises them, and only one sees a row affected. The loser
@@ -501,8 +503,8 @@ public interface DataStore extends AutoCloseable {
      * worker ever observes the whole group, {@code GREATEST} converges on the largest worker's count
      * which is strictly less than the group's assigned total, the completeness guard never passes,
      * the group never completes and the run never seals - on a build that still exits green. That is
-     * why {@code claimDistributedRun} refuses both settings at configuration time rather than
-     * letting the run hang.
+     * why {@code claimDistributedRun} refuses both settings when the test task starts, before it
+     * forks anything, rather than letting the run hang.
      *
      * <p>Conditional on the group still being {@code CLAIMED} <strong>by this runner key</strong>,
      * the same straggler-protection predicate {@link #completeGroup} is guarded on. A {@code
