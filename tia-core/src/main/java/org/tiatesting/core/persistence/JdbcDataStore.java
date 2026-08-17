@@ -37,6 +37,9 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_NUM_FAIL_RUNS = "num_fail_runs";
     private static final String COL_ALL_TESTS_RUN_TIME = "all_tests_run_time";
     private static final String COL_NUM_ALL_TESTS_RUNS = "num_all_tests_runs";
+    private static final String COL_FIXED_OVERHEAD_MS = "fixed_overhead_ms";
+    private static final String COL_CAPTURE_OVERHEAD_PER_SUITE_MS = "capture_overhead_per_suite_ms";
+    private static final String COL_NUM_OVERHEAD_MEASUREMENTS = "num_overhead_measurements";
     private static final String COL_DEVELOPER_DISABLED = "developer_disabled";
     private static final String COL_UNSEALED = "unsealed";
     private static final String TABLE_TIA_CORE = "tia_core";
@@ -2563,7 +2566,9 @@ public class JdbcDataStore implements DataStore {
         if (existingTiaCore.getCommitValue() == null){
             sql = "INSERT INTO " + TABLE_TIA_CORE + " (" + COL_COMMIT_VALUE + ", " + COL_BRANCH + ", " + COL_LAST_UPDATED + ", " + COL_NUM_RUNS + ", " +
                     COL_AVG_RUN_TIME + ", " + COL_NUM_SUCCESS_RUNS + ", " + COL_NUM_FAIL_RUNS + ", " +
-                    COL_ALL_TESTS_RUN_TIME + ", " + COL_NUM_ALL_TESTS_RUNS + ") values ('" +
+                    COL_ALL_TESTS_RUN_TIME + ", " + COL_NUM_ALL_TESTS_RUNS + ", " +
+                    COL_FIXED_OVERHEAD_MS + ", " + COL_CAPTURE_OVERHEAD_PER_SUITE_MS + ", " +
+                    COL_NUM_OVERHEAD_MEASUREMENTS + ") values ('" +
                     tiaData.getCommitValue() + "', " +
                     sqlStringOrNull(tiaData.getBranch()) + ", '" +
                     tiaData.getLastUpdated() + "', " +
@@ -2572,7 +2577,10 @@ public class JdbcDataStore implements DataStore {
                     tiaData.getTestStats().getNumSuccessRuns()  + ", " +
                     tiaData.getTestStats().getNumFailRuns() + ", " +
                     tiaData.getTestStats().getAllTestsRunTime() + ", " +
-                    tiaData.getTestStats().getNumAllTestsRuns() + ")";
+                    tiaData.getTestStats().getNumAllTestsRuns() + ", " +
+                    tiaData.getTestStats().getFixedOverheadMs() + ", " +
+                    tiaData.getTestStats().getCaptureOverheadPerSuiteMs() + ", " +
+                    tiaData.getTestStats().getNumOverheadMeasurements() + ")";
         }else{
             sql = "UPDATE " + TABLE_TIA_CORE + " SET " +
                     COL_COMMIT_VALUE + "='" + tiaData.getCommitValue() +
@@ -2583,7 +2591,10 @@ public class JdbcDataStore implements DataStore {
                     ", " + COL_NUM_SUCCESS_RUNS + "=" + tiaData.getTestStats().getNumSuccessRuns() +
                     ", " + COL_NUM_FAIL_RUNS + "=" + tiaData.getTestStats().getNumFailRuns() +
                     ", " + COL_ALL_TESTS_RUN_TIME + "=" + tiaData.getTestStats().getAllTestsRunTime() +
-                    ", " + COL_NUM_ALL_TESTS_RUNS + "=" + tiaData.getTestStats().getNumAllTestsRuns();
+                    ", " + COL_NUM_ALL_TESTS_RUNS + "=" + tiaData.getTestStats().getNumAllTestsRuns() +
+                    ", " + COL_FIXED_OVERHEAD_MS + "=" + tiaData.getTestStats().getFixedOverheadMs() +
+                    ", " + COL_CAPTURE_OVERHEAD_PER_SUITE_MS + "=" + tiaData.getTestStats().getCaptureOverheadPerSuiteMs() +
+                    ", " + COL_NUM_OVERHEAD_MEASUREMENTS + "=" + tiaData.getTestStats().getNumOverheadMeasurements();
         }
 
         log.debug("Persisting Tia core data: {}", sql);
@@ -3243,6 +3254,11 @@ public class JdbcDataStore implements DataStore {
             tiaData.getTestStats().setNumFailRuns(resultSet.getLong(COL_NUM_FAIL_RUNS));
             tiaData.getTestStats().setAllTestsRunTime(resultSet.getLong(COL_ALL_TESTS_RUN_TIME));
             tiaData.getTestStats().setNumAllTestsRuns(resultSet.getLong(COL_NUM_ALL_TESTS_RUNS));
+            tiaData.getTestStats().setFixedOverheadMs(resultSet.getLong(COL_FIXED_OVERHEAD_MS));
+            tiaData.getTestStats().setCaptureOverheadPerSuiteMs(
+                    resultSet.getLong(COL_CAPTURE_OVERHEAD_PER_SUITE_MS));
+            tiaData.getTestStats().setNumOverheadMeasurements(
+                    resultSet.getLong(COL_NUM_OVERHEAD_MEASUREMENTS));
         }
 
         return tiaData;
@@ -3418,7 +3434,10 @@ public class JdbcDataStore implements DataStore {
                 COL_NUM_SUCCESS_RUNS + " BIGINT," +
                 COL_NUM_FAIL_RUNS + " BIGINT, " +
                 COL_ALL_TESTS_RUN_TIME + " BIGINT DEFAULT 0, " +
-                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0)";
+                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0, " +
+                COL_FIXED_OVERHEAD_MS + " BIGINT DEFAULT 0, " +
+                COL_CAPTURE_OVERHEAD_PER_SUITE_MS + " BIGINT DEFAULT 0, " +
+                COL_NUM_OVERHEAD_MEASUREMENTS + " BIGINT DEFAULT 0)";
 
         String createTestSuitesFailedTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITES_FAILED + " " +
                 "(" + COL_TEST_SUITE_NAME + " VARCHAR(255) PRIMARY KEY)";
@@ -3978,6 +3997,28 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the three {@code tia_core} columns carrying the two-part overhead model
+     * exist on a DB created before it was added. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
+     * pre-existing rows default to 0, which is exactly the "never measured" state the estimate falls
+     * back from, so an existing project keeps its current behaviour until its first distributed run
+     * supplies the measurement.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if any DDL statement fails
+     */
+    private void ensureTiaCoreOverheadModelColumnsExist(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
+                    COL_FIXED_OVERHEAD_MS + " BIGINT DEFAULT 0");
+            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
+                    COL_CAPTURE_OVERHEAD_PER_SUITE_MS + " BIGINT DEFAULT 0");
+            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
+                    COL_NUM_OVERHEAD_MEASUREMENTS + " BIGINT DEFAULT 0");
+            statement.executeBatch();
+        }
+    }
+
+    /**
      * Ensure the Tia schema is ready for use on this connection: create the DB on first
      * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
      * This is the single schema-bootstrap entry point - both the full-load path
@@ -4006,6 +4047,7 @@ public class JdbcDataStore implements DataStore {
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
         ensureTestSuiteUnsealedColumnExists(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
+        ensureTiaCoreOverheadModelColumnsExist(connection);
         ensureIdBlockTableExists(connection);
         ensureDistributedRunTablesExist(connection);
 
