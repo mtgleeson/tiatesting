@@ -69,7 +69,7 @@ public final class DistributedRunPreconditions {
      * database and local-changes questions moot, and a database no runner can share makes the
      * local-changes question moot.
      *
-     * @param tiaEnabled       the resolved value of {@code tiaEnabled}; must be true, since {@code
+     * @param tiaEnabled       the resolved value of {@code tiaEnabled}; must be true, since
      *                         the plan step opens the shared datastore and persists a claimable run
      *                         with no read-only preview form
      * @param projectCount     the number of projects taking part in the current build (a Maven
