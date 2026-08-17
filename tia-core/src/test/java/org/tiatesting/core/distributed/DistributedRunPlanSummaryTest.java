@@ -26,7 +26,7 @@ class DistributedRunPlanSummaryTest {
      */
     @Test
     void toJson_dynamicGroupsPlan_producesExactDocument() {
-        // given - a dynamic-groups plan matching the design spec's worked sample
+        // given - a dynamic-groups plan matching the worked sample in the WIKI chapter
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, 6900000L,
                 1450000L, 412, false);
@@ -34,7 +34,7 @@ class DistributedRunPlanSummaryTest {
         // when
         String json = summary.toJson();
 
-        // then - every field, in the exact order and shape the spec fixes
+        // then - every field, in the exact order and shape the published contract fixes
         String expected = "{\n"
                 + "  \"runId\": \"gh-1284471\",\n"
                 + "  \"branch\": \"main\",\n"
@@ -239,11 +239,11 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
-     * Verifies finding 5's fix: the console summary's max-groups miss reason names the exact same
+     * Verifies that the console summary's max-groups miss reason names the exact same
      * wording {@link DistributedRunPreviewFormatter#formatPreview} uses for its "lever:" line for
      * the identical grouping outcome, so a developer who saw a miss explained in the {@code
      * select-tests} preview sees the identical explanation once {@code tia-dist-plan} persists the
-     * real plan - the spec's "prints the same" requirement, extended to the miss reasons.
+     * real plan - the "prints the same" requirement, extended to the miss reasons.
      */
     @Test
     void toConsoleSummary_maxGroupsMissReason_matchesPreviewFormatterWording() {
@@ -266,7 +266,7 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
-     * Verifies finding 5's fix for the second miss reason: the console summary's single-suite miss
+     * Verifies the same for the second miss reason: the console summary's single-suite miss
      * reason names the exact same wording the preview formatter uses.
      */
     @Test

@@ -120,7 +120,7 @@ class TestGroupBalancerDynamicGroupsTest {
      * scatter the remaining suites over an extra runner for no gain: the build takes 15 either
      * way, so the cheaper plan is the correct one. Also verifies that this exact situation - one
      * suite alone longer than the target - is surfaced through singleSuiteExceedsTarget, which is
-     * what lets stage 4 explain the miss instead of leaving the user to raise a ceiling that will
+     * what lets the planner explain the miss instead of leaving the user to raise a ceiling that will
      * never help.
      */
     @Test
@@ -227,7 +227,7 @@ class TestGroupBalancerDynamicGroupsTest {
 
     /**
      * Verify an empty selection produces a single empty group rather than zero groups or a
-     * failure. A build where Tia selects nothing is normal, and stage 4 still needs a plan shape
+     * failure. A build where Tia selects nothing is normal, and the planner still needs a plan shape
      * to write.
      */
     @Test
@@ -320,7 +320,7 @@ class TestGroupBalancerDynamicGroupsTest {
 
     /**
      * Verify each group's reported group number equals its index in the returned groups list.
-     * Stage 4 keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
+     * The planner keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
      * silently misfile a group's suites under the wrong runner.
      */
     @Test

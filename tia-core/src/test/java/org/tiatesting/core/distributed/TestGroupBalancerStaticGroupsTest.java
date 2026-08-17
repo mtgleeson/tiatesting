@@ -112,7 +112,7 @@ class TestGroupBalancerStaticGroupsTest {
 
     /**
      * Verify a group count larger than the number of suites still returns that many groups, with
-     * the surplus empty. Stage 4 turns every group into a runner, so silently returning fewer
+     * the surplus empty. The planner turns every group into a runner, so silently returning fewer
      * would make the plan disagree with the fan-out count the pipeline was given.
      */
     @Test
@@ -193,7 +193,7 @@ class TestGroupBalancerStaticGroupsTest {
 
     /**
      * Verify each group's reported group number equals its index in the returned groups list.
-     * Stage 4 keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
+     * The planner keys a Map<Integer, List<String>> off getGroupNumber(), so a mismatch there would
      * silently misfile a group's suites under the wrong runner.
      */
     @Test

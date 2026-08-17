@@ -72,7 +72,7 @@ class GroupingResultTest {
 
     /**
      * Verifies that the constructor rejects a group list whose group numbers do not match their
-     * position. Stage 4 keys a {@code Map<Integer, List<String>>} off
+     * position. The planner keys a {@code Map<Integer, List<String>>} off
      * {@link SuiteGroup#getGroupNumber()}, so two groups sharing a number would silently collapse
      * to one key and drop a group's suites from the plan.
      */

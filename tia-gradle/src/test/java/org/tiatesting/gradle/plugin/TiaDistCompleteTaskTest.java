@@ -38,9 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link TiaDistCompleteTask}: the daemon-side finalizer that completes a runner's
- * claimed group and, when elected, seals a distributed run. Covers stage 9's task 2b - the Gradle
- * half of the completion step already covered on the Maven side by {@code
- * AbstractTiaDistCompleteMojo}.
+ * claimed group and, when elected, seals a distributed run. This is the Gradle half of the
+ * completion step, mirrored on the Maven side by {@code AbstractTiaDistCompleteMojo}.
  *
  * <p>Driven directly against a real embedded-H2 {@link JdbcDataStore}, the same fixture style
  * {@link org.tiatesting.spock.git.gradle.plugin.TiaSpockGitGradlePluginTestExtensionDistributedTest}

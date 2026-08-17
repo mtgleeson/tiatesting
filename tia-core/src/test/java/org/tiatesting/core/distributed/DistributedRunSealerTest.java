@@ -415,7 +415,7 @@ class DistributedRunSealerTest {
     }
 
     /**
-     * <b>The test this stage's ordering exists for.</b> Two runners persist through the real
+     * <b>The test the catalogue-rebuild ordering exists for.</b> Two runners persist through the real
      * {@link TestRunnerService} flow, one after the other, each covering a method only its own
      * suites reach. The method reachable only from the group that finishes <em>last</em> must be in
      * the catalogue once the build is sealed.

@@ -23,10 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers the three Gradle-side fixes from the stage 4b final review: the {@code tia.buildDir}
- * extension property (finding 2), the {@code tia.distributed} master switch (finding 3), and the
- * {@code tia-select-tests} grouping preview never throwing out of {@code doLast} on a
- * misconfigured distributed run (finding 1).
+ * Covers the three Gradle-side pieces of distributed-run configuration: the {@code tia.buildDir}
+ * extension property, the {@code tia.distributed} master switch, and the {@code tia-select-tests}
+ * grouping preview never throwing out of {@code doLast} on a misconfigured distributed run.
  */
 class TiaBasePluginDistributedTest {
 
@@ -66,7 +65,7 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies finding 2's fix: {@link TiaBasePlugin#getTiaBuildDir()} falls back to {@code
+     * Verifies that {@link TiaBasePlugin#getTiaBuildDir()} falls back to {@code
      * <project build dir>/tia} when {@code tia.buildDir} is not configured, matching the
      * pre-existing hardcoded behaviour so nothing breaks for projects that never set the property.
      */
@@ -86,7 +85,7 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies finding 2's fix: a configured {@code tia.buildDir} overrides the computed default,
+     * Verifies that a configured {@code tia.buildDir} overrides the computed default,
      * the Gradle analog of Maven's {@code -DtiaBuildDir=...} - the lever a multi-project pipeline
      * needs when the plugin is applied to a subproject and the plan file must land at a predictable
      * path.
@@ -107,10 +106,9 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies finding 3's fix: {@code tia.distributed} round-trips through the extension and is
-     * readable via {@link TiaBasePlugin#getDistributed()}, the master switch stage 5's claim
-     * protocol branches on - previously readable on Maven ({@code isTiaDistributed()}) but absent
-     * entirely on Gradle.
+     * Verifies that {@code tia.distributed} round-trips through the extension and is readable via
+     * {@link TiaBasePlugin#getDistributed()}, the master switch the claim protocol branches on -
+     * readable on Maven ({@code isTiaDistributed()}) but for a time absent entirely on Gradle.
      */
     @Test
     void distributed_roundTripsOnExtensionAndPlugin(@TempDir File projectDir) {
@@ -141,11 +139,11 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies finding 1's fix at the Gradle entry point: {@link
+     * Verifies at the Gradle entry point that {@link
      * TiaBasePlugin#printDistributedRunPreviewIfConfigured} with a distributed grouping
      * configuration that {@link org.tiatesting.core.distributed.DistributedRunPlanner#balance}
-     * rejects (both a fixed group count and a max-group ceiling, in the same shape finding 1
-     * describes for a shared-parent-pom mistake) does not throw out of what would otherwise be a
+     * rejects (both a fixed group count and a max-group ceiling, the shape a shared parent pom
+     * makes easy to produce) does not throw out of what would otherwise be a
      * {@code doLast} closure - it prints a skip notice instead and lets {@code tia-select-tests}
      * complete normally.
      */
@@ -216,7 +214,7 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies the carried-over Task 1 fix at the Gradle {@code createSelectTestsTask} branch this
+     * Verifies the seed-run handling at the Gradle {@code createSelectTestsTask} branch this
      * class tests indirectly: {@link TiaBasePlugin#printDistributedRunPreviewIfConfigured} still
      * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
      * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection

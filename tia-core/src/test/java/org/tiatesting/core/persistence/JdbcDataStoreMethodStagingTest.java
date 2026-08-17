@@ -30,8 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Cover the {@code tia_distributed_run_method_stage} staging operations against embedded H2:
  * writing one runner's observed method trackers, unioning several runners' writes for the same
- * run, and clearing a run's staged rows once the sealer has consumed them. Stage 1 created the
- * table; this class exercises the read/write/delete operations added in this task.
+ * run, and clearing a run's staged rows once the sealer has consumed them. The table itself is
+ * created by the distributed-run schema bootstrap; this class exercises its read/write/delete
+ * operations.
  */
 class JdbcDataStoreMethodStagingTest {
 

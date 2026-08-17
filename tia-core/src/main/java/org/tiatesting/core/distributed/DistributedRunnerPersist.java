@@ -77,8 +77,9 @@ public final class DistributedRunnerPersist {
      * the group it claimed. A false answer means the run was superseded - a newer build's plan
      * write cleared these rows - or the group has moved on to another runner, and the caller must
      * then write <b>nothing</b>: not the suite mapping, not the staged trackers, not the failed
-     * set. This is the straggler protection from the spec, and the failure it prevents (rows from
-     * an old commit sitting under a newer stored commit) is the one failure mode Tia must not have.
+     * set. This is the straggler protection described in the "Distributed test runs" WIKI chapter,
+     * and the failure it prevents (rows from an old commit sitting under a newer stored commit) is
+     * the one failure mode Tia must not have.
      *
      * <p>Read-only by necessity, since the guarded write that would prove the same thing atomically
      * is the completion, and the completion has to come last. That leaves a window between this

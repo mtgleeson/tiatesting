@@ -365,7 +365,7 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verifies task 1's core fix: planning a selection with {@code runAllTests == true} - the
+     * Verifies that planning a selection with {@code runAllTests == true} - the
      * shape {@code TestSelector.selectTestsToIgnore} returns on a fresh branch with no stored
      * mapping - persists exactly one group with an empty suite list, ignoring the configured
      * group count entirely, rather than throwing or silently persisting N empty groups. Asserts
@@ -550,7 +550,7 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verifies finding 1's fix directly: {@link DistributedRunPlanner#balance} now rejects
+     * Verifies directly that {@link DistributedRunPlanner#balance} rejects
      * {@code maxGroups} combined with a fixed {@code groupCount} - a shape {@link
      * org.tiatesting.core.distributed.TestGroupBalancer} alone never checked - because it shares
      * {@link DistributedRunConfig#validateGroupingShape} with {@link DistributedRunConfig#validated}.
@@ -594,7 +594,7 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verifies the heart of finding 1: {@link DistributedRunPlanner#balance} (the preview's entry
+     * Verifies that {@link DistributedRunPlanner#balance} (the preview's entry
      * point) and {@link DistributedRunConfig#validated} (the real plan's entry point) reject the
      * exact same invalid shape - both groupCount and targetRunTimeMs set - with the exact same
      * message, so a preview can never say a configuration is fine when the real plan would then
@@ -603,7 +603,7 @@ class DistributedRunPlannerTest {
     @Test
     void balance_and_validated_agreeOnBothSetErrorMessage() {
         // given - both groupCount and targetRunTimeMs set, the exact preview-vs-plan mismatch
-        // finding 1 describes
+        // this guards against
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
@@ -721,7 +721,7 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verifies the pre-existing case is unaffected by the finding 4 fix: a previous run with at
+     * Verifies the pre-existing case is unaffected by the run-status check: a previous run with at
      * least one group that never reached {@code COMPLETED} still returns a populated list naming
      * it, regardless of the run's own status.
      */
