@@ -100,6 +100,10 @@ public final class DistributedRunCoordinator {
         }
 
         String runnerKey = resolveRunnerKey();
+        log.debug("Distributed run '{}': claiming as runner '{}' ({}). The plan was built against "
+                        + "commit '{}', which this workspace matches.", config.getRunId(), runnerKey,
+                config.getRunnerKey() == null ? "derived from run id, host and pid"
+                        : "configured via tiaDistributedRunnerKey", planCommitValue);
         DistributedRunGroup group = dataStore.claimNextPendingGroup(config.getRunId(), runnerKey,
                 claimedAtMs);
 
@@ -112,8 +116,18 @@ public final class DistributedRunCoordinator {
             return ClaimOutcome.nothingToClaim(runnerKey);
         }
 
-        log.info("Runner '{}' claimed group {} of {} in distributed run '{}'.",
-                runnerKey, group.getGroupNumber(), run.getGroupCount(), config.getRunId());
+        if (group.getClaimedAtMs() != null && group.getClaimedAtMs() != claimedAtMs) {
+            // The claim protocol handed this runner back a group it already held rather than a
+            // fresh one, which is how a retried CI job resumes its own work instead of taking a
+            // second group. Worth naming: it is the difference between a retry and a double claim.
+            log.info("Runner '{}' already held group {} of {} in distributed run '{}' and was "
+                            + "handed it back rather than claiming another - this is a re-run of a "
+                            + "job that had already claimed.",
+                    runnerKey, group.getGroupNumber(), run.getGroupCount(), config.getRunId());
+        } else {
+            log.info("Runner '{}' claimed group {} of {} in distributed run '{}'.",
+                    runnerKey, group.getGroupNumber(), run.getGroupCount(), config.getRunId());
+        }
         return ClaimOutcome.claimed(group, runnerKey);
     }
 

@@ -1,5 +1,8 @@
 package org.tiatesting.core.distributed;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -23,6 +26,8 @@ import java.util.Map;
  * same selection would be undebuggable.
  */
 public final class TestGroupBalancer {
+
+    private static final Logger log = LoggerFactory.getLogger(TestGroupBalancer.class);
 
     private TestGroupBalancer() { }
 
@@ -83,6 +88,27 @@ public final class TestGroupBalancer {
      */
     public static GroupingResult balanceIntoGroups(final Map<String, Long> suiteWeightsMs,
                                                    final int groupCount) {
+        GroupingResult result = lptIntoGroups(suiteWeightsMs, groupCount);
+        log.debug("Distributed run grouping (fixed count): balanced {} suite(s) into {} group(s) "
+                        + "by longest-processing-time, heaviest group {}ms.",
+                suiteWeightsMs.size(), groupCount, result.getHeaviestGroupMs());
+        logGroupAssignment(result);
+        return result;
+    }
+
+    /**
+     * Run the longest-processing-time balance itself, without logging the resulting assignment.
+     * Split out from {@link #balanceIntoGroups} so the target-run-time path can use it as a
+     * candidate re-balance - which it may then discard - without that discarded candidate being
+     * logged as if it were the plan.
+     *
+     * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
+     * @param groupCount how many groups to produce; must be at least 1
+     * @return the grouping, always reporting the target as met and not clamped
+     * @throws IllegalArgumentException if {@code groupCount} is below 1
+     */
+    private static GroupingResult lptIntoGroups(final Map<String, Long> suiteWeightsMs,
+                                                final int groupCount) {
         if (groupCount < 1) {
             throw new IllegalArgumentException("groupCount must be at least 1, was " + groupCount);
         }
@@ -143,7 +169,9 @@ public final class TestGroupBalancer {
         requireNoNullWeights(suiteWeightsMs);
 
         if (suiteWeightsMs.isEmpty()) {
-            return balanceIntoGroups(suiteWeightsMs, 1);
+            log.debug("Distributed run grouping (dynamic): nothing was selected, so the plan is a "
+                    + "single empty group.");
+            return lptIntoGroups(suiteWeightsMs, 1);
         }
 
         long heaviestSuiteMs = 0L;
@@ -170,7 +198,7 @@ public final class TestGroupBalancer {
                     false, clampedToMaxGroups, singleSuiteExceedsTarget);
             // FFD fills groups to capacity; LPT spreads them. Same group count either way, so
             // take whichever finishes sooner. It is not always LPT - see the nine-suite case.
-            GroupingResult rebalanced = balanceIntoGroups(suiteWeightsMs, groupCount);
+            GroupingResult rebalanced = lptIntoGroups(suiteWeightsMs, groupCount);
             if (rebalanced.getHeaviestGroupMs() < packing.getHeaviestGroupMs()) {
                 packing = rebalanced;
             }
@@ -178,12 +206,48 @@ public final class TestGroupBalancer {
             // Clamped below what the packing needed. FFD's bins do not fit in the reduced count,
             // so there is nothing to compare against: minimising the heaviest group is now the
             // whole objective, which is exactly what LPT does.
-            packing = balanceIntoGroups(suiteWeightsMs, groupCount);
+            packing = lptIntoGroups(suiteWeightsMs, groupCount);
         }
 
         boolean targetMet = packing.getHeaviestGroupMs() <= targetRunTimeMs;
+
+        log.debug("Distributed run grouping (dynamic): packed {} suite(s) against a target of {}ms "
+                        + "into {} group(s), heaviest {}ms. First-fit needed {} group(s); ceiling "
+                        + "{}; heaviest single suite {}ms. Target met: {}.", suiteWeightsMs.size(),
+                targetRunTimeMs, packing.getGroups().size(), packing.getHeaviestGroupMs(),
+                bins.size(), maxGroups == null ? "none" : maxGroups, heaviestSuiteMs, targetMet);
+        if (clampedToMaxGroups) {
+            log.debug("Distributed run grouping: the ceiling of {} group(s) bound the plan - "
+                            + "first-fit wanted {} to hit the target.", maxGroups, bins.size());
+        }
+        if (singleSuiteExceedsTarget) {
+            log.debug("Distributed run grouping: the heaviest single suite takes {}ms, longer than "
+                            + "the {}ms target, so no group count can reach the target and the "
+                            + "suites were packed to the achievable floor of {}ms instead.",
+                    heaviestSuiteMs, targetRunTimeMs, capacityMs);
+        }
+        logGroupAssignment(packing);
+
         return new GroupingResult(packing.getGroups(), targetMet, clampedToMaxGroups,
                 singleSuiteExceedsTarget);
+    }
+
+    /**
+     * Log which suites each group of the chosen plan owns, so a build whose runners took wildly
+     * different times can be traced back to the assignment that produced them. At DEBUG because
+     * the suite names are unbounded - a large selection would otherwise dominate the build output.
+     *
+     * @param result the grouping that was chosen, not a candidate that was discarded
+     */
+    private static void logGroupAssignment(final GroupingResult result) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        for (SuiteGroup group : result.getGroups()) {
+            log.debug("Distributed run grouping: group {} gets {} suite(s), ~{}ms: {}",
+                    group.getGroupNumber(), group.getSuiteNames().size(), group.getEstimatedMs(),
+                    group.getSuiteNames());
+        }
     }
 
     /**

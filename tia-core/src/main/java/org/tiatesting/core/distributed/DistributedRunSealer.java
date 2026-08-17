@@ -182,6 +182,18 @@ public final class DistributedRunSealer {
         // every later savings figure, towards nothing.
         boolean allTestsRun = totals.getSuitesRan() > 0 && ignoredSuiteCount == 0;
 
+        // Logged unconditionally, and with both inputs, because a wrong answer here is silent and
+        // expensive: a false "all tests run" folds a partial build into the full-suite baseline and
+        // advances every tracked library's mapping baseline, under-selecting on later builds with
+        // nothing in the output to show why.
+        log.info("Distributed run '{}': the build ran {} suite(s) across {} group(s) and left {} "
+                        + "tracked suite(s) unrun, so it {} count as a full run of every test.",
+                context.getRunId(), totals.getSuitesRan(), totals.getGroupCount(), ignoredSuiteCount,
+                allTestsRun ? "DOES" : "does not");
+        log.info("Distributed run '{}': serial-equivalent duration {}ms (the figure the stats and "
+                        + "savings use), wall clock {}ms (the slowest group).", context.getRunId(),
+                totals.getSerialDurationMs(), totals.getWallClockMs());
+
         TiaData tiaData = dataStore.getTiaCore();
         seal(tiaData, commitValue, branch, updateDBMapping, updateDBStats, totals, allTestsRun);
 

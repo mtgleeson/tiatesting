@@ -119,6 +119,15 @@ public final class DistributedRunPlanner {
 
         dataStore.persistDistributedRunPlan(runPlan);
 
+        // The one line that says what the pipeline must now do. The console summary and
+        // tia-run-plan.json carry the same facts, but only for the tia-dist-plan step's own
+        // output - this reaches whatever log a CI system actually keeps.
+        log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) split "
+                        + "across {} group(s), estimated {}ms in total with the heaviest group at "
+                        + "{}ms. Start {} runner job(s).", config.getRunId(), branch, commitValue,
+                selectedSuiteCount, result.getGroupCount(), result.getTotalEstimatedMs(),
+                result.getHeaviestGroupMs(), result.getGroupCount());
+
         return new DistributedRunPlanSummary(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), runPlan.getRun().getTargetRunTimeMs(), result.isTargetMet(),
                 result.isClampedToMaxGroups(), result.isSingleSuiteExceedsTarget(),
