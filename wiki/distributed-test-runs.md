@@ -16,8 +16,8 @@ JVM so JaCoCo can attribute coverage to the right suite (see "Multi-fork persist
 [persist flow and crash safety](persist-flow-and-crash-safety.md) chapter).
 
 This chapter covers the mechanism. For setting a distributed run up - the `dist-plan` /
-`dist-complete` goals, the six configuration properties and their Gradle equivalents, and a
-copy-paste CI pipeline - see the README's
+`dist-complete` / `dist-status` goals, the configuration properties and their Gradle equivalents,
+and a copy-paste CI pipeline - see the README's
 [Distributed test runs](../README.md#distributed-test-runs) section.
 
 The run's state lives in four tables - `tia_distributed_run` (one row per logical build),
@@ -611,8 +611,9 @@ UPDATE tia_distributed_run_group SET status = 'COMPLETED', completed_at = ?
 ```
 
 In words: **a group may only complete once it has observed at least as many suites as the plan
-assigned to it.** This is what stands in for the crash protection a JVM shutdown hook used to
-provide. Without it, a JVM killed mid-run (SIGKILL, OOM) after reporting only part of its group
+assigned to it.** Those are the two numbers the status command puts side by side as its `Observed`
+and `Assigned` columns, since they are what a run's progress actually comes down to. This is what
+stands in for the crash protection a JVM shutdown hook used to provide. Without it, a JVM killed mid-run (SIGKILL, OOM) after reporting only part of its group
 could still have its group completed by the build tool step, and the build would seal on a catalogue
 missing whatever that JVM never got to run.
 
@@ -638,8 +639,12 @@ You will meet this as: the tests all ran, the pipeline is green (or one runner i
 `tia_distributed_run.status` is still `OPEN` and the stored commit value has not moved.
 
 **What it means: at least one group never reached `COMPLETED`.** The barrier in `electSealer` never
-opened, so nobody was elected and nothing was sealed. Look at `tia_distributed_run_group` and find
-the groups that are not `COMPLETED`:
+opened, so nobody was elected and nothing was sealed. The status command reports exactly this -
+`mvn <plugin>:dist-status`, or `gradle tia-dist-status` - and its outstanding block names each
+group still in the way along with what to do about it. It reads the same rows this section
+describes, so what follows is what it is telling you.
+
+Reading `tia_distributed_run_group` directly instead, the groups that are not `COMPLETED` are:
 
 | Group state | What happened |
 |---|---|

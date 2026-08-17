@@ -738,6 +738,7 @@ gradle tia-text-report
 |tiaDistributedTargetRunTime|distributedTargetRunTime|<milliseconds>|Work out how many groups are needed to bring the wall-clock test time under this target, and use the fewest that do. Mutually exclusive with `tiaDistributedGroupCount`. Meeting the target is best effort - see [Distributed test runs](#distributed-test-runs).| |one of the two|
 |tiaDistributedMaxGroups|distributedMaxGroups|<integer>|Ceiling on the number of groups when balancing for `tiaDistributedTargetRunTime`. A spend limit, not a goal - Tia uses the fewest groups that meet the target, not this many. Rejected alongside a fixed `tiaDistributedGroupCount`, where it would be meaningless.| no ceiling |false|
 |tiaDistributedRunnerKey|distributedRunnerKey|<string>|Per-runner identity used by the claim protocol to tell concurrent runners apart. Set it to something **stable across job retries** (a CI matrix index) so a retried job is handed back its own group instead of claiming a second one.| derived from run id + hostname + pid |false|
+|tiaDistStatusSuites|N/A (`--suites`)|true, false|Used only by the status command ([Maven `dist-status`, Gradle `tia-dist-status`](#status---inspect-a-run-in-flight)). When true, also lists the test suite names assigned to each group. Off by default because the list is unbounded. On Gradle this is the `--suites` command-line flag rather than an extension property.| false |false|
 |tiaStaticTestSelectionRules|staticTestSelectionRules|nested list of rules|User-declared rules of the form "if a changed file matches this path regex, force-run these suites". Used for change drivers Tia's coverage-driven mapping can't see (SQL migrations, properties, schema files). Rules are additive: their selected suites are unioned into the suites already selected from the coverage mapping. See [Static test selection rules](#static-test-selection-rules) below for the configuration syntax.| empty (no rules)                                                                              |false|
 
 ## Static test selection rules
@@ -828,6 +829,8 @@ Three job types, in order:
 2. **Run** - N jobs, each running the tests normally with `tiaDistributed=true` and the same `tiaRunId`. Each claims one group.
 3. **Complete** - each runner job runs `dist-complete` **whatever the test result**.
 
+A fourth command, `dist-status`, sits outside that order: it is read-only, and reports the state of a run at any point during or after it. See [Status - inspect a run in flight](#status---inspect-a-run-in-flight).
+
 Step 3 is not optional on Maven, and it is the one thing people get wrong. A test failure aborts the Maven lifecycle, so a completion chained onto the same command never runs on exactly the runners you most need it from. The group stays `CLAIMED`, the barrier never opens, and the whole build's mapping work is discarded. Give it its own always-run step. On Gradle no pipeline change is needed - the completion task is a `finalizedBy` finalizer, and finalizers run even when the task they finalize fails.
 
 ### Plan - split the selection into groups
@@ -882,6 +885,57 @@ mvn tia-junit5-git:dist-complete
 ```
 
 It is safe to run unconditionally: on a build that was not distributed there is nothing to complete, and it logs that and exits successfully. It reads the run id, runner key and group number back out of the build directory rather than re-deriving them - a runner key it derived for itself would carry a different process id, match no claimed row, and leave the group open forever. Its own configuration only has to supply `tiaEnabled`, `tiaBuildDir` and the database connection settings, which normally already live in your pom.
+
+### Status - inspect a run in flight
+
+Prints the state of a distributed run: the run itself, every group in its plan, and the runner that claimed each one. Read-only - it claims, completes, seals and clears nothing - so it is safe to run against a build whose runners are still going, from your own machine or from a CI step watching the fan-out.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-status [-DtiaRunId=$CI_RUN_ID] [-DtiaDistStatusSuites=true]
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-dist-status [--runId=$CI_RUN_ID] [--suites]
+```
+
+With no run id it reports the most recently planned run, which is normally the only one - each plan write clears the previous run's rows. It only needs `tiaEnabled` and the same database connection settings the runners coordinate through; pointed at a private embedded database it simply finds no run planned, and says so. It never fails the build, so a pipeline can run it unconditionally.
+
+```
+Distributed run 'gh-1284471'
+  Branch:     main
+  Commit:     51e8970a3f2b
+  Status:     OPEN - 1 of 3 group(s) completed
+  Planned:    2026-08-17 20:48:29 (10m 5s ago)
+  Target:     2m
+  Estimated:  4m 33s of test time across 3 group(s)
+  Sealed:     not sealed (open for 10m 5s)
+
+Groups:
+
+Group | Status    | Runner   | Assigned | Observed | Ran | Failed | Estimated | Actual | Elapsed
+------+-----------+----------+----------+----------+-----+--------+-----------+--------+--------
+0     | COMPLETED | ci-job-1 | 2        | 2        | 2   | 0      | 1m 30s    | 1m 28s | 1m 30s
+1     | CLAIMED   | ci-job-2 | 1        | 0        | 0   | 0      | 1m 31s    | 40s    | 9m 58s
+2     | PENDING   | -        | 2        | -        | -   | -      | 1m 32s    | -      | -
+
+  Assigned = suites the plan gave this group; Observed = suites its runner saw finish or skip.
+  A group completes once Observed reaches Assigned, and the run seals once every group completes.
+  Actual = measured test-execution time; Elapsed = wall clock since the group was claimed.
+
+This run is not sealed yet. Outstanding:
+  Group 1: CLAIMED by 'ci-job-2' (running for 9m 58s) - observed 0 of 1 assigned suite(s).
+  Group 2: PENDING - no runner has claimed it. The pipeline fanned out fewer jobs than
+    the plan's 3 group(s), so nothing will ever complete this one and the run cannot seal.
+```
+
+The two columns to read together are **Assigned** and **Observed**: a group completes when Observed reaches Assigned, and the run seals when every group completes, so that comparison is what a run stuck in `OPEN` comes down to. The outstanding block names each group still standing in the way, and calls out the two states worth acting on:
+
+- **A `PENDING` group** means no runner ever claimed it - your matrix fanned out fewer jobs than the plan has groups. Nothing will complete it on its own. Size the matrix from `groupCount` in `tia-run-plan.json`.
+- **Every group `COMPLETED` but the run still `OPEN`** means the barrier was reached and the seal itself failed. The next build's plan step will clear these rows and redo the work.
+
+A seed run's single group shows `all` in the Assigned column rather than `0`: its plan carries no suite names, because there is no mapping yet to draw them from, while its runner executes every suite it discovers.
 
 ### Full example (GitHub Actions)
 
