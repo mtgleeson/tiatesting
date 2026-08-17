@@ -487,13 +487,14 @@ public class SerializedDataStore implements DataStore {
      * @param suitesRan ignored
      * @param suitesFailed ignored
      * @param suitesObserved ignored
+     * @param suitesDurationMs ignored
      * @return never returns
      * @throws UnsupportedOperationException always
      */
     @Override
     public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                        long actualDurationMs, int suitesRan, int suitesFailed,
-                                       int suitesObserved) {
+                                       int suitesObserved, long suitesDurationMs) {
         throw new UnsupportedOperationException(
                 "Distributed test runs require a shared database (server-mode H2 or Postgres)");
     }

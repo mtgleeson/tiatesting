@@ -142,6 +142,7 @@ erDiagram
         INT suites_ran
         INT suites_failed
         INT suites_observed
+        BIGINT suites_duration_ms
     }
 
     tia_distributed_run_group_suite {
@@ -212,8 +213,10 @@ and the plan write clears all four as a set before inserting, rather than relyin
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
   figures each persist accumulates. `suites_observed` is the one the completeness guard reads -
-  see the "Distributed test runs" chapter for why it is not `suites_ran`. Indexed on
-  (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
+  see the "Distributed test runs" chapter for why it is not `suites_ran`. `suites_duration_ms` is
+  the share of `actual_duration_ms` that went on named suites; the remainder is the runner's fixed
+  per-JVM overhead, which the sealer charges once for the build rather than once per group. Indexed
+  on (`run_id`, `status`) for the claim's lowest-`PENDING` lookup.
 - **tia_distributed_run_group_suite** - the plan's assignment: which suite names belong to which
   group. Also the denominator the completeness guard counts.
 - **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the

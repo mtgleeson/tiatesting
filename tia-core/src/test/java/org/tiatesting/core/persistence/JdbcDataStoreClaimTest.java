@@ -191,7 +191,7 @@ class JdbcDataStoreClaimTest {
         persistPlanWithGroups("run-1", 3);
         DistributedRunGroup firstClaim = dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
         assertTrue(dataStore.reportGroupProgress("run-1", firstClaim.getGroupNumber(), "runner-a",
-                        1000L, 1, 0, 1),
+                        1000L, 1, 0, 1, 0L),
                 "test setup expects the progress report to be accepted");
         assertNotNull(dataStore.completeGroup("run-1", firstClaim.getGroupNumber(), "runner-a", 6000L),
                 "test setup expects the completion to be accepted");

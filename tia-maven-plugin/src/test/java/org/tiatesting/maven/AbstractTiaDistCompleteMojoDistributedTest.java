@@ -119,7 +119,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
     private void claimAndObserveGroupZero(final String runId, final String runnerKey) {
         try (DataStore dataStore = openStore()) {
             dataStore.claimNextPendingGroup(runId, runnerKey, 5000L);
-            dataStore.reportGroupProgress(runId, 0, runnerKey, 1000L, 1, 0, 1);
+            dataStore.reportGroupProgress(runId, 0, runnerKey, 1000L, 1, 0, 1, 0L);
         }
     }
 

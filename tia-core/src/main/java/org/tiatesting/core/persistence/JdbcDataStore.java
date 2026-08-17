@@ -110,6 +110,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SUITES_RAN = "suites_ran";
     private static final String COL_SUITES_FAILED = "suites_failed";
     private static final String COL_SUITES_OBSERVED = "suites_observed";
+    private static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
     private static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
 
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
@@ -1500,8 +1501,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
                 + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED + ", "
-                + COL_SUITES_OBSERVED
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + COL_SUITES_OBSERVED + ", " + COL_SUITES_DURATION_MS
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
 
@@ -1552,6 +1553,7 @@ public class JdbcDataStore implements DataStore {
                         statement.setInt(9, group.getSuitesRan());
                         statement.setInt(10, group.getSuitesFailed());
                         statement.setInt(11, group.getSuitesObserved());
+                        statement.setLong(12, group.getSuitesDurationMs());
                         statement.addBatch();
                     }
                     statement.executeBatch();
@@ -2078,7 +2080,13 @@ public class JdbcDataStore implements DataStore {
      * {@code = ?} replace is what keeps a same-JVM retry's report from ever regressing the stored
      * value below an earlier, more-complete one; see {@link DataStore#reportGroupProgress} for the
      * precondition this still assumes (one JVM per group) and what several JVMs reporting against
-     * the same group do to it.
+     * the same group do to it. {@code suites_duration_ms} is written the same way and for the same
+     * reason: it is summed from the JVM's shared suite-tracker map, which already carries every
+     * suite timed by every test plan this JVM has made, so a retry re-reports the same total rather
+     * than a fresh increment - accumulating it would double-count the first attempt's suites while
+     * {@code actual_duration_ms} legitimately grows by the retry's own window. That asymmetry is
+     * deliberate: it is what leaves a retry's cost outside the suite-attributable total and inside
+     * the group's overhead remainder.
      *
      * <p>Calls {@link #ensureSchema(Connection)} first, since reporting progress could be the
      * first contact any caller in this process makes with a freshly created per-branch schema.
@@ -2095,17 +2103,22 @@ public class JdbcDataStore implements DataStore {
      *                       skipped), written as the greater of this value and whatever was already
      *                       stored - not summed, since the caller's own set is already cumulative
      *                       across retries
+     * @param suitesDurationMs the summed measured run time of every suite this runner has timed so
+     *                         far, written as the greater of this value and whatever was already
+     *                         stored - not summed, for the same reason as {@code suitesObserved}
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
     @Override
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final int suitesObserved) {
+                                       final int suitesFailed, final int suitesObserved,
+                                       final long suitesDurationMs) {
         String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
                 + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = COALESCE("
                 + COL_SUITES_RAN + ", 0) + ?, " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_OBSERVED
-                + " = GREATEST(COALESCE(" + COL_SUITES_OBSERVED + ", 0), ?) WHERE " + COL_RUN_ID + " = ? AND "
+                + " = GREATEST(COALESCE(" + COL_SUITES_OBSERVED + ", 0), ?), " + COL_SUITES_DURATION_MS
+                + " = GREATEST(COALESCE(" + COL_SUITES_DURATION_MS + ", 0), ?) WHERE " + COL_RUN_ID + " = ? AND "
                 + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
 
         try (Connection connection = getConnection()) {
@@ -2116,10 +2129,11 @@ public class JdbcDataStore implements DataStore {
                 statement.setInt(2, suitesRan);
                 statement.setInt(3, suitesFailed);
                 statement.setInt(4, suitesObserved);
-                statement.setString(5, runId);
-                statement.setInt(6, groupNumber);
-                statement.setString(7, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(8, runnerKey);
+                statement.setLong(5, suitesDurationMs);
+                statement.setString(6, runId);
+                statement.setInt(7, groupNumber);
+                statement.setString(8, DistributedRunGroupStatus.CLAIMED.name());
+                statement.setString(9, runnerKey);
                 return statement.executeUpdate() == 1;
             }
         } catch (SQLException e) {
@@ -2317,7 +2331,8 @@ public class JdbcDataStore implements DataStore {
                 getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
                 resultSet.getInt(COL_SUITES_RAN),
                 resultSet.getInt(COL_SUITES_FAILED),
-                resultSet.getInt(COL_SUITES_OBSERVED));
+                resultSet.getInt(COL_SUITES_OBSERVED),
+                resultSet.getLong(COL_SUITES_DURATION_MS));
     }
 
     /**
@@ -3845,6 +3860,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_SUITES_RAN + " INT DEFAULT 0, "
                 + COL_SUITES_FAILED + " INT DEFAULT 0, "
                 + COL_SUITES_OBSERVED + " INT DEFAULT 0, "
+                + COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + "))";
     }
 
@@ -3935,14 +3951,36 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Ensure the four distributed-run tables, the group-status index and the additive {@code
-     * suites_observed} and {@code seed_run} columns exist. Idempotent via {@code CREATE TABLE/INDEX
-     * IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new
-     * database and backfills it onto a database created before distributed runs existed, before
-     * {@code suites_observed} was renamed from {@code suites_discovered}, or before {@code seed_run}
-     * was recorded on the run row.
+     * Build the migration that backfills the {@code tia_distributed_run_group.suites_duration_ms}
+     * column onto a group table created before the column existed. Idempotent via {@code ADD COLUMN
+     * IF NOT EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunGroupTableSql} just
+     * created, since that DDL already names the column. Without it, a store whose group table
+     * predates the column would fail the next plan write with "column not found" - {@code CREATE
+     * TABLE IF NOT EXISTS} alone never alters an already-existing table.
      *
-     * <p>All seven DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>Pre-existing rows default to 0, which reads as "no suite-time decomposition was recorded
+     * for this group". That is the safe way round: {@code DistributedRunTotals} treats a group that
+     * ran suites without one as un-decomposable and falls back to summing the group durations
+     * whole, which is the behaviour that predates the column. Reading 0 as "this group had no
+     * suite-attributable time" instead would make its entire duration look like fixed overhead.
+     *
+     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
+     */
+    private String buildAddSuitesDurationMsColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ADD COLUMN IF NOT EXISTS "
+                + COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0";
+    }
+
+    /**
+     * Ensure the four distributed-run tables, the group-status index and the additive {@code
+     * suites_observed}, {@code seed_run} and {@code suites_duration_ms} columns exist. Idempotent
+     * via {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both
+     * creates everything on a new database and backfills it onto a database created before
+     * distributed runs existed, before {@code suites_observed} was renamed from {@code
+     * suites_discovered}, before {@code seed_run} was recorded on the run row, or before {@code
+     * suites_duration_ms} split a group's duration into its suite-attributable and overhead parts.
+     *
+     * <p>All eight DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
      * or Postgres connection this collapses what would otherwise be seven wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
@@ -3959,6 +3997,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSuitesObservedColumnSql());
             statement.addBatch(buildAddSeedRunColumnSql());
+            statement.addBatch(buildAddSuitesDurationMsColumnSql());
             statement.executeBatch();
         }
     }

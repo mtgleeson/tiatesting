@@ -140,7 +140,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L));
         assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
@@ -187,7 +187,7 @@ class DistributedRunnerPersistTest {
         persistPlan("run-2", 1);
 
         // when
-        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, 2);
+        boolean applied = runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L);
 
         // then
         assertFalse(applied, "a progress report on a dead claim must report failure rather than "
@@ -245,7 +245,7 @@ class DistributedRunnerPersistTest {
         persistPlan(RUN_ID, 2);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
-        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2));
+        assertTrue(runnerPersist.reportGroupProgress(1000L, 2, 0, 2, 0L));
         assertNotNull(runnerPersist.completeGroup(6000L));
 
         // when
@@ -311,8 +311,8 @@ class DistributedRunnerPersistTest {
         // when - the first test plan reports 50 suites run (all 50 observed) with 3 failures; the
         // retry reports only 2 of its 3 remaining suites finishing (2 ran) while the observed count -
         // the JVM's cumulative total, not this call's own contribution - reaches 53
-        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, 50));
-        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, 53));
+        assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, 50, 0L));
+        assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, 53, 0L));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);

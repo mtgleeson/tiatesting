@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Execution-coverage test for the operations that close a distributed run -
- * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, int)},
+ * {@link DataStore#reportGroupProgress(String, int, String, long, int, int, int, 0L)},
  * {@link DataStore#completeGroup(String, int, String, long)},
  * {@link DataStore#electSealer(String, String, long)},
  * {@link DataStore#markDistributedRunSealed(String)} and the distributed columns on
@@ -187,7 +187,7 @@ class PostgresCompletionTest {
         // given
         persistPlanWithGroups("pg-complete-1", 2);
         postgresStore.claimNextPendingGroup("pg-complete-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-complete-1", 0, "runner-a", 4321L, 7, 2, 7));
+        assertTrue(postgresStore.reportGroupProgress("pg-complete-1", 0, "runner-a", 4321L, 7, 2, 7, 0L));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-complete-1", 0, "runner-a",
@@ -244,10 +244,10 @@ class PostgresCompletionTest {
         // given - attempt 1 runs 30 of 40 observed suites with 3 failures
         persistPlanWithOneGroupOfSuites("pg-progress-1", 40);
         postgresStore.claimNextPendingGroup("pg-progress-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 20_000L, 30, 3, 30));
+        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 20_000L, 30, 3, 30, 0L));
 
         // when - the retry re-runs only the 3 failures, all of which now pass
-        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 5_000L, 3, 0, 40));
+        assertTrue(postgresStore.reportGroupProgress("pg-progress-1", 0, "runner-a", 5_000L, 3, 0, 40, 0L));
 
         // then
         DistributedRunGroup stored = storedGroup("pg-progress-1", 0);
@@ -263,6 +263,36 @@ class PostgresCompletionTest {
     }
 
     /**
+     * Verify the suite-attributable share of a group's duration round-trips on Postgres and takes
+     * the same {@code GREATEST} treatment as the observed count rather than the {@code COALESCE +}
+     * treatment the duration itself takes. The column and its additive migration are new SQL here,
+     * not just a new parameter, and getting the accumulate-versus-replace split wrong would shrink
+     * every group's apparent overhead towards zero - which the sealer would then charge once as a
+     * near-zero correction, silently reverting to the plain sum it exists to replace.
+     */
+    @Test
+    void shouldNotAccumulateTheSuiteDurationAcrossTwoProgressReportsOnPostgres() {
+        // given - attempt 1 times 18s of suite work inside a 20s window
+        persistPlanWithOneGroupOfSuites("pg-suite-duration-1", 40);
+        postgresStore.claimNextPendingGroup("pg-suite-duration-1", "runner-a", 5000L);
+        assertTrue(postgresStore.reportGroupProgress("pg-suite-duration-1", 0, "runner-a", 20_000L,
+                30, 3, 30, 18_000L));
+
+        // when - the retry re-reports the same already-cumulative suite total in a fresh 5s window
+        assertTrue(postgresStore.reportGroupProgress("pg-suite-duration-1", 0, "runner-a", 5_000L,
+                3, 0, 40, 18_000L));
+
+        // then
+        DistributedRunGroup stored = storedGroup("pg-suite-duration-1", 0);
+        assertEquals(Long.valueOf(25_000L), stored.getActualDurationMs(),
+                "the duration still sums - the retry really did cost another 5s");
+        assertEquals(18_000L, stored.getSuitesDurationMs(),
+                "suites_duration_ms is already cumulative in the caller, so it must replace rather "
+                        + "than sum - 36000 here would mean it double-counted, and would leave the "
+                        + "group looking like it had 7s less overhead than it did");
+    }
+
+    /**
      * Verify the completeness guard blocks on Postgres, where it is a scalar subquery inside a
      * guarded {@code UPDATE}'s {@code WHERE} rather than a plain column comparison. A worker that
      * died partway through its group observed only 30 of its 50 assigned suites, so
@@ -274,7 +304,7 @@ class PostgresCompletionTest {
         // given - 50 assigned suites, a report covering only 30 of them
         persistPlanWithOneGroupOfSuites("pg-guard-1", 50);
         postgresStore.claimNextPendingGroup("pg-guard-1", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-guard-1", 0, "runner-a", 24_000L, 30, 0, 30));
+        assertTrue(postgresStore.reportGroupProgress("pg-guard-1", 0, "runner-a", 24_000L, 30, 0, 30, 0L));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-1", 0, "runner-a", 9000L);
@@ -296,7 +326,7 @@ class PostgresCompletionTest {
         // given - 50 assigned suites, all 50 observed but only 49 executed
         persistPlanWithOneGroupOfSuites("pg-guard-2", 50);
         postgresStore.claimNextPendingGroup("pg-guard-2", "runner-a", 5000L);
-        assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", 40_000L, 49, 0, 50));
+        assertTrue(postgresStore.reportGroupProgress("pg-guard-2", 0, "runner-a", 40_000L, 49, 0, 50, 0L));
 
         // when
         DistributedRunGroup completed = postgresStore.completeGroup("pg-guard-2", 0, "runner-a", 9000L);
@@ -319,7 +349,7 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-1", 2);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-1", "runner-b", 5100L);
-        postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", 100L, 1, 0, 1);
+        postgresStore.reportGroupProgress("pg-seal-1", 0, "runner-a", 100L, 1, 0, 1, 0L);
         postgresStore.completeGroup("pg-seal-1", 0, "runner-a", 9000L);
 
         // when
@@ -340,9 +370,9 @@ class PostgresCompletionTest {
         persistPlanWithGroups("pg-seal-2", 2);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-a", 5000L);
         postgresStore.claimNextPendingGroup("pg-seal-2", "runner-b", 5100L);
-        postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", 100L, 1, 0, 1);
+        postgresStore.reportGroupProgress("pg-seal-2", 0, "runner-a", 100L, 1, 0, 1, 0L);
         postgresStore.completeGroup("pg-seal-2", 0, "runner-a", 9000L);
-        postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", 200L, 1, 0, 1);
+        postgresStore.reportGroupProgress("pg-seal-2", 1, "runner-b", 200L, 1, 0, 1, 0L);
         postgresStore.completeGroup("pg-seal-2", 1, "runner-b", 9100L);
 
         // when

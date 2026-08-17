@@ -585,7 +585,7 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
                                            long actualDurationMs, int suitesRan, int suitesFailed,
-                                           int suitesObserved) {
+                                           int suitesObserved, long suitesDurationMs) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

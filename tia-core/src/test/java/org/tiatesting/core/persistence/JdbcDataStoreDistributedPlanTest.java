@@ -407,6 +407,51 @@ class JdbcDataStoreDistributedPlanTest {
     }
 
     /**
+     * Verify that the {@code suites_duration_ms} column is backfilled onto a group table created
+     * before the column existed, for the same reason {@code seed_run} is backfilled onto the run
+     * table: {@code CREATE TABLE IF NOT EXISTS} never alters an existing table, so without the
+     * migration every plan write against a database an earlier build wrote would fail with "column
+     * not found".
+     *
+     * <p>Pre-existing rows must default to 0, which the sealer reads as "no suite-time split was
+     * recorded" and answers by falling back to the plain sum of the group durations - not as "this
+     * group was pure overhead", which would gut the build's serial duration.
+     *
+     * @throws Exception if the pre-migration table cannot be recreated
+     */
+    @Test
+    void shouldBackfillTheSuitesDurationColumnOntoAGroupTableThatPredatesIt() throws Exception {
+        // given - the group table exactly as an earlier build of the branch created it
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE tia_distributed_run_group");
+            statement.executeUpdate("CREATE TABLE tia_distributed_run_group ("
+                    + "run_id VARCHAR(255) NOT NULL, group_number INT NOT NULL, "
+                    + "status VARCHAR(16) NOT NULL, runner_key VARCHAR(255), claimed_at BIGINT, "
+                    + "completed_at BIGINT, estimated_ms BIGINT NOT NULL, actual_duration_ms BIGINT, "
+                    + "suites_ran INT DEFAULT 0, suites_failed INT DEFAULT 0, "
+                    + "suites_observed INT DEFAULT 0, PRIMARY KEY (run_id, group_number))");
+        }
+        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
+                BranchSchema.schemaName("test"));
+
+        try {
+            // when
+            migratedStore.persistDistributedRunPlan(samplePlan("run-migrated-group", null));
+
+            // then
+            assertEquals(0L,
+                    migratedStore.readDistributedRunGroups("run-migrated-group").get(0)
+                            .getSuitesDurationMs(),
+                    "the migration must add suites_duration_ms to a table that predates it, and a "
+                            + "freshly planned group must start at 0 rather than fail the write");
+        } finally {
+            migratedStore.close();
+        }
+    }
+
+    /**
      * Verify that the planner's seed-run flag survives the round trip into the run row. The seal
      * reads it back to tell a seed run - one group, no assigned suites, ran everything - from a
      * nothing-impacted build, whose plan carries empty suite lists too but ignored every tracked

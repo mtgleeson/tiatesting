@@ -26,7 +26,7 @@ import java.util.Map;
  *       catalogue is rebuilt wholesale from the suite-to-method edge table, so writing it while
  *       another group is still running would drop every method reachable only from that group's
  *       suites. Only the run's sealer may write it, after the barrier.</li>
- *   <li>{@link #reportGroupProgress(long, int, int, int)} is called on every persist, at the point
+ *   <li>{@link #reportGroupProgress(long, int, int, int, long)} is called on every persist, at the point
  *       in the persist that used to record the same measurements as part of the combined
  *       completion call. It is not subject to the ordering below, since it never releases the
  *       barrier - only the status flip does. It also assumes one JVM works one group end to end;
@@ -170,14 +170,22 @@ public final class DistributedRunnerPersist {
      *                       with this group's own assigned suites, so a foreign suite this JVM
      *                       observed only because Tia's own deselection disabled it - never one of
      *                       this group's suites - cannot inflate this figure
+     * @param suitesDurationMs the summed measured run time, in ms, of every suite this runner has
+     *                         timed so far - cumulative across every test plan in this JVM for the
+     *                         same reason {@code suitesObserved} is, and written via {@code GREATEST}
+     *                         for the same reason. Subtracted from {@code actualDurationMs} by the
+     *                         sealer to recover this runner's fixed per-JVM overhead, which the
+     *                         build pays once rather than once per group - see
+     *                         {@link DistributedRunTotals}
      * @return true when the guarded update applied, false when this runner's claim is no longer
      *         live
      */
     public boolean reportGroupProgress(final long actualDurationMs, final int suitesRan,
-                                       final int suitesFailed, final int suitesObserved) {
+                                       final int suitesFailed, final int suitesObserved,
+                                       final long suitesDurationMs) {
         boolean applied = dataStore.reportGroupProgress(context.getRunId(),
                 context.getGroupNumber().intValue(), context.getRunnerKey(), actualDurationMs,
-                suitesRan, suitesFailed, suitesObserved);
+                suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
 
         if (!applied) {
             log.warn("Distributed run '{}': runner '{}' could not report progress on group {} - {}. "
@@ -199,7 +207,7 @@ public final class DistributedRunnerPersist {
      * the barrier the sealer's catalogue rebuild waits on - which is why it is called once for the
      * whole build tool step, from {@link DistributedRunCompleter#completeAndSeal}, and not once per
      * finished test plan. Carries no measurements of its own; {@link
-     * #reportGroupProgress(long, int, int, int)} records those on every persist, and this call only
+     * #reportGroupProgress(long, int, int, int, long)} records those on every persist, and this call only
      * ever flips the group's status.
      *
      * <p>A null return is either the straggler protection firing late - the claim died between
@@ -237,7 +245,7 @@ public final class DistributedRunnerPersist {
     /**
      * Say what the group row actually holds after a guarded write this class made was refused, so
      * the failure log names the case that happened rather than asserting the most likely one. Used
-     * on both {@link #completeGroup(long)}'s and {@link #reportGroupProgress(long, int, int, int)}'s
+     * on both {@link #completeGroup(long)}'s and {@link #reportGroupProgress(long, int, int, int, long)}'s
      * failure paths, so its wording is deliberately guard-neutral rather than assuming a completion
      * was attempted. The guard's row count cannot tell the cases apart - a run superseded by a newer
      * build's plan write, a group re-claimed by another runner, a group this runner has already

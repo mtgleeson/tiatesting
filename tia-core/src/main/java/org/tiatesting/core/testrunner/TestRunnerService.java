@@ -204,6 +204,13 @@ public class TestRunnerService {
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey(),
                 distributedRunnerContext.getGroupNumber());
 
+        // The suite-attributable share of durationMs, read before step 1 goes near the trackers.
+        // mergeTestMappingStats today folds this run's figures into the *stored* tracker and leaves
+        // the incoming one untouched, so the ordering is not load-bearing yet - but the value being
+        // read is "what this run measured", and taking it before the merge is what keeps that true
+        // if the merge ever starts writing back through the incoming map.
+        long suitesDurationMs = sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers());
+
         TiaData tiaData = dataStore.getTiaCore();
 
         // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
@@ -230,7 +237,11 @@ public class TestRunnerService {
         //    is already stored for the group, so a Surefire retry within this JVM sums correctly
         //    instead of this retry's per-attempt count overwriting the ones before it; suitesFailed
         //    replaces what was stored, since it is current state and a passing retry must be able
-        //    to shrink it back to zero. suitesObserved also replaces what was stored (via GREATEST,
+        //    to shrink it back to zero. suitesDurationMs - the part of the duration attributable to
+        //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
+        //    once for the build rather than once per group - is written via GREATEST rather than
+        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved also
+        //    replaces what was stored (via GREATEST,
         //    see DataStore#reportGroupProgress), but for a different reason: getSuitesObserved() is
         //    already cumulative across every test plan in this JVM, so accumulating it here would
         //    double-count. It is deliberately fed from the intersection of getSuitesObserved() with
@@ -257,7 +268,46 @@ public class TestRunnerService {
                 ? testRunResult.getTestSuitesFailed().size() : 0;
         int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),
                 distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
-        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved);
+        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
+                suitesDurationMs);
+    }
+
+    /**
+     * Add up the run times this JVM measured for the suites it ran, giving the share of the runner's
+     * total duration that is attributable to a named suite. What is left over -
+     * {@code durationMs - this} - is the runner's fixed per-JVM overhead, and reporting the split
+     * lets the sealer charge that overhead once for the whole build instead of once per group; see
+     * {@link org.tiatesting.core.distributed.DistributedRunTotals}.
+     *
+     * <p>The tracker map is the JVM's shared one, so this total is already cumulative across every
+     * test plan the JVM has made: a suite is timed on its first attempt only (see the listeners'
+     * {@code shouldCalcTestSuiteAvgTime}), so a Surefire retry re-reports the same total rather than
+     * adding to it. That is exactly why the column it feeds is written via {@code GREATEST} rather
+     * than accumulated, and it is also what leaves a retry's own wall time outside the
+     * suite-attributable total and inside the overhead remainder, where it belongs - a retry is real
+     * time the build spent that no fresh suite run accounts for.
+     *
+     * <p>Returns 0 when no suite was timed, which is the ordinary state with {@code updateDBStats}
+     * off. The sealer distinguishes that from a genuine zero by checking it against the group's
+     * suites-ran count, and declines to correct anything when a group that ran suites reports no
+     * suite time.
+     *
+     * @param testSuiteTrackers this JVM's suite trackers, whose stats carry each suite's measured
+     *                          run time by the time a test plan has finished; may be null or empty
+     * @return the summed measured suite run time in ms, never negative
+     */
+    private long sumMeasuredSuiteRunTimes(final Map<String, TestSuiteTracker> testSuiteTrackers) {
+        if (testSuiteTrackers == null || testSuiteTrackers.isEmpty()) {
+            return 0L;
+        }
+
+        long total = 0L;
+        for (TestSuiteTracker tracker : testSuiteTrackers.values()) {
+            if (tracker.getTestStats() != null) {
+                total += Math.max(0L, tracker.getTestStats().getAvgRunTime());
+            }
+        }
+        return total;
     }
 
     /**
