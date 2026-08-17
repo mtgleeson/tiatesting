@@ -100,6 +100,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SEALED_BY = "sealed_by";
     private static final String COL_SEALED_AT = "sealed_at";
     private static final String COL_DRAIN_RESULT = "drain_result";
+    private static final String COL_SEED_RUN = "seed_run";
     private static final String COL_GROUP_NUMBER = "group_number";
     private static final String COL_RUNNER_KEY = "runner_key";
     private static final String COL_CLAIMED_AT = "claimed_at";
@@ -1493,7 +1494,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + ", " + COL_SEED_RUN
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
@@ -1534,6 +1536,7 @@ public class JdbcDataStore implements DataStore {
                     statement.setString(9, run.getSealedBy());
                     setNullableLong(statement, 10, run.getSealedAtMs());
                     setDrainResult(statement, 11, plan.getDrainResult());
+                    statement.setBoolean(12, run.isSeedRun());
                     statement.executeUpdate();
                 }
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
@@ -1711,7 +1714,8 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
                 resultSet.getLong(COL_CREATED_AT),
                 resultSet.getString(COL_SEALED_BY),
-                getNullableLong(resultSet, COL_SEALED_AT));
+                getNullableLong(resultSet, COL_SEALED_AT),
+                resultSet.getBoolean(COL_SEED_RUN));
     }
 
     /**
@@ -2460,7 +2464,7 @@ public class JdbcDataStore implements DataStore {
      * {@code (groupArtifact, stampVersion)}.
      *
      * <p>The reducer uses a {@link LinkedHashMap}, so it tolerates rows arriving in arbitrary
-     * order — rows for the same batch are accumulated by key regardless of where they appear
+     * order - rows for the same batch are accumulated by key regardless of where they appear
      * in the result. Callers therefore do not need to apply an {@code ORDER BY} in the SQL,
      * which lets H2 skip materialising an {@code MVSortedTempResult} for these reads.
      *
@@ -2935,7 +2939,7 @@ public class JdbcDataStore implements DataStore {
             try {
                 connection.setAutoCommit(previousAutoCommit);
             } catch (SQLException restoreEx) {
-                // best-effort restore — the connection is about to be closed by the caller
+                // best-effort restore - the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
             }
         }
@@ -3039,8 +3043,8 @@ public class JdbcDataStore implements DataStore {
 
             connection.commit();
         } catch (Exception e) {
-            // Catch Exception (not just SQLException) so any failure in this block — including
-            // an NPE while building the insert SQL — still triggers the rollback. Tia treats
+            // Catch Exception (not just SQLException) so any failure in this block - including
+            // an NPE while building the insert SQL - still triggers the rollback. Tia treats
             // any exception in this class as a stop-the-world condition: roll back, then
             // re-throw so the failure bubbles up rather than continuing with a half-written DB.
             try {
@@ -3053,7 +3057,7 @@ public class JdbcDataStore implements DataStore {
             try {
                 connection.setAutoCommit(previousAutoCommit);
             } catch (SQLException restoreEx) {
-                // best-effort restore — the connection is about to be closed by the caller
+                // best-effort restore - the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
             }
         }
@@ -3265,7 +3269,7 @@ public class JdbcDataStore implements DataStore {
      *
      * <p>The query intentionally does <strong>not</strong> use {@code ORDER BY}: at 5.6M rows H2
      * could not fold the sort into the index and instead spilled the result set to a temp file
-     * (visible as {@code MVSortedTempResult} in profiling — ~56% of post-fix CPU). The reducer
+     * (visible as {@code MVSortedTempResult} in profiling - ~56% of post-fix CPU). The reducer
      * therefore tolerates rows arriving in any order: it keeps id-keyed maps for both the suite
      * and the class layer, so an arbitrary row updates the right tracker via two hash lookups.
      * After the loop, every {@link MethodIdSet} is finalised once.
@@ -3298,7 +3302,7 @@ public class JdbcDataStore implements DataStore {
         Map<Long, TestSuiteTracker> suitesById = new HashMap<>();
         Map<String, TestSuiteTracker> testSuites = new HashMap<>();
         // ClassImpactTrackers keyed by their tia_source_class.id while we're still building.
-        // Cleared after the loop — only TestSuiteTracker references survive.
+        // Cleared after the loop - only TestSuiteTracker references survive.
         Map<Long, ClassImpactTracker> classesById = new HashMap<>();
 
         try (Statement statement = connection.createStatement();
@@ -3323,7 +3327,7 @@ public class JdbcDataStore implements DataStore {
                 }
 
                 // LEFT JOINs may yield (suite, NULL class) rows for suites with no classes,
-                // and (suite, class, NULL method) rows for classes with no methods. Skip both —
+                // and (suite, class, NULL method) rows for classes with no methods. Skip both -
                 // matches the previous behaviour where the INNER JOIN between tia_source_class
                 // and tia_source_class_method dropped classes with no method edges.
                 long classIdValue = rs.getLong("class_id");
@@ -3430,7 +3434,7 @@ public class JdbcDataStore implements DataStore {
 
         // Index on tia_source_class.tia_test_suite_id is essential: without it, the bulk join in
         // getTestSuitesData becomes a nested-loop scan of all tia_source_class rows for every
-        // suite — observed at ~30% of select-tests CPU on a 940K-row tia_source_class table.
+        // suite - observed at ~30% of select-tests CPU on a 940K-row tia_source_class table.
         String createSourceClassTestSuiteIndexSql = buildCreateSourceClassTestSuiteIndexSql();
 
         String createSourceClassMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS_METHOD +
@@ -3685,7 +3689,7 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * DDL for the index on {@code tia_source_class.tia_test_suite_id}. Uses
-     * {@code CREATE INDEX IF NOT EXISTS} so it's safe to call repeatedly — both for new DBs
+     * {@code CREATE INDEX IF NOT EXISTS} so it's safe to call repeatedly - both for new DBs
      * (called from {@code createTiaDB}) and for migrating existing DBs missing the index.
      */
     private static String buildCreateSourceClassTestSuiteIndexSql() {
@@ -3813,7 +3817,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_CREATED_AT + " BIGINT NOT NULL, "
                 + COL_SEALED_BY + " VARCHAR(255), "
                 + COL_SEALED_AT + " BIGINT, "
-                + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ")";
+                + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
+                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE)";
     }
 
     /**
@@ -3902,15 +3907,38 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Ensure the four distributed-run tables, the group-status index and the {@code
-     * suites_observed} column exist. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS} and
-     * {@code ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new database and
-     * backfills it onto a database created before distributed runs existed, or before {@code
-     * suites_observed} was renamed from {@code suites_discovered}.
+     * Build the migration that backfills the {@code tia_distributed_run.seed_run} column onto a run
+     * table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and
+     * a no-op on a table {@link #buildCreateDistributedRunTableSql} just created, since that DDL
+     * already names the column. Without it, a store whose run table predates the column would fail
+     * the next plan write with "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never
+     * alters an already-existing table.
      *
-     * <p>All six DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>Pre-existing rows default to {@code FALSE}, which is the safe way round: a run wrongly read
+     * as not-a-seed-run reports every tracked suite as ignored and so cannot become an all-tests
+     * run, whereas the opposite mistake would advance the full-suite baseline and every tracked
+     * library's mapping baseline off a build that ran almost nothing. The default is only ever
+     * observed by a run planned before this migration ran, since every plan write supplies the
+     * column explicitly.
+     *
+     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
+     */
+    private String buildAddSeedRunColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
+                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE";
+    }
+
+    /**
+     * Ensure the four distributed-run tables, the group-status index and the additive {@code
+     * suites_observed} and {@code seed_run} columns exist. Idempotent via {@code CREATE TABLE/INDEX
+     * IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new
+     * database and backfills it onto a database created before distributed runs existed, before
+     * {@code suites_observed} was renamed from {@code suites_discovered}, or before {@code seed_run}
+     * was recorded on the run row.
+     *
+     * <p>All seven DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be six wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be seven wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * @param connection the connection to issue the DDL on
@@ -3924,6 +3952,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSuitesObservedColumnSql());
+            statement.addBatch(buildAddSeedRunColumnSql());
             statement.executeBatch();
         }
     }

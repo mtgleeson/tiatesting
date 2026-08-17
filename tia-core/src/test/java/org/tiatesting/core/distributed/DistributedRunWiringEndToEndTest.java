@@ -211,7 +211,7 @@ class DistributedRunWiringEndToEndTest {
         suitesByGroup.put(0, Collections.singletonList(SUITE_A));
         suitesByGroup.put(1, Collections.singletonList(SUITE_B));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 2, null, 2000L, 1200L),
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 2, null, 2000L, 1200L, false),
                 groups, suitesByGroup, null));
     }
 
@@ -228,7 +228,7 @@ class DistributedRunWiringEndToEndTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, suites);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, null, 1000L, 1200L),
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, null, 1000L, 1200L, false),
                 groups, suitesByGroup, null));
     }
 

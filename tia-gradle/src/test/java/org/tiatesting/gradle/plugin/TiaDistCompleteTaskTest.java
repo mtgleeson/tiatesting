@@ -215,7 +215,7 @@ class TiaDistCompleteTaskTest {
             suitesByGroup.put(groupNumber, Collections.<String>emptyList());
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, PLAN_COMMIT, groupCount, null,
-                1000L * groupCount, 5000L);
+                1000L * groupCount, 5000L, false);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

@@ -135,7 +135,7 @@ class PostgresCompletionTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groupCount, null,
-                1000L * groupCount, 1234L);
+                1000L * groupCount, 1234L, false);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -156,7 +156,7 @@ class PostgresCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, null, 1000L, 1234L);
+        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, null, 1000L, 1234L, false);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

@@ -17,11 +17,13 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -150,7 +152,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -346,6 +348,103 @@ class JdbcDataStoreDistributedPlanTest {
     }
 
     /**
+     * Build the plan a seed run produces: one group, no suites assigned to it, and the run row's
+     * seed-run flag set.
+     *
+     * @param runId the run identifier to plan under
+     * @return a valid seed-run plan, unsaved
+     */
+    private static DistributedRunPlan seedRunPlan(String runId) {
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 0L, 7L, true);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Collections.<String>emptyList());
+        return new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending(runId, 0, 0L)), suites, null);
+    }
+
+    /**
+     * Verify that the {@code seed_run} column is backfilled onto a run table created before the
+     * column existed. {@code CREATE TABLE IF NOT EXISTS} never alters an existing table, so without
+     * the {@code ADD COLUMN IF NOT EXISTS} migration every plan write against a database an earlier
+     * build wrote would fail with "column not found" - the whole distributed feature would stop
+     * working on exactly the databases already using it.
+     *
+     * <p>The pre-migration shape is recreated literally rather than by disabling the migration,
+     * and the plan is written through a second datastore instance because schema bootstrap is
+     * memoized per instance: the store this test's {@code setUp} built has already ensured the
+     * schema and would not re-run the DDL.
+     *
+     * @throws Exception if the pre-migration table cannot be recreated
+     */
+    @Test
+    void shouldBackfillTheSeedRunColumnOntoARunTableThatPredatesIt() throws Exception {
+        // given - the run table exactly as an earlier build of the branch created it
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE tia_distributed_run");
+            statement.executeUpdate("CREATE TABLE tia_distributed_run ("
+                    + "run_id VARCHAR(255) NOT NULL PRIMARY KEY, branch VARCHAR(255) NOT NULL, "
+                    + "commit_value VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, "
+                    + "group_count INT NOT NULL, target_run_time_ms BIGINT, "
+                    + "estimated_total_ms BIGINT NOT NULL, created_at BIGINT NOT NULL, "
+                    + "sealed_by VARCHAR(255), sealed_at BIGINT, drain_result BLOB)");
+        }
+        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
+                BranchSchema.schemaName("test"));
+
+        try {
+            // when
+            migratedStore.persistDistributedRunPlan(seedRunPlan("run-migrated"));
+
+            // then
+            assertTrue(migratedStore.readDistributedRun("run-migrated").isSeedRun(),
+                    "the migration must add seed_run to a table that predates it, and the plan "
+                            + "write must then store the flag as usual");
+        } finally {
+            migratedStore.close();
+        }
+    }
+
+    /**
+     * Verify that the planner's seed-run flag survives the round trip into the run row. The seal
+     * reads it back to tell a seed run - one group, no assigned suites, ran everything - from a
+     * nothing-impacted build, whose plan carries empty suite lists too but ignored every tracked
+     * suite. Nothing in the persisted shape separates the two, so if the flag were not stored the
+     * seal would have to guess, and guessing "seed run" on a nothing-impacted build advances the
+     * full-suite baseline and every tracked library's mapping baseline off a build that ran nothing.
+     */
+    @Test
+    void shouldRoundTripTheSeedRunFlag() {
+        // given - a seed run's plan: one group, no suites assigned to it at all
+        DistributedRunPlan plan = seedRunPlan("run-seed");
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-seed");
+
+        // then
+        assertTrue(read.isSeedRun(), "a seed run's plan must read back as a seed run");
+    }
+
+    /**
+     * Verify that an ordinary plan reads back as not a seed run, so the flag distinguishes the two
+     * cases rather than being written as true unconditionally.
+     */
+    @Test
+    void shouldRoundTripANonSeedRunAsNotASeedRun() {
+        // given
+        DistributedRunPlan plan = samplePlan("run-1", null);
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-1");
+
+        // then
+        assertFalse(read.isSeedRun(), "an ordinary plan must not read back as a seed run");
+    }
+
+    /**
      * Verify that a run planned in static-groups mode (no configured target run time) round-trips
      * a null {@code targetRunTimeMs} rather than a coerced zero, since a JDBC nullable-long read
      * that only checked {@code getLong} would silently turn "not configured" into "configured as
@@ -354,7 +453,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L, false);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -473,7 +572,7 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L, false);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

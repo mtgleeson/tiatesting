@@ -683,7 +683,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L);
+                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L, false);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -705,7 +705,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5));
@@ -729,7 +729,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null);
+                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5));

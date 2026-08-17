@@ -21,6 +21,7 @@ public final class DistributedRun implements Serializable {
     private final long createdAtMs;
     private final String sealedBy;
     private final Long sealedAtMs;
+    private final boolean seedRun;
 
     /**
      * Full constructor, used by the read path so a persisted row round-trips exactly.
@@ -35,11 +36,13 @@ public final class DistributedRun implements Serializable {
      * @param createdAtMs UTC epoch millis when the plan was written
      * @param sealedBy runner key of the runner that performed the seal, or null if not sealed
      * @param sealedAtMs UTC epoch millis of the seal, or null if not sealed
+     * @param seedRun whether the planner collapsed this run to a single group with no suite names
+     *                because no stored mapping existed yet for the branch
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, Long targetRunTimeMs,
                           long estimatedTotalMs, long createdAtMs, String sealedBy,
-                          Long sealedAtMs) {
+                          Long sealedAtMs, boolean seedRun) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
@@ -50,6 +53,7 @@ public final class DistributedRun implements Serializable {
         this.createdAtMs = createdAtMs;
         this.sealedBy = sealedBy;
         this.sealedAtMs = sealedAtMs;
+        this.seedRun = seedRun;
     }
 
     /**
@@ -62,13 +66,15 @@ public final class DistributedRun implements Serializable {
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
+     * @param seedRun whether the planner collapsed this run to a single group with no suite names
+     *                because no stored mapping existed yet for the branch
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
                                       int groupCount, Long targetRunTimeMs,
-                                      long estimatedTotalMs, long createdAtMs) {
+                                      long estimatedTotalMs, long createdAtMs, boolean seedRun) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
-                groupCount, targetRunTimeMs, estimatedTotalMs, createdAtMs, null, null);
+                groupCount, targetRunTimeMs, estimatedTotalMs, createdAtMs, null, null, seedRun);
     }
 
     /** @return the CI-supplied run identifier */
@@ -102,6 +108,17 @@ public final class DistributedRun implements Serializable {
     public Long getSealedAtMs() { return sealedAtMs; }
 
     /**
+     * Whether this run is a seed run: the planner found no stored mapping for the branch and
+     * collapsed the plan to a single group carrying no suite names, so its runner ignores nothing
+     * and runs everything. Persisted with the plan rather than worked out again at seal time,
+     * because the shape of a seed run's plan is indistinguishable from a nothing-impacted one - see
+     * {@code DistributedRunSealer.ignoredSuiteCount}.
+     *
+     * @return true if the plan was collapsed to a seed run
+     */
+    public boolean isSeedRun() { return seedRun; }
+
+    /**
      * Value equality across every field, so a persisted row can be asserted equal to the object
      * it was written from.
      *
@@ -116,6 +133,7 @@ public final class DistributedRun implements Serializable {
         return groupCount == that.groupCount
                 && estimatedTotalMs == that.estimatedTotalMs
                 && createdAtMs == that.createdAtMs
+                && seedRun == that.seedRun
                 && Objects.equals(runId, that.runId)
                 && Objects.equals(branch, that.branch)
                 && Objects.equals(commitValue, that.commitValue)
@@ -133,7 +151,7 @@ public final class DistributedRun implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(runId, branch, commitValue, status, groupCount, targetRunTimeMs,
-                estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs);
+                estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun);
     }
 
     /**
@@ -144,6 +162,6 @@ public final class DistributedRun implements Serializable {
     @Override
     public String toString() {
         return "DistributedRun{runId=" + runId + ", branch=" + branch + ", commit=" + commitValue
-                + ", status=" + status + ", groupCount=" + groupCount + "}";
+                + ", status=" + status + ", groupCount=" + groupCount + ", seedRun=" + seedRun + "}";
     }
 }

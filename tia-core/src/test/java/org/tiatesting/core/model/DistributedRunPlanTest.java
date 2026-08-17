@@ -28,7 +28,7 @@ class DistributedRunPlanTest {
      * @return a plan with groups 0 and 1, each holding one suite
      */
     private static DistributedRunPlan validPlan() {
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending("run-1", 0, 200L));
         groups.add(DistributedRunGroup.pending("run-1", 1, 100L));
@@ -69,7 +69,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectGroupCountThatDisagreesWithGroupList() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 3, null, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 3, null, 300L, 5L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L));
         Map<Integer, List<String>> suites = new HashMap<>();
@@ -91,7 +91,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteMapWithNoEntryForAGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -115,7 +115,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteAssignedToMoreThanOneGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -196,7 +196,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldNotBeAffectedByMutatingTheOriginalInputsAfterConstruction() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, 1000L, 300L, 5L, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending("run-1", 0, 200L));
         groups.add(DistributedRunGroup.pending("run-1", 1, 100L));
@@ -231,7 +231,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldRejectSuiteMapEntryForAnUndeclaredGroup() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 100L));
@@ -257,7 +257,7 @@ class DistributedRunPlanTest {
     @Test
     void shouldAllowAnEmptyGroupWhenSelectionIsSmallerThanTheGroupCount() {
         // given
-        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L);
+        DistributedRun run = DistributedRun.open("run-1", "main", "abc123", 2, null, 300L, 5L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending("run-1", 0, 200L),
                 DistributedRunGroup.pending("run-1", 1, 0L));
