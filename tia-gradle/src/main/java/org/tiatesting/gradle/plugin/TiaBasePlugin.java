@@ -70,6 +70,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createLibraryPublishesTask();
         createLibraryPendingMethodsTask();
         createDistPlanTask();
+        createDistStatusTask();
         hookPublishStampTasks();
     }
 
@@ -88,6 +89,23 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createDistPlanTask() {
         project.getTasks().register("tia-dist-plan", TiaDistPlanTask.class, task -> {
+            task.setPlugin(this);
+        });
+    }
+
+    /**
+     * Register the {@code tia-dist-status} task - prints the state of a distributed test run: the
+     * run itself, every group in its plan, and the runner that claimed each one. The Gradle
+     * equivalent of the Maven {@code dist-status} goal, sharing its whole report with it through
+     * {@link org.tiatesting.core.distributed.DistributedRunStatusReport}.
+     *
+     * <p>Registered unconditionally, like {@link #createDistPlanTask()} and unlike {@link
+     * #createDistCompleteTask(String)}: the task is read-only and reports the shared database's view
+     * of a run rather than anything this build did, so it is useful from a workspace that took no
+     * part in the run - including one whose build is not configured for distributed mode at all.
+     */
+    public void createDistStatusTask() {
+        project.getTasks().register("tia-dist-status", TiaDistStatusTask.class, task -> {
             task.setPlugin(this);
         });
     }
