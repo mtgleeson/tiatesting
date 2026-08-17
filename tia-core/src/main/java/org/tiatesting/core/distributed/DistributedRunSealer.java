@@ -15,6 +15,7 @@ import org.tiatesting.core.persistence.SealedRunDataAssembler;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -167,7 +168,13 @@ public final class DistributedRunSealer {
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(context.getRunId());
         DistributedRunTotals totals = DistributedRunTotals.from(groups);
-        int ignoredSuiteCount = ignoredSuiteCount(run, groups);
+
+        // Read once and share. Both the ignored-suite count and the overhead solve are answered
+        // from what the plan assigned each group rather than from what any runner reported running,
+        // so they must be looking at the same assignment - and reading it twice would be one small
+        // query per group for nothing.
+        Map<Integer, Set<String>> assignedSuitesByGroup = readAssignedSuitesByGroup(groups);
+        int ignoredSuiteCount = ignoredSuiteCount(run, assignedSuitesByGroup);
 
         // The all-tests-run test a single-host run applies is "Tia ignored zero suites this run".
         // The same question for a build split across runners can only be asked of the groups
@@ -195,7 +202,15 @@ public final class DistributedRunSealer {
                 totals.getSerialDurationMs(), totals.getWallClockMs());
 
         TiaData tiaData = dataStore.getTiaCore();
-        seal(tiaData, commitValue, branch, updateDBMapping, updateDBStats, totals, allTestsRun);
+
+        // Both stats mutations happen here, before the seal, so the seal is left with one job -
+        // persisting - and the two land in its single transaction together.
+        if (updateDBStats) {
+            tiaData.incrementStats(buildRunStats(totals), allTestsRun);
+            foldOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
+        }
+
+        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun);
 
         if (updateDBTestRunHistory) {
             // The baseline this build's savings are frozen against, read from the same core data
@@ -218,22 +233,15 @@ public final class DistributedRunSealer {
      * Tia-level stats but no catalogue, no drain cleanup and no commit advance - the same shape the
      * single-host stats-only path takes.
      *
-     * @param tiaData the core data read for this seal, mutated with the commit and stats before
-     *                being written
+     * @param tiaData the core data read for this seal, already carrying any stats update and
+     *                mutated with the commit before being written
      * @param commitValue the commit being sealed
      * @param branch the branch being sealed
      * @param updateDBMapping whether this build owns mapping-DB updates
-     * @param updateDBStats whether the Tia-level run stats should be updated
-     * @param totals the figures the build's groups add up to
      * @param allTestsRun whether the groups between them ran every tracked suite
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
-                      final boolean updateDBMapping, final boolean updateDBStats,
-                      final DistributedRunTotals totals, final boolean allTestsRun) {
-        if (updateDBStats) {
-            tiaData.incrementStats(buildRunStats(totals), allTestsRun);
-        }
-
+                      final boolean updateDBMapping, final boolean allTestsRun) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
@@ -353,15 +361,16 @@ public final class DistributedRunSealer {
      * <p>One small query per group, at seal time only - never on the hot read path.
      *
      * @param run the run row this seal already read, carrying the planner's seed-run flag
-     * @param groups the run's groups, as read back from the datastore after the barrier
+     * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
+     *                              number
      * @return the number of tracked, non-developer-disabled suites the plan did not assign to any
      *         group; zero for a seed run, whose single group is assigned no suite names at all
      */
-    private int ignoredSuiteCount(final DistributedRun run, final List<DistributedRunGroup> groups) {
+    private int ignoredSuiteCount(final DistributedRun run,
+                                  final Map<Integer, Set<String>> assignedSuitesByGroup) {
         Set<String> assignedSuites = new HashSet<>();
-        for (DistributedRunGroup group : groups) {
-            assignedSuites.addAll(dataStore.readDistributedRunGroupSuites(context.getRunId(),
-                    group.getGroupNumber()));
+        for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
+            assignedSuites.addAll(groupSuites);
         }
 
         if (assignedSuites.isEmpty()) {
@@ -393,6 +402,97 @@ public final class DistributedRunSealer {
             }
         }
         return selectable;
+    }
+
+    /**
+     * Read what the plan assigned every group, keyed by group number.
+     *
+     * <p>One small query per group, at seal time only - never on the hot read path - and the single
+     * read both the ignored-suite count and the overhead solve are answered from.
+     *
+     * @param groups the run's groups, as read back from the datastore after the barrier
+     * @return each group's assigned suite names, keyed by group number; a group assigned nothing
+     *         maps to an empty set rather than being absent
+     */
+    private Map<Integer, Set<String>> readAssignedSuitesByGroup(
+            final List<DistributedRunGroup> groups) {
+        Map<Integer, Set<String>> assignedSuitesByGroup = new HashMap<>();
+        for (DistributedRunGroup group : groups) {
+            assignedSuitesByGroup.put(Integer.valueOf(group.getGroupNumber()),
+                    new HashSet<>(dataStore.readDistributedRunGroupSuites(context.getRunId(),
+                            group.getGroupNumber())));
+        }
+        return assignedSuitesByGroup;
+    }
+
+    /**
+     * Solve this build's overhead into its fixed per-JVM part and its per-suite capture part, and
+     * fold the pair into the Tia-level rolling averages.
+     *
+     * <p>This is the only place the two can be separated. A single-host run gives one equation for
+     * two unknowns; a distributed build gives a second one at a different suite count, from the
+     * per-group split every runner already reports. See {@link DistributedRunOverheadModel} for the
+     * algebra and for why every failure is a skip rather than an approximation.
+     *
+     * <p><b>A seed run is skipped outright</b>, before the solve is even attempted. Its single group
+     * is assigned no suite names at all - it runs everything by definition - so its assignment count
+     * of zero is not a measurement of a group that ran nothing, and feeding it in would attribute
+     * the whole of a full-suite run's overhead to the fixed term. It is also degenerate on its own
+     * terms: one group covering every suite makes the second equation a restatement of the first.
+     * The same empty assignment on a <em>non</em>-seed build means the opposite thing and is a real
+     * measurement, which is why the persisted flag decides rather than the assignment's shape - the
+     * same distinction {@link #ignoredSuiteCount} turns on.
+     *
+     * @param tiaData the core data being sealed, whose stats this folds the solved pair into
+     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param groups the run's groups, as read back from the datastore after the barrier
+     * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
+     *                              number
+     */
+    private void foldOverheadModel(final TiaData tiaData, final DistributedRun run,
+                                   final List<DistributedRunGroup> groups,
+                                   final Map<Integer, Set<String>> assignedSuitesByGroup) {
+        if (run.isSeedRun()) {
+            log.debug("Distributed run '{}': this was a seed run, whose one group is assigned no "
+                    + "suite names because it runs everything, so it supplies no second equation "
+                    + "for the overhead model.", context.getRunId());
+            return;
+        }
+
+        Map<String, TestSuiteTracker> tracked = dataStore.getTestSuitesTracked();
+        long summedSuiteAveragesMs = 0L;
+        for (TestSuiteTracker tracker : tracked.values()) {
+            summedSuiteAveragesMs += tracker.getTestStats().getAvgRunTime();
+        }
+        long wholeRunOverheadMs =
+                tiaData.getTestStats().getAllTestsRunTime() - summedSuiteAveragesMs;
+
+        Map<Integer, Integer> assignedSuiteCounts = new HashMap<>();
+        for (Map.Entry<Integer, Set<String>> entry : assignedSuitesByGroup.entrySet()) {
+            assignedSuiteCounts.put(entry.getKey(), Integer.valueOf(entry.getValue().size()));
+        }
+
+        DistributedRunOverheadModel model = DistributedRunOverheadModel.solve(wholeRunOverheadMs,
+                tracked.size(), groups, assignedSuiteCounts);
+
+        if (!model.isSolved()) {
+            log.debug("Distributed run '{}': the overhead model was not solved, so the stored "
+                            + "averages are left as they are. Reason: {}.", context.getRunId(),
+                    model.getSkipReason());
+            return;
+        }
+
+        tiaData.getTestStats().incrementOverheadModel(model.getFixedOverheadMs(),
+                model.getCaptureOverheadPerSuiteMs());
+
+        log.info("Distributed run '{}': measured a fixed per-JVM overhead of {}ms and a per-suite "
+                        + "capture overhead of {}ms from a whole-run overhead of {}ms across {} "
+                        + "tracked suite(s). Rolling averages are now {}ms fixed and {}ms per suite "
+                        + "over {} measurement(s).", context.getRunId(), model.getFixedOverheadMs(),
+                model.getCaptureOverheadPerSuiteMs(), wholeRunOverheadMs, tracked.size(),
+                tiaData.getTestStats().getFixedOverheadMs(),
+                tiaData.getTestStats().getCaptureOverheadPerSuiteMs(),
+                tiaData.getTestStats().getNumOverheadMeasurements());
     }
 
     /**

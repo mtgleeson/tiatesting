@@ -336,6 +336,100 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>The overhead model.</b> Only a distributed build can separate the per-JVM cost a run pays
+     * once from the per-suite cost every suite pays, because separating them needs two runs of the
+     * same suites at different suite counts - and the sealer is where the second one is available.
+     * The pair is solved and stored with the rest of the seal, so it survives to the next build's
+     * estimate.
+     *
+     * <p>Three tracked suites at 100ms each against a 900ms baseline leave 600ms of whole-run
+     * overhead. Two groups of one suite that took 500ms and 300ms for 100ms of suite time each leave
+     * 400ms and 200ms of per-group overhead, averaging 300ms. That is a capture of
+     * (600 - 300) / (3 - 1) = 150ms per suite and a fixed cost of 300 - 150 = 150ms.
+     */
+    @Test
+    void theSolvedOverheadModelIsStoredWithTheSeal() {
+        // given
+        seedTrackedSuitesWithAverages(3, 100L);
+        seedAllTestsBaseline(900L);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
+        completeGroup(RUN_ID, 0, RUNNER_A, 500L, 100L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 300L, 100L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+
+        // then
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(150L, stats.getFixedOverheadMs(),
+                "the per-JVM cost must be solved from the build's groups and read back from the DB");
+        assertEquals(150L, stats.getCaptureOverheadPerSuiteMs(),
+                "the per-suite capture cost must be solved from the build's groups and read back "
+                        + "from the DB");
+        assertEquals(1L, stats.getNumOverheadMeasurements(),
+                "the build contributes exactly one measurement to the rolling averages");
+    }
+
+    /**
+     * A seed run contributes no measurement. Its single group is assigned no suite names because it
+     * runs everything, so reading that assignment as a group that ran nothing would attribute the
+     * whole of a full-suite run's overhead to the per-JVM term - and it is degenerate anyway, since
+     * one group covering every suite restates the whole-run equation rather than adding to it.
+     *
+     * <p>The persisted seed-run flag is what decides, not the empty assignment: a nothing-impacted
+     * build plans the same empty shape and means the opposite thing.
+     */
+    @Test
+    void aSeedRunContributesNoOverheadMeasurement() {
+        // given
+        seedTrackedSuitesWithAverages(3, 100L);
+        seedAllTestsBaseline(900L);
+        persistSeedRunPlan(RUN_ID);
+        completeGroup(RUN_ID, 0, RUNNER_A, 500L, 100L, 3, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+
+        // then
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(0L, stats.getNumOverheadMeasurements(),
+                "a seed run supplies no second equation, so it must not be folded in");
+        assertEquals(0L, stats.getFixedOverheadMs(), "and no constant may be stored from it");
+    }
+
+    /**
+     * A build whose measurements cannot be decomposed leaves the stored constants exactly as they
+     * were. Writing a zero instead would drag both towards nothing and quietly undo every earlier
+     * measurement, which matters more here than for a trend because they are consumed as constants.
+     *
+     * <p>The disqualification is the same one the serial-equivalent correction applies: a group that
+     * ran suites but timed none of them has a duration that would read entirely as overhead. Suite
+     * times are only recorded when {@code tiaUpdateDBStats} is on.
+     */
+    @Test
+    void aBuildThatCannotBeDecomposedLeavesTheStoredOverheadModelAlone() {
+        // given - an existing measurement, and a build whose first group timed no suites
+        seedTrackedSuitesWithAverages(3, 100L);
+        seedAllTestsBaseline(900L);
+        seedOverheadModel(500L, 70L);
+        persistPlan(RUN_ID, Arrays.asList(trackedSuiteNames(0, 1), trackedSuiteNames(1, 2)));
+        completeGroup(RUN_ID, 0, RUNNER_A, 500L, 0L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 300L, 100L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+
+        // then
+        TestStats stats = dataStore.getTiaCore().getTestStats();
+        assertEquals(500L, stats.getFixedOverheadMs(),
+                "an unsolvable build must leave the previously measured fixed cost untouched");
+        assertEquals(70L, stats.getCaptureOverheadPerSuiteMs(),
+                "an unsolvable build must leave the previously measured capture cost untouched");
+        assertEquals(1L, stats.getNumOverheadMeasurements(),
+                "and must not count itself as a measurement");
+    }
+
+    /**
      * <b>The baseline repair.</b> When the groups between them ran every tracked suite, the build is
      * an all-tests run and its serial-equivalent duration becomes the full-suite baseline every
      * later run's savings are measured against. Without this, no distributed build could ever
@@ -837,6 +931,46 @@ class DistributedRunSealerStatsHistoryTest {
      * @param suiteCount how many suites to track
      * @param developerDisabledCount how many of them to flag as disabled by the developer
      */
+    /**
+     * Store a number of tracked suites that all record the same average run time. The overhead
+     * model's whole-run equation is the full-suite baseline minus the sum of these averages, so a
+     * test measuring it needs suites that have a recorded time rather than the zeroes
+     * {@link #seedTrackedSuites} leaves.
+     *
+     * @param suiteCount how many suites to track
+     * @param avgRunTimeMs the average run time to record against each of them, in ms
+     */
+    private void seedTrackedSuitesWithAverages(final int suiteCount, final long avgRunTimeMs) {
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        for (int i = 0; i < suiteCount; i++) {
+            TestSuiteTracker tracker = new TestSuiteTracker("com.example.Suite" + i + "Test");
+            tracker.setClassesImpacted(Collections.singletonList(
+                    new ClassImpactTracker("com/example/Source" + i + ".java",
+                            new HashSet<>(Collections.singletonList(Integer.valueOf(100 + i))))));
+            tracker.getTestStats().setNumRuns(1);
+            tracker.getTestStats().setAvgRunTime(avgRunTimeMs);
+            tracked.put(tracker.getName(), tracker);
+        }
+        dataStore.persistTestSuites(tracked);
+    }
+
+    /**
+     * Store an already-measured overhead model, standing in for the distributed builds a project has
+     * recorded before the one under test. Used to prove that a build which cannot be decomposed
+     * leaves what is already there alone.
+     *
+     * @param fixedOverheadMs the stored per-JVM cost, in ms
+     * @param captureOverheadPerSuiteMs the stored per-suite capture cost, in ms
+     */
+    private void seedOverheadModel(final long fixedOverheadMs,
+                                   final long captureOverheadPerSuiteMs) {
+        TiaData tiaData = dataStore.getTiaCore();
+        tiaData.getTestStats().setFixedOverheadMs(fixedOverheadMs);
+        tiaData.getTestStats().setCaptureOverheadPerSuiteMs(captureOverheadPerSuiteMs);
+        tiaData.getTestStats().setNumOverheadMeasurements(1);
+        dataStore.persistCoreData(tiaData);
+    }
+
     private void seedTrackedSuites(final int suiteCount, final int developerDisabledCount) {
         Map<String, TestSuiteTracker> tracked = new HashMap<>();
         for (int i = 0; i < suiteCount; i++) {
