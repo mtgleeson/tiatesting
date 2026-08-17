@@ -434,7 +434,24 @@ durations that are not interchangeable:
 
 The row is stamped with the time the run was *planned*, since that is the one timestamp every runner
 in the build shares. See the [test-run history log](test-run-history.md) chapter for the table
-itself.
+itself, where the two land as its `Duration` and `Wall clock` columns.
+
+The same pair surfaces once more, aggregated, in the three Tia-level summary reports - the `status`
+console output, the plain-text report and the HTML report's landing page:
+
+```
+Average run time (serial equivalent): 638ms (96%)
+Average distributed run time: 553ms (83%) over 3 distributed run(s)
+```
+
+The first is `TestStats.avgRunTime`, which a distributed build contributes its serial-equivalent
+duration to (`DistributedRunSealer.buildRunStats`) precisely so the counter means the same thing
+either side of the switch to distributed mode. The second has no stored counter and is derived from
+the history rows' wall clocks by `ReportUtils.averageRunTimeLines`, because a wall clock only exists
+per run and only for a distributed one. That difference is also why the run count is printed: the
+two lines average different populations - every run against distributed runs only - and without it
+the pair reads as though the same builds got faster. A project with no distributed run in its
+history gets neither the qualifier nor the second line.
 
 The same two durations, under the same two names, are what the *estimate* side reports before the
 run. `select-tests` prints them in its estimate block:
