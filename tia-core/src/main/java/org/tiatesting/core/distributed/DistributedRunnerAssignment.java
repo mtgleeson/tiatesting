@@ -34,6 +34,7 @@ public final class DistributedRunnerAssignment {
     private final Integer groupNumber;
     private final Set<String> testsToIgnore;
     private final Set<String> testsToRun;
+    private final boolean seedRun;
 
     /**
      * Store the resolved assignment. Private so instances can only come from {@link #claim} or
@@ -44,13 +45,16 @@ public final class DistributedRunnerAssignment {
      * @param groupNumber the claimed group, or null when no group was left to claim
      * @param testsToIgnore the suite names this runner must not execute
      * @param testsToRun the suite names this runner is responsible for
+     * @param seedRun whether the plan recorded this run as a seed run
      */
     private DistributedRunnerAssignment(String runnerKey, Integer groupNumber,
-                                         Set<String> testsToIgnore, Set<String> testsToRun) {
+                                         Set<String> testsToIgnore, Set<String> testsToRun,
+                                         boolean seedRun) {
         this.runnerKey = runnerKey;
         this.groupNumber = groupNumber;
         this.testsToIgnore = testsToIgnore;
         this.testsToRun = testsToRun;
+        this.seedRun = seedRun;
     }
 
     /**
@@ -119,6 +123,10 @@ public final class DistributedRunnerAssignment {
                                                                 final String runnerKey,
                                                                 final Integer groupNumber) {
         DistributedRunCoordinator coordinator = new DistributedRunCoordinator(dataStore, config);
+        // Read from the run row, never inferred from an empty suite list: a nothing-impacted build
+        // plans groups that are empty too, and treating one as a seed run would report it as having
+        // run every test. The planner persists the flag precisely so nobody has to guess.
+        boolean seedRun = coordinator.readRun().isSeedRun();
         Set<String> testsToIgnore = coordinator.deriveTestsToIgnore(groupNumber,
                 dataStore.getTestSuitesTracked().keySet());
         Set<String> testsToRun = groupNumber != null
@@ -126,7 +134,8 @@ public final class DistributedRunnerAssignment {
                         groupNumber))
                 : Collections.<String>emptySet();
 
-        return new DistributedRunnerAssignment(runnerKey, groupNumber, testsToIgnore, testsToRun);
+        return new DistributedRunnerAssignment(runnerKey, groupNumber, testsToIgnore, testsToRun,
+                seedRun);
     }
 
     /**
@@ -161,6 +170,20 @@ public final class DistributedRunnerAssignment {
 
     /** @return the suite names this runner is responsible for; empty when it claimed no group */
     public Set<String> getTestsToRun() { return testsToRun; }
+
+    /**
+     * Report whether the plan recorded this run as a seed run - the first distributed build on a
+     * branch, which has no stored mapping to split, so the plan is one group carrying no suite
+     * names and its runner ignores nothing and executes every test it discovers.
+     *
+     * <p>Read from the persisted run row rather than inferred from {@link #getTestsToRun()} being
+     * empty, because a nothing-impacted build plans empty groups too. Callers need it to describe
+     * what a runner is about to do: on a seed run an empty {@code testsToRun} means "runs
+     * everything", and on any other run it means "runs nothing".
+     *
+     * @return true when the plan recorded this run as a seed run
+     */
+    public boolean isSeedRun() { return seedRun; }
 
     /**
      * Diagnostic rendering naming the runner, its group, and the size of each suite list.

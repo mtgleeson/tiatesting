@@ -85,7 +85,7 @@ public final class DistributedRunCoordinator {
      *                                the run id, and the commit one names both commits
      */
     public ClaimOutcome claim(final String workspaceCommitValue, final long claimedAtMs) {
-        DistributedRun run = readRunOrThrow();
+        DistributedRun run = readRun();
 
         String planCommitValue = run.getCommitValue();
         if (planCommitValue == null ? workspaceCommitValue != null
@@ -121,12 +121,14 @@ public final class DistributedRunCoordinator {
             // The claim protocol handed this runner back a group it already held rather than a
             // fresh one, which is how a retried CI job resumes its own work instead of taking a
             // second group. Worth naming: it is the difference between a retry and a double claim.
-            log.info("Runner '{}' already held group {} of {} in distributed run '{}' and was "
-                            + "handed it back rather than claiming another - this is a re-run of a "
-                            + "job that had already claimed.",
+            log.info("Runner '{}' already held group {} (of {} group(s) in the plan, numbered from "
+                            + "0) in distributed run '{}' and was handed it back rather than "
+                            + "claiming another - this is a re-run of a job that had already "
+                            + "claimed.",
                     runnerKey, group.getGroupNumber(), run.getGroupCount(), config.getRunId());
         } else {
-            log.info("Runner '{}' claimed group {} of {} in distributed run '{}'.",
+            log.info("Runner '{}' claimed group {} (of {} group(s) in the plan, numbered from 0) "
+                            + "in distributed run '{}'.",
                     runnerKey, group.getGroupNumber(), run.getGroupCount(), config.getRunId());
         }
         return ClaimOutcome.claimed(group, runnerKey);
@@ -165,7 +167,7 @@ public final class DistributedRunCoordinator {
      *                                   still reporting success
      */
     public Set<String> deriveTestsToIgnore(final Integer groupNumber, final Set<String> trackedSuiteNames) {
-        readRunOrThrow();
+        readRun();
 
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups(config.getRunId());
         List<String> mySuites = null;
@@ -203,10 +205,14 @@ public final class DistributedRunCoordinator {
      * cleared by a superseding build must fail, in both operations, rather than run nothing and
      * report success.
      *
+     * <p>Package-visible rather than private so {@link DistributedRunnerAssignment} can read the
+     * run once and reuse it, instead of the assignment paying a second round trip for the run row
+     * this method already fetches on every derivation.
+     *
      * @return the run planned under the configured run id
      * @throws IllegalStateException if no run is planned under that id
      */
-    private DistributedRun readRunOrThrow() {
+    DistributedRun readRun() {
         DistributedRun run = dataStore.readDistributedRun(config.getRunId());
         if (run == null) {
             throw new IllegalStateException("No distributed run is planned under tiaRunId '"
