@@ -172,7 +172,7 @@ class DistributedRunnerPersistTest {
     }
 
     /**
-     * The task 1 requirement, driven through the persist wrapper rather than the raw data store: a
+     * The dead-claim requirement, driven through the persist wrapper rather than the raw data store: a
      * progress report on a group whose claim has already died - the run was superseded between the
      * claim re-verification and this call - writes nothing and says so via its boolean return,
      * exactly mirroring what a failed {@link DistributedRunnerPersist#completeGroup(long)} reports.
@@ -289,7 +289,7 @@ class DistributedRunnerPersistTest {
     }
 
     /**
-     * Task 2's accumulation contract, exercised through the persist wrapper: two progress reports
+     * The accumulation contract, exercised through the persist wrapper: two progress reports
      * in the same JVM - the second reporting fewer suites ran than the first, as a Surefire retry of
      * a smaller failing subset would - sum the ran counter and the duration. The failed set is
      * replaced outright by the later report, since it is current state. The observed count is not

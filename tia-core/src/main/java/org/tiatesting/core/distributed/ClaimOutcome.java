@@ -19,8 +19,8 @@ import org.tiatesting.core.model.DistributedRunGroup;
  *
  * <p>The runner key is carried on both outcomes, not only the claimed one, because it is the
  * identity the coordinator actually claimed with, which may be one it derived rather than one the
- * user configured. Later stages record a group's completion under that same key, and logs of a
- * no-op outcome need to name the runner that found nothing.
+ * user configured. The completion step records a group's completion under that same key, and logs
+ * of a no-op outcome need to name the runner that found nothing.
  */
 public final class ClaimOutcome {
 

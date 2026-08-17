@@ -44,9 +44,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Cover the Gradle-side half of stage 9's task 2a: the {@code doFirst} action that now claims this
- * test task's share of a distributed run itself, in the daemon, instead of forwarding unclaimed
- * configuration for the forked test JVM to claim with. Before this stage the claim happened inside
+ * Cover the Gradle-side {@code doFirst} action that claims this test task's share of a distributed
+ * run itself, in the daemon, instead of forwarding unclaimed configuration for the forked test JVM
+ * to claim with. The claim used to happen inside
  * the fork ({@code TiaSpockTestRunInitializer#claimDistributedRunGroup}, now removed); a build with
  * {@code maxParallelForks > 1} could claim several groups for one test task, and no daemon-side
  * finalizer could ever know which group a task's JVM held. These tests drive the claim through a
@@ -286,8 +286,8 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     /**
      * Verify the daemon claims this test task's group and forwards the run id, the claimed group
      * number, and - critically - the runner key the claim actually recorded, never a re-derived
-     * one: a forwarded key that did not match the claimed row would let a later "this group is
-     * finished" step (stage 9's task 2b) match no row and leave the group open forever. Also
+     * one: a forwarded key that did not match the claimed row would let the later "this group is
+     * finished" step ({@code tiaDistComplete}) match no row and leave the group open forever. Also
      * verifies the plan's other group is untouched - still {@code PENDING}, with no runner key or
      * claim time - so this test does not merely catch a double claim incidentally were one to
      * happen: it asserts directly that a single test-task claim takes exactly the one group it

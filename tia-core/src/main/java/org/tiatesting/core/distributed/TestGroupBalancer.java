@@ -72,7 +72,7 @@ public final class TestGroupBalancer {
      * Split the suites into exactly {@code groupCount} groups, minimising the heaviest group.
      *
      * <p>Walks the suites heaviest-first and puts each into the currently-lightest group. Groups
-     * beyond the number of suites come back empty rather than being dropped, because stage 4
+     * beyond the number of suites come back empty rather than being dropped, because the planner
      * turns every group into a runner and the pipeline was told to start that many.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty

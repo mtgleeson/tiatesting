@@ -3881,8 +3881,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * Build the DDL for the {@code tia_distributed_run_method_stage} table. Runners stage their
      * method trackers here so the sealer can write the method catalogue once, after the barrier.
-     * Created in stage 1 so the schema is a single migration; nothing reads or writes it until
-     * the catalogue staging work.
+     * Created alongside the other distributed-run tables so the schema is a single migration.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the method staging table
      */

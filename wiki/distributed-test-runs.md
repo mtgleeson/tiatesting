@@ -683,9 +683,9 @@ is bound to the `INITIALIZE` phase, so Maven runs it once per reactor module. Th
 - **On the claim side**, each module's `prepare-agent` execution would claim its own group, so a
   runner process ends up holding several groups instead of the one it is meant to hold.
 
-Stage 7 found the claim path is independently reachable - `mvn -pl <module> tia-dist-plan` followed
-by `mvn test` at the parent plans against a reactor of one and then claims against a reactor of
-several - which is why guarding only the plan step was not enough.
+The claim path is independently reachable - `mvn -pl <module> tia-dist-plan` followed by `mvn test`
+at the parent plans against a reactor of one and then claims against a reactor of several - which is
+why guarding only the plan step is not enough.
 
 **Inheritance is not aggregation, and only aggregation is refused.** The two get confused constantly:
 

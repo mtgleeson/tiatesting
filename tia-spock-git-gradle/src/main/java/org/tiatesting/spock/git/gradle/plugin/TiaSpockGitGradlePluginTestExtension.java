@@ -463,8 +463,8 @@ public class TiaSpockGitGradlePluginTestExtension {
      *
      * <p>Gradle used to claim inside the forked test JVM instead ({@code
      * TiaSpockTestRunInitializer#claimDistributedRunGroup}, now removed), because that was the
-     * only place stage 5 had a claim protocol to call from. That made Gradle claim once per forked
-     * test JVM rather than once per test task - a build with {@code maxParallelForks > 1} could
+     * only place the claim protocol could be called from at the time. That made Gradle claim once
+     * per forked test JVM rather than once per test task - a build with {@code maxParallelForks > 1} could
      * claim several groups for what is meant to be a single runner - and left no daemon-side
      * record of which group a task's JVM held, which is what a later daemon-side "this group is
      * finished" step ({@code tiaDistComplete}, mirroring the Maven {@code tia-dist-complete} goal) needs

@@ -69,7 +69,7 @@ class LibraryImpactDrainResultSerializerTest {
      * file form: a drain result serialized to a byte array and read straight back keeps its drained
      * batches, its drained forced batches and its applied sequences. This is the encoding the plan
      * writes into {@code tia_distributed_run.drain_result}, and the drain cannot be repeated, so a
-     * lossy round trip here would silently discard cleanup no later stage can reconstruct.
+     * lossy round trip here would silently discard cleanup nothing downstream can reconstruct.
      *
      * @throws Exception if serializing or deserializing the drain result fails
      */

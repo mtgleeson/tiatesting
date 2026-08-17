@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers finding 1 of the stage 4b final review at the Maven entry point:
+ * Covers the Maven entry point's contract that
  * {@link AbstractSelectTestsMojo#printDistributedRunPreviewIfConfigured} must never let a
  * misconfigured distributed grouping abort the read-only {@code select-tests} goal.
  */
@@ -60,10 +60,10 @@ class AbstractSelectTestsMojoTest {
     }
 
     /**
-     * Verifies finding 1's fix: a distributed grouping shape {@link
+     * Verifies that a distributed grouping shape {@link
      * org.tiatesting.core.distributed.DistributedRunPlanner#balance} rejects (here, both a fixed
-     * group count and a max-group ceiling - the exact shared-parent-pom mistake finding 1
-     * describes) does not throw out of {@code select-tests}. Instead a skip notice naming the
+     * group count and a max-group ceiling - the mistake a shared parent pom makes easy to make)
+     * does not throw out of {@code select-tests}. Instead a skip notice naming the
      * offending property is printed and the read-only command completes normally.
      */
     @Test
@@ -129,7 +129,7 @@ class AbstractSelectTestsMojoTest {
     }
 
     /**
-     * Verifies the carried-over Task 1 fix at the {@code execute()} branch this class tests
+     * Verifies the seed-run handling at the {@code execute()} branch this class tests
      * indirectly: {@link AbstractSelectTestsMojo#printDistributedRunPreviewIfConfigured} still
      * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
      * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection

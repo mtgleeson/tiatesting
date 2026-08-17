@@ -270,7 +270,7 @@ class AbstractTiaAgentMojoDistributedTest {
     /**
      * Verify the resolved runner key and the claimed group number reach the forked test JVM
      * through the fork properties file, and that the key written is the one the claim was actually
-     * recorded under. A later stage completes the group from inside that JVM, which can reconstruct
+     * recorded under. The completion step completes the group from inside that JVM, which can reconstruct
      * neither value: a key it derived for itself would not match the claimed row and the group
      * would be orphaned.
      *

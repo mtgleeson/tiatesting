@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Cover the distributed-run schema and the plan read/write operations against embedded H2.
- * Stage 1 adds the tables and the plan store only - claiming, the barrier and sealing arrive in
- * later stages and are not exercised here.
+ * Scoped to the tables and the plan store: claiming, the barrier and sealing have their own
+ * test classes and are not exercised here.
  */
 class JdbcDataStoreDistributedPlanTest {
 
@@ -67,7 +67,7 @@ class JdbcDataStoreDistributedPlanTest {
 
     /**
      * Count the rows in a table, so a test can assert what schema bootstrap created without
-     * depending on the plan operations that arrive in the next task.
+     * depending on the plan operations themselves.
      *
      * @param table the table to count
      * @return the number of rows
@@ -226,7 +226,7 @@ class JdbcDataStoreDistributedPlanTest {
     /**
      * Verify that a plan carrying no drain result - the normal case, since library impact analysis
      * is optional - reads back a null drain result rather than an empty instance or a failure, so a
-     * later stage can use the null check as the "nothing to clean up" signal.
+     * the sealer can use the null check as the "nothing to clean up" signal.
      */
     @Test
     void shouldReadBackANullDrainResultWhenThePlanDrainedNothing() {
@@ -288,7 +288,7 @@ class JdbcDataStoreDistributedPlanTest {
 
     /**
      * Verify that the groups of a persisted plan are read back ordered by group number - the
-     * order the claim protocol (a later stage) depends on - and that a freshly-planned group's
+     * order the claim protocol depends on - and that a freshly-planned group's
      * PENDING fields (status, no runner, no claim timestamp) survive the round trip.
      */
     @Test
@@ -544,7 +544,7 @@ class JdbcDataStoreDistributedPlanTest {
 
     /**
      * Verify that {@link DataStore#readAllDistributedRuns()} surfaces a planned run before it gets
-     * cleared, since this is what lets the planner (a later stage) log a warning naming groups
+     * cleared, since this is what lets the planner log a warning naming groups
      * that never completed rather than have an abandoned run vanish silently.
      */
     @Test

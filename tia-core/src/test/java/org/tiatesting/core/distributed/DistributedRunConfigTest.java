@@ -248,8 +248,8 @@ class DistributedRunConfigTest {
 
     /**
      * Verifies that a null runnerKey is accepted without error, since it is an optional
-     * per-runner value that the planner never reads and stage 5 falls back to deriving its own
-     * value when it is absent.
+     * per-runner value that the planner never reads and the claim protocol falls back to deriving
+     * its own value when it is absent.
      */
     @Test
     void validated_nullRunnerKey_isAccepted() {

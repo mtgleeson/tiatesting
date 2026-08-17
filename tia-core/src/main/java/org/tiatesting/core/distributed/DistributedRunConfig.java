@@ -26,12 +26,12 @@ package org.tiatesting.core.distributed;
  *   <li>rejecting {@code tiaCheckLocalChanges=true}, since that check only makes sense against a
  *       single runner's working copy, and only the plugin layer knows whether it is enabled.
  * </ul>
- * Both rules must be enforced at the Maven/Gradle plugin layer (stage 4b) instead. They are
- * named here so that building this class does not read as having covered them.
+ * Both rules must be enforced at the Maven/Gradle plugin layer instead. They are named here so
+ * that reading this class does not leave the impression it has covered them.
  *
  * <p>{@code runnerKey} is optional and is not validated or interpreted by this class or by the
- * planner that consumes this config: it is a per-runner identity value that stage 5's claim
- * protocol reads, falling back to {@code runId + hostname + pid} when it is not supplied.
+ * planner that consumes this config: it is a per-runner identity value that the claim protocol
+ * reads, falling back to {@code runId + hostname + pid} when it is not supplied.
  */
 public final class DistributedRunConfig {
 
@@ -51,7 +51,8 @@ public final class DistributedRunConfig {
      * @param targetRunTimeMs the target wall-clock run time in ms, or null in static-groups mode
      * @param maxGroups an optional ceiling on the group count in dynamic-groups mode, or null for
      *                  no ceiling
-     * @param runnerKey an optional per-runner identity value, or null to let stage 5 derive one
+     * @param runnerKey an optional per-runner identity value, or null to let the claim protocol
+     *                  derive one
      */
     private DistributedRunConfig(String runId, Integer groupCount, Long targetRunTimeMs,
                                   Integer maxGroups, String runnerKey) {
@@ -83,7 +84,7 @@ public final class DistributedRunConfig {
      *                  contradiction; when set, must be at least 1
      * @param runnerKey an optional per-runner identity value ({@code tiaDistributedRunnerKey});
      *                  not validated or used by this class or by the planner, since it is read
-     *                  only by stage 5's claim protocol
+     *                  only by the claim protocol
      * @return a validated, immutable config bundle, with {@code runId} and (if supplied) {@code
      *         runnerKey} trimmed of leading and trailing whitespace
      * @throws IllegalArgumentException if {@code runId} is null or blank; if neither or both of

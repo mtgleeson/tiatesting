@@ -20,10 +20,10 @@ import java.util.Map;
 /**
  * Turns a test selection into a persisted distributed run plan - the point where balancing
  * ({@link TestGroupBalancer}) and persistence ({@link DataStore#persistDistributedRunPlan})
- * finally meet. Stage 4b's Maven goal and Gradle task each call {@link #plan} once per build and
- * write the returned {@link DistributedRunPlanSummary} to disk and the console; nothing in this
- * class touches a filesystem or a build-tool API, which is what keeps it unit-testable against a
- * real embedded H2 datastore without either of those.
+ * finally meet. The {@code tia-dist-plan} Maven goal and Gradle task each call {@link #plan} once
+ * per build and write the returned {@link DistributedRunPlanSummary} to disk and the console;
+ * nothing in this class touches a filesystem or a build-tool API, which is what keeps it
+ * unit-testable against a real embedded H2 datastore without either of those.
  *
  * <p>Because {@link DataStore#persistDistributedRunPlan} clears the previous run's rows in the
  * same transaction as the new plan's insert, {@link #plan} reads and logs the previous run's

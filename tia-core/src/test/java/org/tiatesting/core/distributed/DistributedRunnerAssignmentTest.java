@@ -220,7 +220,7 @@ class DistributedRunnerAssignmentTest {
     /**
      * Verify the runner key carried on the assignment is the derived one the claim was actually
      * recorded under, not the null the configuration supplied. The build tool hands this value to
-     * the forked test JVM, which completes the group under it in a later stage - re-deriving it
+     * the forked test JVM, which completes the group under it at the completion step - re-deriving it
      * there would produce a different key and orphan the claim.
      */
     @Test

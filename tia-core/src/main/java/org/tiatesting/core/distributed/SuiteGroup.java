@@ -6,8 +6,8 @@ import java.util.List;
 
 /**
  * One group of test suites within a distributed run plan: the suites one runner will execute,
- * and the estimated time they will take. Produced by {@link TestGroupBalancer}; stage 4's planner
- * projects it onto the persisted group and suite-assignment rows.
+ * and the estimated time they will take. Produced by {@link TestGroupBalancer}; {@link
+ * DistributedRunPlanner} projects it onto the persisted group and suite-assignment rows.
  */
 public final class SuiteGroup {
 
