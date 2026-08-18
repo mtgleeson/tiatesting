@@ -893,6 +893,26 @@ gradle tia-dist-plan
   "selectedSuiteCount": 412
 }
 ```
+
+| Field | Type | What it is |
+|---|---|---|
+| `runId` | string | The `tiaRunId` this plan was written under. Every runner job must be given the same value to claim from it. |
+| `branch` | string | The VCS branch the selection was made against. A runner is verified against this before it claims. |
+| `commit` | string | The VCS commit the selection was made against, and the one the build seals at. |
+| `seedRun` | boolean | `true` when no stored mapping existed yet for this branch, so the plan was collapsed to a single group covering the whole suite and the configured group count / target were ignored. Explains why a pipeline received one job despite asking for more. |
+| `groupCount` | number | How many groups the selection was split into. **This is the field to size your job matrix from** - start exactly this many runner jobs. |
+| `avgGroupMs` | number | `totalEstimatedMs / groupCount`. A shape indicator only; do not set job timeouts from it - uneven packing is exactly what it hides. |
+| `heaviestGroupMs` | number | The heaviest group's estimate, including its own copy of the fixed per-JVM cost. This is the build's expected wall-clock test time, since groups run in parallel, and the figure to base a job timeout on. |
+| `targetMs` | number or `null` | The configured `tiaDistributedTargetRunTime`. Rendered as JSON `null` - never `0` - in static-groups mode, where a fixed group count means there is no target. |
+| `targetMet` | boolean | Whether `heaviestGroupMs` came in at or under `targetMs`. Always `true` in static-groups mode, which has no target to miss. Missing a target never fails the build or drops tests. |
+| `clampedToMaxGroups` | boolean | `true` when `tiaDistributedMaxGroups` limited the group count below what the target needed. Lever: raise the ceiling. |
+| `singleSuiteExceedsTarget` | boolean | `true` when one suite alone is longer than what is left of the target after the fixed per-JVM cost. Lever: split the suite or raise the target - no group count divides one suite. |
+| `fixedOverheadExceedsTarget` | boolean | `true` when the fixed per-JVM cost alone meets or exceeds the target. No group count can help: every runner pays it before running anything, so adding runners only adds copies of it. Lever: raise the target. |
+| `totalEstimatedMs` | number | The summed estimate of every group, each carrying its own copy of the fixed per-JVM cost. This is total machine time across the fan-out, **not** the serial-equivalent time on one host - one host pays that fixed cost once. |
+| `selectedSuiteCount` | number | How many test suites Tia selected for this build, across all groups. `0` on a nothing-impacted build; also `0` on a seed run, which carries no suite names because it runs everything. |
+
+The three `...Target` booleans are independent causes, not alternatives: any can be `true` without the others and more than one can be `true` at once, so check all three to explain a missed target.
+
 `select-tests` also previews the grouping without persisting anything, whenever `tiaDistributedGroupCount` / `tiaDistributedTargetRunTime` is set. Both it and the plan step's console summary report **two durations**, and they answer different questions:
 
 ```
