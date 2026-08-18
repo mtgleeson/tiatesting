@@ -214,6 +214,27 @@ surplus groups are never claimed and their suites never run. That is why the gro
 to the pipeline explicitly in `tia-run-plan.json` rather than inferred, and why the fan-out step is
 the integration requirement with a correctness consequence attached.
 
+### `tia-run-plan.json` is a published contract
+
+`DistributedRunPlanWriter` writes it to `<tiaBuildDir>/tia-run-plan.json`, and
+`DistributedRunPlanSummary.toJson()` builds it by hand rather than through a JSON library, so the
+field names, their order and their shape are fixed by that one method. A user's pipeline parses this
+file to decide how many jobs to start, so **changing a field name, dropping one, or altering a
+rendering is a breaking change to every consumer** - adding one at the end is not. The exact-document
+test in `DistributedRunPlanSummaryTest` exists to make an accidental change fail loudly rather than
+silently reshaping the contract.
+
+Two renderings are deliberate and must not be "tidied":
+
+- `targetMs` is the bare JSON literal `null` in static-groups mode, never `0`. A zero would read as
+  an (impossible) target of zero milliseconds rather than the absence of a target.
+- `avgGroupMs` is derived (`totalEstimatedMs / groupCount`), not measured. It describes the shape of
+  the split; `heaviestGroupMs` is what a job timeout should be based on, because uneven packing is
+  precisely what an average hides.
+
+The field-by-field reference for pipeline authors lives in the README, under the distributed test
+runs section, alongside a worked example.
+
 ## The run lifecycle
 
 ### End to end, and which process each step happens in
