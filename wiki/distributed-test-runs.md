@@ -857,6 +857,43 @@ failure message says so.
 
 ## `tiaDistributedRunnerKey`
 
+### What the key actually does
+
+It is the identity a runner claims under, and it does two jobs. The second is the reason to set it;
+the first is why it exists at all.
+
+**It is the ownership token on every write a runner makes to its group.** Claiming stamps the key
+onto the group row, and from then on it is a predicate on the writes that follow:
+
+| Operation | Guard |
+|---|---|
+| `reportGroupProgress` | `WHERE run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?` |
+| `completeGroup` | the same predicate, plus the `suites_observed` completeness check |
+
+That is the straggler protection. A runner whose claim is no longer live - superseded, or the run
+replanned underneath it - matches zero rows and writes nothing, instead of overwriting a group some
+other runner now owns. `DistributedRunnerPersist` makes the same comparison in Java before it
+persists at all, and logs *"the group is now `<status>` under runner '`<key>`'"* when the group has
+moved on. Without a per-runner identity there would be nothing to distinguish "my group" from
+"a group", and a slow runner returning from the dead would corrupt whichever group had taken its
+place.
+
+The seal is the exception: `electSealer` does **not** filter on the key. It is settled by
+`sealed_by IS NULL AND NOT EXISTS (a group that is not COMPLETED)`, so exactly one runner wins
+whatever its identity; the key is written into `sealed_by` afterwards to record *who* won.
+
+**It is also the retry identity**, which is what the rest of this chapter is about. Step 0 of
+`claimNextPendingGroup` looks the key up - `WHERE run_id = ? AND runner_key = ?` - before claiming
+anything, so a key already holding a `CLAIMED` group is recognised as a retried CI job and handed
+that group back rather than a second one.
+
+Both uses are scoped to one run: every lookup is keyed on `(run_id, runner_key)`. **The key must be
+unique per runner within a run id, and is meant to be reused across builds** - `job-1` in every build
+is the intended pattern. Two concurrent runners sharing a key within one run would have the second
+find the first's claimed group and be handed it as its own.
+
+### Setting it
+
 Set it, to something your CI keeps stable across a job's retry attempts. The natural choice is a
 node or matrix index - `$CI_NODE_INDEX`, `${{ matrix.group }}`, `$BUILDKITE_PARALLEL_JOB` - and
 explicitly **not** a build or attempt number, which changes on retry.
