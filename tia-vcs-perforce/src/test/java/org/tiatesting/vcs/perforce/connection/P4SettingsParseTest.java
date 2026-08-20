@@ -111,6 +111,49 @@ class P4SettingsParseTest {
     }
 
     /**
+     * <b>Real captured output</b> from Cygwin driving the Windows {@code p4.exe}, verbatim apart
+     * from the host, domain and user names. Three things make it worth pinning alongside the macOS
+     * capture.
+     *
+     * <p><b>The annotation tracks where a value was set, not which OS or shell is running.</b> This
+     * is a bash shell, yet the annotated lines carry Windows' {@code (set)} while the values Tia
+     * reads carry nothing at all - the mirror image of the assumption the original parser was built
+     * on. Nothing about the platform can be used to predict the suffix, which is why every trailing
+     * parenthesised group is stripped rather than any particular wording being matched.
+     *
+     * <p><b>{@code P4USER} can contain a backslash</b> on a Windows domain. It is a value, not a
+     * path, so it must come through byte for byte - none of the path normalisation that
+     * {@code P4DiffAnalyzer} applies to workspace roots belongs here.
+     *
+     * <p><b>Three variables Tia does not read sit alongside the three it does</b>, one of them
+     * carrying a Windows path with its own backslashes and an annotation. All must be ignored.
+     */
+    @Test
+    void realCygwinOutputIsParsed() {
+        // given - the exact output of `p4 set` under Cygwin against the Windows p4.exe
+        List<String> lines = Arrays.asList(
+                "P4CHARSET=auto",
+                "P4CLIENT=user_stream",
+                "P4IGNORE=E:\\p4\\.p4ignore (set)",
+                "P4PORT=abc.com:1666",
+                "P4USER=ABC\\def",
+                "P4_abc.com:1666_CHARSET=auto (set)");
+
+        // when
+        Map<String, String> settings = P4Settings.parseP4SetOutput(lines);
+
+        // then
+        assertEquals("user_stream", settings.get(P4Constants.P4CLIENT));
+        assertEquals("abc.com:1666", settings.get(P4Constants.P4PORT));
+        assertEquals("ABC\\def", settings.get(P4Constants.P4USER),
+                "a Windows domain-qualified user name must survive intact - the backslash is part "
+                        + "of the value, not a path separator to normalise");
+        assertEquals(3, settings.size(),
+                "P4CHARSET, P4IGNORE and the per-port charset variable are not settings Tia reads, "
+                        + "so none of them may be collected or mistaken for one that is");
+    }
+
+    /**
      * A value with no annotation at all is left exactly as it stands, so the stripping cannot eat
      * into a legitimate value.
      */
