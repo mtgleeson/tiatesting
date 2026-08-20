@@ -58,7 +58,7 @@ class P4SettingsParseTest {
         List<String> lines = Arrays.asList(
                 "P4CLIENT=my-workspace (config \"/Users/mgleeson/ws/.p4config\")",
                 "P4PORT=ssl:perforce.example.com:1666 (config)",
-                "P4USER=mgleeson (env)");
+                "P4USER=mgleeson (enviro)");
 
         // when
         Map<String, String> settings = P4Settings.parseP4SetOutput(lines);
@@ -71,6 +71,43 @@ class P4SettingsParseTest {
                         + "the connection URI");
         assertEquals("mgleeson", settings.get(P4Constants.P4USER),
                 "a value sourced from the environment must not keep the annotation");
+    }
+
+    /**
+     * <b>Real captured output</b> from a macOS workspace, verbatim apart from the host and user
+     * names. This is the ground truth the invented cases above are modelled on, and it is worth
+     * pinning for two reasons.
+     *
+     * <p>First, the three settings Tia reads carry <b>no annotation at all</b> here, so this machine
+     * never hit the annotation bug. That is why the OS fix appeared to work on macOS with only the
+     * command-invocation half applied: whether a value is annotated depends on where it was set, not
+     * on the platform, and nothing on this machine set them anywhere that annotates.
+     *
+     * <p>Second, {@code P4_<port>_CHARSET} shows that {@code p4} emits variable names with the port
+     * embedded in them, dots and colons included. It must be ignored rather than mistaken for one of
+     * the names Tia reads - the failure mode a substring match invites.
+     */
+    @Test
+    void realMacOsOutputIsParsed() {
+        // given - the exact output of `p4 set` on a macOS workspace
+        List<String> lines = Arrays.asList(
+                "P4CLIENT=abc_mainline_mac",
+                "P4PORT=abc.com:1666",
+                "P4USER=user",
+                "P4_abc.com:1666_CHARSET=auto (enviro)");
+
+        // when
+        Map<String, String> settings = P4Settings.parseP4SetOutput(lines);
+
+        // then
+        assertEquals("abc_mainline_mac", settings.get(P4Constants.P4CLIENT));
+        assertEquals("abc.com:1666", settings.get(P4Constants.P4PORT),
+                "an unannotated value must survive the annotation stripping untouched - this is "
+                        + "what goes straight into the p4java connection URI");
+        assertEquals("user", settings.get(P4Constants.P4USER));
+        assertEquals(3, settings.size(),
+                "the per-port charset variable is not a setting Tia reads, so it must not be "
+                        + "collected or mistaken for one that is");
     }
 
     /**
@@ -138,7 +175,7 @@ class P4SettingsParseTest {
                 "",
                 "   ",
                 "Perforce client environment settings:",
-                "P4PORT=ssl:perforce.example.com:1666 (env)");
+                "P4PORT=ssl:perforce.example.com:1666 (enviro)");
 
         // when
         Map<String, String> settings = P4Settings.parseP4SetOutput(lines);
@@ -190,7 +227,7 @@ class P4SettingsParseTest {
     @Test
     void nullLinesAreSkipped() {
         // given
-        List<String> lines = Arrays.asList(null, "P4USER=mgleeson (env)");
+        List<String> lines = Arrays.asList(null, "P4USER=mgleeson (enviro)");
 
         // when
         Map<String, String> settings = P4Settings.parseP4SetOutput(lines);
