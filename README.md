@@ -10,6 +10,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
   	- [Maven, Junit4, Perforce](#maven-junit4-and-perforce)
   	- [Gradle, Spock, Git](#gradle-spock-and-git)
 - [Usage](#usage)
+	- [Seeing Tia's log output](#seeing-tias-log-output)
 - [Configuration Options](#configuration-options)
 - [Static test selection rules](#static-test-selection-rules)
 - [What is Tia](#what-is-tia)
@@ -30,6 +31,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit4-git-maven-plugin`, `tia-junit4-perforce-maven-plugin`, `tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer.
 - **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
+- **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so your test project must already provide them. Most projects do. See [Seeing Tia's log output](#seeing-tias-log-output).
 
 ### Maven, JUnit5 and Git
 Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5-git` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
@@ -564,6 +566,7 @@ Note: to see extra debugging including what test suites are being selected broke
 ```
 tia-junit5-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
 ```
+See [Seeing Tia's log output](#seeing-tias-log-output) for more on Tia's logging.
 
 **Maven, Junit5 and Perforce**
 ```
@@ -705,6 +708,55 @@ mvn tia-junit4-perforce:text-report
 ```
 gradle tia-text-report
 ```
+
+### Seeing Tia's log output
+
+Tia logs from two different JVMs, and they have different requirements.
+
+**1. The build process (the Tia goals/tasks: `select-tests`, `status`, `libraries`, `history`, the reports, and `prepare-agent` itself).**
+
+Nothing to configure - this output appears on the console out of the box. Under Maven, Tia's goals log through Maven's own plugin log and SLF4J binding, so INFO-level messages print with your normal build output.
+
+To see Tia's debug logging (for example, the breakdown of which source methods caused each test suite to be selected):
+
+```
+mvn tia-junit5-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+```
+
+`mvn -X` works too, but it turns on debug for the entire build. Note that Maven supplies its own SLF4J binding for this process, so a `logback.xml` in your project has no effect on it - use the system property above.
+
+For Gradle, use `gradle tia-select-tests --info` or `--debug`.
+
+**2. The forked test JVM (the Tia javaagent and the Tia test listener, which run alongside your tests).**
+
+This is the part that has a requirement. Tia declares `slf4j-api` as a compile-only dependency in every module and does not bundle it into the agent jar, so **your test project must provide `slf4j-api` plus an SLF4J binding (Logback, `slf4j-simple`, Log4j2's SLF4J binding, etc.) on its test classpath.** Most real projects already have one. If yours does not:
+
+- With `slf4j-api` present but no binding, SLF4J falls back to a no-op implementation, prints `Failed to load class org.slf4j.impl.StaticLoggerBinder`, and Tia's test-run logging is silently discarded.
+- With no `slf4j-api` at all, Tia's loggers cannot initialise and the test run can fail with `NoClassDefFoundError: org/slf4j/LoggerFactory`.
+
+A minimal setup for a project that has no logging dependencies of its own:
+
+```xml
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-api</artifactId>
+    <version>1.7.32</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-simple</artifactId>
+    <version>1.7.32</version>
+    <scope>test</scope>
+</dependency>
+```
+
+The log level for this JVM is controlled by whichever binding you use - for example `<logger name="org.tiatesting" level="debug"/>` in `logback.xml`, or `-Dorg.slf4j.simpleLogger.log.org.tiatesting=debug` for `slf4j-simple`. System properties set on the `mvn` command line are normally copied into the forked JVM by Surefire; if you find they are not being applied, set the property explicitly in Surefire's `<systemPropertyVariables>`.
+
+Two Surefire settings can hide this output even when a binding is present:
+
+- `<redirectTestOutputToFile>true</redirectTestOutputToFile>` sends the fork's console output to `target/surefire-reports/*-output.txt` instead of the terminal.
+- `mvn -q` suppresses INFO-level output for the build generally (the `select-tests` listing is written to standard out and still appears).
 
 ## Configuration Options
 
