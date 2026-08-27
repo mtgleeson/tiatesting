@@ -972,7 +972,13 @@ mvn tia-junit5-git:dist-complete
 (nothing - the tia-dist-complete task is wired as a finalizer of the test task automatically)
 ```
 
-It is safe to run unconditionally: on a build that was not distributed there is nothing to complete, and it logs that and exits successfully. It reads the run id, runner key and group number back out of the build directory rather than re-deriving them - a runner key it derived for itself would carry a different process id, match no claimed row, and leave the group open forever. Its own configuration only has to supply `tiaEnabled`, `tiaBuildDir` and the database connection settings, which normally already live in your pom.
+**On Maven you invoke it yourself; it is not wired into the test run.** The goal has no default lifecycle phase, so it never runs as part of `mvn test` or `mvn verify` - give it its own pipeline step after the test command, and make that step run whatever the test result (`if: always()` on GitHub Actions, or your CI system's equivalent). On Gradle there is nothing to do: `tia-dist-complete` is registered as a `finalizedBy` finalizer of the test task, and Gradle runs finalizers even when the task they finalize fails.
+
+**Do not try to automate the Maven side by binding the goal to a phase.** An `<executions>` binding in your pom looks like the tidier option, but it reintroduces the exact problem the separate step exists to avoid: a phase-bound execution is part of the same lifecycle a test failure aborts, so it would not run on the runners whose groups most need closing. The goal's lack of a default phase is deliberate for that reason.
+
+**It takes no arguments of its own.** Everything specific to the run - the run id, the runner key, the claimed group number, and the mapping/stats/history update flags - is read back out of `<tiaBuildDir>/fork.properties`, the same handoff file `prepare-agent` wrote for the forked test JVM. The goal never re-derives those values, and deliberately ignores its own `-D` equivalents for them: a runner key it derived for itself would carry a different process id, match no claimed row, and leave the group open forever, and the seal has to use the flags the runner actually ran under rather than whatever this invocation was passed. Your own configuration only has to supply `tiaEnabled`, `tiaBuildDir` and the database connection settings, which normally already live in your pom. The connection settings are not optional, though - if `tiaDBUrl` resolves to a private embedded H2 rather than the shared datastore the runners coordinate through, the goal fails with a message saying so, rather than silently finding no claimed row and exiting as if the group were already done.
+
+It is safe to run unconditionally: on a build that was not distributed - no `fork.properties` file, or one carrying no distributed handoff - there is nothing to complete, and it logs that and exits successfully.
 
 ### Status - inspect a run in flight
 
