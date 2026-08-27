@@ -20,12 +20,15 @@ wiki can also be read front to back.
   `generateLargeTiaDb` / `profileSelectTests` harness for measuring the hot read path.
 - [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, the
   `history` task and the HTML History tab.
-- [The select-tests run-time estimate and its mapping overhead](wiki/select-tests-run-time-estimate.md) -
+- [The select-tests run-time estimate and its overhead model](wiki/select-tests-run-time-estimate.md) -
   how the estimate is built and why coverage-collecting runs get an amortised overhead figure.
 - [Database schema (tables and relationships)](wiki/database-schema.md) - every table, its purpose
   and the relationships between the mapping, library-impact and audit clusters.
 - [Persist flow and crash safety](wiki/persist-flow-and-crash-safety.md) - the seal-last invariant
   and the failure-mode taxonomy that keeps crashes self-correcting.
+- [Distributed test runs (group assignment and the run lifecycle)](wiki/distributed-test-runs.md) -
+  how one logical build is split across CI runners: the plan, the claim protocol, the completion
+  barrier and the sealer election, plus what a pipeline has to run.
 - [Embedded vs server-mode H2 connections](wiki/h2-connection-modes.md) - connection resolution,
   the embedded engine options and the shared-server considerations.
 - [Pluggable datastore (H2, Postgres, and the seam for more)](wiki/pluggable-datastore.md) - the

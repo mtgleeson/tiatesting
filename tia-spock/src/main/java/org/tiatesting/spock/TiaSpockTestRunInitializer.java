@@ -1,7 +1,5 @@
 package org.tiatesting.spock;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
@@ -12,7 +10,6 @@ import org.tiatesting.core.vcs.VCSReader;
 import java.util.List;
 
 public class TiaSpockTestRunInitializer {
-    private static final Logger log = LoggerFactory.getLogger(TiaSpockTestRunInitializer.class);
 
     private final VCSReader vcsReader;
     private final DataStore dataStore;

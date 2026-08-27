@@ -291,7 +291,7 @@ public class PendingLibraryImpactedMethodsDrainer {
         LibraryPublish resolvedPublish = dataStore.lookupLibraryPublish(groupArtifact, resolvedJarHash,
                 isSnapshotVersion(resolvedVersion) ? null : resolvedVersion);
         if (resolvedPublish == null) {
-            log.warn("Library '{}' resolved (version='{}', jarHash='{}') matches no publish ledger row - "
+            log.info("Library '{}' resolved (version='{}', jarHash='{}') matches no publish ledger row - "
                     + "holding {} pending batches until a known build is resolved.",
                     groupArtifact, resolvedVersion, resolvedJarHash != null ? resolvedJarHash : "N/A",
                     pendingCount);

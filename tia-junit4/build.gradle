@@ -11,6 +11,15 @@ dependencies {
     implementation project(':tia-core')
     implementation group: 'junit', name: 'junit', version: junit4Version
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    // slf4j-api is compileOnly above, so the listener's logger needs a binding (and the api it
+    // binds to) on the test runtime classpath.
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 publishing {

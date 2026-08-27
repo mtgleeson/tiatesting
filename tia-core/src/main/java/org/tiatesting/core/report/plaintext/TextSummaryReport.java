@@ -134,7 +134,10 @@ public class TextSummaryReport {
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
         reportBuilder.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
-        reportBuilder.append("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime()) + lineSep);
+        for (String line : ReportUtils.averageRunTimeLines(stats.getAvgRunTime(),
+                stats.getAllTestsRunTime(), tiaData.getTestRunHistory())) {
+            reportBuilder.append(line + lineSep);
+        }
         reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
         reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
         long totalSavings = ReportUtils.totalSavingsMs(tiaData.getTestRunHistory());

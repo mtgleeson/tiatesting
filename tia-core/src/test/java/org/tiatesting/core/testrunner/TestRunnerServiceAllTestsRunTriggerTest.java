@@ -71,7 +71,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
 
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
-        return new TestRunResult(trackers, empty, empty, empty, new HashMap<>(), runStats, null,
+        return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
                 ignoredTestSuiteCount, 0);
     }
 
@@ -85,7 +85,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         TestRunResult result = runResult(500L, 0);
 
         // when - stats-only persist (updateDBStats=true)
-        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result);
+        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result, null);
         TiaData loaded = dataStore.getTiaCore();
 
         // then
@@ -104,7 +104,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         TestRunResult result = runResult(500L, 3);
 
         // when
-        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result);
+        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result, null);
         TiaData loaded = dataStore.getTiaCore();
 
         // then

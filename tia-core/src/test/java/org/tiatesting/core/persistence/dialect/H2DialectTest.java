@@ -53,4 +53,21 @@ class H2DialectTest {
         assertEquals("CREATE SCHEMA IF NOT EXISTS \"tia_main\"", d.createSchemaIfNotExistsSql("tia_main"));
         assertEquals("SET SCHEMA \"tia_main\"", d.selectSchemaSql("tia_main"));
     }
+
+    /**
+     * Verifies that H2Dialect returns BLOB as the binary column type for variable-length binary
+     * storage. H2 has BLOB (and VARBINARY) but Postgres has only BYTEA, so the dialect seam is
+     * needed to abstract the difference.
+     */
+    @Test
+    void shouldUseBlobForBinaryColumns() {
+        // given
+        H2Dialect dialect = new H2Dialect();
+
+        // when
+        String type = dialect.binaryColumnType();
+
+        // then
+        assertEquals("BLOB", type);
+    }
 }

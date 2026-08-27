@@ -13,6 +13,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 	- [Seeing Tia's log output](#seeing-tias-log-output)
 - [Configuration Options](#configuration-options)
 - [Static test selection rules](#static-test-selection-rules)
+- [Distributed test runs](#distributed-test-runs)
 - [What is Tia](#what-is-tia)
 - [How Does Tia Work](#how-does-tia-work)
 - [Branch isolation (schema per branch)](#branch-isolation-schema-per-branch)
@@ -430,6 +431,15 @@ Number of failed runs: 0 (0%)
 
 "All tests run time" is the average time to run the full suite (runs where Tia ignored nothing); compare it against "Average run time" (Tia-selected runs) to see the time Tia saves. The percentage on the "Average run time" line is the selected-run time as a share of the full-suite time, and "Total savings over all runs" sums the time saved across every recorded partial run.
 
+Once the project has run [distributed builds](#distributed-test-runs), the average-run-time line is qualified and a second one appears beneath it:
+
+```
+Average run time (serial equivalent): 638ms (96%)
+Average distributed run time: 553ms (83%) over 3 distributed run(s)
+```
+
+"Average run time" is the **serial equivalent** - what each run's selection would have cost on one host - averaged over **every** run, and it is the figure savings are computed from in both modes. "Average distributed run time" is the **wall clock** those builds actually waited for, averaged over **distributed runs only**, which is why the run count is stated: the two lines average different populations, so without it the pair reads as though the same builds got faster. Both percentages are against the same full-suite baseline, so they are directly comparable. A project that has never run a distributed build sees neither the qualifier nor the second line. See [Which time is which](#which-time-is-which).
+
 Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below. Pending failed tests (forced to re-run) are shown by the select-tests task.
 
 **Maven, Junit5 and Git**
@@ -614,6 +624,23 @@ Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Sav
 2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       -                -  no       7c3e1a09
 ```
 
+When any run in view was a [distributed build](#distributed-test-runs), two further columns appear after `Duration`:
+
+```
+Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall clock  Groups  Savings  Savings %  Mapping  Id
+-------------------  ------  --------  ---  -------  ------  --------  ----------  ------  -------  ---------  -------  --------
+2026-08-17 22:35:46  main    6097d683    2        1       0  615ms     506ms            2  49ms            7%  yes      3fd70a70
+2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms     664ms            1  -                -  yes      17972bd5
+```
+
+- **`Duration`** is the **serial equivalent** in both modes - what that run's selection would have cost on one host. It stays the figure `Savings` is computed from, so a project's history remains comparable across the build where distributed mode was switched on.
+- **`Wall clock`** is what the distributed build actually waited for: its slowest group. This is the parallel build time. A single-host run dashes it.
+- **`Groups`** is how many groups the run was split across.
+
+The two are equal when a run had one group - the second row above is a seed run, which is always a single group covering everything. Note that `Savings` is measured against `Duration`, so it never includes the speed-up from distributing; that gain is the gap between `Duration` and `Wall clock`. See [Which time is which](#which-time-is-which).
+
+A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
+
 **Maven, Junit5 and Git**
 ```
 tia-junit5-git:history
@@ -783,6 +810,13 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaDistributed|distributed|true, false|When true this build takes part in a [distributed test run](#distributed-test-runs): the selection is split into groups across CI runners that coordinate through a shared database. Requires `tiaDBUrl` / `dbUrl` (a shared datastore - embedded H2 is rejected) and `tiaCheckLocalChanges` / `checkLocalChanges` disabled.| false |false|
+|tiaRunId|runId|<string>|The shared identifier every job in one distributed build must agree on, so each runner finds the same run's rows in the shared database. Must be the **same** for every job in a build and **different** for every build - a CI pipeline/run id is the natural value.| |true (when distributed)|
+|tiaDistributedGroupCount|distributedGroupCount|<integer>|Split the selection into exactly this many groups, minimising the heaviest one. Mutually exclusive with `tiaDistributedTargetRunTime` - exactly one of the two must be set.| |one of the two|
+|tiaDistributedTargetRunTime|distributedTargetRunTime|<milliseconds>|Work out how many groups are needed to bring the wall-clock test time under this target, and use the fewest that do. Mutually exclusive with `tiaDistributedGroupCount`. Meeting the target is best effort - see [Distributed test runs](#distributed-test-runs).| |one of the two|
+|tiaDistributedMaxGroups|distributedMaxGroups|<integer>|Ceiling on the number of groups when balancing for `tiaDistributedTargetRunTime`. A spend limit, not a goal - Tia uses the fewest groups that meet the target, not this many. Rejected alongside a fixed `tiaDistributedGroupCount`, where it would be meaningless.| no ceiling |false|
+|tiaDistributedRunnerKey|distributedRunnerKey|<string>|Per-runner identity used by the claim protocol to tell concurrent runners apart. Set it to something **stable across job retries** (a CI matrix index) so a retried job is handed back its own group instead of claiming a second one.| derived from run id + hostname + pid |false|
+|tiaDistStatusSuites|N/A (`--suites`)|true, false|Used only by the status command ([Maven `dist-status`, Gradle `tia-dist-status`](#status---inspect-a-run-in-flight)). When true, also lists the test suite names assigned to each group. Off by default because the list is unbounded. On Gradle this is the `--suites` command-line flag rather than an extension property.| false |false|
 |tiaStaticTestSelectionRules|staticTestSelectionRules|nested list of rules|User-declared rules of the form "if a changed file matches this path regex, force-run these suites". Used for change drivers Tia's coverage-driven mapping can't see (SQL migrations, properties, schema files). Rules are additive: their selected suites are unioned into the suites already selected from the coverage mapping. See [Static test selection rules](#static-test-selection-rules) below for the configuration syntax.| empty (no rules)                                                                              |false|
 
 ## Static test selection rules
@@ -847,6 +881,245 @@ tia {
 ```
 
 Invalid rules (missing required fields, unknown mode, regex that fails to compile) fail at build configuration time, before any tests run, so configuration errors surface immediately rather than at test-run time.
+
+## Distributed test runs
+
+Normally Tia assumes it is the only thing running: one build computes one selection, runs it, and writes one set of results. Splitting that naively across CI runners gives you N independent Tia runs that each compute their own selection and each try to write their own mapping - wasteful, and against a shared database actively unsafe.
+
+A distributed test run makes Tia aware of the topology instead: **one logical build, N runners, one shared database**. A planning step computes the selection once and splits it into groups; each runner claims exactly one group and runs only that group's suites; the runner that finishes last is elected to seal the build and write the mapping, stats and single history row.
+
+Tests still run **sequentially inside each runner** - the parallelism is across hosts only, because Tia relies on one-suite-at-a-time execution in a single JVM to attribute coverage to the right suite.
+
+For the mechanism (the claim protocol, the completeness guard, how the two durations are reported, what happens to a run stuck in `OPEN`) see the [distributed test runs](wiki/distributed-test-runs.md) WIKI chapter.
+
+### Requirements
+
+- **A shared database** - `tiaDBUrl` / `dbUrl` pointing at server-mode H2 or Postgres. Embedded H2 is rejected: the runners coordinate entirely through the datastore.
+- **A single-project build.** Multi-module reactors are refused at configuration time. Use `mvn -pl <module>` to distribute one module's tests.
+- **`tiaCheckLocalChanges` / `checkLocalChanges` off.** A distributed run is a primary build of a committed state.
+- **One JVM per runner.** Maven `forkCount > 1` / `reuseForks=false` and Gradle `maxParallelForks > 1` / `forkEvery > 0` break the one-JVM-per-group assumption. Gradle refuses both; on Maven it is your responsibility.
+
+### The pipeline shape
+
+Three job types, in order:
+
+1. **Plan** - one job runs `dist-plan`, which writes the plan and `<tiaBuildDir>/tia-run-plan.json`.
+2. **Run** - N jobs, each running the tests normally with `tiaDistributed=true` and the same `tiaRunId`. Each claims one group.
+3. **Complete** - each runner job runs `dist-complete` **whatever the test result**.
+
+A fourth command, `dist-status`, sits outside that order: it is read-only, and reports the state of a run at any point during or after it. See [Status - inspect a run in flight](#status---inspect-a-run-in-flight).
+
+Step 3 is not optional on Maven, and it is the one thing people get wrong. A test failure aborts the Maven lifecycle, so a completion chained onto the same command never runs on exactly the runners you most need it from. The group stays `CLAIMED`, the barrier never opens, and the whole build's mapping work is discarded. Give it its own always-run step. On Gradle no pipeline change is needed - the completion task is a `finalizedBy` finalizer, and finalizers run even when the task they finalize fails.
+
+### Plan - split the selection into groups
+
+Run once per build, before the runner jobs start. Writes the plan to the shared database and `tia-run-plan.json` alongside a console summary.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedTargetRunTime=1500000 -DtiaDistributedMaxGroups=10
+```
+(substitute `tia-junit5-perforce`, `tia-junit4-git` or `tia-junit4-perforce` for the other flavours)
+
+**Gradle, Spock and Git**
+```
+gradle tia-dist-plan
+```
+
+`tia-run-plan.json` is a published contract - its field names, order and shape are fixed so a pipeline can parse it:
+```json
+{
+  "runId": "gh-1284471",
+  "branch": "main",
+  "commit": "87a5110",
+  "seedRun": false,
+  "groupCount": 5,
+  "avgGroupMs": 1380000,
+  "heaviestGroupMs": 1450000,
+  "targetMs": 1500000,
+  "targetMet": true,
+  "clampedToMaxGroups": false,
+  "singleSuiteExceedsTarget": false,
+  "fixedOverheadExceedsTarget": false,
+  "totalEstimatedMs": 6900000,
+  "selectedSuiteCount": 412
+}
+```
+
+| Field | Type | What it is |
+|---|---|---|
+| `runId` | string | The `tiaRunId` this plan was written under. Every runner job must be given the same value to claim from it. |
+| `branch` | string | The VCS branch the selection was made against. A runner is verified against this before it claims. |
+| `commit` | string | The VCS commit the selection was made against, and the one the build seals at. |
+| `seedRun` | boolean | `true` when no stored mapping existed yet for this branch, so the plan was collapsed to a single group covering the whole suite and the configured group count / target were ignored. Explains why a pipeline received one job despite asking for more. |
+| `groupCount` | number | How many groups the selection was split into. **This is the field to size your job matrix from** - start exactly this many runner jobs. |
+| `avgGroupMs` | number | `totalEstimatedMs / groupCount`. A shape indicator only; do not set job timeouts from it - uneven packing is exactly what it hides. |
+| `heaviestGroupMs` | number | The heaviest group's estimate, including its own copy of the fixed per-JVM cost. This is the build's expected wall-clock test time, since groups run in parallel, and the figure to base a job timeout on. |
+| `targetMs` | number or `null` | The configured `tiaDistributedTargetRunTime`. Rendered as JSON `null` - never `0` - in static-groups mode, where a fixed group count means there is no target. |
+| `targetMet` | boolean | Whether `heaviestGroupMs` came in at or under `targetMs`. Always `true` in static-groups mode, which has no target to miss. Missing a target never fails the build or drops tests. |
+| `clampedToMaxGroups` | boolean | `true` when `tiaDistributedMaxGroups` limited the group count below what the target needed. Lever: raise the ceiling. |
+| `singleSuiteExceedsTarget` | boolean | `true` when one suite alone is longer than what is left of the target after the fixed per-JVM cost. Lever: split the suite or raise the target - no group count divides one suite. |
+| `fixedOverheadExceedsTarget` | boolean | `true` when the fixed per-JVM cost alone meets or exceeds the target. No group count can help: every runner pays it before running anything, so adding runners only adds copies of it. Lever: raise the target. |
+| `totalEstimatedMs` | number | The summed estimate of every group, each carrying its own copy of the fixed per-JVM cost. This is total machine time across the fan-out, **not** the serial-equivalent time on one host - one host pays that fixed cost once. |
+| `selectedSuiteCount` | number | How many test suites Tia selected for this build, across all groups. `0` on a nothing-impacted build; also `0` on a seed run, which carries no suite names because it runs everything. |
+
+The three `...Target` booleans are independent causes, not alternatives: any can be `true` without the others and more than one can be `true` at once, so check all three to explain a missed target.
+
+`select-tests` also previews the grouping without persisting anything, whenever `tiaDistributedGroupCount` / `tiaDistributedTargetRunTime` is set. Both it and the plan step's console summary report **two durations**, and they answer different questions:
+
+```
+Estimated total run time (serial equivalent): 497ms (75%)
+Estimated savings: 167ms (25%)
+Estimated distributed run time: 275ms (41%) - the heaviest group, which is what the build waits for.
+
+Distributed run grouping preview (not persisted):
+  Groups: 2, average 248ms per group, heaviest 275ms
+  Target: none (static group count)
+```
+
+The **distributed run time** is the heaviest group - what you actually wait for, and what a job timeout has to accommodate. It already includes that group's suites' share of the mapping overhead, since the balancer weights suites with it.
+
+The **serial equivalent** is what the same selection would cost on one host. It is deliberately the same number a non-distributed build prints, because that is the figure Tia records and computes savings from in both modes, so savings keep meaning "time saved by not running unimpacted tests" rather than quietly absorbing the parallelism your CI system provided. If that line and the savings look unchanged by distributing, that is why - only the wall clock moves. The same two figures appear again in the history table after the run, as its `Duration` and `Wall clock` columns.
+
+One caveat on the distributed estimate: each runner also re-pays the fixed per-JVM start-up cost that a single-host run pays once, and Tia's stored stats do not separate that fixed cost from the per-suite capture cost, so it cannot be added here. Treat the figure as a floor.
+
+### Which time is which
+
+Tia reports several different durations across its commands. They divide into exactly two kinds, and the same two words are used for them everywhere:
+
+- **Serial equivalent** - what the selection costs on one host. Savings are computed from this in *both* modes, so "savings" keeps meaning *time saved by not running unimpacted tests* and never silently absorbs the parallelism your CI system provided.
+- **Wall clock** - what the build actually waited for: the heaviest group, since the groups run in parallel.
+
+| Command | Figure | Which kind | Notes |
+|---|---|---|---|
+| `select-tests` | `Estimated total run time (serial equivalent)` | serial | Predicted from stored per-suite averages. Identical in both modes. |
+| `select-tests` | `Estimated savings` | serial | Baseline minus the serial estimate. |
+| `select-tests` | `Estimated distributed run time` | wall clock | The heaviest group. A floor - see the caveat above. |
+| `status` | `Average run time (serial equivalent)` | serial | Averaged over **every** run. The `(serial equivalent)` qualifier appears only once the project has distributed builds. |
+| `status` | `Average distributed run time` | wall clock | Averaged over **distributed runs only**, which is why the run count is stated. |
+| `status` | `All tests run time` | serial | The full-suite baseline every percentage above is measured against. |
+| `history` | `Duration` | serial | Per run. What `Savings` is computed from. |
+| `history` | `Wall clock` | wall clock | Per run. Blank/`-` for a single-host run. |
+| `dist-status` | `Estimated` | serial | The planner's weight for that one group. |
+| `dist-status` | `Actual` | measured | That group's measured test-execution time this run. |
+| `dist-status` | `Elapsed` | measured | Wall clock since the group was **claimed** - on Maven that is `prepare-agent` at `initialize`, so it includes compilation and the rest of the build, not just tests. |
+
+The one that catches people out: **`Savings` never includes the speed-up from distributing.** It is measured against the serial equivalent by design. The parallel gain is the gap between `Duration` and `Wall clock` in the history, not something folded into the savings figure.
+
+Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
+
+Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - one group with everything, ignoring your configured group count, because there is no mapping yet to split. `seedRun: true` says so.
+
+### Complete - close out this runner's group
+
+Run once per runner job, after its tests, **whatever the result**. Completes the group, and if this runner finished last, seals the build.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-complete
+```
+
+**Gradle, Spock and Git**
+```
+(nothing - the tia-dist-complete task is wired as a finalizer of the test task automatically)
+```
+
+**On Maven you invoke it yourself; it is not wired into the test run.** The goal has no default lifecycle phase, so it never runs as part of `mvn test` or `mvn verify` - give it its own pipeline step after the test command, and make that step run whatever the test result (`if: always()` on GitHub Actions, or your CI system's equivalent). On Gradle there is nothing to do: `tia-dist-complete` is registered as a `finalizedBy` finalizer of the test task, and Gradle runs finalizers even when the task they finalize fails.
+
+**Do not try to automate the Maven side by binding the goal to a phase.** An `<executions>` binding in your pom looks like the tidier option, but it reintroduces the exact problem the separate step exists to avoid: a phase-bound execution is part of the same lifecycle a test failure aborts, so it would not run on the runners whose groups most need closing. The goal's lack of a default phase is deliberate for that reason.
+
+**It takes no arguments of its own.** Everything specific to the run - the run id, the runner key, the claimed group number, and the mapping/stats/history update flags - is read back out of `<tiaBuildDir>/fork.properties`, the same handoff file `prepare-agent` wrote for the forked test JVM. The goal never re-derives those values, and deliberately ignores its own `-D` equivalents for them: a runner key it derived for itself would carry a different process id, match no claimed row, and leave the group open forever, and the seal has to use the flags the runner actually ran under rather than whatever this invocation was passed. Your own configuration only has to supply `tiaEnabled`, `tiaBuildDir` and the database connection settings, which normally already live in your pom. The connection settings are not optional, though - if `tiaDBUrl` resolves to a private embedded H2 rather than the shared datastore the runners coordinate through, the goal fails with a message saying so, rather than silently finding no claimed row and exiting as if the group were already done.
+
+It is safe to run unconditionally: on a build that was not distributed - no `fork.properties` file, or one carrying no distributed handoff - there is nothing to complete, and it logs that and exits successfully.
+
+### Status - inspect a run in flight
+
+Prints the state of a distributed run: the run itself, every group in its plan, and the runner that claimed each one. Read-only - it claims, completes, seals and clears nothing - so it is safe to run against a build whose runners are still going, from your own machine or from a CI step watching the fan-out.
+
+**Maven, Junit5 and Git**
+```
+mvn tia-junit5-git:dist-status [-DtiaRunId=$CI_RUN_ID] [-DtiaDistStatusSuites=true]
+```
+
+**Gradle, Spock and Git**
+```
+gradle tia-dist-status [--runId=$CI_RUN_ID] [--suites]
+```
+
+With no run id it reports the most recently planned run, which is normally the only one - each plan write clears the previous run's rows. It only needs `tiaEnabled` and the same database connection settings the runners coordinate through; pointed at a private embedded database it simply finds no run planned, and says so. It never fails the build, so a pipeline can run it unconditionally.
+
+```
+Distributed run 'gh-1284471'
+  Branch:     main
+  Commit:     51e8970a3f2b
+  Status:     OPEN - 1 of 3 group(s) completed
+  Planned:    2026-08-17 20:48:29 (10m 5s ago)
+  Target:     2m
+  Estimated:  4m 33s of test time across 3 group(s)
+  Sealed:     not sealed (open for 10m 5s)
+
+Groups:
+
+Group | Status    | Runner   | Assigned | Observed | Ran | Failed | Estimated | Actual | Elapsed
+------+-----------+----------+----------+----------+-----+--------+-----------+--------+--------
+0     | COMPLETED | ci-job-1 | 2        | 2        | 2   | 0      | 1m 30s    | 1m 28s | 1m 30s
+1     | CLAIMED   | ci-job-2 | 1        | 0        | 0   | 0      | 1m 31s    | 40s    | 9m 58s
+2     | PENDING   | -        | 2        | -        | -   | -      | 1m 32s    | -      | -
+
+  Assigned = suites the plan gave this group; Observed = suites its runner saw finish or skip.
+  A group completes once Observed reaches Assigned, and the run seals once every group completes.
+  Actual = measured test-execution time; Elapsed = wall clock since the group was claimed.
+
+This run is not sealed yet. Outstanding:
+  Group 1: CLAIMED by 'ci-job-2' (running for 9m 58s) - observed 0 of 1 assigned suite(s).
+  Group 2: PENDING - no runner has claimed it. The pipeline fanned out fewer jobs than
+    the plan's 3 group(s), so nothing will ever complete this one and the run cannot seal.
+```
+
+The two columns to read together are **Assigned** and **Observed**: a group completes when Observed reaches Assigned, and the run seals when every group completes, so that comparison is what a run stuck in `OPEN` comes down to. The outstanding block names each group still standing in the way, and calls out the two states worth acting on:
+
+- **A `PENDING` group** means no runner ever claimed it - your matrix fanned out fewer jobs than the plan has groups. Nothing will complete it on its own. Size the matrix from `groupCount` in `tia-run-plan.json`.
+- **Every group `COMPLETED` but the run still `OPEN`** means the barrier was reached and the seal itself failed. The next build's plan step will clear these rows and redo the work.
+
+A seed run's single group shows `all` in the Assigned column rather than `0`: its plan carries no suite names, because there is no mapping yet to draw them from, while its runner executes every suite it discovers. Its Observed column shows `n/a` for the same reason - with nothing assigned, the completeness guard is satisfied without that count ever moving, so it carries no information. Read the Ran column instead.
+
+### Full example (GitHub Actions)
+
+```yaml
+plan:
+  runs-on: ubuntu-latest
+  outputs:
+    groups: ${{ steps.plan.outputs.groups }}
+  steps:
+    - run: >
+        mvn tia-junit5-git:dist-plan
+        -DtiaDistributed=true
+        -DtiaRunId=${{ github.run_id }}
+        -DtiaDistributedTargetRunTime=1500000
+        -DtiaDistributedMaxGroups=10
+    - id: plan
+      run: echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
+
+test:
+  needs: plan
+  strategy:
+    fail-fast: false
+    matrix:
+      group: ${{ fromJson(needs.plan.outputs.groups) }}
+  steps:
+    - name: Run this runner's group
+      run: >
+        mvn verify
+        -DtiaDistributed=true
+        -DtiaRunId=${{ github.run_id }}
+        -DtiaDistributedRunnerKey=${{ matrix.group }}
+
+    - name: Complete this runner's group
+      if: always()          # <- the whole point: runs even when the tests failed
+      run: mvn tia-junit5-git:dist-complete
+```
+
+Two details worth copying: `fail-fast: false`, so one failing group does not cancel the others and strand their claims, and a `tiaDistributedRunnerKey` taken from the matrix index, so a retried job resumes its own group rather than claiming a second one.
 
 ## What is Tia
 Tia ia a free test impact analysis library. It analyses changes made to source code and automatically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the efficiency of developers by cutting down the time required to get feedback on changes. 

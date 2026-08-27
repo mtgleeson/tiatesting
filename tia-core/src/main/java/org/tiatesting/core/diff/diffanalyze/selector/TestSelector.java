@@ -9,6 +9,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -92,7 +93,7 @@ public class TestSelector {
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap(),
-                    tiaCore.getTestStats().getAllTestsRunTime(), 0L);
+                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, 0L, true);
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
@@ -114,12 +115,13 @@ public class TestSelector {
         log.debug("Ignoring tests: {}", testsToIgnore);
 
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
-                tiaCore.getTestStats().getAllTestsRunTime());
+                tiaCore.getTestStats());
         return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
                 estimate.getSelectedTestRunTimesMs(),
-                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getMappingOverheadMs());
+                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getCaptureOverheadMs(),
+                estimate.getFixedOverheadMs(), false);
     }
 
     /**
@@ -135,20 +137,25 @@ public class TestSelector {
      * nothing to the total.
      *
      * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
-     * per-suite JaCoCo coverage capture plus other whole-run costs (JVM/agent startup, the final
-     * persist), none of which is in {@code avgRunTime} (that is measured before coverage
-     * collection). That amount is returned separately as
-     * {@link RunTimeEstimate#getMappingOverheadMs()} - see {@link #computeOverheadPerSuiteMs} -
-     * so the caller can add it to the base only when the run being estimated collects coverage.
+     * JaCoCo coverage capture plus whole-run costs (JVM/agent startup, the final persist), none of
+     * which is in {@code avgRunTime} (that is measured before coverage collection). Those are
+     * returned separately, and as <b>two</b> figures rather than one - see {@link #overheadModel} -
+     * so a caller can add them to the base only when the run being estimated collects coverage, and
+     * so a caller splitting the run across runners can charge the per-JVM part once per runner
+     * rather than dividing it across them.
+     *
+     * <p>The fixed part is reported as {@code 0} for an empty selection: a build that runs no suites
+     * starts no test JVM, and charging it would put a non-zero estimate on a nothing-impacted build.
      *
      * @param testsToRun the names of the selected test suites
      * @param tracked the tracked test suites (names + stats) keyed by suite name
-     * @param allTestsRunTimeMs the recorded full-suite run time (ms); the basis for the overhead
+     * @param tiaStats the Tia-level stats: the full-suite baseline and, once a distributed build has
+     *                 measured them, the two stored overhead constants
      * @return a {@link RunTimeEstimate} carrying the base estimate, the names of selected tests
-     *         with no stats, the median applied to those tests, and the mapping overhead
+     *         with no stats, the median applied to those tests, and the two overhead figures
      */
     static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked,
-                                           final long allTestsRunTimeMs){
+                                           final TestStats tiaStats){
         long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
@@ -174,30 +181,71 @@ public class TestSelector {
             }
         }
 
-        long mappingOverheadMs = computeOverheadPerSuiteMs(tracked, allTestsRunTimeMs) * (long) testsToRun.size();
+        OverheadModel overhead = overheadModel(tracked, tiaStats);
+        long captureOverheadMs = overhead.getCapturePerSuiteMs() * (long) testsToRun.size();
+        long fixedOverheadMs = testsToRun.isEmpty() ? 0L : overhead.getFixedMs();
 
-        return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes, mappingOverheadMs);
+        log.debug("Run time estimate: {} suite(s) selected taking {}ms of test time, plus {}ms of "
+                        + "coverage capture ({}ms per suite x {}) and {}ms of fixed per-JVM "
+                        + "overhead charged once. Serial-equivalent total {}ms, for a run that "
+                        + "collects coverage.", testsToRun.size(), totalMs, captureOverheadMs,
+                overhead.getCapturePerSuiteMs(), testsToRun.size(), fixedOverheadMs,
+                totalMs + captureOverheadMs + fixedOverheadMs);
+
+        return new RunTimeEstimate(totalMs, withoutStats, median, perTestRunTimes,
+                captureOverheadMs, fixedOverheadMs);
     }
 
     /**
-     * Derive the per-suite overhead a mapping-update run pays beyond pure test execution: the
-     * recorded full-suite run time minus the sum of every tracked suite's {@code avgRunTime},
-     * amortised across the tracked suites. The difference captures JaCoCo coverage capture plus
-     * the whole-run fixed costs (JVM/agent startup, the final persist) that no per-suite
-     * {@code avgRunTime} includes.
+     * Derive the two parts a run's overhead is made of: the per-suite cost of JaCoCo's coverage
+     * collection, and the cost a test JVM pays once however few suites it runs (engine start-up,
+     * class loading, the final coverage dump). Neither is in any suite's {@code avgRunTime}, which
+     * the listeners freeze before coverage is collected.
      *
-     * <p>Returns {@code 0} when there is no baseline, no tracked suites, or the baseline is below
-     * the per-suite sum. The last case means the build ran suites in parallel (wall clock less
-     * than the serial sum); this heuristic only models sequential builds, so it clamps rather
+     * <p><b>Why two numbers and not one.</b> Tia only ever had the whole-run figure - the full-suite
+     * baseline minus the sum of the tracked suite averages - and amortised it across the tracked
+     * suites. That is this model with the fixed part deleted, and it is self-consistent for a
+     * single-host run: dividing by the tracked count and multiplying back up by the selected count
+     * recovers the right total. It is wrong the moment a build is split, because every runner is its
+     * own JVM and pays the fixed cost <em>in full</em> - so the cost is duplicated per group while
+     * the estimate divided it away.
+     *
+     * <p><b>Where the split comes from.</b> One equation cannot separate two unknowns, so the pair
+     * is measured rather than derived here: a distributed build supplies a second equation at a
+     * different suite count, and {@code DistributedRunOverheadModel} solves it at seal time into the
+     * rolling averages this reads back. Until a project has run one distributed build there is
+     * nothing to read, and the fall-back is exactly the previous behaviour - the whole overhead
+     * amortised per suite, with no fixed part - so an estimate is never worse than it was.
+     *
+     * <p>The fall-back returns nothing at all when there is no baseline, no tracked suites, or a
+     * baseline below the per-suite sum. That last case means the build ran its suites in parallel
+     * (wall clock under the serial sum); this only models sequential builds, so it clamps rather
      * than subtracting.
      *
      * @param tracked the tracked test suites (names + stats) keyed by suite name
-     * @param allTestsRunTimeMs the recorded full-suite run time (ms)
-     * @return the amortised overhead per suite (ms), or {@code 0} when it can't be derived
+     * @param tiaStats the Tia-level stats carrying the full-suite baseline and the stored constants
+     * @return the two overhead parts, either of which may be {@code 0}
      */
-    private static long computeOverheadPerSuiteMs(final Map<String, TestSuiteTracker> tracked, final long allTestsRunTimeMs){
+    static OverheadModel overheadModel(final Map<String, TestSuiteTracker> tracked,
+                                       final TestStats tiaStats){
+        if (tiaStats.getNumOverheadMeasurements() > 0){
+            log.debug("Overhead model: measured - {}ms fixed per JVM and {}ms of coverage capture "
+                            + "per suite, averaged over {} distributed build(s). A distributed run "
+                            + "pays the fixed part once per group, so it is charged per group "
+                            + "rather than divided across them.", tiaStats.getFixedOverheadMs(),
+                    tiaStats.getCaptureOverheadPerSuiteMs(),
+                    tiaStats.getNumOverheadMeasurements());
+            return new OverheadModel(tiaStats.getFixedOverheadMs(),
+                    tiaStats.getCaptureOverheadPerSuiteMs());
+        }
+
+        long allTestsRunTimeMs = tiaStats.getAllTestsRunTime();
         if (allTestsRunTimeMs <= 0 || tracked.isEmpty()){
-            return 0L;
+            log.debug("Overhead model: none - {}, so no overhead is added to the estimate.",
+                    allTestsRunTimeMs <= 0
+                            ? "no all-tests baseline has been recorded yet"
+                            : "no test suites are tracked yet");
+            return new OverheadModel(0L, 0L);
         }
         long sumAvg = 0L;
         for (TestSuiteTracker tracker : tracked.values()){
@@ -205,9 +253,47 @@ public class TestSelector {
         }
         long overhead = allTestsRunTimeMs - sumAvg;
         if (overhead <= 0){
-            return 0L;
+            log.debug("Overhead model: none - the {}ms all-tests baseline does not exceed the {}ms "
+                            + "sum of the {} tracked suite average(s), which is what a build that "
+                            + "runs its suites in parallel records. The overhead clamps to zero "
+                            + "rather than going negative.", allTestsRunTimeMs, sumAvg,
+                    tracked.size());
+            return new OverheadModel(0L, 0L);
         }
-        return overhead / tracked.size();
+        long capturePerSuiteMs = overhead / tracked.size();
+        log.debug("Overhead model: estimated - no distributed build has measured the split yet, so "
+                        + "the whole {}ms of overhead ({}ms baseline less {}ms of tracked suite "
+                        + "averages) is amortised across {} tracked suite(s) at {}ms each, with no "
+                        + "fixed per-JVM part. The first distributed run will measure the split.",
+                overhead, allTestsRunTimeMs, sumAvg, tracked.size(), capturePerSuiteMs);
+        return new OverheadModel(0L, capturePerSuiteMs);
+    }
+
+    /**
+     * The two constants a run's overhead is modelled with. Package-private, like
+     * {@link RunTimeEstimate}, so tests can assert on the split without going through the full
+     * selection entry point.
+     */
+    static class OverheadModel {
+        private final long fixedMs;
+        private final long capturePerSuiteMs;
+
+        /**
+         * @param fixedMs the cost a test JVM pays once, however few suites it runs; charged once per
+         *                runner, so a split build pays it once per group rather than once in total
+         * @param capturePerSuiteMs the coverage-collection cost every executed suite pays, which
+         *                          scales with the number of suites wherever they run
+         */
+        OverheadModel(long fixedMs, long capturePerSuiteMs) {
+            this.fixedMs = fixedMs;
+            this.capturePerSuiteMs = capturePerSuiteMs;
+        }
+
+        /** @return the per-JVM cost in ms, charged once per runner; 0 when never measured */
+        long getFixedMs() { return fixedMs; }
+
+        /** @return the per-suite coverage-collection cost in ms; 0 when it cannot be derived */
+        long getCapturePerSuiteMs() { return capturePerSuiteMs; }
     }
 
     /**
@@ -248,12 +334,13 @@ public class TestSelector {
         private final Set<String> selectedTestsWithoutStats;
         private final long medianRunTimeMsAppliedToMissing;
         private final Map<String, Long> selectedTestRunTimesMs;
-        private final long mappingOverheadMs;
+        private final long captureOverheadMs;
+        private final long fixedOverheadMs;
 
         /**
          * @param estimatedRunTimeMs base estimated runtime (ms) for the selected tests - the sum
          *                           of per-suite times including the median fallback, with no
-         *                           mapping overhead added
+         *                           overhead added
          * @param selectedTestsWithoutStats names of selected tests with no recorded stats
          * @param medianRunTimeMsAppliedToMissing median {@code avgRunTime} (ms) applied to
          *                                        each test in {@code selectedTestsWithoutStats},
@@ -262,22 +349,27 @@ public class TestSelector {
          *                               every entry in {@code testsToRun}, with the median
          *                               value (or {@code 0} when no median is available) used
          *                               for tests without stats
-         * @param mappingOverheadMs the additional time (ms) a mapping-update run would pay for the
-         *                          selected suites (coverage capture + amortised whole-run costs);
-         *                          callers add it to {@code estimatedRunTimeMs} only when the run
-         *                          being estimated collects coverage
+         * @param captureOverheadMs the coverage-collection time (ms) the selected suites would add
+         *                          between them - per-suite, so it scales with the selection and is
+         *                          the part a distributed build divides across its groups
+         * @param fixedOverheadMs the time (ms) a test JVM pays once however few suites it runs;
+         *                        charged once per runner, so a distributed build pays a copy per
+         *                        group rather than dividing it. {@code 0} for an empty selection,
+         *                        which starts no test JVM at all
          */
         RunTimeEstimate(long estimatedRunTimeMs, Set<String> selectedTestsWithoutStats,
                         long medianRunTimeMsAppliedToMissing,
-                        Map<String, Long> selectedTestRunTimesMs, long mappingOverheadMs) {
+                        Map<String, Long> selectedTestRunTimesMs, long captureOverheadMs,
+                        long fixedOverheadMs) {
             this.estimatedRunTimeMs = estimatedRunTimeMs;
             this.selectedTestsWithoutStats = selectedTestsWithoutStats;
             this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
             this.selectedTestRunTimesMs = selectedTestRunTimesMs;
-            this.mappingOverheadMs = mappingOverheadMs;
+            this.captureOverheadMs = captureOverheadMs;
+            this.fixedOverheadMs = fixedOverheadMs;
         }
 
-        /** @return the base estimated runtime (ms) for the selected tests, without mapping overhead */
+        /** @return the base estimated runtime (ms) for the selected tests, without any overhead */
         long getEstimatedRunTimeMs() { return estimatedRunTimeMs; }
 
         /** @return names of selected tests with no recorded run-time stats */
@@ -289,8 +381,17 @@ public class TestSelector {
         /** @return per-test runtime (ms) keyed by test suite name */
         Map<String, Long> getSelectedTestRunTimesMs() { return selectedTestRunTimesMs; }
 
-        /** @return the mapping overhead (ms) for the selected suites; added only for coverage runs */
-        long getMappingOverheadMs() { return mappingOverheadMs; }
+        /**
+         * @return the coverage-capture overhead (ms) across the selected suites; added only for
+         *         coverage runs, and divided back out per suite when weighting a distributed split
+         */
+        long getCaptureOverheadMs() { return captureOverheadMs; }
+
+        /**
+         * @return the per-JVM overhead (ms) charged once per runner; added only for coverage runs,
+         *         and never divided across a distributed build's groups - each pays a full copy
+         */
+        long getFixedOverheadMs() { return fixedOverheadMs; }
     }
 
     private boolean hasStoredMapping(TiaData tiaData){
@@ -311,7 +412,7 @@ public class TestSelector {
      * and the library-owned diffs are excluded from source selection - under publish-time
      * stamping the library's own publish records their impacted methods, and the drain selects
      * the covering tests once the app resolves a build that contains them. In
-     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely — all
+     * {@code checkLocalChanges} mode, library diff partitioning is bypassed entirely - all
      * diffs are treated as source-project diffs so tests run immediately against local changes.
      *
      * <p>Mapping reads are targeted to the diff: one changed-files-to-tracked-methods query

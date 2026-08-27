@@ -81,12 +81,12 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList(
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), runnerTestSuites,
+                trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4);
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
-        service.persistTestRunData(false, false, true, "abc123", "main", runStart, testRunResult);
+        service.persistTestRunData(false, false, true, "abc123", "main", runStart, testRunResult, null);
 
         // then - the row records the selector's ignore count, not the runner diff
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -118,11 +118,11 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledA", "com.example.UserDisabledB", "com.example.UserDisabledC",
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), runnerTestSuites,
+                trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4);
 
         // when
-        service.persistTestRunData(false, false, true, "abc123", "main", System.currentTimeMillis(), testRunResult);
+        service.persistTestRunData(false, false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
 
         // then - ignored is 0 even though runner-saw-but-didn't-run is 6
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -141,12 +141,12 @@ class TestRunnerServiceHistoryIgnoredCountTest {
     void firstRun_noStoredMapping_persistsZeroIgnored() {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
-                new HashMap<>(), new HashSet<>(), new HashSet<>(),
+                new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0);
 
         // when
         service.persistTestRunData(false, false, true, "first-run-commit", "main",
-                System.currentTimeMillis(), testRunResult);
+                System.currentTimeMillis(), testRunResult, null);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -175,12 +175,12 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedA", new TestSuiteTracker("com.example.RetriedA"));
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2);
 
         // when
         service.persistTestRunData(false, false, true, "retry-commit", "main",
-                System.currentTimeMillis(), testRunResult);
+                System.currentTimeMillis(), testRunResult, null);
 
         // then - ran is 2 (this attempt), not 10 (cumulative trackers)
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -203,12 +203,12 @@ class TestRunnerServiceHistoryIgnoredCountTest {
             trackers.put(name, new TestSuiteTracker(name));
         }
         TestRunResult testRunResult = new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5);
 
         // when
         service.persistTestRunData(false, false, true, "first-attempt-commit", "main",
-                System.currentTimeMillis(), testRunResult);
+                System.currentTimeMillis(), testRunResult, null);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
