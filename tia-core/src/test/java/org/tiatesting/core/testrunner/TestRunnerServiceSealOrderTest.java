@@ -4,6 +4,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -93,7 +97,7 @@ class TestRunnerServiceSealOrderTest {
         // when - persist with a new commit; the throw should propagate
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
+                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then - stored commit value is unchanged
         TiaData reloaded = dataStore.getTiaData(true);
@@ -116,7 +120,7 @@ class TestRunnerServiceSealOrderTest {
         // when
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result));
+                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then
         TiaData reloaded = dataStore.getTiaData(true);
@@ -140,7 +144,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(false, true, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then - the seal bundle is never invoked; the core row goes through persistCoreData instead
         assertEquals(0, Collections.frequency(spy.callOrder, "persistSealedRunData"),
@@ -176,7 +180,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(true, false, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then - commit value is sealed to the new value
         TiaData reloaded = dataStore.getTiaData(true);
@@ -216,7 +220,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
-                "new-commit", "main", System.currentTimeMillis(), makeResult()));
+                "new-commit", "main", System.currentTimeMillis(), makeResult(), null));
 
         // then - the prior commit survived and the seal ran as one call, not two
         assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue());
@@ -239,7 +243,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when
         service.persistTestRunData(true, true, false, "new-commit", "main",
-                System.currentTimeMillis(), makeResult());
+                System.currentTimeMillis(), makeResult(), null);
 
         // then
         int sealIdx = spy.callOrder.indexOf("persistSealedRunData");
@@ -272,7 +276,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when - a run that seals
         service.persistTestRunData(true, true, false, "sealedCommit", "main",
-                System.currentTimeMillis(), makeResultWithMapping());
+                System.currentTimeMillis(), makeResultWithMapping(), null);
 
         // then
         for (TestSuiteTracker tracker : dataStore.getTestSuitesTracked().values()) {
@@ -282,7 +286,7 @@ class TestRunnerServiceSealOrderTest {
         // when - a run that fails inside the seal bundle
         spy.failInSealBundle = true;
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
-                "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping()));
+                "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping(), null));
 
         // then - the suites that ran stay flagged for a forced re-run
         assertTrue(dataStore.getTestSuitesTracked().values().stream().anyMatch(TestSuiteTracker::isUnsealed),
@@ -305,7 +309,7 @@ class TestRunnerServiceSealOrderTest {
                 new ClassImpactTracker("com/example/Some.java", new HashSet<>(Collections.singletonList(1)))));
         trackers.put("com.example.SomeTest", tracker);
         return new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
@@ -321,7 +325,7 @@ class TestRunnerServiceSealOrderTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
-                trackers, new HashSet<>(), new HashSet<>(),
+                trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
     }
 
@@ -480,5 +484,185 @@ class TestRunnerServiceSealOrderTest {
         }
         @Override
         public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
+
+        /**
+         * Unsupported on this fake: this test suite never exercises distributed run plans, so a
+         * silently-succeeding stub would let a future change start using distributed operations
+         * from a non-distributed path without any test noticing.
+         *
+         * @param plan ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistDistributedRunPlan(DistributedRunPlan plan) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public DistributedRun readDistributedRun(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Not used by this fake; distributed runs are not exercised here.
+         *
+         * @param runId ignored
+         * @return always null
+         */
+        @Override
+        public LibraryImpactDrainResult readDistributedRunDrainResult(String runId) { return null; }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<DistributedRunGroup> readDistributedRunGroups(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<String> readDistributedRunGroupSuites(String runId, int groupNumber) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public List<DistributedRun> readAllDistributedRuns() {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param runnerKey ignored
+         * @param claimedAtMs ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public DistributedRunGroup claimNextPendingGroup(String runId, String runnerKey, long claimedAtMs) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @param runnerKey ignored
+         * @param actualDurationMs ignored
+         * @param suitesRan ignored
+         * @param suitesFailed ignored
+         * @param suitesObserved ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
+                                           long actualDurationMs, int suitesRan, int suitesFailed,
+                                           int suitesObserved, long suitesDurationMs) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param groupNumber ignored
+         * @param runnerKey ignored
+         * @param completedAtMs ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public DistributedRunGroup completeGroup(String runId, int groupNumber, String runnerKey,
+                                                 long completedAtMs) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param runnerKey ignored
+         * @param sealedAtMs ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public boolean electSealer(String runId, String runnerKey, long sealedAtMs) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void markDistributedRunSealed(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param methodsTracked ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void deleteStagedMethodTrackers(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
     }
 }

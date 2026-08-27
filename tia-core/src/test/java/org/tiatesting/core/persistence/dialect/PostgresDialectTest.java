@@ -51,4 +51,21 @@ class PostgresDialectTest {
         assertEquals("CREATE SCHEMA IF NOT EXISTS \"tia_main\"", d.createSchemaIfNotExistsSql("tia_main"));
         assertEquals("SET search_path TO \"tia_main\"", d.selectSchemaSql("tia_main"));
     }
+
+    /**
+     * Verifies that PostgresDialect returns BYTEA as the binary column type for variable-length
+     * binary storage. Postgres has BYTEA but neither BLOB nor VARBINARY, so the dialect seam is
+     * needed to abstract the difference from H2.
+     */
+    @Test
+    void shouldUseByteaForBinaryColumns() {
+        // given
+        PostgresDialect dialect = new PostgresDialect();
+
+        // when
+        String type = dialect.binaryColumnType();
+
+        // then
+        assertEquals("BYTEA", type);
+    }
 }

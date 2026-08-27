@@ -144,7 +144,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * The Branch column should widen to match the longest branch value present — dynamic-width
+     * The Branch column should widen to match the longest branch value present - dynamic-width
      * is the difference between a readable table and one that either wraps or has huge gaps.
      */
     @Test
@@ -160,7 +160,7 @@ class TestRunHistoryConsoleFormatterTest {
         String output = TestRunHistoryConsoleFormatter.formatHistory(
                 Arrays.asList(shortBranchEntry, longBranchEntry), 20, LF);
 
-        // then — the header line's Branch label should be left-padded with enough trailing
+        // then - the header line's Branch label should be left-padded with enough trailing
         // spaces that the column widens to match the long branch value.
         String[] lines = output.split(LF, -1);
         String columnHeader = lines[2];
@@ -174,7 +174,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * A run with zero failed suites still renders as plain "0" — no pluralisation or hiding.
+     * A run with zero failed suites still renders as plain "0" - no pluralisation or hiding.
      */
     @Test
     void zeroFailed_rendersAsZero() {
@@ -186,7 +186,7 @@ class TestRunHistoryConsoleFormatterTest {
         String output = TestRunHistoryConsoleFormatter.formatHistory(
                 Collections.singletonList(entry), 20, LF);
 
-        // then — find the data row (after the separator) and verify the Failed column shows 0.
+        // then - find the data row (after the separator) and verify the Failed column shows 0.
         String[] lines = output.split(LF, -1);
         String dataRow = lines[4];
         assertTrue(dataRow.matches(".*\\b0\\b.*"), "Failed column should contain 0. Row: " + dataRow);
@@ -211,7 +211,7 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * Mapping flag renders as {@code yes} / {@code no} — the compact table form, not the HTML
+     * Mapping flag renders as {@code yes} / {@code no} - the compact table form, not the HTML
      * report's "updated / not updated" wording.
      */
     @Test
@@ -239,12 +239,12 @@ class TestRunHistoryConsoleFormatterTest {
      */
     @Test
     void dateTime_rendersInLocalTimeZone() {
-        // given — fix a UTC instant, compute its local representation in the running JVM.
+        // given - fix a UTC instant, compute its local representation in the running JVM.
         long epochMs = 1_700_000_000_000L;
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true, 0L, 0);
+                1, 0, 0, 1000L, true, 0L, 0, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -263,9 +263,9 @@ class TestRunHistoryConsoleFormatterTest {
     void savingsColumns_renderDurationPercentAndDashForZero() {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80);
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null);
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
-                10, 0, 0, 5000L, true, 0L, 0);
+                10, 0, 0, 5000L, true, 0L, 0, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -279,6 +279,80 @@ class TestRunHistoryConsoleFormatterTest {
         assertTrue(output.contains("-"), "all-tests run should show a dash for no savings. Output:\n" + output);
     }
 
+    /**
+     * A history of single-host runs renders exactly the columns it always did. The two distributed
+     * columns would be a dash on every row of such a history, so they are left out rather than
+     * widening the table for every project that does not distribute its tests.
+     */
+    @Test
+    void singleHostOnlyHistory_omitsTheDistributedColumns() {
+        // given
+        TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null);
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Collections.singletonList(entry), 20, LF);
+
+        // then
+        assertFalse(output.contains("Wall clock"),
+                "a history with no distributed runs should not carry a wall clock column. Output:\n" + output);
+        assertFalse(output.contains("Groups"),
+                "a history with no distributed runs should not carry a groups column. Output:\n" + output);
+    }
+
+    /**
+     * A distributed run's row shows the wall clock the build actually took and how many groups it
+     * was split across, alongside - never instead of - the serial-equivalent duration that the
+     * Duration column carries and that savings are computed from.
+     */
+    @Test
+    void distributedRun_rendersTheWallClockAndGroupColumnsAlongsideTheDuration() {
+        // given - a build whose groups summed to 20s but which took 8s of wall clock across 3 groups
+        TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
+                "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
+                Integer.valueOf(3));
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Collections.singletonList(distributed), 20, LF);
+
+        // then
+        assertTrue(output.contains("Wall clock"), "header should include a Wall clock column. Output:\n" + output);
+        assertTrue(output.contains("Groups"), "header should include a Groups column. Output:\n" + output);
+        assertTrue(output.contains("20s"), "the Duration column should show the serial-equivalent time. Output:\n" + output);
+        assertTrue(output.contains("8s"), "the Wall clock column should show the build's actual time. Output:\n" + output);
+        String[] lines = output.split(LF, -1);
+        assertTrue(lines[4].contains("3"), "the Groups column should show the group count. Row: " + lines[4]);
+    }
+
+    /**
+     * When a history mixes the two modes, the single-host rows show a dash in the distributed
+     * columns rather than a misleading zero - they had no wall clock separate from their duration
+     * and no groups at all.
+     */
+    @Test
+    void mixedHistory_showsADashInTheDistributedColumnsForSingleHostRows() {
+        // given
+        TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
+                "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
+                Integer.valueOf(3));
+        TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
+                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null);
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Arrays.asList(distributed, singleHost), 20, LF);
+
+        // then
+        String[] lines = output.split(LF, -1);
+        String singleHostRow = lines[5];
+        assertTrue(singleHostRow.contains("-"),
+                "the single-host row should show a dash for the distributed columns. Row: " + singleHostRow);
+        assertFalse(singleHostRow.contains("run-1"),
+                "the single-host row belongs to no distributed run. Row: " + singleHostRow);
+    }
+
     private static TestRunHistoryEntry entry(int year, int month, int day, int hour, int minute,
                                              int second, String branch, String commit, String id,
                                              int ran, int ignored, int failed, long durationMs,
@@ -286,7 +360,7 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping, 0L, 0);
+                durationMs, mapping, 0L, 0, null, null, null);
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -294,7 +368,7 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0));
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null));
         }
         return entries;
     }

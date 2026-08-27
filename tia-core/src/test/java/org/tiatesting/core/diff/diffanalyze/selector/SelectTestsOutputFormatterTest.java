@@ -31,7 +31,7 @@ class SelectTestsOutputFormatterTest {
         TestSelectorResult result = buildResult(setOf(), 0L, setOf(), 0L, perTestMap());
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertEquals("", output);
@@ -50,7 +50,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         // 1500ms is >= 1s, so the ms component is dropped
@@ -69,11 +69,96 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 2000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (75%)"
                 + LINE_SEP + "Estimated savings: 500ms (25%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * When a distributed grouping is supplied, the block gains a third line reporting the heaviest
+     * group as the time the build waits for, and the total above it is labelled as the serial
+     * equivalent.
+     *
+     * <p>The two existing figures are unchanged, which is the point: the estimate and the savings
+     * are deliberately the same numbers a single-host build prints, because they are what Tia
+     * records and computes savings from in either mode. Only the wall clock is mode-dependent, so
+     * only it is added.
+     */
+    @Test
+    void formatEstimateBlock_distributedGrouping_addsTheWallClockAndLabelsTheTotal(){
+        // given - the same inputs as the baseline case above, with a 900ms heaviest group
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 1000L), 2000L);
+
+        // when - rendered once for a distributed grouping and once without
+        String distributed = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(900L));
+        String singleHost = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
+
+        // then - 900ms of a 2000ms all-tests baseline is 45%
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 1s (75%)"
+                + LINE_SEP + "Estimated savings: 500ms (25%)"
+                + LINE_SEP + "Estimated distributed run time: 900ms (45%) - the heaviest group, "
+                + "which is what the build waits for.";
+        assertEquals(expected, distributed);
+        // the cost and savings figures themselves are identical in both modes
+        assertTrue(singleHost.contains("Estimated total run time: 1s (75%)"), singleHost);
+        assertTrue(singleHost.contains("Estimated savings: 500ms (25%)"), singleHost);
+    }
+
+    /**
+     * With no all-tests-run baseline recorded, the distributed line still reports the wall clock but
+     * omits its percentage, matching how the total line above it drops its own bracket. A percentage
+     * of an unrecorded baseline would be a division by zero dressed up as a measurement.
+     */
+    @Test
+    void formatEstimateBlock_distributedGroupingNoBaseline_omitsTheWallClockPercentage(){
+        // given - no all-tests baseline
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1500L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 1000L), 0L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(900L));
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 1s"
+                + LINE_SEP + "Estimated distributed run time: 900ms - the heaviest group, "
+                + "which is what the build waits for.";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * The distributed line sits above the new-tests note, so the note stays the last thing in the
+     * block as it is in single-host output - it qualifies the estimate, and a reader who stops at
+     * the first blank line should have already seen every figure.
+     */
+    @Test
+    void formatEstimateBlock_distributedGroupingWithMissingStats_keepsTheNoteLast(){
+        // given - a selection with one test that has no recorded stats
+        Set<String> testsToRun = setOf("test1", "newTest");
+        Set<String> withoutStats = setOf("newTest");
+        TestSelectorResult result = buildResult(testsToRun, 700L, withoutStats, 200L,
+                perTestMap("test1", 500L, "newTest", 200L), 1000L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false,
+                Long.valueOf(500L));
+
+        // then
+        String expected = LINE_SEP + "Estimated total run time (serial equivalent): 700ms (70%)"
+                + LINE_SEP + "Estimated savings: 300ms (30%)"
+                + LINE_SEP + "Estimated distributed run time: 500ms (50%) - the heaviest group, "
+                + "which is what the build waits for."
+                + LINE_SEP + LINE_SEP
+                + "Note: 1 selected test(s) have not previously been run by Tia. "
+                + "A median run time of 200ms (calculated from all tracked test suites) "
+                + "was used for them.";
         assertEquals(expected, output);
     }
 
@@ -89,7 +174,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 1000L), 0L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertEquals(LINE_SEP + "Estimated total run time: 1s", output);
@@ -107,7 +192,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 1500L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 1s (150%)"
@@ -127,7 +212,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L), 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms (70%)"
@@ -152,11 +237,54 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true, null);
 
         // then - total is base+overhead (2s), 50% of the 4s baseline, saving 2s (50%)
         String expected = LINE_SEP + "Estimated total run time: 2s (50%)"
                 + LINE_SEP + "Estimated savings: 2s (50%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * The fixed per-JVM cost is added <b>once</b> to the serial-equivalent total, not once per
+     * suite. This total is what one host would take, and one host starts one test JVM however the
+     * work is later split - so a four-suite selection pays for one start-up here, not four.
+     */
+    @Test
+    void formatEstimateBlock_addsTheFixedOverheadOnceNotPerSuite(){
+        // given - 1000ms of suites, 400ms of capture across 4 suites, and a 600ms JVM start-up
+        Set<String> testsToRun = setOf("test1", "test2", "test3", "test4");
+        TestSelectorResult result = buildResult(testsToRun, 1000L, setOf(), 0L,
+                perTestMap("test1", 250L, "test2", 250L, "test3", 250L, "test4", 250L), 4000L,
+                400L, 600L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, true, null);
+
+        // then - 1000 + 400 + 600 = 2000ms; four copies of the start-up would have read 3.4s
+        String expected = LINE_SEP + "Estimated total run time: 2s (50%)"
+                + LINE_SEP + "Estimated savings: 2s (50%)";
+        assertEquals(expected, output);
+    }
+
+    /**
+     * A run that will not collect coverage pays neither overhead term. The fixed cost is gated on
+     * the same flag the capture cost is, because the measured value includes the final coverage
+     * dump - a run that never collects coverage never pays for it.
+     */
+    @Test
+    void formatEstimateBlock_excludeMappingOverhead_ignoresTheFixedOverheadToo(){
+        // given
+        Set<String> testsToRun = setOf("test1", "test2");
+        TestSelectorResult result = buildResult(testsToRun, 1000L, setOf(), 0L,
+                perTestMap("test1", 500L, "test2", 500L), 4000L, 400L, 600L);
+
+        // when
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
+
+        // then - the bare base estimate, with neither term folded in
+        String expected = LINE_SEP + "Estimated total run time: 1s (25%)"
+                + LINE_SEP + "Estimated savings: 3s (75%)";
         assertEquals(expected, output);
     }
 
@@ -172,7 +300,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "test2", 500L), 4000L, 1000L);
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then - base 1s, 25% of 4s, saving 3s (75%)
         String expected = LINE_SEP + "Estimated total run time: 1s (25%)"
@@ -194,7 +322,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("test1", 500L, "newTest", 200L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         String expected = LINE_SEP + "Estimated total run time: 700ms" + LINE_SEP + LINE_SEP
@@ -219,7 +347,7 @@ class SelectTestsOutputFormatterTest {
                 perTestMap("newTest", 0L));
 
         // when
-        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false);
+        String output = SelectTestsOutputFormatter.formatEstimateBlock(result, LINE_SEP, false, null);
 
         // then
         assertTrue(output.contains("Estimated total run time: "), "Output: " + output);
@@ -346,16 +474,29 @@ class SelectTestsOutputFormatterTest {
     }
 
     /**
-     * Build a {@link TestSelectorResult} carrying both an all-tests-run baseline and a mapping
-     * overhead (ms). {@code testsToIgnore} is fixed to an empty set since the formatter doesn't
-     * consult it.
+     * Build a {@link TestSelectorResult} carrying both an all-tests-run baseline and a capture
+     * overhead (ms), with no fixed per-JVM overhead measured. {@code testsToIgnore} is fixed to an
+     * empty set since the formatter doesn't consult it.
      */
     private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
                                                   Set<String> withoutStats, long median,
                                                   Map<String, Long> perTestRunTimes, long allTestsRunTimeMs,
-                                                  long mappingOverheadMs){
+                                                  long captureOverheadMs){
+        return buildResult(testsToRun, estimatedRunTimeMs, withoutStats, median, perTestRunTimes,
+                allTestsRunTimeMs, captureOverheadMs, 0L);
+    }
+
+    /**
+     * Build a {@link TestSelectorResult} carrying both overhead terms, for the cases that turn on
+     * the fixed per-JVM cost being charged once rather than per suite.
+     */
+    private static TestSelectorResult buildResult(Set<String> testsToRun, long estimatedRunTimeMs,
+                                                  Set<String> withoutStats, long median,
+                                                  Map<String, Long> perTestRunTimes, long allTestsRunTimeMs,
+                                                  long captureOverheadMs, long fixedOverheadMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
-                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs, mappingOverheadMs);
+                estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs,
+                captureOverheadMs, fixedOverheadMs, false);
     }
 
     /**

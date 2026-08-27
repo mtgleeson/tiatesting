@@ -4,6 +4,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.DistributedRun;
+import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -372,6 +375,216 @@ public class SerializedDataStore implements DataStore {
     @Override
     public List<TestRunHistoryEntry> readTestRunHistory() {
         return new ArrayList<>();
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param plan ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void persistDistributedRunPlan(DistributedRunPlan plan) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public DistributedRun readDistributedRun(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public LibraryImpactDrainResult readDistributedRunDrainResult(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public List<DistributedRunGroup> readDistributedRunGroups(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param groupNumber ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public List<String> readDistributedRunGroupSuites(String runId, int groupNumber) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public List<DistributedRun> readAllDistributedRuns() {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param runnerKey ignored
+     * @param claimedAtMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public DistributedRunGroup claimNextPendingGroup(String runId, String runnerKey, long claimedAtMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param groupNumber ignored
+     * @param runnerKey ignored
+     * @param actualDurationMs ignored
+     * @param suitesRan ignored
+     * @param suitesFailed ignored
+     * @param suitesObserved ignored
+     * @param suitesDurationMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public boolean reportGroupProgress(String runId, int groupNumber, String runnerKey,
+                                       long actualDurationMs, int suitesRan, int suitesFailed,
+                                       int suitesObserved, long suitesDurationMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param groupNumber ignored
+     * @param runnerKey ignored
+     * @param completedAtMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public DistributedRunGroup completeGroup(String runId, int groupNumber, String runnerKey,
+                                             long completedAtMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param runnerKey ignored
+     * @param sealedAtMs ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public boolean electSealer(String runId, String runnerKey, long sealedAtMs) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void markDistributedRunSealed(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param methodsTracked ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void deleteStagedMethodTrackers(String runId) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
     }
 
     /**

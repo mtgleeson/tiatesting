@@ -34,7 +34,11 @@ public class TestSelectorResult {
 
     private final long allTestsRunTimeMs;
 
-    private final long mappingOverheadMs;
+    private final long captureOverheadMs;
+
+    private final long fixedOverheadMs;
+
+    private final boolean runAllTests;
 
     /**
      * Construct a {@link TestSelectorResult}.
@@ -58,10 +62,24 @@ public class TestSelectorResult {
      * @param allTestsRunTimeMs the Tia-level all-tests-run baseline (ms): the recorded average
      *                          time to run the full suite, used to show estimated savings. May be
      *                          {@code 0} when no full-suite run has been recorded yet
-     * @param mappingOverheadMs the additional time (ms) a mapping-update run would pay for the
-     *                          selected suites (per-suite coverage capture + amortised whole-run
-     *                          costs). Added to {@code estimatedRunTimeMs} only when the run being
-     *                          estimated will collect coverage; {@code 0} when not derivable
+     * @param captureOverheadMs the coverage-collection time (ms) the selected suites would add
+     *                          between them. Per-suite, so it scales with the selection and is the
+     *                          part a distributed build divides across its groups. Added to
+     *                          {@code estimatedRunTimeMs} only when the run being estimated will
+     *                          collect coverage; {@code 0} when not derivable
+     * @param fixedOverheadMs the time (ms) a test JVM pays once however few suites it runs - engine
+     *                        start-up, class loading, the final coverage dump. Charged once per
+     *                        runner, so a distributed build pays a copy per group rather than
+     *                        dividing it, which is the whole reason it is carried separately from
+     *                        {@code captureOverheadMs}. Added only for a coverage run; {@code 0}
+     *                        for an empty selection, and until a distributed build has measured it
+     * @param runAllTests {@code true} only when no mapping is stored yet for the tracked branch
+     *                    and every test must run because Tia has nothing to select against;
+     *                    {@code false} for a normal selection. Both {@code testsToRun} and
+     *                    {@code testsToIgnore} are empty in the {@code true} case, which is why
+     *                    this flag exists - an empty {@code testsToRun} means "nothing impacted"
+     *                    only when this is {@code false}; when it is {@code true} it means the
+     *                    opposite, "everything must run"
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
@@ -69,7 +87,8 @@ public class TestSelectorResult {
                                Set<String> selectedTestsWithoutStats,
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
-                               long allTestsRunTimeMs, long mappingOverheadMs) {
+                               long allTestsRunTimeMs, long captureOverheadMs,
+                               long fixedOverheadMs, boolean runAllTests) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -78,7 +97,9 @@ public class TestSelectorResult {
         this.medianRunTimeMsAppliedToMissing = medianRunTimeMsAppliedToMissing;
         this.selectedTestRunTimesMs = selectedTestRunTimesMs;
         this.allTestsRunTimeMs = allTestsRunTimeMs;
-        this.mappingOverheadMs = mappingOverheadMs;
+        this.captureOverheadMs = captureOverheadMs;
+        this.fixedOverheadMs = fixedOverheadMs;
+        this.runAllTests = runAllTests;
     }
 
     /**
@@ -147,25 +168,71 @@ public class TestSelectorResult {
     }
 
     /**
-     * @return the additional time (ms) a mapping-update run would pay for the selected suites
-     *         (per-suite coverage capture + amortised whole-run costs). Callers add this to
-     *         {@link #getEstimatedRunTimeMs()} only when the run being estimated collects coverage;
-     *         {@code 0} when there is no baseline to derive it from
+     * @return the coverage-collection time (ms) the selected suites would add between them.
+     *         Per-suite, so it scales with the selection and is what a distributed build divides
+     *         across its groups. Callers add this to {@link #getEstimatedRunTimeMs()} only when the
+     *         run being estimated collects coverage; {@code 0} when there is nothing to derive it
+     *         from
      */
-    public long getMappingOverheadMs() {
-        return mappingOverheadMs;
+    public long getCaptureOverheadMs() {
+        return captureOverheadMs;
     }
 
+    /**
+     * @return the time (ms) a test JVM pays once however few suites it runs. Charged once per
+     *         runner, so a distributed build pays a copy per group rather than dividing it - which
+     *         is why it is carried apart from {@link #getCaptureOverheadMs()}. Added only for a
+     *         coverage run; {@code 0} for an empty selection, and until a distributed build has
+     *         measured it
+     */
+    public long getFixedOverheadMs() {
+        return fixedOverheadMs;
+    }
+
+    /**
+     * @return {@code true} only when no mapping is stored yet for the tracked branch and every
+     *         test had to be selected because Tia has nothing to select against; {@code false}
+     *         for a normal selection. An empty {@link #getTestsToRun()} means "nothing impacted"
+     *         only when this is {@code false} - callers that treat an empty {@code testsToRun} as
+     *         "run nothing" must check this flag first, since a {@code true} value means the
+     *         opposite: everything must run
+     */
+    public boolean isRunAllTests() {
+        return runAllTests;
+    }
+
+    /**
+     * Compare two results by the selection decision they carry: the suites to run, the suites to
+     * ignore, and {@link #isRunAllTests()}.
+     *
+     * <p>{@code runAllTests} is part of the comparison because without it the two opposite
+     * instructions this class exists to tell apart compare equal: a seed run ("run everything")
+     * and a selection that found nothing impacted ("run nothing") both carry an empty
+     * {@code testsToRun} and an empty {@code testsToIgnore}, and differ only in this flag. The
+     * remaining fields are estimates and diagnostics derived from the selection rather than part
+     * of it, so they are deliberately left out.
+     *
+     * @param o the object to compare against
+     * @return true when the other object is a {@link TestSelectorResult} carrying the same
+     *         selection decision
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TestSelectorResult that = (TestSelectorResult) o;
-        return Objects.equals(testsToRun, that.testsToRun) && Objects.equals(testsToIgnore, that.testsToIgnore);
+        return runAllTests == that.runAllTests && Objects.equals(testsToRun, that.testsToRun)
+                && Objects.equals(testsToIgnore, that.testsToIgnore);
     }
 
+    /**
+     * Hash the same three fields {@link #equals(Object)} compares, so the two empty-list cases
+     * {@code runAllTests} distinguishes do not collide in a hash-based collection either.
+     *
+     * @return the hash of the selection decision this result carries
+     */
     @Override
     public int hashCode() {
-        return Objects.hash(testsToRun, testsToIgnore);
+        return Objects.hash(testsToRun, testsToIgnore, runAllTests);
     }
 }

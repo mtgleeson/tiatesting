@@ -12,8 +12,9 @@ import java.util.Map;
  * <ul>
  *   <li>{@link #formatSelectedTestsList} — the tab-indented list of selected tests with each
  *       test's estimated runtime in brackets after its name.</li>
- *   <li>{@link #formatEstimateBlock} — the total estimated runtime, plus a single-line note
- *       when some selected tests have no recorded run-time data.</li>
+ *   <li>{@link #formatEstimateBlock} — the total estimated runtime, the savings against an
+ *       all-tests baseline, the distributed run time when one is being previewed, plus a
+ *       single-line note when some selected tests have no recorded run-time data.</li>
  * </ul>
  *
  * <p>All durations are formatted with the {@code dropMsWhenAboveSecond} flag on
@@ -67,26 +68,48 @@ public class SelectTestsOutputFormatter {
      * @param lineSep the line separator to use between lines (e.g. {@code "\n"} or
      *                {@link System#lineSeparator()})
      * @param includeMappingOverhead whether the run being estimated will collect coverage (update
-     *                               the mapping). When {@code true} the per-suite estimate gains
-     *                               {@link TestSelectorResult#getMappingOverheadMs()} - coverage
-     *                               capture is not part of the stored per-suite times - so the
-     *                               displayed total, percentage and savings reflect a coverage run.
+     *                               the mapping). When {@code true} the estimate gains both
+     *                               {@link TestSelectorResult#getCaptureOverheadMs()} and
+     *                               {@link TestSelectorResult#getFixedOverheadMs()} - neither is
+     *                               part of the stored per-suite times - so the displayed total,
+     *                               percentage and savings reflect a coverage run. The fixed part is
+     *                               added <b>once</b> here: this total is what one host would take,
+     *                               and one host starts one test JVM.
+     * @param distributedWallClockMs the heaviest group's weight in ms when this selection is being
+     *                               previewed for a distributed run, or {@code null} for a
+     *                               single-host build. When supplied, the total above is labelled
+     *                               as the serial equivalent - it is identical either way,
+     *                               deliberately, since it is the figure Tia records and computes
+     *                               savings from in both modes - and a further line reports this
+     *                               value as the time a split build actually waits for. Already
+     *                               includes that group's suites' share of the capture overhead and
+     *                               its own copy of the fixed per-JVM cost, both applied by the
+     *                               balancer; see {@code TestGroupBalancer.suiteWeights}. That copy
+     *                               is why this line can exceed the serial total divided by the
+     *                               group count - splitting a build duplicates the fixed cost rather
+     *                               than dividing it.
      * @return the formatted estimate block, or an empty string when no estimate applies
      */
     public static String formatEstimateBlock(final TestSelectorResult result, final String lineSep,
-                                             final boolean includeMappingOverhead){
+                                             final boolean includeMappingOverhead,
+                                             final Long distributedWallClockMs){
         if (result.getTestsToRun().isEmpty()){
             return "";
         }
 
-        // A mapping-update run also pays per-suite coverage capture, which is not in the stored
-        // per-suite times; fold it in only when the previewed run collects coverage.
+        // A mapping-update run also pays per-suite coverage capture and its JVM's fixed start-up
+        // cost, neither of which is in the stored per-suite times; fold both in only when the
+        // previewed run collects coverage. The fixed part is added once, not once per suite - this
+        // is the serial-equivalent total, and one host starts one test JVM however it is later
+        // split. The distributed line below reports the copy per group separately.
         long selectedMs = result.getEstimatedRunTimeMs()
-                + (includeMappingOverhead ? result.getMappingOverheadMs() : 0L);
+                + (includeMappingOverhead
+                        ? result.getCaptureOverheadMs() + result.getFixedOverheadMs() : 0L);
 
         StringBuilder sb = new StringBuilder();
         sb.append(lineSep);
-        sb.append("Estimated total run time: ")
+        sb.append(distributedWallClockMs != null ? "Estimated total run time (serial equivalent): "
+                        : "Estimated total run time: ")
           .append(ReportUtils.prettyDuration(selectedMs, true));
 
         // When an all-tests-run baseline exists, show what fraction of the full-suite time the
@@ -100,6 +123,20 @@ public class SelectTestsOutputFormatter {
             sb.append(" (").append(selectedPercent).append("%)");
             sb.append(lineSep).append("Estimated savings: ")
               .append(formatSavingsDuration(savingsMs)).append(" (").append(savingsPercent).append("%)");
+        }
+
+        // The distributed line goes last so the two totals read in the order they are derived: the
+        // serial-equivalent cost and its savings first (both mode-independent), then what a split
+        // build actually waits for.
+        if (distributedWallClockMs != null){
+            sb.append(lineSep).append("Estimated distributed run time: ")
+              .append(ReportUtils.prettyDuration(distributedWallClockMs.longValue(), true));
+            if (allTestsRunTimeMs > 0){
+                sb.append(" (")
+                  .append(Math.round((double) distributedWallClockMs.longValue() / allTestsRunTimeMs * 100))
+                  .append("%)");
+            }
+            sb.append(" - the heaviest group, which is what the build waits for.");
         }
 
         if (!result.getSelectedTestsWithoutStats().isEmpty()){

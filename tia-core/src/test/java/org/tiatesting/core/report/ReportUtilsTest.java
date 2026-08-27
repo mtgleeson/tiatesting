@@ -21,7 +21,8 @@ class ReportUtilsTest {
      * the rest are filler.
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0);
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0,
+                null, null, null);
     }
 
     /**
@@ -95,6 +96,94 @@ class ReportUtilsTest {
 
         // then
         assertEquals(5500L, savings);
+    }
+
+    /**
+     * Build a history entry for a distributed build, carrying the wall clock and group count only a
+     * distributed run records; a single-host row leaves both null.
+     *
+     * @param wallClockMs the build's wall clock - its slowest group
+     * @return a history entry the distributed aggregations count
+     */
+    private static TestRunHistoryEntry distributedEntry(long wallClockMs){
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, 0L, 0,
+                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3));
+    }
+
+    /**
+     * The distributed average covers only the rows that carry a wall clock, and ignores single-host
+     * rows entirely rather than treating their absent wall clock as a zero - which would drag the
+     * average towards zero in proportion to how much of the project's history predates distributed
+     * mode.
+     */
+    @Test
+    void averageDistributedWallClockMs_averagesOnlyTheDistributedRows(){
+        // given - two distributed rows either side of a single-host one
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                distributedEntry(40_000L), historyEntry(9999L), distributedEntry(60_000L));
+
+        // when
+        long average = ReportUtils.averageDistributedWallClockMs(history);
+
+        // then - the mean of 40s and 60s, with the single-host row excluded
+        assertEquals(50_000L, average);
+        assertEquals(2, ReportUtils.distributedRunCount(history));
+    }
+
+    /**
+     * A history with no distributed build yields a zero average and a zero count, which is what the
+     * summary reports key their second line off - so a project that has never distributed a build
+     * sees no change at all.
+     */
+    @Test
+    void averageDistributedWallClockMs_noDistributedRows_isZero(){
+        // given / when / then
+        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(null));
+        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(Collections.emptyList()));
+        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(
+                Arrays.asList(historyEntry(1000L), historyEntry(2000L))));
+        assertEquals(0, ReportUtils.distributedRunCount(null));
+        assertEquals(0, ReportUtils.distributedRunCount(
+                Arrays.asList(historyEntry(1000L), historyEntry(2000L))));
+    }
+
+    /**
+     * With no distributed build in the history the reports print the one line they always have,
+     * unqualified - a project that never distributes must see no change.
+     */
+    @Test
+    void averageRunTimeLines_noDistributedRows_isTheSingleUnqualifiedLine(){
+        // given
+        List<TestRunHistoryEntry> history = Arrays.asList(historyEntry(0L));
+
+        // when
+        List<String> lines = ReportUtils.averageRunTimeLines(100_000L, 200_000L, history);
+
+        // then
+        assertEquals(1, lines.size());
+        assertEquals("Average run time: 1m 40s (50%)", lines.get(0));
+    }
+
+    /**
+     * With distributed builds present, the existing line is qualified as the serial equivalent and a
+     * second reports the average wall clock. Both changes belong together: the qualifier alone
+     * explains nothing, and the second line alone leaves two unlabelled averages of different things
+     * beside each other. The run count is stated because the two lines average different
+     * populations - every run against distributed runs only.
+     */
+    @Test
+    void averageRunTimeLines_withDistributedRows_qualifiesTheTotalAndAddsTheWallClock(){
+        // given - two distributed runs averaging 50s, against a 200s all-tests baseline
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                distributedEntry(40_000L), historyEntry(0L), distributedEntry(60_000L));
+
+        // when
+        List<String> lines = ReportUtils.averageRunTimeLines(100_000L, 200_000L, history);
+
+        // then
+        assertEquals(2, lines.size());
+        assertEquals("Average run time (serial equivalent): 1m 40s (50%)", lines.get(0));
+        assertEquals("Average distributed run time: 50s (25%) over 2 distributed run(s)", lines.get(1));
     }
 
     /**

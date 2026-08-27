@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.coverage.client.JacocoClient;
 import org.tiatesting.core.coverage.result.CoverageResult;
+import org.tiatesting.core.distributed.DistributedForkProperties;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
@@ -45,6 +47,15 @@ public class TiaJunit4Listener extends RunListener {
      */
     private final Map<String, Integer> runnerTestSuites;
     /*
+    The suites this JVM has actually observed - those it has seen finish (testSuiteFinished) or seen
+    skipped (testIgnored) - with no testClassesDir directory-scan override, unlike
+    getRunnerTestSuites(). This, not the (possibly overridden) discovered set, is what feeds the
+    distributed completeness guard: see TestRunResult#getSuitesObserved. JUnit4 reuses this listener
+    instance across Surefire retries, so a single field (rather than something shared like JUnit5's
+    SharedTestRunData) is enough to accumulate across attempts.
+     */
+    private final Set<String> suitesObserved;
+    /*
     The set of tests selected to run by Tia.
      */
     private Set<String> selectedTests;
@@ -68,7 +79,28 @@ public class TiaJunit4Listener extends RunListener {
     private final String branch;
     private long testRunStartTime;
     private final TestStats testRunStats = new TestStats();
+    /*
+    The distributed run this JVM is one runner of, or null for an ordinary single-host build.
+    Resolved once here from the properties the build plugin forwarded through the fork properties
+    file; JUnit4 reuses this listener instance across Surefire retries, so every attempt persists
+    under the same run, runner identity and group the claim recorded.
+     */
+    private final DistributedRunnerContext distributedRunnerContext;
 
+    /**
+     * Build the listener for this test JVM: read the update flags and the selected/ignored suite
+     * lists the agent published, open the datastore, and resolve whether this JVM is one runner of
+     * a distributed build.
+     *
+     * <p>The distributed context is resolved here rather than at persist time because it is what
+     * decides which persist flow runs. Resolving it to null when the build really is distributed
+     * would put this runner on the single-host path, where it rebuilds the method catalogue from
+     * an edge set holding only its own group's suites and stamps the commit - dropping every method
+     * only the other groups reach, and silently under-selecting on the next build.
+     *
+     * @param vcsReader the VCS reader for the workspace under test; supplies the branch and head
+     *                  commit, and is closed here
+     */
     public TiaJunit4Listener(VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
@@ -84,12 +116,16 @@ public class TiaJunit4Listener extends RunListener {
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testSuitesFailed = ConcurrentHashMap.newKeySet();
         this.runnerTestSuites = new ConcurrentHashMap<>();
+        this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
         this.headCommit = vcsReader.getHeadCommit();
         this.branch = vcsReader.getBranchName();
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDir = System.getProperty("testClassesDir");
+        // Null for every ordinary build, whose persist is therefore exactly the one it always took.
+        this.distributedRunnerContext = enabled
+                ? DistributedForkProperties.contextFromSystemProperties() : null;
         vcsReader.close();
         setSelectedTests();
         setIgnoredTestSuiteCount();
@@ -216,6 +252,25 @@ public class TiaJunit4Listener extends RunListener {
         }
     }
 
+    /**
+     * Called when a test suite (class) or individual test is ignored/skipped. Records the suite as
+     * observed by this JVM - even though it never ran - so a class-level {@code @Ignore} does not
+     * make the distributed completeness guard wait for it forever.
+     *
+     * <p>Only a <b>class-level</b> skip counts as an observation, matching {@code
+     * TiaTestExecutionListener.executionSkipped}, which gates on {@code isExecutionForTestSuite},
+     * and {@code TiaSpockSkipExecutionListener}, which gates on a class-sourced container. A single
+     * {@code @Ignore}d method inside a class that otherwise runs says nothing about whether this
+     * JVM has finished with that class, and the observed set is the one signal the distributed
+     * completeness guard reads. The two are told apart by the method name: JUnit 4 reports a
+     * class-level skip with the class's own suite description, whose {@link
+     * Description#getMethodName()} is null, and a method-level skip with a test description naming
+     * the method. ({@link Description#isSuite()} is not usable here - it is false for both, since
+     * an ignored class's description carries no children.)
+     *
+     * @param description the JUnit test description
+     * @throws Exception an Exception
+     */
     @Override
     public void testIgnored(Description description) throws Exception {
         if (!enabled){
@@ -225,6 +280,11 @@ public class TiaJunit4Listener extends RunListener {
         String testSuiteName = getTestSuiteName(description);
         // track the test suite was run by the runner but not executed (0 executions)
         runnerTestSuites.put(testSuiteName, 0);
+        if (description.getMethodName() == null){
+            // this JVM has observed the whole suite (as skipped), independent of any testClassesDir
+            // override applied by getRunnerTestSuites() - see the field's javadoc.
+            suitesObserved.add(testSuiteName);
+        }
 
         /*
         Note, we don't need to reset stats for Ignore:
@@ -289,6 +349,9 @@ public class TiaJunit4Listener extends RunListener {
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
             runnerTestSuites.put(testSuiteName, previousRuns+1);
+            // this JVM has observed the suite (as finished), independent of any testClassesDir
+            // override applied by getRunnerTestSuites() - see the field's javadoc.
+            suitesObserved.add(testSuiteName);
             suitesFinishedThisAttempt.add(testSuiteName);
         }
     }
@@ -314,10 +377,14 @@ public class TiaJunit4Listener extends RunListener {
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
-                selectedTests, testRunMethodsImpacted, testStats, drainResult, ignoredTestSuiteCount,
-                suitesFinishedThisAttempt.size());
+                suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size());
+        // Null context on an ordinary build, which persists as a single host - suite mapping,
+        // failed set, seal and history row. A distributed runner instead persists only its own
+        // share and completes its group, and seals the build only if it turns out to be the last
+        // runner to finish.
         testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
-                headCommit, branch, testRunStartTime, testRunResult);
+                headCommit, branch, testRunStartTime, testRunResult, distributedRunnerContext);
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.

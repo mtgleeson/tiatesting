@@ -3,6 +3,7 @@ package org.tiatesting.core.report;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ReportUtils {
@@ -154,5 +155,99 @@ public class ReportUtils {
             total += entry.getTimeSavingsMs();
         }
         return total;
+    }
+
+    /**
+     * The average wall clock of the distributed builds in the history - each one's slowest group,
+     * which is what that build actually waited for.
+     *
+     * <p>Derived from the history rather than read from {@link org.tiatesting.core.model.TestStats},
+     * which has no such counter and deliberately so: {@code avgRunTime} is the <b>serial
+     * equivalent</b> in both modes, because that is the figure savings are computed from and the
+     * one that keeps a project's stats comparable across the build where distributed mode was
+     * switched on - see {@code DistributedRunTotals}. The wall clock is recorded per run, on the
+     * history row, so an average of it belongs here.
+     *
+     * <p>Averages a different population from {@code avgRunTime}, which covers every run: only
+     * distributed builds have a wall clock at all. Callers reporting the two side by side should
+     * say how many runs this one covers - {@link #distributedRunCount(List)} - or the pair reads as
+     * though the same builds got faster.
+     *
+     * @param history the run history to scan; may be null or empty
+     * @return the mean wall clock in ms across the rows carrying one, or {@code 0} when the history
+     *         holds no distributed build
+     */
+    public static long averageDistributedWallClockMs(List<TestRunHistoryEntry> history){
+        if (history == null){
+            return 0L;
+        }
+        long total = 0L;
+        int count = 0;
+        for (TestRunHistoryEntry entry : history){
+            if (entry.getWallClockMs() != null){
+                total += entry.getWallClockMs().longValue();
+                count++;
+            }
+        }
+        return count == 0 ? 0L : total / count;
+    }
+
+    /**
+     * How many runs in the history were distributed builds, counted by the same test {@link
+     * #averageDistributedWallClockMs(List)} averages over - the presence of a wall clock - so the
+     * count and the average can never describe different sets of rows.
+     *
+     * @param history the run history to scan; may be null or empty
+     * @return the number of rows carrying a wall clock, or {@code 0} when there are none
+     */
+    public static int distributedRunCount(List<TestRunHistoryEntry> history){
+        if (history == null){
+            return 0;
+        }
+        int count = 0;
+        for (TestRunHistoryEntry entry : history){
+            if (entry.getWallClockMs() != null){
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Render the pair of average-run-time lines for a summary report, so the console, plain-text
+     * and HTML summaries cannot drift on the wording or on when the second line appears.
+     *
+     * <p>With no distributed build in the history the output is the single {@code Average run time}
+     * line those reports have always printed, unchanged. With one or more, that line gains a
+     * {@code (serial equivalent)} qualifier and a second line reports the average wall clock and
+     * how many runs it covers - both are needed together, since the qualifier without the second
+     * line explains nothing, and the second line without the qualifier leaves two unlabelled
+     * averages of different things next to each other.
+     *
+     * @param avgRunTimeMs the stored average run time in ms, which is the serial equivalent in both
+     *                     modes
+     * @param allTestsRunTimeMs the full-suite baseline in ms, used for both lines' percentages so
+     *                          the two are directly comparable; percentages are omitted when it is
+     *                          not yet recorded
+     * <p>Returned as a list rather than a joined string because the three summary reports emit lines
+     * differently - two of them join with a line separator, the HTML one wraps each in its own
+     * element - and joining here would force the HTML report to split the result back apart or to
+     * duplicate the wording.
+     *
+     * @param history the run history the distributed average is derived from; may be null
+     * @return one line, or two when the history holds at least one distributed build
+     */
+    public static List<String> averageRunTimeLines(long avgRunTimeMs, long allTestsRunTimeMs,
+                                                    List<TestRunHistoryEntry> history){
+        int distributedRuns = distributedRunCount(history);
+        List<String> lines = new ArrayList<>(2);
+        lines.add("Average run time" + (distributedRuns > 0 ? " (serial equivalent)" : "")
+                + ": " + formatAverageRunTime(avgRunTimeMs, allTestsRunTimeMs));
+        if (distributedRuns > 0){
+            lines.add("Average distributed run time: "
+                    + formatAverageRunTime(averageDistributedWallClockMs(history), allTestsRunTimeMs)
+                    + " over " + distributedRuns + " distributed run(s)");
+        }
+        return lines;
     }
 }

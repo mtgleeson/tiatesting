@@ -2,6 +2,9 @@ package org.tiatesting.core.model;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -65,6 +68,48 @@ class TestRunHistoryEntryIdTest {
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
+    }
+
+    /**
+     * A single-host id is still the UUID of exactly {@code branch|commit|timestamp}. Pinned against
+     * the raw seed so a refactor cannot quietly change the id of a row every existing history table
+     * already holds, which would turn a re-persist of the same run into a second row.
+     */
+    @Test
+    void aSingleHostIdIsStillTheUuidOfBranchPipeCommitPipeTimestamp() {
+        // given
+        String seed = "main|abc123|1700000000000";
+
+        // when
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
+                1, 0, 0, 0L, true, 0L, 0);
+
+        // then
+        assertEquals(UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString(),
+                entry.getId(), "the single-host id derivation must not have changed");
+    }
+
+    /**
+     * A distributed build's row is identified by its run as well, so two builds planned in the same
+     * millisecond against the same branch and commit cannot collide onto one row.
+     */
+    @Test
+    void aDistributedBuildsIdAlsoDependsOnItsRunId() {
+        // given
+        long ts = 1_700_000_000_000L;
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
+                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2);
+
+        // when
+        TestRunHistoryEntry other = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
+                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2);
+
+        // then
+        assertNotEquals(baseline.getId(), other.getId(),
+                "two runs planned in the same millisecond must not share a row");
+        assertNotEquals(TestRunHistoryEntry.create("main", "abc123", ts, 5, 0, 0, 1000L, true, 0L, 0)
+                        .getId(), baseline.getId(),
+                "nor may a distributed build collide with a single-host run's row");
     }
 
     @Test

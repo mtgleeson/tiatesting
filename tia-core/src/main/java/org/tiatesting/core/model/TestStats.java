@@ -40,6 +40,31 @@ public class TestStats implements Serializable {
     private long numAllTestsRuns;
 
     /**
+     * The average per-JVM overhead in ms a test run pays once, no matter how few suites it runs -
+     * engine start-up, class loading, the final coverage dump. Only a distributed run can measure
+     * it, since separating it from {@link #captureOverheadPerSuiteMs} needs two runs of the same
+     * suites at different suite counts; see {@code DistributedRunOverheadModel}. Tia-level only;
+     * stays 0 for per-suite stats, and 0 for a project that has never distributed a build, which is
+     * the signal to fall back to the single-number overhead estimate.
+     */
+    private long fixedOverheadMs;
+
+    /**
+     * The average per-suite overhead in ms beyond the suite's own execution time - JaCoCo's
+     * per-suite coverage collection, which is excluded from {@link #avgRunTime} because the
+     * listeners freeze a suite's run time before coverage is collected. The other half of the pair
+     * {@link #fixedOverheadMs} belongs to. Tia-level only; stays 0 for per-suite stats.
+     */
+    private long captureOverheadPerSuiteMs;
+
+    /**
+     * The number of distributed builds whose measurements were folded into {@link #fixedOverheadMs}
+     * and {@link #captureOverheadPerSuiteMs}. One counter for both because the pair is always solved
+     * together from one build's group rows, so they can never have contributed different run counts.
+     */
+    private long numOverheadMeasurements;
+
+    /**
      * Increment the stats by the specified amounts, routing the incoming run's duration into the
      * matching rolling average so the selected-run and all-tests-run averages stay independent.
      *
@@ -72,6 +97,28 @@ public class TestStats implements Serializable {
             this.numSuccessRuns += testStats.getNumSuccessRuns();
             this.numFailRuns += testStats.getNumFailRuns();
         }
+    }
+
+    /**
+     * Fold one distributed build's solved overhead constants into their rolling averages, in the
+     * same shape {@link #incrementStats} uses for the run-time averages.
+     *
+     * <p>Only called with a solved pair. A build whose measurements could not be decomposed leaves
+     * the stored averages untouched rather than contributing a zero, which would drag both
+     * constants down towards nothing and quietly undo every earlier measurement - the failure mode
+     * that matters here, since the two are consumed as constants rather than as a trend.
+     *
+     * @param fixedOverheadMs the per-JVM overhead this build measured, in ms
+     * @param captureOverheadPerSuiteMs the per-suite capture overhead this build measured, in ms
+     */
+    public void incrementOverheadModel(final long fixedOverheadMs,
+                                       final long captureOverheadPerSuiteMs){
+        long totalFixed = (this.numOverheadMeasurements * this.fixedOverheadMs) + fixedOverheadMs;
+        long totalCapture = (this.numOverheadMeasurements * this.captureOverheadPerSuiteMs)
+                + captureOverheadPerSuiteMs;
+        this.numOverheadMeasurements++;
+        this.fixedOverheadMs = totalFixed / this.numOverheadMeasurements;
+        this.captureOverheadPerSuiteMs = totalCapture / this.numOverheadMeasurements;
     }
 
     public long getNumRuns() {
@@ -132,6 +179,30 @@ public class TestStats implements Serializable {
         this.numAllTestsRuns = numAllTestsRuns;
     }
 
+    public long getFixedOverheadMs() {
+        return fixedOverheadMs;
+    }
+
+    public void setFixedOverheadMs(long fixedOverheadMs) {
+        this.fixedOverheadMs = fixedOverheadMs;
+    }
+
+    public long getCaptureOverheadPerSuiteMs() {
+        return captureOverheadPerSuiteMs;
+    }
+
+    public void setCaptureOverheadPerSuiteMs(long captureOverheadPerSuiteMs) {
+        this.captureOverheadPerSuiteMs = captureOverheadPerSuiteMs;
+    }
+
+    public long getNumOverheadMeasurements() {
+        return numOverheadMeasurements;
+    }
+
+    public void setNumOverheadMeasurements(long numOverheadMeasurements) {
+        this.numOverheadMeasurements = numOverheadMeasurements;
+    }
+
     @Override
     public String toString() {
         return "TestStats{" +
@@ -141,6 +212,9 @@ public class TestStats implements Serializable {
                 ", numFailRuns=" + numFailRuns +
                 ", allTestsRunTime=" + allTestsRunTime +
                 ", numAllTestsRuns=" + numAllTestsRuns +
+                ", fixedOverheadMs=" + fixedOverheadMs +
+                ", captureOverheadPerSuiteMs=" + captureOverheadPerSuiteMs +
+                ", numOverheadMeasurements=" + numOverheadMeasurements +
                 '}';
     }
 }

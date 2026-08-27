@@ -63,6 +63,11 @@ public class HtmlSummaryReport {
             // Total savings sums the per-run savings frozen on each history row.
             long totalSavingsMs = ReportUtils.totalSavingsMs(tiaData.getTestRunHistory());
             boolean hasSavings = totalSavingsMs > 0;
+            // One line normally; a second naming the average wall clock once this project has
+            // distributed builds in its history. Built by the same helper the console and
+            // plain-text summaries use, so the three cannot drift on the wording.
+            List<String> avgRunTimeLines = ReportUtils.averageRunTimeLines(stats.getAvgRunTime(),
+                    stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
 
             html(
                     HtmlLayout.pageHead("Summary", assetsRel),
@@ -89,7 +94,7 @@ public class HtmlSummaryReport {
                                     ),
                                     p(
                                             span("Number of partial runs: " + stats.getNumPartialRuns()), br(),
-                                            span("Average run time: " + ReportUtils.formatAverageRunTime(stats.getAvgRunTime(), stats.getAllTestsRunTime())), br(),
+                                            each(spansWithBreaks(avgRunTimeLines), content -> content),
                                             span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
                                             span("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime())), br(),
                                             iff(hasSavings, span("Total savings over all runs: "
@@ -115,6 +120,27 @@ public class HtmlSummaryReport {
         }
 
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    /**
+     * Wrap each line in its own {@code span}, followed by a line break, so a variable number of
+     * lines can sit inside a paragraph of fixed ones.
+     *
+     * <p>Built as real tags rather than through j2html's {@code join}, which renders its arguments
+     * eagerly with default settings: its breaks came out as {@code <br>} while every other break on
+     * the page, rendered through this report's {@code withEmptyTagsClosed(true)} writer, is {@code
+     * <br/>}. Returning the tags themselves leaves the rendering to that one writer.
+     *
+     * @param lines the text lines to wrap, in order
+     * @return the spans and breaks, ready to be emitted by {@code each}
+     */
+    private static List<DomContent> spansWithBreaks(List<String> lines) {
+        List<DomContent> content = new ArrayList<>(lines.size() * 2);
+        for (String line : lines) {
+            content.add(span(line));
+            content.add(br());
+        }
+        return content;
     }
 
     private DomContent renderPendingFailedTests(TiaData tiaData) {

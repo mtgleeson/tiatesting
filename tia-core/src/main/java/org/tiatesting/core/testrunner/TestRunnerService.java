@@ -2,15 +2,14 @@ package org.tiatesting.core.testrunner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.library.LibraryImpactDrainResult;
-import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.distributed.DistributedRunnerContext;
+import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
-import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.persistence.SealedRunData;
+import org.tiatesting.core.persistence.SealedRunDataAssembler;
 import org.tiatesting.core.sourcefile.FileExtensions;
 
 import java.io.File;
@@ -19,14 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -62,18 +56,33 @@ public class TestRunnerService {
      * @param runStartTimestampMs      UTC epoch millis when the test run started (used as both the
      *                                 history entry timestamp and the duration baseline)
      * @param testRunResult            the collected results of the test run
+     * @param distributedRunnerContext the run id, runner identity and claimed group when this run
+     *                                 is one runner's share of a distributed build, or {@code null}
+     *                                 for an ordinary single-host run
      */
     public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
                                    final boolean updateDBTestRunHistory,
                                    final String commitValue, final String branch,
                                    final long runStartTimestampMs,
-                                   final TestRunResult testRunResult){
+                                   final TestRunResult testRunResult,
+                                   final DistributedRunnerContext distributedRunnerContext){
         // Capture the run duration up front, before any DB read/write below. This is the
         // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
         // mapping/seal persist work that follows, which on a seed run is seconds of bulk inserts.
         // The savings baseline (allTestsRunTime) is likewise pure test-execution time, so the two
         // must be measured on the same clock for savings = baseline - duration to be meaningful.
         final long durationMs = Math.max(0L, System.currentTimeMillis() - runStartTimestampMs);
+
+        if (distributedRunnerContext != null){
+            // One runner of a distributed build persists only its own share and stops. Everything
+            // that describes the whole build - the catalogue, the seal, the commit stamp and the
+            // history row - belongs to whichever runner finishes last, and it reads the commit and
+            // branch itself from the plan's own run row rather than from this runner's copy - see
+            // persistDistributedRunnerData's javadoc for why commitValue and branch stop here.
+            persistDistributedRunnerData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+                    durationMs, testRunResult, distributedRunnerContext);
+            return;
+        }
 
         if (updateDBMapping){
             log.info("Persisting core data with commit value: " + commitValue);
@@ -118,6 +127,222 @@ public class TestRunnerService {
     }
 
     /**
+     * Persist one runner's share of a distributed build: its suites' mapping rows, the method
+     * trackers it observed and its contribution to the failed set. As one runner it rebuilds no
+     * method catalogue, advances no stored commit value and writes no history row; all three
+     * describe the whole build and belong to whichever runner finishes last. See the distributed
+     * test runs chapter in {@code WIKI.md}.
+     *
+     * <p>Two orderings here are correctness properties of the run rather than tidiness:
+     * <ul>
+     *   <li><b>The claim is re-verified before any write.</b> A runner from a superseded build -
+     *       one whose plan rows a newer build's plan write already cleared - writes nothing at all,
+     *       because persisting its suites anyway would leave mapping rows describing its own older
+     *       commit under the commit the newer build has already stored.</li>
+     *   <li><b>The group's status is not flipped here, though its progress is reported.</b> This
+     *       method runs once per finished test plan, and a retry of failed tests is another test
+     *       plan in the same JVM, so flipping the group to {@code COMPLETED} here would release the
+     *       barrier after the first test plan - while this runner is still executing tests. The
+     *       sealer would then rebuild the catalogue from an edge set missing everything the later
+     *       test plans covered, dropping every method reachable only from those suites and making
+     *       them invisible to the next build's diff. This runner's duration and suite counters are
+     *       still reported on every persist, so they accumulate correctly across retries; only the
+     *       status flip is deferred - not to this fork at all, but to the build tool step that runs
+     *       once every retry of this runner's tests has finished, since that is a fact only the
+     *       build tool can know and this fork cannot. See {@link DistributedRunCompleter} for the
+     *       step that makes the deferred completion.</li>
+     * </ul>
+     *
+     * <p>The Tia-level run stats are deliberately not incremented here even when {@code
+     * updateDBStats} is set: they live on the core row alongside the commit value, and a build split
+     * across runners must contribute one set of stats rather than one per runner, so the sealer
+     * aggregates them from the completed groups. Per-suite stats are this runner's own and are
+     * written with its mapping rows as usual.
+     *
+     * <p>Neither the commit nor the branch is a parameter here, though {@link #persistTestRunData}
+     * receives both. This runner's own copy - normally read from the VCS reader - is never used for
+     * a distributed build: the sealer reads the commit and branch from the plan's own run row
+     * instead, so the value that gets stamped is authoritative by construction rather than a runner's
+     * copy that then has to agree with it. Every runner was verified against the plan's commit before
+     * it claimed, so nothing is lost by not carrying it through to the seal.
+     *
+     * @param updateDBMapping should the test-suite to source-code mapping be updated
+     * @param updateDBStats should the per-suite run stats be updated. The Tia-level stats are
+     *                      handed on to the seal instead, since they describe the whole build
+     * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
+     *                               unchanged: the build's one row is the sealer's to write
+     * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
+     *                   single-host run records, so the sealer's aggregate stays comparable with
+     *                   non-distributed history
+     * @param testRunResult the collected results of this runner's test run
+     * @param distributedRunnerContext the run id, runner identity and claimed group this runner
+     *                                 holds; a context that claimed no group persists nothing
+     */
+    private void persistDistributedRunnerData(final boolean updateDBMapping, final boolean updateDBStats,
+                                              final boolean updateDBTestRunHistory,
+                                              final long durationMs, final TestRunResult testRunResult,
+                                              final DistributedRunnerContext distributedRunnerContext){
+        if (!distributedRunnerContext.isClaimed()){
+            // A surplus runner: the pipeline fanned out wider than the plan's group count, so this
+            // runner executed nothing. It has no group to complete, and persisting the tracked-suite
+            // map it read would rewrite rows produced by the runners that did the work.
+            log.info("Distributed run '{}': runner '{}' claimed no group and ran no test suites, so "
+                            + "there is nothing to persist.", distributedRunnerContext.getRunId(),
+                    distributedRunnerContext.getRunnerKey());
+            return;
+        }
+
+        DistributedRunnerPersist runnerPersist =
+                new DistributedRunnerPersist(dataStore, distributedRunnerContext);
+
+        if (!runnerPersist.claimIsLive()){
+            // Straggler protection. claimIsLive has already logged which of the two reasons applies.
+            return;
+        }
+
+        log.info("Distributed run '{}': runner '{}' persisting group {}.",
+                distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey(),
+                distributedRunnerContext.getGroupNumber());
+
+        // The suite-attributable share of durationMs, read before step 1 goes near the trackers.
+        // mergeTestMappingStats today folds this run's figures into the *stored* tracker and leaves
+        // the incoming one untouched, so the ordering is not load-bearing yet - but the value being
+        // read is "what this run measured", and taking it before the merge is what keeps that true
+        // if the merge ever starts writing back through the incoming map.
+        long suitesDurationMs = sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers());
+
+        TiaData tiaData = dataStore.getTiaCore();
+
+        // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
+        //    coordinates, so they are safe to be ahead of the commit the sealer will store.
+        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
+                testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
+
+        if (updateDBMapping){
+            // 2. The failed set is incremental, so several runners updating it concurrently is
+            //    exactly what it was built for.
+            updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+
+            // 3. Staging replaces the catalogue write a single-host run makes here. Method ids hash
+            //    the class, method and descriptor only, so the ids this runner staged stay valid
+            //    against the catalogue the sealer writes at the end of the build.
+            runnerPersist.stageMethodTrackers(testRunResult.getMethodTrackersFromTestRun());
+        }
+
+        // 4. No history row and no core row: one distributed build produces one aggregated history
+        //    row and one set of Tia-level stats, both written by the sealer from the figures every
+        //    group recorded, rather than one of each per runner.
+
+        // 5. Report this test plan's progress. suitesRan and the duration accumulate onto whatever
+        //    is already stored for the group, so a Surefire retry within this JVM sums correctly
+        //    instead of this retry's per-attempt count overwriting the ones before it; suitesFailed
+        //    replaces what was stored, since it is current state and a passing retry must be able
+        //    to shrink it back to zero. suitesDurationMs - the part of the duration attributable to
+        //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
+        //    once for the build rather than once per group - is written via GREATEST rather than
+        //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved also
+        //    replaces what was stored (via GREATEST,
+        //    see DataStore#reportGroupProgress), but for a different reason: getSuitesObserved() is
+        //    already cumulative across every test plan in this JVM, so accumulating it here would
+        //    double-count. It is deliberately fed from the intersection of getSuitesObserved() with
+        //    this group's own assigned suites (see countObservedSuitesInGroup), not from
+        //    getSuitesObserved() alone and not from getRunnerTestSuites(). getRunnerTestSuites() can
+        //    be a project-wide directory scan on Maven (testClassesDir) that carries no information
+        //    about this runner's own progress, which was the second bug in this guard's history; the
+        //    third was feeding the guard from the raw size of getSuitesObserved(), which on Maven
+        //    also counts every foreign suite this JVM's ByteBuddy-disabled classes fire
+        //    executionSkipped for - suites Tia deselected onto other groups, not suites this group
+        //    was ever assigned. Intersecting with the assigned list is what makes the count exact
+        //    regardless of how many foreign suites this JVM happened to observe. suitesObserved is
+        //    what the completeness guard later reads, not suitesRan, so a suite the runner observed
+        //    but never executed (a disabled class, a Surefire/Gradle filter, a class deleted since
+        //    the last mapping run) does not block the group from completing, as long as it is one of
+        //    this group's own assigned suites. The status flip itself is not made here: this runs
+        //    once per finished test plan, and a retry is another test plan in the same JVM, so
+        //    flipping the group to COMPLETED here would release the barrier after the first test plan
+        //    while this runner is still executing tests. It is made instead by the build tool step
+        //    that runs once every retry has finished - see DistributedRunCompleter - since knowing
+        //    that no more retries are coming is a fact only the build tool has, not this fork.
+        int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
+        int suitesFailed = testRunResult.getTestSuitesFailed() != null
+                ? testRunResult.getTestSuitesFailed().size() : 0;
+        int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),
+                distributedRunnerContext.getRunId(), distributedRunnerContext.getGroupNumber().intValue());
+        runnerPersist.reportGroupProgress(durationMs, suitesRan, suitesFailed, suitesObserved,
+                suitesDurationMs);
+    }
+
+    /**
+     * Add up the run times this JVM measured for the suites it ran, giving the share of the runner's
+     * total duration that is attributable to a named suite. What is left over -
+     * {@code durationMs - this} - is the runner's fixed per-JVM overhead, and reporting the split
+     * lets the sealer charge that overhead once for the whole build instead of once per group; see
+     * {@link org.tiatesting.core.distributed.DistributedRunTotals}.
+     *
+     * <p>The tracker map is the JVM's shared one, so this total is already cumulative across every
+     * test plan the JVM has made: a suite is timed on its first attempt only (see the listeners'
+     * {@code shouldCalcTestSuiteAvgTime}), so a Surefire retry re-reports the same total rather than
+     * adding to it. That is exactly why the column it feeds is written via {@code GREATEST} rather
+     * than accumulated, and it is also what leaves a retry's own wall time outside the
+     * suite-attributable total and inside the overhead remainder, where it belongs - a retry is real
+     * time the build spent that no fresh suite run accounts for.
+     *
+     * <p>Returns 0 when no suite was timed, which is the ordinary state with {@code updateDBStats}
+     * off. The sealer distinguishes that from a genuine zero by checking it against the group's
+     * suites-ran count, and declines to correct anything when a group that ran suites reports no
+     * suite time.
+     *
+     * @param testSuiteTrackers this JVM's suite trackers, whose stats carry each suite's measured
+     *                          run time by the time a test plan has finished; may be null or empty
+     * @return the summed measured suite run time in ms, never negative
+     */
+    private long sumMeasuredSuiteRunTimes(final Map<String, TestSuiteTracker> testSuiteTrackers) {
+        if (testSuiteTrackers == null || testSuiteTrackers.isEmpty()) {
+            return 0L;
+        }
+
+        long total = 0L;
+        for (TestSuiteTracker tracker : testSuiteTrackers.values()) {
+            if (tracker.getTestStats() != null) {
+                total += Math.max(0L, tracker.getTestStats().getAvgRunTime());
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Scope a runner's observed-suite set down to the suites the plan actually assigned to its
+     * group, so the completeness guard can never be satisfied by suites this JVM observed for an
+     * unrelated reason. On Maven, Tia's own group-based deselection injects
+     * {@code @Disabled}/{@code @Ignore} onto every suite outside this runner's group; those classes
+     * are still discovered and loaded, so each one fires {@code executionSkipped} and lands in
+     * {@link TestRunResult#getSuitesObserved()} exactly like one of this group's own suites - a
+     * 500-suite project split into 10 groups of 50 would otherwise let group 0 see ~450 foreign
+     * suites, satisfying {@code observed >= assignedCount} on the very first persist regardless of
+     * how far this runner actually got. Comparing the same set on both sides - {@code |observed
+     * INTERSECT assigned|} rather than {@code |observed|} - is what makes the guard exact by
+     * construction. One extra read per persist, on the order of tens of rows for a group's suite
+     * list; not on the {@code select-tests} hot path.
+     *
+     * @param suitesObserved the suites this runner's JVM has observed so far (finished or skipped),
+     *                       potentially including suites outside this group's assignment; may be
+     *                       null or empty
+     * @param runId the distributed run the group belongs to
+     * @param groupNumber the group's zero-based index within the run
+     * @return the count of suites in {@code suitesObserved} that are also assigned to this group
+     */
+    private int countObservedSuitesInGroup(final Set<String> suitesObserved, final String runId,
+                                           final int groupNumber) {
+        if (suitesObserved == null || suitesObserved.isEmpty()) {
+            return 0;
+        }
+
+        Set<String> assignedSuites = new HashSet<>(dataStore.readDistributedRunGroupSuites(runId, groupNumber));
+        assignedSuites.retainAll(suitesObserved);
+        return assignedSuites.size();
+    }
+
+    /**
      * Assemble and write the run's seal. The method catalogue, the library drain cleanup and the
      * commit value all describe the commit being sealed, so they are handed to the data store as
      * one bundle and written in a single transaction via {@link DataStore#persistSealedRunData}.
@@ -154,22 +379,9 @@ public class TestRunnerService {
         tiaData.setBranch(branch);
         tiaData.setLastUpdated(Instant.now());
 
-        Map<Integer, MethodImpactTracker> methodsTracked =
-                buildMethodsTracked(tiaData, testRunResult.getMethodTrackersFromTestRun());
-
-        List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
-        List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
-        LibraryImpactDrainResult drainResult = testRunResult.getLibraryImpactDrainResult();
-        if (drainResult != null && drainResult.hasDrainedBatches()) {
-            drainedMethodKeys = new ArrayList<>(drainResult.getDrainedBatchKeys());
-            drainedForcedKeys = new ArrayList<>(drainResult.getDrainedForcedBatchKeys());
-        }
-
-        List<TrackedLibrary> librariesToPersist =
-                collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
-
-        dataStore.persistSealedRunData(new SealedRunData(tiaData, methodsTracked,
-                drainedMethodKeys, drainedForcedKeys, librariesToPersist));
+        dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
+                testRunResult.getMethodTrackersFromTestRun(),
+                testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun));
     }
 
     /**
@@ -323,24 +535,6 @@ public class TestRunnerService {
     }
 
     /**
-     * Build the method catalogue to write at the seal. Note this must be called after the suite
-     * mapping has been persisted - it queries the data store for the updated set of source class
-     * method ids.
-     *
-     * @param tiaData the Tia DB, updated in place with the resulting catalogue
-     * @param methodTrackersFromTestRun all source code methods covered by any test suite executed
-     *                                  in this run
-     * @return the catalogue to persist, keyed by method id
-     */
-    private Map<Integer, MethodImpactTracker> buildMethodsTracked(final TiaData tiaData,
-                                                                  final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun){
-        Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
-        Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk, methodTrackersFromTestRun);
-        tiaData.setMethodsTracked(updatedMethodTrackers);
-        return updatedMethodTrackers;
-    }
-
-    /**
      *  The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
      *  scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
      *  First, remove all the existing test suites that were selected for this run, and then add back any that failed.
@@ -354,67 +548,6 @@ public class TestRunnerService {
         tiaData.getTestSuitesFailed().removeAll(selectedTests);
         tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
         dataStore.persistTestSuitesFailed(tiaData.getTestSuitesFailed());
-    }
-
-    /**
-     * Collect the tracked-library rows whose state changes as part of this seal, without writing
-     * them - the caller hands them to the data store inside the seal transaction.
-     *
-     * <p>Two sources contribute. A drained library has its {@code lastAppliedSeq} advanced to the
-     * resolved build's sequence and its {@code mappingBaselineCommit} to this run's commit. An
-     * all-tests run advances every tracked library's baseline, because every suite was just
-     * re-covered. See the mapping-baseline section of the library publish-time stamping chapter
-     * in {@code WIKI.md}.
-     *
-     * <p>Neither source has anything to contribute on a selective run (not all-tests) with no
-     * drained batches, so that case returns an empty list before reading {@link
-     * DataStore#readTrackedLibraries()} - this keeps the common primary-build persist (a targeted
-     * mapping run, no library drain) from paying an unconditional library-table read on every
-     * call, per the performance guidance in {@code WIKI.md}.
-     *
-     * @param drainResult the drain result from test selection, or {@code null} when no drain ran
-     * @param commitValue the commit this run seals - the new mapping baseline
-     * @param allTestsRun {@code true} when Tia ignored zero suites this run
-     * @return the library rows to upsert; empty when nothing changed
-     */
-    private List<TrackedLibrary> collectLibrariesToPersist(final LibraryImpactDrainResult drainResult,
-                                                           final String commitValue,
-                                                           final boolean allTestsRun) {
-        if ((drainResult == null || !drainResult.hasDrainedBatches()) && !allTestsRun) {
-            return Collections.emptyList();
-        }
-
-        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
-        Map<String, TrackedLibrary> changed = new LinkedHashMap<>();
-
-        if (drainResult != null && drainResult.hasDrainedBatches()) {
-            for (Map.Entry<String, Long> entry : drainResult.getAppliedSeqByLibrary().entrySet()) {
-                TrackedLibrary library = trackedLibraries.get(entry.getKey());
-                if (library == null) {
-                    log.warn("Tracked library '{}' not found during drain cleanup - skipping applied-seq update.",
-                            entry.getKey());
-                    continue;
-                }
-                library.setLastAppliedSeq(entry.getValue());
-                library.setMappingBaselineCommit(commitValue);
-                changed.put(entry.getKey(), library);
-                log.info("Updating tracked library '{}': last_applied_seq={}, mapping_baseline_commit='{}'.",
-                        entry.getKey(), entry.getValue(), commitValue);
-            }
-        }
-
-        if (allTestsRun) {
-            for (TrackedLibrary library : trackedLibraries.values()) {
-                if (!Objects.equals(library.getMappingBaselineCommit(), commitValue)) {
-                    library.setMappingBaselineCommit(commitValue);
-                    changed.put(library.getGroupArtifact(), library);
-                    log.info("All-tests run - advancing mapping baseline for library '{}' to '{}'.",
-                            library.getGroupArtifact(), commitValue);
-                }
-            }
-        }
-
-        return new ArrayList<>(changed.values());
     }
 
     /**
@@ -438,55 +571,6 @@ public class TestRunnerService {
             testSuitesInDB.keySet().removeAll(deletedTestSuites);
             dataStore.deleteTestSuites(deletedTestSuites);
         }
-    }
-
-    /**
-     * Update the method tracker which is stored on disk. Any method id referenced from
-     * {@code tia_source_class_method} that has no entry in either this run's results or the
-     * on-disk catalogue is dropped as an orphan rather than carried forward - see the
-     * "Persist flow and crash safety" chapter in {@code WIKI.md} for how such orphans arise
-     * and why skipping them here is self-correcting.
-     *
-     * @param methodTrackerOnDisk current method tracker persisted on disk
-     * @param methodTrackerFromTestRun methods called from the current test run
-     * @return the updated method tracker map, with any orphaned ids dropped
-     */
-    private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
-                                                                  final Map<Integer, MethodImpactTracker> methodTrackerFromTestRun){
-
-        // Set containing the combined method ids using the updated test mapping after the test run
-        Set<Integer> methodsImpactedAfterTestRun = dataStore.getUniqueMethodIdsTracked();
-
-        // We have the updated list of method ids. But the stored method data will have the details associated before the test run
-        // which will potentially have incorrect line numbers. This happens for 2 reasons.
-        // 1. This happens when a method(s) exist in a source file that had its line numbers changes due to a source file change.
-        // 2. We also need to account for other methods that had their line numbers updated but weren't executed in the test,
-        // i.e. new lines of code were added to a method, this causes that method to be executed in this test run. But, the methods in
-        // the file below this will all be pushed down and have updated line numbers. So we need to update those indexed
-        // methods in the DB as well.
-        Map<Integer, MethodImpactTracker> newMethodTracker = new HashMap<>();
-
-        for (Integer methodImpactedId : methodsImpactedAfterTestRun){
-            MethodImpactTracker tracker = methodTrackerFromTestRun.containsKey(methodImpactedId)
-                    ? methodTrackerFromTestRun.get(methodImpactedId)
-                    : methodTrackerOnDisk.get(methodImpactedId);
-
-            if (tracker == null) {
-                // The id is referenced from tia_source_class_method but neither this run's
-                // JaCoCo results nor the tia_source_method table on disk knows about it.
-                // Most likely an orphan left behind by an earlier run that aborted between
-                // updating the join table and the seal's rewrite of tia_source_method.
-                // Skip the orphan rather than NPE downstream in persistSourceMethods.
-                log.error("Source method id {} is referenced from tia_source_class_method but " +
-                        "has no entry in tia_source_method (and was not invoked in this run); " +
-                        "dropping orphan reference.", methodImpactedId);
-                continue;
-            }
-
-            newMethodTracker.put(methodImpactedId, tracker);
-        }
-
-        return newMethodTracker;
     }
 
     /**

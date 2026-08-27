@@ -6,6 +6,7 @@ import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
+import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -21,6 +22,15 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
+
+    /**
+     * Name of the fork properties file written under {@link #getTiaBuildDir()}, carrying the
+     * system properties the forked test JVM needs plus the distributed-run handoff (resolved
+     * runner key, claimed group number). Shared here, rather than declared separately by the
+     * writer and the reader, so {@link AbstractTiaAgentMojo#writeForkPropertiesFile} and the
+     * {@code dist-complete} goal that reads it back can never drift apart on the filename.
+     */
+    static final String FORK_PROPERTIES_FILENAME = "fork.properties";
 
     /**
      * Maven project.
@@ -168,6 +178,58 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaVcsClientName;
 
     /**
+     * Whether this build participates in a distributed test run: the tests Tia selects are split
+     * into groups and persisted to a shared database instead of all running in this one build.
+     * Distributed runs require a shared datastore ({@link #tiaDBUrl}) and {@link
+     * #tiaCheckLocalChanges} disabled - see {@code DistributedRunPreconditions} in {@code tia-core}.
+     */
+    @Parameter(property = "tiaDistributed")
+    boolean tiaDistributed;
+
+    /**
+     * The shared identifier every runner in a distributed test run must agree on, so each runner
+     * finds the same run's rows in the shared database. Required when {@link #tiaDistributed} is
+     * enabled; typically the CI pipeline's build or run id.
+     */
+    @Parameter(property = "tiaRunId")
+    String tiaRunId;
+
+    /**
+     * The fixed number of groups to split a distributed run's selected tests into. Mutually
+     * exclusive with {@link #tiaDistributedTargetRunTime} - exactly one of the two must be set.
+     * Boxed rather than a primitive {@code int} so an unset value is distinguishable from a
+     * deliberate {@code 0}, which {@code DistributedRunConfig} relies on to tell "not configured"
+     * apart from a configured value of zero.
+     */
+    @Parameter(property = "tiaDistributedGroupCount")
+    Integer tiaDistributedGroupCount;
+
+    /**
+     * The target wall-clock run time, in milliseconds, a distributed run should balance groups to
+     * meet. Mutually exclusive with {@link #tiaDistributedGroupCount} - exactly one of the two
+     * must be set. Boxed for the same "unset vs. zero" reason as {@link
+     * #tiaDistributedGroupCount}.
+     */
+    @Parameter(property = "tiaDistributedTargetRunTime")
+    Long tiaDistributedTargetRunTime;
+
+    /**
+     * An optional ceiling on the number of groups a distributed run may be split into when
+     * balancing for {@link #tiaDistributedTargetRunTime}. Meaningless - and rejected - alongside a
+     * fixed {@link #tiaDistributedGroupCount}. Boxed so "no ceiling configured" is distinguishable
+     * from a configured ceiling of zero.
+     */
+    @Parameter(property = "tiaDistributedMaxGroups")
+    Integer tiaDistributedMaxGroups;
+
+    /**
+     * An optional per-runner identity value used by the distributed run's claim protocol to tell
+     * concurrent runners apart. Falls back to {@code runId + hostname + pid} when not supplied.
+     */
+    @Parameter(property = "tiaDistributedRunnerKey")
+    String tiaDistributedRunnerKey;
+
+    /**
      * Static test selection rules. Each rule maps a regex over the repo-relative paths of
      * changed files to a set of test suites that should be force-run regardless of dynamic
      * coverage-based selection. Rules are additive: their selected suites are unioned into
@@ -208,8 +270,63 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return project;
     }
 
+    /**
+     * Resolve the Maven projects taking part in the current build session, so a distributed-run
+     * precondition can see more than just the module currently executing. Both {@code
+     * dist-plan} and {@code prepare-agent} are bound to per-module Maven phases, not to an
+     * aggregator goal, so on a multi-module reactor each runs once per module - a caller that read
+     * only {@link #getProject()} would see just its own module and never detect that more than one
+     * module is taking part. Exposed as its own overridable method, rather than reading {@link
+     * #session} inline, so a unit test can drive a mojo's {@code execute()} without constructing a
+     * real {@code MavenSession}.
+     *
+     * @return the projects in the current Maven session, in build order - {@link
+     *         MavenSession#getProjects()} reports the projects actually taking part in this
+     *         invocation, which for a reactor-scoped build (e.g. {@code mvn -pl a}) is narrower
+     *         than the full reactor
+     */
+    protected List<MavenProject> getReactorProjects() {
+        return session.getProjects();
+    }
+
+    /**
+     * Append the reactor's project artifact ids to a distributed-run precondition failure message
+     * when the failure is the multi-project-reactor rule, so both distributed-run entry points -
+     * the {@code dist-plan} goal and the {@code prepare-agent} goal - report exactly which
+     * modules were found in the reactor. Shared here rather than duplicated per mojo since {@code
+     * tia-core} has no Maven type to name the projects with itself; this method converts {@link
+     * #getReactorProjects()}'s {@link MavenProject} list to plain artifact-id strings and delegates
+     * the "only when relevant" gate to {@link
+     * DistributedRunPreconditions#withReactorProjectNamesIfRelevant}, the same core helper the
+     * Gradle plan task's equivalent wrapper delegates to.
+     *
+     * @param message the failure message from {@code DistributedRunPreconditions.check}
+     * @param reactorProjects the projects {@link #getReactorProjects()} resolved for this build
+     * @return {@code message} unchanged, or with the reactor's project artifact ids appended when
+     *         Tia is enabled and the reactor holds more than one project
+     */
+    protected String withReactorProjectNamesIfRelevant(final String message, final List<MavenProject> reactorProjects) {
+        List<String> names = new ArrayList<>(reactorProjects.size());
+        for (MavenProject reactorProject : reactorProjects) {
+            names.add(reactorProject.getArtifactId());
+        }
+        return DistributedRunPreconditions.withReactorProjectNamesIfRelevant(message, isTiaEnabled(), names);
+    }
+
     public String getTiaBuildDir() {
         return tiaBuildDir;
+    }
+
+    /**
+     * Resolve the fork properties file's path under {@link #getTiaBuildDir()}. Centralised so the
+     * mojo that writes the file and the goal that later reads it back build the identical path
+     * from the same constant, rather than each concatenating {@link #getTiaBuildDir()} and
+     * {@link #FORK_PROPERTIES_FILENAME} separately.
+     *
+     * @return the absolute path of the fork properties file for this build
+     */
+    protected String getForkPropertiesFilename() {
+        return getTiaBuildDir() + "/" + FORK_PROPERTIES_FILENAME;
     }
 
     public String getTiaProjectDir(){
@@ -311,6 +428,52 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public boolean isTiaCheckLocalChanges() {
         return tiaCheckLocalChanges;
+    }
+
+    /**
+     * @return whether this build participates in a distributed test run
+     */
+    public boolean isTiaDistributed() {
+        return tiaDistributed;
+    }
+
+    /**
+     * @return the configured distributed run id, or {@code null} if not set
+     */
+    public String getTiaRunId() {
+        return tiaRunId;
+    }
+
+    /**
+     * @return the configured fixed group count for a distributed run, or {@code null} to use a
+     *         target run time instead
+     */
+    public Integer getTiaDistributedGroupCount() {
+        return tiaDistributedGroupCount;
+    }
+
+    /**
+     * @return the configured target wall-clock run time in ms for a distributed run, or {@code
+     *         null} to use a fixed group count instead
+     */
+    public Long getTiaDistributedTargetRunTime() {
+        return tiaDistributedTargetRunTime;
+    }
+
+    /**
+     * @return the configured ceiling on the group count for a distributed run, or {@code null}
+     *         for no ceiling
+     */
+    public Integer getTiaDistributedMaxGroups() {
+        return tiaDistributedMaxGroups;
+    }
+
+    /**
+     * @return the configured per-runner identity value for a distributed run, or {@code null} to
+     *         let the claim protocol derive one
+     */
+    public String getTiaDistributedRunnerKey() {
+        return tiaDistributedRunnerKey;
     }
 
     public String getTiaVcsServerUri() {
