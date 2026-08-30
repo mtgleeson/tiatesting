@@ -1032,6 +1032,15 @@ mvn tia-junit5-git:dist-complete
 
 It is safe to run unconditionally: on a build that was not distributed - no `fork.properties` file, or one carrying no distributed handoff - there is nothing to complete, and it logs that and exits successfully.
 
+**`tiaEnabled` is the one setting that must resolve the same way for this goal as it did for the test run.** It is deliberately *not* taken from `fork.properties`, unlike everything else above - the goal checks its own `tiaEnabled` before it opens the handoff file at all, so that a build with Tia switched off never acts on a stale file left over from an earlier distributed build, and never fails on database settings it was never going to use. The consequence is a trap worth knowing about: if this goal resolves `tiaEnabled` to false, it logs that Tia is disabled, **exits successfully**, and does nothing. The claimed group stays `CLAIMED`, the barrier never opens, no runner seals the build, and the whole run's mapping, stats and history work is discarded - with a green pipeline and nothing but an INFO line saying why.
+
+Two ways to land in that state:
+
+- Passing `-DtiaEnabled=false` on the completion step while the runners ran with it true.
+- Driving `tiaEnabled` from the command line only. It has no default value, so an unset `tiaEnabled` is false: if your runners use `mvn verify -DtiaEnabled=true` and your pom has no `<tiaEnabled>`, then a bare `mvn tia-junit5-git:dist-complete` silently no-ops.
+
+So: if `tiaEnabled` lives in your pom (as in the [getting started](#getting-started) configuration), there is nothing to do - this goal picks it up like every other goal does. If you pass it on the command line for the test run, pass the same value on the completion step. When a run is stuck `OPEN` with a group still `CLAIMED`, this is the first thing to check - [`dist-status`](#status---inspect-a-run-in-flight) shows both.
+
 ### Status - inspect a run in flight
 
 Prints the state of a distributed run: the run itself, every group in its plan, and the runner that claimed each one. Read-only - it claims, completes, seals and clears nothing - so it is safe to run against a build whose runners are still going, from your own machine or from a CI step watching the fan-out.
