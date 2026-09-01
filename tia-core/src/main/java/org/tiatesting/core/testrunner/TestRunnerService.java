@@ -367,11 +367,16 @@ public class TestRunnerService {
         }
 
         if (!updateDBMapping) {
-            // This run does not own mapping updates, so there is nothing to seal. The only write
-            // is the core row, which carries the Tia-level run stats as well as the commit value.
-            // tia_source_method, the library baselines and the unsealed flags are all mapping
-            // concerns and stay untouched, exactly as on a stats-only run today.
-            dataStore.persistCoreData(tiaData);
+            // This run does not own mapping updates, so there is nothing to seal. The most it
+            // writes is the stats columns of the core row - never the commit value or the branch,
+            // which belong to whichever build owns the mapping. Writing the whole row back would
+            // stamp the commit read at the start of this persist, silently rolling the stored
+            // commit backwards whenever a mapping-owning build advanced it while this run was
+            // executing. tia_source_method, the library baselines and the unsealed flags are all
+            // mapping concerns and stay untouched.
+            if (updateDBStats) {
+                dataStore.persistCoreStats(tiaData.getTestStats());
+            }
             return;
         }
 
