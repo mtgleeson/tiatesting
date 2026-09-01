@@ -130,14 +130,15 @@ class TestRunnerServiceSealOrderTest {
     /**
      * A stats-only run ({@code updateDBMapping=false}) must never advance the stored commit value
      * and must never reach the seal bundle. {@code sealRun} short-circuits before building the
-     * bundle on this path, writing only the core row via {@code persistCoreData} - there is no
-     * catalogue rewrite and no drain cleanup, matching today's stats-only behaviour. A regression
-     * that routed this path through {@code persistSealedRunData} would clear and re-insert the
-     * whole {@code tia_source_method} catalogue on every stats-only build even though nothing
-     * about the mapping changed.
+     * bundle on this path, writing only the core row's stats columns via {@code persistCoreStats} -
+     * there is no catalogue rewrite and no drain cleanup. A regression that routed this path
+     * through {@code persistSealedRunData} would clear and re-insert the whole
+     * {@code tia_source_method} catalogue on every stats-only build even though nothing about the
+     * mapping changed; one that routed it back through {@code persistCoreData} would write the
+     * whole core row, commit value included.
      */
     @Test
-    void statsOnlyRun_routesThroughPersistCoreDataNotSealBundle_andCommitValueRemainsPriorValue() {
+    void statsOnlyRun_routesThroughPersistCoreStatsNotSealBundle_andCommitValueRemainsPriorValue() {
         // given
         RecordingDataStore spy = new RecordingDataStore(dataStore);
         TestRunnerService service = new TestRunnerService(spy);
@@ -146,11 +147,13 @@ class TestRunnerServiceSealOrderTest {
         service.persistTestRunData(false, true, false, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), null);
 
-        // then - the seal bundle is never invoked; the core row goes through persistCoreData instead
+        // then - the seal bundle is never invoked; the stats go through persistCoreStats instead
         assertEquals(0, Collections.frequency(spy.callOrder, "persistSealedRunData"),
                 "a stats-only run must not go through the seal bundle");
-        assertEquals(1, Collections.frequency(spy.callOrder, "persistCoreData"),
-                "a stats-only run must write its core row via persistCoreData");
+        assertEquals(1, Collections.frequency(spy.callOrder, "persistCoreStats"),
+                "a stats-only run must write its stats via persistCoreStats");
+        assertEquals(0, Collections.frequency(spy.callOrder, "persistCoreData"),
+                "a stats-only run must not write the whole core row, which would stamp the commit value");
 
         // and - the method catalogue is never rewritten either: neither call frequency alone
         // would catch a regression that wrote it directly on this path outside the seal bundle
@@ -369,6 +372,11 @@ class TestRunnerServiceSealOrderTest {
         public void persistCoreData(TiaData tiaData) {
             callOrder.add("persistCoreData");
             delegate.persistCoreData(tiaData);
+        }
+        @Override
+        public void persistCoreStats(TestStats testStats) {
+            callOrder.add("persistCoreStats");
+            delegate.persistCoreStats(testStats);
         }
         @Override
         public void persistTestSuitesFailed(Set<String> testSuitesFailed) {
