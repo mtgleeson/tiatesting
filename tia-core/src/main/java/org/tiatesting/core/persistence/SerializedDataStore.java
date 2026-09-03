@@ -267,7 +267,9 @@ public class SerializedDataStore implements DataStore {
     @Override
     public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) {
         TiaData tiaData = getTiaData(false);
-        tiaData.setTestSuitesTracked(testSuites);
+        // Merged rather than replaced: the caller passes only the suites it touched, so replacing
+        // the map would drop every suite this run had nothing to say about.
+        tiaData.getTestSuitesTracked().putAll(testSuites);
         long startTime = System.currentTimeMillis();
         writeTiaDataToDisk(tiaData);
         log.info("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
@@ -275,7 +277,10 @@ public class SerializedDataStore implements DataStore {
 
     @Override
     public void deleteTestSuites(Set<String> testSuites) {
-        // do nothing, the deleted test suites will be serialized in persistTestSuites(testSuites);
+        // Was a no-op back when persistTestSuites received the whole map and a deletion showed up
+        // as an absence from it. It receives only the touched suites now, so the removal has to
+        // happen here; the file is rewritten by the persist that follows.
+        getTiaData(false).getTestSuitesTracked().keySet().removeAll(testSuites);
     }
 
     @Override
