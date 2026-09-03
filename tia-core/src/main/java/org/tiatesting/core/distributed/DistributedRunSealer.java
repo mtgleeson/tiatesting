@@ -3,6 +3,7 @@ package org.tiatesting.core.distributed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
@@ -201,14 +202,22 @@ public final class DistributedRunSealer {
 
         TiaData tiaData = dataStore.getTiaCore();
 
-        // Both stats mutations happen here, before the seal, so the seal is left with one job -
-        // persisting - and the two land in its single transaction together.
+        // Both stats contributions are assembled here as a delta, before the seal, so the seal is
+        // left with one job - persisting - and the two land in its single transaction together. A
+        // delta rather than an in-memory merge so the store accumulates against the row's value at
+        // write time; see CoreStatsIncrement.
+        CoreStatsIncrement statsIncrement = CoreStatsIncrement.none();
         if (updateDBMapping) {
-            tiaData.incrementStats(buildRunStats(totals), allTestsRun);
-            foldOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
+            statsIncrement = CoreStatsIncrement.of(buildRunStats(totals), allTestsRun);
+            DistributedRunOverheadModel model =
+                    solveOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
+            if (model != null && model.isSolved()) {
+                statsIncrement = statsIncrement.withOverheadModel(model.getFixedOverheadMs(),
+                        model.getCaptureOverheadPerSuiteMs());
+            }
         }
 
-        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun);
+        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement);
 
         if (updateDBTestRunHistory) {
             // The baseline this build's savings are frozen against, read from the same core data
@@ -239,9 +248,12 @@ public final class DistributedRunSealer {
      * @param branch the branch being sealed
      * @param updateDBMapping whether this build owns mapping-DB updates, and with them the stats
      * @param allTestsRun whether the groups between them ran every tracked suite
+     * @param statsIncrement the build's contribution to the Tia-level stats, accumulated by the
+     *                       store at write time
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
-                      final boolean updateDBMapping, final boolean allTestsRun) {
+                      final boolean updateDBMapping, final boolean allTestsRun,
+                      final CoreStatsIncrement statsIncrement) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
@@ -265,7 +277,7 @@ public final class DistributedRunSealer {
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
-                stagedMethodTrackers, drainResult, commitValue, allTestsRun));
+                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
@@ -443,20 +455,23 @@ public final class DistributedRunSealer {
      * measurement, which is why the persisted flag decides rather than the assignment's shape - the
      * same distinction {@link #ignoredSuiteCount} turns on.
      *
-     * @param tiaData the core data being sealed, whose stats this folds the solved pair into
+     * @param tiaData the core data being sealed, read for the all-tests baseline the solve needs
      * @param run the run row this seal already read, carrying the planner's seed-run flag
      * @param groups the run's groups, as read back from the datastore after the barrier
      * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
      *                              number
+     * @return the solved model, or null when this build supplies no measurement at all. The caller
+     *         checks {@link DistributedRunOverheadModel#isSolved()} before folding it in - an
+     *         unsolved model must leave the stored averages untouched rather than contribute a zero
      */
-    private void foldOverheadModel(final TiaData tiaData, final DistributedRun run,
+    private DistributedRunOverheadModel solveOverheadModel(final TiaData tiaData, final DistributedRun run,
                                    final List<DistributedRunGroup> groups,
                                    final Map<Integer, Set<String>> assignedSuitesByGroup) {
         if (run.isSeedRun()) {
             log.debug("Distributed run '{}': this was a seed run, whose one group is assigned no "
                     + "suite names because it runs everything, so it supplies no second equation "
                     + "for the overhead model.", context.getRunId());
-            return;
+            return null;
         }
 
         Map<String, TestSuiteTracker> tracked = dataStore.getTestSuitesTracked();
@@ -479,20 +494,15 @@ public final class DistributedRunSealer {
             log.debug("Distributed run '{}': the overhead model was not solved, so the stored "
                             + "averages are left as they are. Reason: {}.", context.getRunId(),
                     model.getSkipReason());
-            return;
+            return model;
         }
-
-        tiaData.getTestStats().incrementOverheadModel(model.getFixedOverheadMs(),
-                model.getCaptureOverheadPerSuiteMs());
 
         log.info("Distributed run '{}': measured a fixed per-JVM overhead of {}ms and a per-suite "
                         + "capture overhead of {}ms from a whole-run overhead of {}ms across {} "
-                        + "tracked suite(s). Rolling averages are now {}ms fixed and {}ms per suite "
-                        + "over {} measurement(s).", context.getRunId(), model.getFixedOverheadMs(),
-                model.getCaptureOverheadPerSuiteMs(), wholeRunOverheadMs, tracked.size(),
-                tiaData.getTestStats().getFixedOverheadMs(),
-                tiaData.getTestStats().getCaptureOverheadPerSuiteMs(),
-                tiaData.getTestStats().getNumOverheadMeasurements());
+                        + "tracked suite(s). The pair is folded into the stored rolling averages at "
+                        + "the seal.", context.getRunId(), model.getFixedOverheadMs(),
+                model.getCaptureOverheadPerSuiteMs(), wholeRunOverheadMs, tracked.size());
+        return model;
     }
 
     /**
