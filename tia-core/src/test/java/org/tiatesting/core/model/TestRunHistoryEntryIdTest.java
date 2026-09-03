@@ -8,6 +8,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import org.tiatesting.core.model.RunOrigin;
 
 /**
  * Verifies the deterministic id derivation on {@link TestRunHistoryEntry}. Two persists of the
@@ -24,8 +25,8 @@ class TestRunHistoryEntryIdTest {
         long ts = 1_700_000_000_000L;
 
         // when
-        TestRunHistoryEntry first = TestRunHistoryEntry.create(branch, commit, ts, 1, 2, 0, 100L, true, 0L, 0);
-        TestRunHistoryEntry second = TestRunHistoryEntry.create(branch, commit, ts, 9, 9, 9, 999L, false, 0L, 0);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create(branch, commit, ts, 1, 2, 0, 100L, true, 0L, 0, RunOrigin.unknown());
+        TestRunHistoryEntry second = TestRunHistoryEntry.create(branch, commit, ts, 9, 9, 9, 999L, false, 0L, 0, RunOrigin.unknown());
 
         // then - counts/duration/flag don't participate in the id; identity is by triple only.
         assertNotNull(first.getId());
@@ -36,10 +37,10 @@ class TestRunHistoryEntryIdTest {
     void changingBranchChangesId() {
         // given
         long ts = 1_700_000_000_000L;
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("develop", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("develop", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
@@ -49,10 +50,10 @@ class TestRunHistoryEntryIdTest {
     void changingCommitChangesId() {
         // given
         long ts = 1_700_000_000_000L;
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "def456", ts, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "def456", ts, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
@@ -61,10 +62,10 @@ class TestRunHistoryEntryIdTest {
     @Test
     void changingTimestampChangesId() {
         // given
-        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", 1L, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry baseline = TestRunHistoryEntry.create("main", "abc123", 1L, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // when
-        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "abc123", 2L, 1, 0, 0, 0L, true, 0L, 0);
+        TestRunHistoryEntry other = TestRunHistoryEntry.create("main", "abc123", 2L, 1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // then
         assertNotEquals(baseline.getId(), other.getId());
@@ -82,7 +83,7 @@ class TestRunHistoryEntryIdTest {
 
         // when
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
-                1, 0, 0, 0L, true, 0L, 0);
+                1, 0, 0, 0L, true, 0L, 0, RunOrigin.unknown());
 
         // then
         assertEquals(UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString(),
@@ -98,16 +99,16 @@ class TestRunHistoryEntryIdTest {
         // given
         long ts = 1_700_000_000_000L;
         TestRunHistoryEntry baseline = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2);
+                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2, RunOrigin.unknown());
 
         // when
         TestRunHistoryEntry other = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2);
+                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2, RunOrigin.unknown());
 
         // then
         assertNotEquals(baseline.getId(), other.getId(),
                 "two runs planned in the same millisecond must not share a row");
-        assertNotEquals(TestRunHistoryEntry.create("main", "abc123", ts, 5, 0, 0, 1000L, true, 0L, 0)
+        assertNotEquals(TestRunHistoryEntry.create("main", "abc123", ts, 5, 0, 0, 1000L, true, 0L, 0, RunOrigin.unknown())
                         .getId(), baseline.getId(),
                 "nor may a distributed build collide with a single-host run's row");
     }
@@ -118,8 +119,8 @@ class TestRunHistoryEntryIdTest {
         long ts = 42L;
 
         // when
-        TestRunHistoryEntry first = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0);
-        TestRunHistoryEntry second = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0, RunOrigin.unknown());
+        TestRunHistoryEntry second = TestRunHistoryEntry.create(null, null, ts, 0, 0, 0, 0L, false, 0L, 0, RunOrigin.unknown());
 
         // then
         assertNotNull(first.getId());

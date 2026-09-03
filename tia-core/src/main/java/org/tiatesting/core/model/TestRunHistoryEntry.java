@@ -34,6 +34,7 @@ public final class TestRunHistoryEntry implements Serializable {
     private final String runId;
     private final Long wallClockMs;
     private final Integer groupCount;
+    private final RunOrigin runOrigin;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
@@ -69,12 +70,16 @@ public final class TestRunHistoryEntry implements Serializable {
      *                    duration - or null for a single-host run
      * @param groupCount the number of groups the distributed build was split across, or null for a
      *                   single-host run
+     * @param runOrigin where the run came from and which machine executed it. Never null - use
+     *                  {@link RunOrigin#unknown()} for a row whose origin is not known, such as one
+     *                  read back from a database written before those columns existed
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
                                long durationMs, boolean updatedDbMapping,
                                long timeSavingsMs, int savingsPercent,
-                               String runId, Long wallClockMs, Integer groupCount) {
+                               String runId, Long wallClockMs, Integer groupCount,
+                               RunOrigin runOrigin) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -89,6 +94,7 @@ public final class TestRunHistoryEntry implements Serializable {
         this.runId = runId;
         this.wallClockMs = wallClockMs;
         this.groupCount = groupCount;
+        this.runOrigin = runOrigin == null ? RunOrigin.unknown() : runOrigin;
     }
 
     /**
@@ -108,17 +114,18 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param updatedDbMapping  whether this run persisted updates to the Tia mapping DB
      * @param timeSavingsMs     time Tia saved this run versus running the full suite (ms)
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
+     * @param runOrigin         where the run came from and which machine executed it
      * @return a new entry with a deterministic id and no distributed-run fields
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
                                              int numSuitesRan, int numSuitesIgnored,
                                              int numSuitesFailed, long durationMs,
                                              boolean updatedDbMapping, long timeSavingsMs,
-                                             int savingsPercent) {
+                                             int savingsPercent, RunOrigin runOrigin) {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, null, null, null);
+                savingsPercent, null, null, null, runOrigin);
     }
 
     /**
@@ -146,6 +153,8 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
      * @param wallClockMs       the build's wall-clock test time (ms): its slowest group
      * @param groupCount        the number of groups the build was split across
+     * @param runOrigin         where the build came from. Its host is expected to be null: the build
+     *                          ran across several machines, so no single one executed it
      * @return a new entry carrying the build-level figures and the three distributed fields
      */
     public static TestRunHistoryEntry createForDistributedRun(String branch, String commit,
@@ -155,14 +164,16 @@ public final class TestRunHistoryEntry implements Serializable {
                                                               long serialDurationMs,
                                                               boolean updatedDbMapping,
                                                               long timeSavingsMs, int savingsPercent,
-                                                              long wallClockMs, int groupCount) {
+                                                              long wallClockMs, int groupCount,
+                                                              RunOrigin runOrigin) {
         // The run id joins the seed so two builds planned in the same millisecond against the same
         // branch and commit - a CI system replanning a retried build - cannot collide onto one row.
         String id = uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs
                 + "|" + nullSafe(runId));
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, serialDurationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, runId, Long.valueOf(wallClockMs), Integer.valueOf(groupCount));
+                savingsPercent, runId, Long.valueOf(wallClockMs), Integer.valueOf(groupCount),
+                runOrigin);
     }
 
     /**
@@ -255,6 +266,15 @@ public final class TestRunHistoryEntry implements Serializable {
 
     /** @return the number of groups the distributed build was split across, or null when single-host */
     public Integer getGroupCount() { return groupCount; }
+
+    /**
+     * @return where the run came from and which machine executed it. Never null, though either of
+     *         its components may be - see {@link RunOrigin}. The null coalesce is not redundant with
+     *         the constructor's: an entry restored from a serialized store written before this field
+     *         existed is materialised without running any constructor, so the field really can be
+     *         null on such an instance
+     */
+    public RunOrigin getRunOrigin() { return runOrigin == null ? RunOrigin.unknown() : runOrigin; }
 
     @Override
     public boolean equals(Object o) {

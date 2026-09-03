@@ -12,6 +12,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.SealedRunDataAssembler;
+import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.time.Instant;
@@ -314,7 +315,8 @@ public final class DistributedRunSealer {
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(branch, commitValue,
                 context.getRunId(), runTimestampMs, totals.getSuitesRan(), ignoredSuiteCount,
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
-                timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount());
+                timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount(),
+                RunEnvironment.distributedRunOrigin());
         dataStore.persistTestRunHistoryEntry(entry);
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
