@@ -2,6 +2,7 @@ package org.tiatesting.core.report.html;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 
@@ -24,9 +25,9 @@ class HtmlHistoryReportSavingsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80,
-                        null, null, null),
+                        null, null, null, RunOrigin.unknown()),
                 new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0,
-                        null, null, null)));
+                        null, null, null, RunOrigin.unknown())));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);

@@ -10,8 +10,23 @@ Every Tia-enabled test run logs one row to a `tia_test_run_history` table in the
 - `num_suites_ran`, `num_suites_ignored`, `num_suites_failed` — derived from the listener data already produced for stats / mapping (`testSuiteTrackers.size()`, `runnerTestSuites.size() - testSuiteTrackers.size()`, `testSuitesFailed.size()`).
 - `duration_ms` — wall-clock duration of the run.
 - `updated_db_mapping` — whether this run also persisted updates to the suite-to-method mapping.
+- `run_source`, `host_name` — where the run came from and which machine executed it. See "Run origin" below.
 
 The table is append-mostly; an index on `run_timestamp` backs the report's default "most-recent first" sort. There's currently no retention policy — the rows are tiny and the table grows slowly enough not to need pruning in practice.
+
+### Run origin (`run_source`, `host_name`)
+
+These two columns exist to answer "how much is Tia actually saving, and for whom" without guessing. Before them the only available discriminator was `updated_db_mapping`, which is a proxy rather than a fact about the run: a CI job configured with mapping updates off is indistinguishable from a developer's laptop. There was also nothing to group runs by machine, so a per-machine average silently mixed a maxed-out laptop with a workstation.
+
+**`run_source` is detected, not configured.** `RunEnvironment.runSource()` returns `CI` when any of a set of marker environment variables is present (`CI`, `BUILD_NUMBER`, `JENKINS_URL`, `GITHUB_ACTIONS`, `GITLAB_CI`, `TEAMCITY_VERSION`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `bamboo_buildKey`), and `LOCAL` otherwise. Presence is the signal, not the value — a CI system is still a CI system whatever it sets its marker to — but an exported-but-empty variable does not count, since some shells export empty values wholesale.
+
+Detection rather than configuration is deliberate. A forked test JVM inherits its parent's environment, so this works inside the fork with nothing plumbed through the build plugins and nothing for a developer to set up. A scheme that had to be configured per job would produce mislabelled rows from whichever job forgot, and a mislabelled row is worse than no column because it looks authoritative.
+
+**The escape hatch** is the `tiaRunSource` system property or the `TIA_RUN_SOURCE` environment variable, either of which overrides detection with an arbitrary label (`NIGHTLY`, `PERF-RIG`, ...). The environment variable is the more reliable of the two from a build plugin's point of view: it reaches the forked test JVM by inheritance, whereas a system property set on the build JVM's command line does not unless the build forwards it. Neither is currently exposed as a Maven or Gradle plugin parameter.
+
+**Nulls mean "not known"**, throughout. A row written before these columns existed reads back null on both (the migration adds them with no `DEFAULT`, so old rows are not retro-labelled with an origin nobody recorded). A run whose hostname will not resolve stores a null host rather than a placeholder — several unrelated runs would otherwise appear to share a machine called "unknown". And a distributed build stores its source but a **null host**: the row describes work several machines did between them, so naming the one that happened to seal last would read as "this build ran here", which is exactly what it did not do.
+
+**What the columns do not fix.** The stored `time_savings` on a local row is still computed against `all_tests_run_time`, the baseline CI maintains — so it is (CI's full-suite time) minus (a laptop's partial run time), two different machines. To get a defensible local-machine ROI figure, compute the savings yourself from the local rows: average `duration_ms` where `num_suites_ignored = 0` is that population's full-suite baseline, and the difference from the average partial run is the real saving.
 
 ### Why timestamps are stored as UTC epoch ms
 

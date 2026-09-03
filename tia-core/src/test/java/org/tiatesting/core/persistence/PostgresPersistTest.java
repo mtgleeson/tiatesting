@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -160,7 +161,7 @@ class PostgresPersistTest {
 
         // when a test-run-history entry is persisted
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.unknown());
         postgresStore.persistTestRunHistoryEntry(entry);
 
         // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert

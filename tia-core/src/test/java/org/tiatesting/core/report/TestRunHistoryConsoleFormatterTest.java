@@ -1,6 +1,7 @@
 package org.tiatesting.core.report;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 
 import java.time.Instant;
@@ -244,7 +245,7 @@ class TestRunHistoryConsoleFormatterTest {
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true, 0L, 0, null, null, null);
+                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -263,9 +264,9 @@ class TestRunHistoryConsoleFormatterTest {
     void savingsColumns_renderDurationPercentAndDashForZero() {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null);
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.unknown());
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
-                10, 0, 0, 5000L, true, 0L, 0, null, null, null);
+                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -288,7 +289,7 @@ class TestRunHistoryConsoleFormatterTest {
     void singleHostOnlyHistory_omitsTheDistributedColumns() {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null);
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.unknown());
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -311,7 +312,7 @@ class TestRunHistoryConsoleFormatterTest {
         // given - a build whose groups summed to 20s but which took 8s of wall clock across 3 groups
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3));
+                Integer.valueOf(3), RunOrigin.unknown());
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -336,9 +337,9 @@ class TestRunHistoryConsoleFormatterTest {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3));
+                Integer.valueOf(3), RunOrigin.unknown());
         TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
-                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null);
+                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -360,7 +361,7 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping, 0L, 0, null, null, null);
+                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.unknown());
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -368,7 +369,7 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null));
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.unknown()));
         }
         return entries;
     }

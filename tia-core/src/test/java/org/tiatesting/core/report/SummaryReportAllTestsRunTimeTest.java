@@ -2,6 +2,7 @@ package org.tiatesting.core.report;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -49,9 +50,9 @@ class SummaryReportAllTestsRunTimeTest {
     private static List<TestRunHistoryEntry> history() {
         return Arrays.asList(
                 new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 180_000L, 99,
-                        null, null, null),
+                        null, null, null, RunOrigin.unknown()),
                 new TestRunHistoryEntry("2", 0L, "main", "c2", 5, 0, 0, ALL_TESTS_RUN_TIME, false, 0L, 0,
-                        null, null, null));
+                        null, null, null, RunOrigin.unknown()));
     }
 
     /**
@@ -143,7 +144,7 @@ class SummaryReportAllTestsRunTimeTest {
         tiaData.getTestStats().setNumAllTestsRuns(0L);
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("1", 0L, "main", "c1", 1, 3, 0, 1000L, false, 0L, 0,
-                        null, null, null)));
+                        null, null, null, RunOrigin.unknown())));
         TextSummaryReport report = new TextSummaryReport("txt", tempDir);
 
         // when
