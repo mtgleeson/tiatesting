@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -86,7 +87,7 @@ class JdbcDataStoreSealedRunDataTest {
         // when
         dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), methods(),
                 Collections.emptyList(), Collections.emptyList(),
-                Collections.singletonList(library)));
+                Collections.singletonList(library), CoreStatsIncrement.none()));
 
         // then
         assertEquals("commitC", dataStore.getTiaCore().getCommitValue());
@@ -106,7 +107,8 @@ class JdbcDataStoreSealedRunDataTest {
         // when
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), broken,
-                        Collections.emptyList(), Collections.emptyList(), new ArrayList<>())));
+                        Collections.emptyList(), Collections.emptyList(), new ArrayList<>(),
+                        CoreStatsIncrement.none())));
 
         // then - the seeded catalogue survived the rolled-back truncate, and the commit value
         // was never advanced; this only holds if the truncate is genuinely undone rather than
@@ -137,7 +139,7 @@ class JdbcDataStoreSealedRunDataTest {
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), replacementMethods,
                         Collections.emptyList(), Collections.emptyList(),
-                        Collections.singletonList(invalidLibrary))));
+                        Collections.singletonList(invalidLibrary), CoreStatsIncrement.none())));
 
         // then - the already-written replacement catalogue was rolled back along with the failed
         // library write and the commit value, proving the whole bundle commits or rolls back as
@@ -179,7 +181,8 @@ class JdbcDataStoreSealedRunDataTest {
         // when
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData(overLength.toString()), methods(),
-                        Collections.emptyList(), Collections.emptyList(), new ArrayList<>())));
+                        Collections.emptyList(), Collections.emptyList(), new ArrayList<>(),
+                        CoreStatsIncrement.none())));
 
         // then - the flag survives: the in-transaction clear was rolled back along with the
         // rest of the bundle, not committed ahead of the failing persistTiaCore statement

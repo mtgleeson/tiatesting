@@ -17,6 +17,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.RunOrigin;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -568,7 +569,8 @@ public class JdbcDataStore implements DataStore {
 
                 // Seal last within the transaction too, so the write order still reads as
                 // "everything, then the commit value" even though they commit together.
-                persistTiaCore(connection, sealedRunData.getTiaData());
+                persistSealedTiaCore(connection, sealedRunData.getTiaData(),
+                        sealedRunData.getStatsIncrement());
 
                 connection.commit();
             } catch (Exception e) {
@@ -2546,6 +2548,118 @@ public class JdbcDataStore implements DataStore {
             log.debug("Deleting test suite: {}", deleteTestSuiteSql);
 
             statement.executeUpdate(deleteTestSuiteSql);
+        }
+    }
+
+    /**
+     * Write the core row at the seal: the commit value, the branch and the last-updated stamp as
+     * absolutes, and the run stats as an <em>accumulation</em> against whatever the row currently
+     * holds.
+     *
+     * <p>The distinction is the point. The commit value is this run's to declare, so writing it
+     * from the caller's snapshot is correct. The stats are a running total several builds
+     * contribute to, so writing those from the snapshot would discard any increment that landed
+     * between this run's read and its write - the whole mapping persist, which is seconds to
+     * minutes. Expressing them as {@code column = column + ?} moves the read to write time, inside
+     * the seal's transaction, where nothing can interleave. The rolling averages are the same
+     * arithmetic {@link TiaData#incrementStats} performs, transcribed into SQL: every reference to
+     * a stats column on the right-hand side sees the row's pre-update value, so the two assignments
+     * that make up an average stay consistent with each other.
+     *
+     * <p>An empty increment (a Surefire retry, which must not count as another run) leaves the
+     * stats columns out of the statement entirely rather than adding zero.
+     *
+     * @param connection the connection to write on, already inside the seal's transaction
+     * @param tiaData the core data carrying the commit, branch and last-updated to stamp
+     * @param increment this run's contribution to the stats
+     * @throws SQLException if the write fails
+     */
+    private void persistSealedTiaCore(Connection connection, TiaData tiaData,
+                                      CoreStatsIncrement increment) throws SQLException {
+        TiaData existingTiaCore = getCoreData(connection);
+
+        if (existingTiaCore.getCommitValue() == null) {
+            // No row yet, so there is nothing to accumulate against: the increment is the absolute
+            // value. Merging it onto the in-memory instance and taking the ordinary INSERT path
+            // keeps one definition of that arithmetic rather than a second copy of it in SQL.
+            applyIncrement(tiaData, increment);
+            persistTiaCore(connection, tiaData);
+            return;
+        }
+
+        StringBuilder sql = new StringBuilder("UPDATE " + TABLE_TIA_CORE + " SET "
+                + COL_COMMIT_VALUE + "='" + tiaData.getCommitValue()
+                + "', " + COL_BRANCH + "=" + sqlStringOrNull(tiaData.getBranch())
+                + ", " + COL_LAST_UPDATED + "='" + tiaData.getLastUpdated() + "'");
+
+        if (increment.getNumRuns() > 0) {
+            long n = increment.getNumRuns();
+            long runTime = increment.getRunTimeMs();
+
+            if (increment.isAllTestsRun()) {
+                // Folds into the all-tests average - the baseline savings are measured against -
+                // and leaves the selected-run average alone.
+                sql.append(", ").append(COL_ALL_TESTS_RUN_TIME).append("=((")
+                        .append(COL_NUM_ALL_TESTS_RUNS).append(" * ").append(COL_ALL_TESTS_RUN_TIME)
+                        .append(") + ").append(n * runTime).append(") / (")
+                        .append(COL_NUM_ALL_TESTS_RUNS).append(" + ").append(n).append(")");
+                sql.append(", ").append(COL_NUM_ALL_TESTS_RUNS).append("=")
+                        .append(COL_NUM_ALL_TESTS_RUNS).append(" + ").append(n);
+            } else {
+                // The selected-run average is over the selected sub-count, which is the total run
+                // count minus the all-tests runs - the same denominator incrementStats uses.
+                sql.append(", ").append(COL_AVG_RUN_TIME).append("=(((")
+                        .append(COL_NUM_RUNS).append(" - ").append(COL_NUM_ALL_TESTS_RUNS)
+                        .append(") * ").append(COL_AVG_RUN_TIME).append(") + ").append(n * runTime)
+                        .append(") / ((").append(COL_NUM_RUNS).append(" - ")
+                        .append(COL_NUM_ALL_TESTS_RUNS).append(") + ").append(n).append(")");
+            }
+
+            sql.append(", ").append(COL_NUM_RUNS).append("=").append(COL_NUM_RUNS).append(" + ").append(n);
+            sql.append(", ").append(COL_NUM_SUCCESS_RUNS).append("=").append(COL_NUM_SUCCESS_RUNS)
+                    .append(" + ").append(increment.getNumSuccessRuns());
+            sql.append(", ").append(COL_NUM_FAIL_RUNS).append("=").append(COL_NUM_FAIL_RUNS)
+                    .append(" + ").append(increment.getNumFailRuns());
+        }
+
+        if (increment.hasOverheadModel()) {
+            sql.append(", ").append(COL_FIXED_OVERHEAD_MS).append("=((")
+                    .append(COL_NUM_OVERHEAD_MEASUREMENTS).append(" * ").append(COL_FIXED_OVERHEAD_MS)
+                    .append(") + ").append(increment.getFixedOverheadMs()).append(") / (")
+                    .append(COL_NUM_OVERHEAD_MEASUREMENTS).append(" + 1)");
+            sql.append(", ").append(COL_CAPTURE_OVERHEAD_PER_SUITE_MS).append("=((")
+                    .append(COL_NUM_OVERHEAD_MEASUREMENTS).append(" * ")
+                    .append(COL_CAPTURE_OVERHEAD_PER_SUITE_MS).append(") + ")
+                    .append(increment.getCaptureOverheadPerSuiteMs()).append(") / (")
+                    .append(COL_NUM_OVERHEAD_MEASUREMENTS).append(" + 1)");
+            sql.append(", ").append(COL_NUM_OVERHEAD_MEASUREMENTS).append("=")
+                    .append(COL_NUM_OVERHEAD_MEASUREMENTS).append(" + 1");
+        }
+
+        log.debug("Persisting the sealed Tia core data: {}", sql);
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(sql.toString());
+    }
+
+    /**
+     * Apply an increment to an in-memory {@link TiaData}, for the one path that cannot accumulate
+     * in SQL: the very first seal on a database with no core row to accumulate against.
+     *
+     * @param tiaData the core data to mutate
+     * @param increment the increment to apply
+     */
+    private void applyIncrement(TiaData tiaData, CoreStatsIncrement increment) {
+        if (increment.getNumRuns() > 0) {
+            TestStats runStats = new TestStats();
+            runStats.setNumRuns(increment.getNumRuns());
+            runStats.setAvgRunTime(increment.getRunTimeMs());
+            runStats.setNumSuccessRuns(increment.getNumSuccessRuns());
+            runStats.setNumFailRuns(increment.getNumFailRuns());
+            tiaData.incrementStats(runStats, increment.isAllTestsRun());
+        }
+        if (increment.hasOverheadModel()) {
+            tiaData.getTestStats().incrementOverheadModel(increment.getFixedOverheadMs(),
+                    increment.getCaptureOverheadPerSuiteMs());
         }
     }
 

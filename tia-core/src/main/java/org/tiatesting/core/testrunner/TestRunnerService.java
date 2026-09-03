@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -368,15 +369,17 @@ public class TestRunnerService {
             return;
         }
 
-        tiaData.incrementStats(testRunResult.getTestStats(), allTestsRun);
-
         tiaData.setCommitValue(commitValue);
         tiaData.setBranch(branch);
         tiaData.setLastUpdated(Instant.now());
 
+        // The stats go to the seal as a delta rather than merged onto tiaData here: the store
+        // accumulates them against the row's value at write time, so an increment from a build that
+        // committed during this run's persist is not overwritten. See CoreStatsIncrement.
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 testRunResult.getMethodTrackersFromTestRun(),
-                testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun));
+                testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
+                CoreStatsIncrement.of(testRunResult.getTestStats(), allTestsRun)));
     }
 
     /**

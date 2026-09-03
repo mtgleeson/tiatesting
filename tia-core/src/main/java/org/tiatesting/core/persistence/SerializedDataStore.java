@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -12,6 +13,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -232,8 +234,34 @@ public class SerializedDataStore implements DataStore {
 
         TiaData tiaData = sealedRunData.getTiaData();
         tiaData.setMethodsTracked(sealedRunData.getMethodsTracked());
+        // No SQL to accumulate in, so the increment is applied to the in-memory instance instead.
+        // The read-modify-write window the JDBC stores close by accumulating server-side stays open
+        // here - but this store is a single file guarded by a file lock, so the concurrent writers
+        // that window exists for cannot reach it in the first place.
+        applyStatsIncrement(tiaData, sealedRunData.getStatsIncrement());
         clearUnsealedTestSuites();
         persistCoreData(tiaData);
+    }
+
+    /**
+     * Apply a seal's stats increment to the in-memory core data.
+     *
+     * @param tiaData the core data being sealed
+     * @param increment the run's contribution to the Tia-level stats
+     */
+    private void applyStatsIncrement(final TiaData tiaData, final CoreStatsIncrement increment) {
+        if (increment.getNumRuns() > 0) {
+            TestStats runStats = new TestStats();
+            runStats.setNumRuns(increment.getNumRuns());
+            runStats.setAvgRunTime(increment.getRunTimeMs());
+            runStats.setNumSuccessRuns(increment.getNumSuccessRuns());
+            runStats.setNumFailRuns(increment.getNumFailRuns());
+            tiaData.incrementStats(runStats, increment.isAllTestsRun());
+        }
+        if (increment.hasOverheadModel()) {
+            tiaData.getTestStats().incrementOverheadModel(increment.getFixedOverheadMs(),
+                    increment.getCaptureOverheadPerSuiteMs());
+        }
     }
 
     @Override
