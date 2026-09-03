@@ -364,6 +364,51 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
+     * A declared {@code runSource} reaches the forked test JVM, which is where the history row is
+     * written and therefore the only place it can be acted on.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldForwardADeclaredRunSource(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setRunSource("NIGHTLY");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        assertEquals("NIGHTLY", testTask.getSystemProperties().get("tiaRunSource"));
+    }
+
+    /**
+     * An undeclared run source forwards no property at all, so the fork falls back to detecting the
+     * source itself. Forwarding the literal string "null" would be stored verbatim as that run's
+     * source.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldForwardNoRunSourcePropertyWhenNoneIsDeclared(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertFalse(systemProperties.containsKey("tiaRunSource"), systemProperties.toString());
+    }
+
+    /**
      * Verify an ordinary, non-distributed Gradle build's test JVM is started with none of the
      * distributed properties, and that the daemon never even attempts a claim: no database
      * directory is configured for {@link TestPlugin#buildDataStore} here, so if the action

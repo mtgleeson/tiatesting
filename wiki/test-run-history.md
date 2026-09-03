@@ -22,7 +22,15 @@ These two columns exist to answer "how much is Tia actually saving, and for whom
 
 Detection rather than configuration is deliberate. A forked test JVM inherits its parent's environment, so this works inside the fork with nothing plumbed through the build plugins and nothing for a developer to set up. A scheme that had to be configured per job would produce mislabelled rows from whichever job forgot, and a mislabelled row is worse than no column because it looks authoritative.
 
-**The escape hatch** is the `tiaRunSource` system property or the `TIA_RUN_SOURCE` environment variable, either of which overrides detection with an arbitrary label (`NIGHTLY`, `PERF-RIG`, ...). The environment variable is the more reliable of the two from a build plugin's point of view: it reaches the forked test JVM by inheritance, whereas a system property set on the build JVM's command line does not unless the build forwards it. Neither is currently exposed as a Maven or Gradle plugin parameter.
+**The escape hatch** is `tiaRunSource`, which overrides detection with an arbitrary label (`NIGHTLY`, `PERF-RIG`, ...). It is available three ways, in this precedence order:
+
+1. The `tiaRunSource` **system property** in the test JVM.
+2. The `TIA_RUN_SOURCE` **environment variable**.
+3. Detection.
+
+As plugin config it is the Maven `tiaRunSource` parameter and the Gradle `runSource` extension property, both of which forward it into the forked test JVM as the system property — and both of which forward *nothing at all* when unset, so the fork sees the property absent and falls back to detection rather than receiving the literal string `"null"` and storing that as the run's source. On Gradle it merges from the project extension to each test task's like the distributed settings do, since it describes the build rather than any one test task.
+
+Note that a bare `-DtiaRunSource=...` on the Maven command line sets the property on the *build* JVM, not the fork, so it has no effect on its own — use the plugin parameter (which the command-line property does feed, via `@Parameter(property = ...)`) or the environment variable.
 
 **Nulls mean "not known"**, throughout. A row written before these columns existed reads back null on both (the migration adds them with no `DEFAULT`, so old rows are not retro-labelled with an origin nobody recorded). A run whose hostname will not resolve stores a null host rather than a placeholder — several unrelated runs would otherwise appear to share a machine called "unknown". And a distributed build stores its source but a **null host**: the row describes work several machines did between them, so naming the one that happened to seal last would read as "this build ran here", which is exactly what it did not do.
 
