@@ -497,6 +497,46 @@ class AbstractTiaAgentMojoDistributedTest {
     }
 
     /**
+     * A declared {@code tiaRunSource} reaches the forked test JVM, which is the only place it can be
+     * acted on - the history row is written there, not in the build JVM.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldForwardADeclaredRunSourceToTheFork() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-9", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+        mojo.tiaRunSource = "NIGHTLY";
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertEquals("NIGHTLY", readForkProperties().getProperty("tiaRunSource"));
+    }
+
+    /**
+     * An undeclared run source writes no property at all, rather than the literal string "null".
+     * The fork must see the property absent so it falls back to detecting the source itself; a
+     * forwarded "null" would be stored verbatim as that run's source.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldWriteNoRunSourcePropertyWhenNoneIsDeclared() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-10", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertNull(readForkProperties().getProperty("tiaRunSource"));
+    }
+
+    /**
      * Verify the fork properties this goal writes are enough for the forked test JVM to resolve the
      * distributed runner context its persist runs under - the same values, through the same file,
      * that the Tia agent republishes as system properties before any listener constructs.

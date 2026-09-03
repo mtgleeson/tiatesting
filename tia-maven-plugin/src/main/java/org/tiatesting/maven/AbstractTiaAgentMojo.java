@@ -16,6 +16,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -378,6 +379,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_STATS, String.valueOf(isTiaUpdateDBStats()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY, String.valueOf(isTiaUpdateDBTestRunHistory()));
+        // Null when not declared, which ForkSystemProperties.write skips - so the fork sees no
+        // property at all and RunEnvironment falls back to detecting the source itself.
+        props.put(RunEnvironment.PROP_RUN_SOURCE, getTiaRunSource());
         props.put("tiaProjectDir", getTiaProjectDir());
         props.put("tiaClassFilesDirs", getTiaClassFilesDirs());
         props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());

@@ -26,6 +26,7 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBStats;
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
+    private String runSource;
     private File reportOutputDir;
     private String buildDir;
     private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
@@ -192,6 +193,32 @@ public class TiaBaseTaskExtension {
 
     public void setUpdateDBMapping(Boolean updateDBMapping) {
         this.updateDBMapping = updateDBMapping;
+    }
+
+    /**
+     * The label recorded in the history row's {@code run_source} column, overriding Tia's own
+     * detection.
+     *
+     * <p>Leave this unset unless the detection gets it wrong. Tia reads the CI marker environment
+     * variables, which a forked test JVM inherits, so an ordinary CI job is already labelled
+     * {@code CI} and a developer's machine {@code LOCAL} with nothing configured. Set it to
+     * distinguish a build the detection cannot tell apart from any other - a nightly or a
+     * performance rig - or to label a CI system Tia does not recognise.
+     *
+     * @return the declared run source, or null to let Tia detect it
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getRunSource() {
+        return runSource;
+    }
+
+    /**
+     * @param runSource the label to record in the history row's {@code run_source} column, or null
+     *                  to let Tia detect it
+     */
+    public void setRunSource(String runSource) {
+        this.runSource = runSource;
     }
 
     /**
