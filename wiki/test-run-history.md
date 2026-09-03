@@ -44,6 +44,8 @@ Tia runs on developer laptops, CI runners, and shared workspaces in potentially 
 
 `HtmlHistoryReport` reads `tiaData.getTestRunHistory()` and renders `history/tia-history.html`, linked from the top navigation as "History". The table uses `simple-datatables` for sort / filter / paginate, defaulting to date descending. Long values (entry id, commit hash) are truncated to 8 characters in the cell; the full value is on a hover `title` so it stays accessible without widening the column.
 
+`Source` and `Host` render there too, on the same "only when some row has one" rule the console table uses, and dashed rather than blank on a row that has none — an empty cell reads as a rendering slip, and a dash also sorts the unknown rows together.
+
 A subtlety worth knowing: the local-time-rendering script must run **before** the `simple-datatables` init, not after. `simple-datatables` captures cell text into its internal model at init time; if the localization runs later via `DOMContentLoaded`, the `<time>` elements have already been replaced by `simple-datatables`' render output and the swap finds nothing.
 
 ### Config gate
@@ -87,6 +89,10 @@ took no time and used no groups; a history with no distributed run in view rende
 so the table is exactly as it was for a project that does not distribute. See
 ["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row)
 for how the sealer computes the pair, and why the wall clock is deliberately not the primary figure.
+
+Likewise, `Source` and `Host` appear after `Savings %` when any run in view recorded where it came from, and a history recorded entirely before those columns existed renders neither. The host is deliberately **not** truncated the way commit and id are: it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes the host - no single machine ran it.
+
+Both optional groups are assembled by filtering one list of column descriptors (header, alignment, cell accessor) rather than by selecting between hardcoded parallel arrays. With two independent toggles there are four layouts; held as three parallel arrays each, a header, an alignment flag and a cell that drifted out of step would produce a table that is quietly *wrong* rather than one that fails.
 
 Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the time that run saved versus running the full suite, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
 
