@@ -611,7 +611,8 @@ gradle tia-select-tests --debug
 
 ### Display the test-run history
 Prints the most recent rows from the `tia_test_run_history` table as a table — one row per run,
-with branch, 8-char commit, suite counts, duration, mapping flag, and 8-char id. Defaults to the
+with branch, 8-char commit, suite counts, duration, savings, run origin, mapping flag, and
+8-char id. Defaults to the
 latest 20 runs; use `-DtiaHistoryLast=N` (Maven) or `--last=N` (Gradle) to change the cap.
 
 Example output:
@@ -638,6 +639,20 @@ Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall cloc
 - **`Groups`** is how many groups the run was split across.
 
 The two are equal when a run had one group - the second row above is a seed run, which is always a single group covering everything. Note that `Savings` is measured against `Duration`, so it never includes the speed-up from distributing; that gain is the gap between `Duration` and `Wall clock`. See [Which time is which](#which-time-is-which).
+
+When any run in view recorded where it came from, two further columns appear after `Savings %`:
+
+```
+Date/time            Branch            Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Source  Host           Mapping  Id
+-------------------  ----------------  --------  ---  -------  ------  --------  -------  ---------  ------  -------------  -------  --------
+2026-05-15 09:30:42  main              abc123de  420        0       0  15m 30s   -                -  CI      build-agent-3  yes      550e8400
+2026-05-14 18:06:40  feature/checkout  9911aabb   12      408       1  41s       14m 49s        95%  LOCAL   mgleeson-mbp   no       6f1a2b3c
+```
+
+- **`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration).
+- **`Host`** is the machine that ran it, rendered whole rather than truncated - unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes it: no single machine ran it.
+
+Both columns are omitted entirely from a history recorded before they existed, and a row that predates them is dashed in a mixed history.
 
 A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
 

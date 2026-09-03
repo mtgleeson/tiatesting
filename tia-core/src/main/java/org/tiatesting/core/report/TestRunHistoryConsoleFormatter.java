@@ -1,5 +1,6 @@
 package org.tiatesting.core.report;
 
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 
 import java.time.Instant;
@@ -26,18 +27,25 @@ import java.util.List;
  * ...
  * </pre>
  *
- * <p>When any row in view describes a distributed build, two further columns appear after
- * {@code Duration}: {@code Wall clock} (what the build actually took - its slowest group) and
- * {@code Groups}. {@code Duration} keeps the serial-equivalent time in both modes, so it stays the
- * figure savings are computed from and stays comparable across the two. A history with no
- * distributed runs in it renders neither column, and single-host rows in a mixed history dash them.
+ * <p><b>Two groups of columns appear only when they have something to say.</b> The table is already
+ * wide, and a column that is a dash on every row costs width while telling the reader nothing:
+ * <ul>
+ *   <li>{@code Wall clock} and {@code Groups} appear when any row in view describes a distributed
+ *       build. {@code Duration} keeps the serial-equivalent time in both modes, so it stays the
+ *       figure savings are computed from and stays comparable across the two; single-host rows in a
+ *       mixed history dash the two extra columns.</li>
+ *   <li>{@code Source} and {@code Host} appear when any row in view carries a known run origin.
+ *       A history recorded entirely before those columns existed renders neither.</li>
+ * </ul>
  *
  * <p>When the input list is empty, the formatter returns the single sentence
  * {@code "No Tia test run history recorded yet."} (no header, no table).
  *
  * <p>Column widths are computed dynamically (max of header width and longest cell value),
  * commit and id are truncated to 8 characters, and timestamps are rendered in the JVM's
- * local time zone with format {@code yyyy-MM-dd HH:mm:ss}.
+ * local time zone with format {@code yyyy-MM-dd HH:mm:ss}. The host is deliberately not
+ * truncated: unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of
+ * several agents in the same naming scheme would collapse them into one.
  */
 public final class TestRunHistoryConsoleFormatter {
 
@@ -46,35 +54,47 @@ public final class TestRunHistoryConsoleFormatter {
     private static final DateTimeFormatter LOCAL_DATE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private static final String[] HEADERS = {
-            "Date/time", "Branch", "Commit", "Ran", "Ignored", "Failed",
-            "Duration", "Savings", "Savings %", "Mapping", "Id"
-    };
-
-    // Right-align numeric columns (Ran, Ignored, Failed, Savings %). Everything else is left-aligned.
-    private static final boolean[] RIGHT_ALIGN = {
-            false, false, false, true, true, true, false, false, true, false, false
-    };
-
-    /**
-     * The same columns plus the two a distributed build adds: the wall clock it actually took
-     * (its slowest group) and how many groups it was split across. Duration stays the
-     * serial-equivalent time in both modes, so the two columns read as "what it cost" and "what you
-     * waited for" rather than competing for the same meaning.
-     */
-    private static final String[] DISTRIBUTED_HEADERS = {
-            "Date/time", "Branch", "Commit", "Ran", "Ignored", "Failed",
-            "Duration", "Wall clock", "Groups", "Savings", "Savings %", "Mapping", "Id"
-    };
-
-    private static final boolean[] DISTRIBUTED_RIGHT_ALIGN = {
-            false, false, false, true, true, true, false, false, true, false, true, false, false
-    };
-
-    /** Rendered in a distributed column of a single-host row, which has no such value. */
+    /** Rendered where a row has no value for a column the layout is showing. */
     private static final String NOT_APPLICABLE = "-";
 
     private TestRunHistoryConsoleFormatter() { }
+
+    /**
+     * Produces one row's value for one column.
+     */
+    private interface CellValue {
+        /**
+         * @param entry the history row being rendered
+         * @param zone the time zone to render timestamps in
+         * @return the cell's text, never null
+         */
+        String of(TestRunHistoryEntry entry, ZoneId zone);
+    }
+
+    /**
+     * One column of the table: its header, its alignment and how to read its value from a row.
+     *
+     * <p>Bundling the three together is what lets the optional column groups be assembled by
+     * filtering one list. Held as three parallel arrays instead, each optional group would double
+     * the number of layouts that must be kept in step - and a header, an alignment flag and a cell
+     * that drift out of alignment produce a table that is wrong rather than one that fails.
+     */
+    private static final class Column {
+        private final String header;
+        private final boolean rightAlign;
+        private final CellValue value;
+
+        /**
+         * @param header the column's header label
+         * @param rightAlign true to right-align the column (numeric), false to left-align (text)
+         * @param value how to read this column's value from a row
+         */
+        Column(final String header, final boolean rightAlign, final CellValue value) {
+            this.header = header;
+            this.rightAlign = rightAlign;
+            this.value = value;
+        }
+    }
 
     /**
      * Render a history list to a single plain-text string suitable for printing to stdout.
@@ -95,17 +115,23 @@ public final class TestRunHistoryConsoleFormatter {
         int rowCount = Math.min(effectiveLimit, total);
         List<TestRunHistoryEntry> visible = entries.subList(0, rowCount);
 
-        // The two distributed columns are only worth the width when something in view is a
-        // distributed build; on a project that does not distribute its tests they would be a dash
-        // on every row, so the table stays exactly as it was.
-        boolean showDistributed = anyDistributed(visible);
-        String[] headers = showDistributed ? DISTRIBUTED_HEADERS : HEADERS;
-        boolean[] rightAlign = showDistributed ? DISTRIBUTED_RIGHT_ALIGN : RIGHT_ALIGN;
+        List<Column> columns = layout(anyDistributed(visible), anyKnownOrigin(visible));
+
+        String[] headers = new String[columns.size()];
+        boolean[] rightAlign = new boolean[columns.size()];
+        for (int i = 0; i < columns.size(); i++) {
+            headers[i] = columns.get(i).header;
+            rightAlign[i] = columns.get(i).rightAlign;
+        }
 
         List<String[]> rows = new ArrayList<>(visible.size());
         ZoneId zone = ZoneId.systemDefault();
         for (TestRunHistoryEntry e : visible) {
-            rows.add(toRow(e, zone, showDistributed));
+            String[] cells = new String[columns.size()];
+            for (int i = 0; i < columns.size(); i++) {
+                cells[i] = columns.get(i).value.of(e, zone);
+            }
+            rows.add(cells);
         }
 
         int[] widths = computeColumnWidths(headers, rows);
@@ -125,8 +151,57 @@ public final class TestRunHistoryConsoleFormatter {
     }
 
     /**
-     * Report whether any visible row describes a distributed build, which is what decides between
-     * the two column layouts.
+     * Assemble the columns for this render, including each optional group only when the rows in
+     * view have something to put in it.
+     *
+     * @param showDistributed whether to include the wall-clock and group-count columns
+     * @param showOrigin whether to include the run-source and host columns
+     * @return the columns in display order
+     */
+    private static List<Column> layout(final boolean showDistributed, final boolean showOrigin) {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("Date/time", false, (e, zone) ->
+                Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME)));
+        columns.add(new Column("Branch", false, (e, zone) -> nullSafe(e.getBranch())));
+        columns.add(new Column("Commit", false, (e, zone) ->
+                truncate(nullSafe(e.getCommit()), TRUNCATE_LEN)));
+        columns.add(new Column("Ran", true, (e, zone) -> Integer.toString(e.getNumSuitesRan())));
+        columns.add(new Column("Ignored", true, (e, zone) -> Integer.toString(e.getNumSuitesIgnored())));
+        columns.add(new Column("Failed", true, (e, zone) -> Integer.toString(e.getNumSuitesFailed())));
+        columns.add(new Column("Duration", false, (e, zone) ->
+                ReportUtils.prettyDuration(e.getDurationMs(), true)));
+
+        if (showDistributed) {
+            // Dashed rather than zeroed on a single-host row, which would read as a build that took
+            // no time and used no groups.
+            columns.add(new Column("Wall clock", false, (e, zone) -> e.getWallClockMs() != null
+                    ? ReportUtils.prettyDuration(e.getWallClockMs().longValue(), true)
+                    : NOT_APPLICABLE));
+            columns.add(new Column("Groups", true, (e, zone) -> e.getGroupCount() != null
+                    ? e.getGroupCount().toString() : NOT_APPLICABLE));
+        }
+
+        columns.add(new Column("Savings", false, (e, zone) -> e.getTimeSavingsMs() > 0
+                ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : NOT_APPLICABLE));
+        columns.add(new Column("Savings %", true, (e, zone) -> e.getTimeSavingsMs() > 0
+                ? e.getSavingsPercent() + "%" : NOT_APPLICABLE));
+
+        if (showOrigin) {
+            columns.add(new Column("Source", false, (e, zone) ->
+                    orNotApplicable(e.getRunOrigin().getRunSource())));
+            // Dashed for a distributed build as well as for a row that predates the column: no
+            // single machine ran it, so there is no host to name.
+            columns.add(new Column("Host", false, (e, zone) ->
+                    orNotApplicable(e.getRunOrigin().getHostName())));
+        }
+
+        columns.add(new Column("Mapping", false, (e, zone) -> e.isUpdatedDbMapping() ? "yes" : "no"));
+        columns.add(new Column("Id", false, (e, zone) -> truncate(nullSafe(e.getId()), TRUNCATE_LEN)));
+        return columns;
+    }
+
+    /**
+     * Report whether any visible row describes a distributed build.
      *
      * @param entries the rows about to be rendered
      * @return true when at least one row carries a distributed run's group count
@@ -141,39 +216,21 @@ public final class TestRunHistoryConsoleFormatter {
     }
 
     /**
-     * Build the array of column values for a single entry, in the same order as the header layout
-     * in use. A single-host row rendered in the distributed layout dashes the two extra columns
-     * rather than showing zeros, which would read as a build that took no time and used no groups.
+     * Report whether any visible row knows where it came from. Either half counts: a distributed
+     * build records a source with no host, so requiring both would hide the source on a history
+     * made up entirely of distributed builds.
      *
-     * @param e    the history entry
-     * @param zone the time zone used to render {@code runTimestampMs}
-     * @param showDistributed whether the wall clock and group columns are being rendered
-     * @return the row's cells, ready to be width-padded and emitted
+     * @param entries the rows about to be rendered
+     * @return true when at least one row carries a run source or a host
      */
-    private static String[] toRow(TestRunHistoryEntry e, ZoneId zone, boolean showDistributed) {
-        String dateTime = Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone)
-                .format(LOCAL_DATE_TIME);
-        boolean hasSavings = e.getTimeSavingsMs() > 0;
-        List<String> cells = new ArrayList<>(DISTRIBUTED_HEADERS.length);
-        cells.add(dateTime);
-        cells.add(nullSafe(e.getBranch()));
-        cells.add(truncate(nullSafe(e.getCommit()), TRUNCATE_LEN));
-        cells.add(Integer.toString(e.getNumSuitesRan()));
-        cells.add(Integer.toString(e.getNumSuitesIgnored()));
-        cells.add(Integer.toString(e.getNumSuitesFailed()));
-        cells.add(ReportUtils.prettyDuration(e.getDurationMs(), true));
-        if (showDistributed) {
-            cells.add(e.getWallClockMs() != null
-                    ? ReportUtils.prettyDuration(e.getWallClockMs().longValue(), true)
-                    : NOT_APPLICABLE);
-            cells.add(e.getGroupCount() != null
-                    ? e.getGroupCount().toString() : NOT_APPLICABLE);
+    private static boolean anyKnownOrigin(List<TestRunHistoryEntry> entries) {
+        for (TestRunHistoryEntry entry : entries) {
+            RunOrigin origin = entry.getRunOrigin();
+            if (origin.getRunSource() != null || origin.getHostName() != null) {
+                return true;
+            }
         }
-        cells.add(hasSavings ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : NOT_APPLICABLE);
-        cells.add(hasSavings ? e.getSavingsPercent() + "%" : NOT_APPLICABLE);
-        cells.add(e.isUpdatedDbMapping() ? "yes" : "no");
-        cells.add(truncate(nullSafe(e.getId()), TRUNCATE_LEN));
-        return cells.toArray(new String[0]);
+        return false;
     }
 
     /**
@@ -275,5 +332,16 @@ public final class TestRunHistoryConsoleFormatter {
      */
     private static String nullSafe(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * Coalesce null to the not-applicable dash, for a column whose absence is meaningful rather
+     * than merely empty.
+     *
+     * @param value the possibly-null value
+     * @return {@code value}, or the dash placeholder when {@code value} is null
+     */
+    private static String orNotApplicable(String value) {
+        return value == null ? NOT_APPLICABLE : value;
     }
 }
