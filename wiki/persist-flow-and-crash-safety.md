@@ -27,7 +27,7 @@ On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 / JU
 
 ```
 1. updateTestSuiteMapping  - tia_test_suite + tia_source_class + tia_source_class_method
-                              (persistTestSuites, or persistTestSuiteStatsOnly on a stats-only run)
+                              (persistTestSuites; skipped entirely on a non-mapping run)
 2. updateTestSuitesFailed  - tia_test_suites_failed
 3. sealRun (SEAL)          - one atomic bundle via persistSealedRunData:
                                 - tia_source_method (the method catalogue)
@@ -55,8 +55,8 @@ Each individual persist call is internally atomic:
 - **`persistTestSuiteClasses` (tia_source_class + tia_source_class_method, one suite)**: per-suite `DELETE` + `INSERT` wrapped in one transaction, with the suite's `unsealed` flag set to `TRUE` inside that same transaction, right before the commit - the edge rewrite and the flag that says "trust this only provisionally" can never land apart. A failure mid-rewrite of one suite's edges leaves that suite's previous mappings, and its previous flag state, intact. Wrapping the entire outer `persistTestSuites` loop in one transaction would put potentially millions of edges in one transaction and risk MVStore undo-log blow-up on H2; per-suite is the right balance - each suite is internally consistent, and at worst a partial outer-loop failure leaves some suites updated and some not (the same outcome that would happen anyway).
 - **`persistTestSuites` (tia_test_suite, the row itself)**: `MERGE` per suite via `SqlDialect.upsert`. Each MERGE is an atomic UPSERT. `unsealed` is deliberately never part of this column list - it is set only by `persistTestSuiteClasses` and cleared only by `clearUnsealedTestSuites`, never touched by the suite-row upsert itself.
 - **`persistTestSuitesFailed` (tia_test_suites_failed)**: clear-out + bulk insert in one transaction; idempotent on subsequent runs.
-- **`persistCoreData` (tia_core, the standalone entry point)**: single `INSERT` or `UPDATE` of the one core row, commit value and branch included. Atomic. Used directly by the standalone seeding path. A run that does not own mapping updates must NOT use it - see `persistCoreStats` below.
-- **`persistCoreStats` (tia_core, stats columns only)**: single `UPDATE` listing the stats columns and nothing else. Atomic. This is what `sealRun` uses on a stats-only run (`updateDBMapping=false`), where there is nothing to seal. The distinction is not cosmetic: the run read the core row at the start of its persist and writes at the end, so a whole-row write would stamp the commit value it read - rolling the stored commit backwards whenever a mapping-owning build sealed a newer one in between, and sending the next mapping build's diff back to an older baseline. There is no `INSERT` counterpart because `commit_value` is the table's primary key: a run with stats but no commit to stamp has no row it could legitimately create, so the `UPDATE` matches nothing until a mapping run establishes the row. A run with neither mapping nor stats (history-only) writes no core row at all.
+- **`persistCoreData` (tia_core, the standalone entry point)**: single `INSERT` or `UPDATE` of the one core row, commit value and branch included. Atomic. Used directly by the standalone seeding path. A run that does not own mapping updates writes no core row at all - see the next bullet.
+- **The run stats ride on `updateDBMapping`; there is no separate stats flag.** A run that owns the mapping records the stats, and a run that does not writes no core row at all. The two were separate flags until it became clear that `updateDBStats=true, updateDBMapping=false` - a developer's machine writing stats to the shared DB - was the configuration that poisoned the averages: `TestStats.incrementStats` is a plain running mean with no weighting or source tag, and a local run that ignores zero suites folds its duration into `all_tests_run_time`, the baseline every run's reported savings is measured against. Coupling them makes that configuration unrepresentable rather than merely discouraged, and narrows the set of writers to the builds a project already never runs concurrently on one branch.
 - **`persistTestRunHistoryEntry` (tia_test_run_history)**: single `MERGE` keyed by a deterministic id derived from `branch|commit|runStartTimestampMs`. Idempotent - re-persisting the same logical run is a no-op.
 
 **The clear-out inside a rewrite is dialect-specific, and the obvious choice was wrong on H2.**
@@ -159,12 +159,12 @@ original class-of-bug this flag was built to shrink is possible again for that s
 does guarantee: on the common path - a suite runs to completion in the same JVM that seals - the
 suite's mapping rows and the commit value they are cleared against are consistent.
 
-**Only a mapping-owning run can clear the flag.** `sealRun` early-returns to `persistCoreStats` (or
-to no core write at all) when `updateDBMapping = false` - that path never reaches
-`persistSealedRunData`, so it never reaches `clearUnsealedTestSuites` either. `persistTestSuiteStatsOnly` never touches the `unsealed` column.
+**Only a mapping-owning run can clear the flag.** `sealRun` returns without writing anything when
+`updateDBMapping = false` - that path never reaches `persistSealedRunData`, so it never reaches
+`clearUnsealedTestSuites` either.
 Only the read side, `TestSelector.addUnsealedTests`, is unconditional. So once a mapping build has
 crashed mid-persist and left suites flagged, a project that subsequently runs only preview or
-stats-only builds will force-run those flagged suites on every single build, indefinitely, until a
+non-mapping builds will force-run those flagged suites on every single build, indefinitely, until a
 build that owns the mapping (`updateDBMapping = true`) completes and seals. This is the safe
 direction to fail in - it costs selectivity, not correctness - but it is a standing cost worth
 naming rather than a self-healing one.

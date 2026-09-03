@@ -52,7 +52,7 @@ import java.util.List;
  * mistaken for a duplicated fixed cost.
  *
  * <p><b>The correction is skipped when the split is not available.</b> Suite times are only measured
- * when {@code updateDBStats} is on, so a group can complete having run suites and report zero
+ * on a mapping-owning build, so a group can complete having run suites and report zero
  * suite-attributable time. Reading that as "this group was pure overhead" would make
  * {@code fixedOverhead} the whole of the fastest group's duration and gut the total, so any group
  * that ran suites without reporting suite time disqualifies the whole build and the serial figure

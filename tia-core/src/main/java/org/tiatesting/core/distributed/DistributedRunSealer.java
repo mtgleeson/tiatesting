@@ -96,15 +96,13 @@ public final class DistributedRunSealer {
      * @param updateDBMapping whether this build owns mapping-DB updates. When false there is
      *                        nothing to seal - no runner staged anything and no commit may be
      *                        advanced - but the run is still retired
-     * @param updateDBStats whether the Tia-level run stats should be updated. Only this runner can
-     *                      do it for the build, since a distributed runner writes no core row
      * @param updateDBTestRunHistory whether the build should write its one row to
      *                               {@code tia_test_run_history}
      * @param sealedAtMs UTC epoch millis to record as the election time
      * @return true when this runner won the election and performed the seal, false when it did
      *         nothing
      */
-    public boolean sealIfElected(final boolean updateDBMapping, final boolean updateDBStats,
+    public boolean sealIfElected(final boolean updateDBMapping,
                                  final boolean updateDBTestRunHistory, final long sealedAtMs) {
         if (!dataStore.electSealer(context.getRunId(), context.getRunnerKey(), sealedAtMs)) {
             log.debug("Distributed run '{}': runner '{}' is not the sealer, so it is done.",
@@ -115,11 +113,11 @@ public final class DistributedRunSealer {
         log.info("Distributed run '{}': runner '{}' finished last and was elected to seal the build.",
                 context.getRunId(), context.getRunnerKey());
 
-        if (updateDBMapping || updateDBStats || updateDBTestRunHistory) {
-            recordBuild(updateDBMapping, updateDBStats, updateDBTestRunHistory);
+        if (updateDBMapping || updateDBTestRunHistory) {
+            recordBuild(updateDBMapping, updateDBTestRunHistory);
         } else {
-            log.info("Distributed run '{}': the build updates neither the mapping, the stats nor "
-                    + "the history, so there is nothing to record.", context.getRunId());
+            log.info("Distributed run '{}': the build updates neither the mapping nor the "
+                    + "history, so there is nothing to record.", context.getRunId());
         }
 
         // The run is retired whether or not it owned mapping updates. The staging table is roughly
@@ -148,12 +146,11 @@ public final class DistributedRunSealer {
      * substituting a fallback value.
      *
      * @param updateDBMapping whether this build owns mapping-DB updates
-     * @param updateDBStats whether the Tia-level run stats should be updated
      * @param updateDBTestRunHistory whether the build should write its history row
      * @throws IllegalStateException if the run row is gone immediately after this runner won the
      *                                election to seal it
      */
-    private void recordBuild(final boolean updateDBMapping, final boolean updateDBStats,
+    private void recordBuild(final boolean updateDBMapping,
                              final boolean updateDBTestRunHistory) {
         DistributedRun run = dataStore.readDistributedRun(context.getRunId());
         if (run == null) {
@@ -206,12 +203,12 @@ public final class DistributedRunSealer {
 
         // Both stats mutations happen here, before the seal, so the seal is left with one job -
         // persisting - and the two land in its single transaction together.
-        if (updateDBStats) {
+        if (updateDBMapping) {
             tiaData.incrementStats(buildRunStats(totals), allTestsRun);
             foldOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
         }
 
-        seal(tiaData, commitValue, branch, updateDBMapping, updateDBStats, allTestsRun);
+        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun);
 
         if (updateDBTestRunHistory) {
             // The baseline this build's savings are frozen against, read from the same core data
@@ -230,30 +227,24 @@ public final class DistributedRunSealer {
      * The catalogue's line numbers only mean anything in one commit's coordinate space, so they and
      * the commit value cannot be allowed to land separately.
      *
-     * <p>A build that does not own mapping updates writes only the core row's stats columns - no
-     * catalogue, no drain cleanup and, deliberately, no commit or branch write: those describe the
-     * mapping this build does not own, and writing them back from the snapshot read at the start of
-     * the seal would roll the stored commit backwards if a mapping-owning build advanced it
-     * meanwhile. The same shape the single-host stats-only path takes.
+     * <p>A build that does not own mapping updates writes nothing here at all: no catalogue, no
+     * drain cleanup and, deliberately, no commit or branch write. Those describe the mapping this
+     * build does not own, and writing them back from the snapshot read at the start of the seal
+     * would roll the stored commit backwards if a mapping-owning build advanced it meanwhile. The
+     * same shape the single-host path takes.
      *
      * @param tiaData the core data read for this seal, already carrying any stats update and
      *                mutated with the commit before being written
      * @param commitValue the commit being sealed
      * @param branch the branch being sealed
-     * @param updateDBMapping whether this build owns mapping-DB updates
-     * @param updateDBStats whether the Tia-level run stats should be written. Only consulted on the
-     *                      non-mapping path; a mapping build's seal carries the stats regardless
+     * @param updateDBMapping whether this build owns mapping-DB updates, and with them the stats
      * @param allTestsRun whether the groups between them ran every tracked suite
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
-                      final boolean updateDBMapping, final boolean updateDBStats,
-                      final boolean allTestsRun) {
+                      final boolean updateDBMapping, final boolean allTestsRun) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
-            if (updateDBStats) {
-                dataStore.persistCoreStats(tiaData.getTestStats());
-            }
             return;
         }
 

@@ -97,7 +97,7 @@ class TestRunnerServiceSealOrderTest {
         // when - persist with a new commit; the throw should propagate
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
+                true, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then - stored commit value is unchanged
         TiaData reloaded = dataStore.getTiaData(true);
@@ -120,7 +120,7 @@ class TestRunnerServiceSealOrderTest {
         // when
         TestRunResult result = makeResult();
         assertThrows(RuntimeException.class, () -> service.persistTestRunData(
-                true, false, false, "new-commit", "main", System.currentTimeMillis(), result, null));
+                true, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then
         TiaData reloaded = dataStore.getTiaData(true);
@@ -128,37 +128,34 @@ class TestRunnerServiceSealOrderTest {
     }
 
     /**
-     * A stats-only run ({@code updateDBMapping=false}) must never advance the stored commit value
-     * and must never reach the seal bundle. {@code sealRun} short-circuits before building the
-     * bundle on this path, writing only the core row's stats columns via {@code persistCoreStats} -
-     * there is no catalogue rewrite and no drain cleanup. A regression that routed this path
-     * through {@code persistSealedRunData} would clear and re-insert the whole
-     * {@code tia_source_method} catalogue on every stats-only build even though nothing about the
-     * mapping changed; one that routed it back through {@code persistCoreData} would write the
-     * whole core row, commit value included.
+     * A run that does not own the mapping must never advance the stored commit value and must never
+     * reach the seal bundle. {@code sealRun} returns before building the bundle on this path: there
+     * is no catalogue rewrite, no drain cleanup and no core-row write of any kind. A regression that
+     * routed this path through {@code persistSealedRunData} would clear and re-insert the whole
+     * {@code tia_source_method} catalogue on every such build even though nothing about the mapping
+     * changed; one that routed it through {@code persistCoreData} would write the whole core row,
+     * commit value included.
      */
     @Test
-    void statsOnlyRun_routesThroughPersistCoreStatsNotSealBundle_andCommitValueRemainsPriorValue() {
+    void nonMappingRun_writesNoCoreRowAndCommitValueRemainsPriorValue() {
         // given
         RecordingDataStore spy = new RecordingDataStore(dataStore);
         TestRunnerService service = new TestRunnerService(spy);
 
         // when
-        service.persistTestRunData(false, true, false, "new-commit", "main",
+        service.persistTestRunData(false, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), null);
 
-        // then - the seal bundle is never invoked; the stats go through persistCoreStats instead
+        // then - the seal bundle is never invoked, and neither is any core-row write
         assertEquals(0, Collections.frequency(spy.callOrder, "persistSealedRunData"),
-                "a stats-only run must not go through the seal bundle");
-        assertEquals(1, Collections.frequency(spy.callOrder, "persistCoreStats"),
-                "a stats-only run must write its stats via persistCoreStats");
+                "a non-mapping run must not go through the seal bundle");
         assertEquals(0, Collections.frequency(spy.callOrder, "persistCoreData"),
-                "a stats-only run must not write the whole core row, which would stamp the commit value");
+                "a non-mapping run must not write the core row, which would stamp the commit value");
 
         // and - the method catalogue is never rewritten either: neither call frequency alone
         // would catch a regression that wrote it directly on this path outside the seal bundle
         assertEquals(0, Collections.frequency(spy.callOrder, "persistSourceMethods"),
-                "a stats-only run must not rewrite the method catalogue");
+                "a non-mapping run must not rewrite the method catalogue");
 
         // and - a non-mapping run must not seal a new commit value
         TiaData reloaded = dataStore.getTiaData(true);
@@ -182,7 +179,7 @@ class TestRunnerServiceSealOrderTest {
         TestRunnerService service = new TestRunnerService(spy);
 
         // when
-        service.persistTestRunData(true, false, false, "new-commit", "main",
+        service.persistTestRunData(true, false, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then - commit value is sealed to the new value
@@ -222,7 +219,7 @@ class TestRunnerServiceSealOrderTest {
         TestRunnerService service = new TestRunnerService(spy);
 
         // when
-        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
+        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, false,
                 "new-commit", "main", System.currentTimeMillis(), makeResult(), null));
 
         // then - the prior commit survived and the seal ran as one call, not two
@@ -245,7 +242,7 @@ class TestRunnerServiceSealOrderTest {
         TestRunnerService service = new TestRunnerService(spy);
 
         // when
-        service.persistTestRunData(true, true, false, "new-commit", "main",
+        service.persistTestRunData(true, false, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then
@@ -278,7 +275,7 @@ class TestRunnerServiceSealOrderTest {
         TestRunnerService service = new TestRunnerService(spy);
 
         // when - a run that seals
-        service.persistTestRunData(true, true, false, "sealedCommit", "main",
+        service.persistTestRunData(true, false, "sealedCommit", "main",
                 System.currentTimeMillis(), makeResultWithMapping(), null);
 
         // then
@@ -288,7 +285,7 @@ class TestRunnerServiceSealOrderTest {
 
         // when - a run that fails inside the seal bundle
         spy.failInSealBundle = true;
-        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, true, false,
+        assertThrows(RuntimeException.class, () -> service.persistTestRunData(true, false,
                 "abortedCommit", "main", System.currentTimeMillis(), makeResultWithMapping(), null));
 
         // then - the suites that ran stay flagged for a forced re-run
@@ -374,11 +371,6 @@ class TestRunnerServiceSealOrderTest {
             delegate.persistCoreData(tiaData);
         }
         @Override
-        public void persistCoreStats(TestStats testStats) {
-            callOrder.add("persistCoreStats");
-            delegate.persistCoreStats(testStats);
-        }
-        @Override
         public void persistTestSuitesFailed(Set<String> testSuitesFailed) {
             callOrder.add("persistTestSuitesFailed");
             if (throwOnPersistTestSuitesFailed) {
@@ -411,11 +403,6 @@ class TestRunnerServiceSealOrderTest {
                 throw new RuntimeException("simulated failure in persistTestSuites");
             }
             delegate.persistTestSuites(testSuites);
-        }
-        @Override
-        public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) {
-            callOrder.add("persistTestSuiteStatsOnly");
-            delegate.persistTestSuiteStatsOnly(testSuites);
         }
         @Override
         public void deleteTestSuites(Set<String> testSuites) {

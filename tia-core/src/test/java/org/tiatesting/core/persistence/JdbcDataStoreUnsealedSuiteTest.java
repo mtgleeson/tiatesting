@@ -122,29 +122,16 @@ class JdbcDataStoreUnsealedSuiteTest {
     }
 
     @Test
-    void aStatsOnlyPersistDoesNotClearAnExistingFlag() {
+    void persistingASuiteWithNoCoverageDoesNotClearAnExistingFlag() {
         // given - SuiteG ran and was flagged, and the run never sealed
         dataStore.persistTestSuites(suites(withCoverage("SuiteG")));
 
-        // when - a stats-only run (e.g. a test-stats update) persists a fresh tracker for the same suite
-        dataStore.persistTestSuiteStatsOnly(suites(withoutCoverage("SuiteG")));
+        // when - a later run persists a fresh tracker for the same suite that carried no coverage
+        dataStore.persistTestSuites(suites(withoutCoverage("SuiteG")));
 
         // then
         assertTrue(dataStore.getTestSuitesTracked().get("SuiteG").isUnsealed(),
-                "a stats-only persist must not clear a flag set by an earlier unsealed run");
-    }
-
-    @Test
-    void aStatsOnlyPersistOfASuiteWithCoverageNeverSetsTheFlag() {
-        // given - SuiteH has never been persisted, so its flag starts false
-        Map<String, TestSuiteTracker> suites = suites(withCoverage("SuiteH"));
-
-        // when - a stats-only persist runs with a tracker that carries coverage data
-        dataStore.persistTestSuiteStatsOnly(suites);
-
-        // then
-        assertFalse(dataStore.getTestSuitesTracked().get("SuiteH").isUnsealed(),
-                "a stats-only persist must never set the unsealed flag, even for a suite with coverage");
+                "a persist carrying no coverage must not clear a flag set by an earlier unsealed run");
     }
 
     @Test

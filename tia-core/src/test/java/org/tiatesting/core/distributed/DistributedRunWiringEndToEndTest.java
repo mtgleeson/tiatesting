@@ -395,7 +395,7 @@ class DistributedRunWiringEndToEndTest {
         DistributedRunnerContext gradleRunner = throughTheGradleForkBoundary(claim("runner-b"));
 
         // when - the Maven runner's first test plan finishes and persists its share
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 1000L,
                 runResultFor(SUITE_A, "com/example/A.java", METHOD_A, "com/example/A.a.()V"),
                 mavenRunner);
@@ -411,9 +411,9 @@ class DistributedRunWiringEndToEndTest {
         // when - Surefire retries in the same JVM, so a second test plan finishes and persists,
         //        carrying a suite the first test plan never covered. Then the Maven goal makes its
         //        explicit completion, as it does once Surefire has finished retrying.
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 1500L, retryRunResultForTheFirstRunner(), mavenRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, mavenRunner, true, true,
                 System.currentTimeMillis());
 
         // then - still nothing sealed, since the second group has not finished
@@ -421,11 +421,11 @@ class DistributedRunWiringEndToEndTest {
                 "the first runner's completion must not seal a build whose other group is running");
 
         // when - the Gradle runner finishes last, persists, and the Gradle task completes it
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis() - 2000L,
                 runResultFor(SUITE_B, "com/example/B.java", METHOD_B, "com/example/B.b.()V"),
                 gradleRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, gradleRunner, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, gradleRunner, true, true,
                 System.currentTimeMillis());
 
         // then - exactly one seal, by the runner that finished last
@@ -494,7 +494,7 @@ class DistributedRunWiringEndToEndTest {
         DistributedRunnerContext context = throughTheMavenForkBoundary(surplus);
 
         // when
-        new TestRunnerService(dataStore).persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        new TestRunnerService(dataStore).persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis(),
                 runResultFor(SUITE_A, "com/example/A.java", METHOD_A, "com/example/A.a.()V"),
                 context);
@@ -551,9 +551,9 @@ class DistributedRunWiringEndToEndTest {
 
         // when - the one test plan this JVM manages persists its partial share, and the build tool
         //        then makes its explicit completion
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis(), partialResult, context);
-        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true,
                 true, System.currentTimeMillis());
 
         // then - the completion is rejected, nothing seals, and the commit stays exactly where it was
@@ -615,9 +615,9 @@ class DistributedRunWiringEndToEndTest {
 
         // when - the one test plan persists, and the build tool completes the group once no more
         //        retries arrive - the retry that would have run again never got the chance to persist
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, BRANCH,
+        service.persistTestRunData(true, true, PLAN_COMMIT, BRANCH,
                 System.currentTimeMillis(), firstAndOnlyAttempt, context);
-        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
+        boolean completed = DistributedRunCompleter.completeAndSeal(dataStore, context, true,
                 true, System.currentTimeMillis());
 
         // then - the group completes, because every assigned suite was already observed

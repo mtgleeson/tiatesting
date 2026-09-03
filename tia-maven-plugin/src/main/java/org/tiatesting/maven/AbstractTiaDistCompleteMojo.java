@@ -135,12 +135,10 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
 
         boolean updateDBMapping =
                 Boolean.parseBoolean(forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING));
-        boolean updateDBStats =
-                Boolean.parseBoolean(forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_STATS));
         boolean updateDBTestRunHistory = Boolean.parseBoolean(
                 forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
 
-        completeAndSeal(context, updateDBMapping, updateDBStats, updateDBTestRunHistory);
+        completeAndSeal(context, updateDBMapping, updateDBTestRunHistory);
     }
 
     /**
@@ -163,8 +161,6 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      * @param context the claimed runner context read from the fork properties file
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
      *                        properties file
-     * @param updateDBStats whether this run updates the stats DB, as recorded in the fork
-     *                       properties file
      * @param updateDBTestRunHistory whether this run logs a history row, as recorded in the fork
      *                               properties file
      * @throws MojoExecutionException if completing the group or sealing the build fails, or if the
@@ -172,12 +168,12 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      *                                 which of the three happened
      */
     private void completeAndSeal(final DistributedRunnerContext context, final boolean updateDBMapping,
-                                 final boolean updateDBStats, final boolean updateDBTestRunHistory)
+                                 final boolean updateDBTestRunHistory)
             throws MojoExecutionException {
         boolean groupCompleted = false;
         try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
-                    updateDBStats, updateDBTestRunHistory, System.currentTimeMillis());
+                    updateDBTestRunHistory, System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
             throw new MojoExecutionException("Distributed run '" + context.getRunId()
                     + "': runner '" + context.getRunnerKey() + "' completed group "

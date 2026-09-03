@@ -198,11 +198,9 @@ class TiaTestExecutionListenerDistributedTest {
         if (context != null && context.isClaimed()) {
             boolean updateDBMapping = Boolean.parseBoolean(
                     System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_MAPPING));
-            boolean updateDBStats = Boolean.parseBoolean(
-                    System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_STATS));
             boolean updateDBTestRunHistory = !"false".equalsIgnoreCase(
                     System.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
-            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping, updateDBStats,
+            DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
                     updateDBTestRunHistory, System.currentTimeMillis());
         }
     }

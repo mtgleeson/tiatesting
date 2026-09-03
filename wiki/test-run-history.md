@@ -50,9 +50,9 @@ A subtlety worth knowing: the local-time-rendering script must run **before** th
 
 ### Config gate
 
-The log is gated by `tiaUpdateDBTestRunHistory` (default **true**). Unlike `tiaUpdateDBMapping` / `tiaUpdateDBStats` — which default to `false` because they're CI-only writes — the history log is cheap (one INSERT per run, no mapping mutation) and is only useful when continuously populated, so on-by-default is the sane choice.
+The log is gated by `tiaUpdateDBTestRunHistory` (default **true**). Unlike `tiaUpdateDBMapping` — which defaults to `false` because it (and the run stats it carries) is a CI-only write — the history log is cheap (one INSERT per run, no mapping mutation) and is only useful when continuously populated, so on-by-default is the sane choice.
 
-The flag participates in the listener's enablement predicate (`enabled && (updateDBMapping || updateDBStats || updateDBTestRunHistory)`). That means a project with Tia enabled but no DB mapping / stats writes still benefits from the history log — handy for local-only setups that just want a record of what they ran.
+The flag participates in the listener's enablement predicate (`enabled && (updateDBMapping || updateDBTestRunHistory)`). That means a project with Tia enabled but no DB mapping / stats writes still benefits from the history log — handy for local-only setups that just want a record of what they ran.
 
 ### Inspecting from the CLI
 

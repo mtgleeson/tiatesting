@@ -47,7 +47,6 @@ public final class DistributedRunCompleter {
      *                  since the caller also needs it open for whatever it does around this call
      * @param context the claimed runner context to complete and, on success, seal under
      * @param updateDBMapping whether this build owns mapping-DB updates
-     * @param updateDBStats whether the Tia-level run stats should be updated
      * @param updateDBTestRunHistory whether the build should write its one history row
      * @param nowMs UTC epoch millis to record as the completion time and, if elected, the seal time
      * @return {@code true} if this call was the one that flipped the group to {@code COMPLETED};
@@ -64,7 +63,7 @@ public final class DistributedRunCompleter {
      *                          the group in that case is exactly as it was before this call
      */
     public static boolean completeAndSeal(final DataStore dataStore, final DistributedRunnerContext context,
-                                          final boolean updateDBMapping, final boolean updateDBStats,
+                                          final boolean updateDBMapping,
                                           final boolean updateDBTestRunHistory, final long nowMs) {
         DistributedRunnerPersist runnerPersist = new DistributedRunnerPersist(dataStore, context);
         DistributedRunGroup completed = runnerPersist.completeGroup(nowMs);
@@ -74,7 +73,7 @@ public final class DistributedRunCompleter {
         }
 
         try {
-            new DistributedRunSealer(dataStore, context).sealIfElected(updateDBMapping, updateDBStats,
+            new DistributedRunSealer(dataStore, context).sealIfElected(updateDBMapping,
                     updateDBTestRunHistory, nowMs);
         } catch (RuntimeException e) {
             throw new SealFailedAfterCompletionException(e);
