@@ -39,9 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>What a run touches is: the suites it executed, plus any suite whose {@code developerDisabled}
  * flag its observations changed. Everything else it merely read, and has nothing to say about.
  *
- * <p><b>Not covered here:</b> two builds that both ran the <em>same</em> suite still lose one of the
- * two increments, because the surviving write is still absolute rather than accumulating. That is a
- * separate change; this one removes the far larger blast radius around it.
+ * <p>Two builds that both ran the <em>same</em> suite are covered too: the surviving write
+ * accumulates onto the stored row rather than replacing it, so neither increment is lost.
  */
 class TestRunnerServiceSuiteWriteScopeTest {
 
@@ -100,6 +99,24 @@ class TestRunnerServiceSuiteWriteScopeTest {
         TestSuiteTracker suiteB = dataStore.getTestSuitesTracked().get(SUITE_B);
         assertEquals(5L, suiteB.getTestStats().getNumRuns(),
                 "the other build's increment on a suite this build never ran must not be clobbered");
+    }
+
+    /**
+     * The same-suite case: both builds ran suite A, one committing inside the other's persist
+     * window. Narrowing the write does not help here - both builds write the same row - so this is
+     * the accumulating upsert's to catch.
+     */
+    @Test
+    void twoBuildsRunningTheSameSuiteBothCount() {
+        // given - the other build also runs suite A, inside this build's read-to-write window
+        dataStore.afterNextSuiteRead = () -> runBuild(SUITE_A, 300L);
+
+        // when
+        runBuild(SUITE_A, 500L);
+
+        // then - four stored runs plus one from each build
+        assertEquals(6L, dataStore.getTestSuitesTracked().get(SUITE_A).getTestStats().getNumRuns(),
+                "both builds ran suite A, so both runs must be counted");
     }
 
     /**

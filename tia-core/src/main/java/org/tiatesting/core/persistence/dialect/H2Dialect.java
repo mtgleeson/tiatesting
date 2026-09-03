@@ -15,6 +15,49 @@ public final class H2Dialect implements SqlDialect {
     @Override public String binaryColumnType() { return "BLOB"; }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>H2's {@code MERGE INTO ... KEY(...) VALUES (...)} form cannot do this - its right-hand
+     * side is a value list, so a column cannot reference its own stored value ({@code Column
+     * "NUM_RUNS" not found}). The SQL-standard {@code MERGE ... USING ... WHEN MATCHED} form can,
+     * and H2 2.x supports it.
+     *
+     * <p>The parameters are cast explicitly in the {@code USING} select list because H2 cannot
+     * infer a bare parameter's type there and fails to parse the statement without them.
+     */
+    @Override
+    public String accumulatingTestSuiteUpsert(String table, String nameColumn, String numRunsColumn,
+                                              String avgRunTimeColumn, String numSuccessRunsColumn,
+                                              String numFailRunsColumn, String developerDisabledColumn) {
+        String storedRuns = "COALESCE(" + table + "." + numRunsColumn + ", 0)";
+        String storedAvg = "COALESCE(" + table + "." + avgRunTimeColumn + ", 0)";
+        return "MERGE INTO " + table + " USING (SELECT "
+                + "CAST(? AS VARCHAR(500)) AS s_name, "
+                + "CAST(? AS BIGINT) AS s_num_runs, "
+                + "CAST(? AS BIGINT) AS s_avg_run_time, "
+                + "CAST(? AS BIGINT) AS s_num_success_runs, "
+                + "CAST(? AS BIGINT) AS s_num_fail_runs, "
+                + "CAST(? AS BOOLEAN) AS s_developer_disabled) s"
+                + " ON " + table + "." + nameColumn + " = s.s_name"
+                + " WHEN MATCHED THEN UPDATE SET "
+                + table + "." + avgRunTimeColumn + " = CASE WHEN " + storedRuns + " + s.s_num_runs = 0"
+                + " THEN " + storedAvg
+                + " ELSE (" + storedRuns + " * " + storedAvg + " + s.s_num_runs * s.s_avg_run_time)"
+                + " / (" + storedRuns + " + s.s_num_runs) END, "
+                + table + "." + numRunsColumn + " = " + storedRuns + " + s.s_num_runs, "
+                + table + "." + numSuccessRunsColumn + " = COALESCE(" + table + "." + numSuccessRunsColumn
+                + ", 0) + s.s_num_success_runs, "
+                + table + "." + numFailRunsColumn + " = COALESCE(" + table + "." + numFailRunsColumn
+                + ", 0) + s.s_num_fail_runs, "
+                + table + "." + developerDisabledColumn + " = s.s_developer_disabled"
+                + " WHEN NOT MATCHED THEN INSERT (" + nameColumn + ", " + numRunsColumn + ", "
+                + avgRunTimeColumn + ", " + numSuccessRunsColumn + ", " + numFailRunsColumn + ", "
+                + developerDisabledColumn + ")"
+                + " VALUES (s.s_name, s.s_num_runs, s.s_avg_run_time, s.s_num_success_runs, "
+                + "s.s_num_fail_runs, s.s_developer_disabled)";
+    }
+
+    /**
      * {@inheritDoc} H2 uses {@code MERGE INTO ... KEY(...) VALUES (...)}.
      */
     @Override
