@@ -2749,13 +2749,13 @@ public class JdbcDataStore implements DataStore {
             return;
         }
 
-        // unsealed is never part of this column list - see the javadoc above for why. The column
-        // set is constant for the whole call, so the upsert statement is prepared once and reused
-        // (re-bound) per suite.
-        List<String> suiteColumns = Arrays.asList(COL_NAME, COL_NUM_RUNS, COL_AVG_RUN_TIME,
-                COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS, COL_DEVELOPER_DISABLED);
-        String mergeSql = dialect.upsert(TABLE_TIA_TEST_SUITE, suiteColumns,
-                Collections.singletonList(COL_NAME));
+        // The stats accumulate onto the stored row rather than replacing it, so the caller's
+        // figures are this run's own contribution - see the javadoc above. unsealed is never part
+        // of this statement; it is set only by persistTestSuiteClasses and cleared only by
+        // clearUnsealedTestSuites. The statement is prepared once and re-bound per suite.
+        String mergeSql = dialect.accumulatingTestSuiteUpsert(TABLE_TIA_TEST_SUITE, COL_NAME,
+                COL_NUM_RUNS, COL_AVG_RUN_TIME, COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS,
+                COL_DEVELOPER_DISABLED);
 
         // The class/edge inserts reuse two full-chunk multi-row prepared statements for the whole
         // persist, and assign tia_source_class ids application-side from a single atomically
@@ -2772,6 +2772,8 @@ public class JdbcDataStore implements DataStore {
         PreparedStatement suitePs = connection.prepareStatement(mergeSql, Statement.RETURN_GENERATED_KEYS);
         try {
             for (TestSuiteTracker testSuite : testSuites){
+                // The stats bound here are the run's own contribution, which the statement adds to
+                // whatever the row currently holds.
                 suitePs.setString(1, testSuite.getName());
                 suitePs.setLong(2, testSuite.getTestStats().getNumRuns());
                 suitePs.setLong(3, testSuite.getTestStats().getAvgRunTime());

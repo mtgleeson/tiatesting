@@ -440,6 +440,11 @@ public class TestRunnerService {
      * delete-then-reinsert of every {@code tia_source_class} / {@code tia_source_class_method} row
      * on every non-update run.
      *
+     * <p>The stats handed to the store are this run's own contribution rather than the merged
+     * totals: the store accumulates them onto the stored row at write time, so two builds that both
+     * ran a suite each get counted. The in-memory map is still merged to absolutes, since that is
+     * what a whole-object store writes.
+     *
      * <p><b>What gets written is what this run touched</b>, not everything it read. The full map is
      * still read - deletion and the developer-disabled flag both need to see every tracked suite -
      * but only the suites this run has something to say about are persisted: the ones it executed,
@@ -481,39 +486,62 @@ public class TestRunnerService {
                 mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers));
 
         dataStore.persistTestSuites(suitesTouchedByThisRun(tiaData.getTestSuitesTracked(),
-                testSuiteTrackers.keySet(), flagChangedSuites));
+                testSuiteTrackers, flagChangedSuites));
     }
 
     /**
-     * Collect the suites this run has something to say about: the ones it executed, and any whose
-     * developer-disabled flag its observations changed.
+     * Collect the suites this run has something to say about - the ones it executed, and any whose
+     * developer-disabled flag its observations changed - as the writes to send to the data store.
+     *
+     * <p><b>The stats on the returned trackers are this run's own contribution, not the merged
+     * totals.</b> The store accumulates them onto whatever the row currently holds, so handing it
+     * the merged figures would count every stored run a second time. Everything else on the tracker
+     * is a value to replace rather than add to: the coverage edges are this run's capture, and the
+     * developer-disabled flag is what this run observed.
+     *
+     * <p>A suite that only had its flag changed contributes no run, so its stats are left at zero
+     * and its edge list empty - the store leaves both its stored stats and its stored coverage
+     * exactly as they are, and writes only the flag.
      *
      * <p>A name with no entry in the tracked map is dropped rather than carried through as a null -
      * a suite that executed can still have been deleted moments earlier by
      * {@link #removeDeletedTestSuites}, when the runner no longer discovers it.
      *
-     * @param trackedSuites the merged tracked suites, keyed by suite name
-     * @param executedSuiteNames the suites that executed this run
+     * @param trackedSuites the merged tracked suites, keyed by suite name, carrying this run's
+     *                      coverage edges and the maintained developer-disabled flag
+     * @param runTestSuiteTrackers the trackers the runner produced, whose stats are this run's
+     *                             measured contribution
      * @param flagChangedSuites the suites whose developer-disabled flag this run changed
-     * @return the subset of {@code trackedSuites} to persist
+     * @return the suite writes to persist
      */
     private Map<String, TestSuiteTracker> suitesTouchedByThisRun(final Map<String, TestSuiteTracker> trackedSuites,
-                                                                 final Set<String> executedSuiteNames,
+                                                                 final Map<String, TestSuiteTracker> runTestSuiteTrackers,
                                                                  final Set<String> flagChangedSuites) {
-        Set<String> touched = new HashSet<>(executedSuiteNames);
+        Set<String> touched = new HashSet<>(runTestSuiteTrackers.keySet());
         touched.addAll(flagChangedSuites);
 
         Map<String, TestSuiteTracker> toPersist = new HashMap<>();
         for (String suiteName : touched) {
-            TestSuiteTracker tracker = trackedSuites.get(suiteName);
-            if (tracker != null) {
-                toPersist.put(suiteName, tracker);
+            TestSuiteTracker merged = trackedSuites.get(suiteName);
+            if (merged == null) {
+                continue;
             }
+
+            TestSuiteTracker write = new TestSuiteTracker(suiteName);
+            write.setClassesImpacted(merged.getClassesImpacted());
+            write.setDeveloperDisabled(merged.isDeveloperDisabled());
+
+            TestSuiteTracker ranThisRun = runTestSuiteTrackers.get(suiteName);
+            if (ranThisRun != null) {
+                write.setTestStats(ranThisRun.getTestStats());
+            }
+
+            toPersist.put(suiteName, write);
         }
 
         log.debug("Persisting {} of {} tracked test suite(s): the {} executed this run plus {} "
                 + "whose developer-disabled flag changed.", toPersist.size(), trackedSuites.size(),
-                executedSuiteNames.size(), flagChangedSuites.size());
+                runTestSuiteTrackers.size(), flagChangedSuites.size());
         return toPersist;
     }
 
