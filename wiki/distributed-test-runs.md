@@ -548,7 +548,7 @@ double-count the first attempt's suites. That asymmetry is what keeps the retry'
 suite-attributable total and inside the overhead remainder.
 
 **When the split is not available, nothing is corrected.** Suite times are only measured with
-`tiaUpdateDBStats` on, so a group can complete having run suites and report zero suite time. Reading
+a mapping-owning build, so a group can complete having run suites and report zero suite time. Reading
 that as "this group was pure overhead" would make the fixed overhead the whole of the fastest
 group's duration and gut the total, so any group that ran suites without reporting suite time
 disqualifies the whole build and the serial figure falls back to the plain sum. Falling back

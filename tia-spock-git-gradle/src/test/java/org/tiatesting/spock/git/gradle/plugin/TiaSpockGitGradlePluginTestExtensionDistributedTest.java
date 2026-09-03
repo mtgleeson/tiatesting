@@ -257,7 +257,6 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     private static void enableTia(final TiaBaseTaskExtension extension, final File projectDir) {
         extension.setEnabled(Boolean.TRUE);
         extension.setUpdateDBMapping(Boolean.FALSE);
-        extension.setUpdateDBStats(Boolean.FALSE);
         extension.setCheckLocalChanges(Boolean.FALSE);
         extension.setProjectDir(projectDir.getAbsolutePath());
         extension.setDbFilePath(projectDir.getAbsolutePath());

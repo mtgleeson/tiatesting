@@ -123,7 +123,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 3, 1);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -156,7 +156,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(PLANNED_AT_MS, dataStore.readTestRunHistory().get(0).getRunTimestampMs(),
@@ -178,15 +178,15 @@ class DistributedRunSealerStatsHistoryTest {
         DistributedRunnerContext lastRunner = claim(RUN_ID, RUNNER_B);
 
         // when - each runner persists and then the build tool makes its explicit completion
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, true,
                 System.currentTimeMillis());
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -212,7 +212,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
@@ -237,7 +237,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -261,7 +261,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 1);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -270,48 +270,28 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * A build that does not update stats leaves the core row's stats alone, exactly as a single-host
-     * run with {@code updateDBStats=false} does.
+     * A build that does not own mapping updates writes nothing to the core row: not the commit, not
+     * the branch, and - since the stats follow the mapping - not the stats either. That mirrors the
+     * single-host path, where such a run returns from the seal without writing at all.
      */
     @Test
-    void aBuildThatDoesNotUpdateStatsLeavesTheCoreStatsAlone() {
+    void aNonMappingBuildWritesNothingToTheCoreRow() {
         // given
         seedTrackedSuites(8, 0);
         persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, true, 9000L);
-
-        // then
-        TestStats stats = dataStore.getTiaCore().getTestStats();
-        assertEquals(0L, stats.getNumRuns(), "a build that does not update stats must record none");
-        assertEquals(0L, stats.getAvgRunTime(), "and must not move the average");
-    }
-
-    /**
-     * A stats-only build - one that does not own mapping updates - still writes its aggregated
-     * stats to the core row, without advancing the stored commit value. That mirrors the single-host
-     * stats-only path, where the core row is written but nothing is sealed.
-     */
-    @Test
-    void aStatsOnlyBuildRecordsItsStatsWithoutAdvancingTheCommit() {
-        // given
-        seedTrackedSuites(8, 0);
-        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
-        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
-
-        // when
-        sealerFor(RUNNER_A, 0).sealIfElected(false, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(false, true, 9000L);
 
         // then
         TiaData reloaded = dataStore.getTiaCore();
-        assertEquals(1L, reloaded.getTestStats().getNumRuns(),
-                "a stats-only build must still contribute its run to the Tia-level stats");
-        assertEquals(3_000L, reloaded.getTestStats().getAvgRunTime(),
-                "and must fold in the serial-equivalent duration");
+        assertEquals(0L, reloaded.getTestStats().getNumRuns(),
+                "a build that does not own the mapping must not contribute run stats");
+        assertEquals(0L, reloaded.getTestStats().getAvgRunTime(),
+                "and must not move the average");
         assertEquals("prior-commit", reloaded.getCommitValue(),
-                "a build that does not own mapping updates must not advance the stored commit");
+                "and must not advance the stored commit");
     }
 
     /**
@@ -326,7 +306,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         assertTrue(dataStore.readTestRunHistory().isEmpty(),
@@ -357,7 +337,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 300L, 100L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -388,7 +368,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 500L, 100L, 3, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -417,7 +397,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 300L, 100L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -444,7 +424,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -480,7 +460,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 8_000L, 5_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -508,7 +488,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 8_000L, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
@@ -534,7 +514,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -574,7 +554,7 @@ class DistributedRunSealerStatsHistoryTest {
                 "test setup expects the retry's report to be accepted");
         assertNotNull(dataStore.completeGroup(RUN_ID, 0, RUNNER_A, 6000L),
                 "test setup expects the completion to be accepted");
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(4, dataStore.readDistributedRunGroups(RUN_ID).get(0).getSuitesRan(),
@@ -622,7 +602,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 40L, 0, 0);
         completeGroup(RUN_ID, 1, RUNNER_B, 40L, 0, 0);
         completeGroup(RUN_ID, 2, "runner-c", 500L, 1, 0);
-        sealerFor("runner-c", 2).sealIfElected(true, true, true, 9000L);
+        sealerFor("runner-c", 2).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(4, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
@@ -656,7 +636,7 @@ class DistributedRunSealerStatsHistoryTest {
 
         // when - the seed run's one group runs every suite in the project
         completeGroup(RUN_ID, 0, RUNNER_A, 8_000L, 4, 0);
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(0, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
@@ -683,7 +663,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
 
         // when
-        sealerFor(RUNNER_B, 1).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(8_000L, dataStore.getTiaCore().getTestStats().getAllTestsRunTime(),
@@ -705,7 +685,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 40L, 0, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         TestStats stats = dataStore.getTiaCore().getTestStats();
@@ -728,7 +708,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         assertEquals(PLAN_COMMIT, dataStore.readTrackedLibraries().get(LIB).getMappingBaselineCommit(),
@@ -747,7 +727,7 @@ class DistributedRunSealerStatsHistoryTest {
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, true, true, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
         assertTrue(dataStore.readTestRunHistory().isEmpty(),
@@ -1023,7 +1003,7 @@ class DistributedRunSealerStatsHistoryTest {
         TestRunnerService service = new TestRunnerService(dataStore);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), null);
 

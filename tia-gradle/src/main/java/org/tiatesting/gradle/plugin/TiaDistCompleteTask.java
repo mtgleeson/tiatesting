@@ -147,7 +147,7 @@ public class TiaDistCompleteTask extends DefaultTask {
         boolean groupCompleted = false;
         try (DataStore dataStore = plugin.buildDataStore(plugin.getVCSReader().getBranchName())) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context,
-                    claim.isUpdateDBMapping(), claim.isUpdateDBStats(), claim.isUpdateDBTestRunHistory(),
+                    claim.isUpdateDBMapping(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
             throw new GradleException("Distributed run '" + context.getRunId() + "': runner '"

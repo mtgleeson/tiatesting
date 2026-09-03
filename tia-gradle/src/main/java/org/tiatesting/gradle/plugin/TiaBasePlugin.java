@@ -564,10 +564,6 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         return tiaTaskExtension.getUpdateDBMapping();
     }
 
-    public Boolean getUpdateDBStats() {
-        return tiaTaskExtension.getUpdateDBStats();
-    }
-
     /**
      * @return whether the current run should log a row to {@code tia_test_run_history}.
      */

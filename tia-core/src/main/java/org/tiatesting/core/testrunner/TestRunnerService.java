@@ -48,8 +48,10 @@ public class TestRunnerService {
      * "Persist flow and crash safety" chapter in {@code WIKI.md} for the failure-mode
      * taxonomy and the per-call atomicity guarantees that the H2 backend provides.
      *
-     * @param updateDBMapping          should the test-suite to source-code mapping be updated
-     * @param updateDBStats            should the run stats be updated
+     * @param updateDBMapping          should the test-suite to source-code mapping be updated,
+     *                                 and with it the run stats. The two are one decision: the run
+     *                                 that owns the mapping is the run whose timings are the
+     *                                 reference ones, so stats are never collected separately
      * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
      * @param commitValue              the VCS commit / changelist the run was against
      * @param branch                   the VCS branch the run targeted (recorded with the history entry)
@@ -60,7 +62,7 @@ public class TestRunnerService {
      *                                 is one runner's share of a distributed build, or {@code null}
      *                                 for an ordinary single-host run
      */
-    public void persistTestRunData(final boolean updateDBMapping, final boolean updateDBStats,
+    public void persistTestRunData(final boolean updateDBMapping,
                                    final boolean updateDBTestRunHistory,
                                    final String commitValue, final String branch,
                                    final long runStartTimestampMs,
@@ -79,16 +81,14 @@ public class TestRunnerService {
             // history row - belongs to whichever runner finishes last, and it reads the commit and
             // branch itself from the plan's own run row rather than from this runner's copy - see
             // persistDistributedRunnerData's javadoc for why commitValue and branch stop here.
-            persistDistributedRunnerData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+            persistDistributedRunnerData(updateDBMapping, updateDBTestRunHistory,
                     durationMs, testRunResult, distributedRunnerContext);
             return;
         }
 
         if (updateDBMapping){
-            log.info("Persisting core data with commit value: " + commitValue);
-        }
-        if (updateDBStats){
-            log.info("Persisting updated stats from the test run.");
+            log.info("Persisting core data with commit value: " + commitValue
+                    + ", and the updated stats from the test run.");
         }
 
         TiaData tiaData = dataStore.getTiaCore();
@@ -96,7 +96,7 @@ public class TestRunnerService {
         // 1. Suite mapping rows first. These are safe to be ahead of the stored commit - they
         //    carry no line coordinates, and they are marked unsealed until the seal clears them.
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
-                testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
+                testRunResult.getSelectedTests(), updateDBMapping);
 
         // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
         // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites,
@@ -111,8 +111,7 @@ public class TestRunnerService {
 
         // 3. The seal bundle: catalogue, library drain cleanup and the commit value, written in
         //    one transaction so none of them can end up ahead of the others.
-        sealRun(tiaData, commitValue, branch, updateDBMapping, updateDBStats,
-                testRunResult, allTestsRun);
+        sealRun(tiaData, commitValue, branch, updateDBMapping, testRunResult, allTestsRun);
 
         // 4. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
@@ -153,8 +152,8 @@ public class TestRunnerService {
      *       step that makes the deferred completion.</li>
      * </ul>
      *
-     * <p>The Tia-level run stats are deliberately not incremented here even when {@code
-     * updateDBStats} is set: they live on the core row alongside the commit value, and a build split
+     * <p>The Tia-level run stats are deliberately not incremented here even on a mapping-owning
+     * build: they live on the core row alongside the commit value, and a build split
      * across runners must contribute one set of stats rather than one per runner, so the sealer
      * aggregates them from the completed groups. Per-suite stats are this runner's own and are
      * written with its mapping rows as usual.
@@ -166,9 +165,9 @@ public class TestRunnerService {
      * copy that then has to agree with it. Every runner was verified against the plan's commit before
      * it claimed, so nothing is lost by not carrying it through to the seal.
      *
-     * @param updateDBMapping should the test-suite to source-code mapping be updated
-     * @param updateDBStats should the per-suite run stats be updated. The Tia-level stats are
-     *                      handed on to the seal instead, since they describe the whole build
+     * @param updateDBMapping should the test-suite to source-code mapping be updated, and with it
+     *                        this runner's per-suite stats. The Tia-level stats are handed on to the
+     *                        seal instead, since they describe the whole build
      * @param updateDBTestRunHistory should the build write a history row. Recorded for the seal
      *                               unchanged: the build's one row is the sealer's to write
      * @param durationMs this runner's test-execution duration in ms, measured on the same clock a
@@ -178,7 +177,7 @@ public class TestRunnerService {
      * @param distributedRunnerContext the run id, runner identity and claimed group this runner
      *                                 holds; a context that claimed no group persists nothing
      */
-    private void persistDistributedRunnerData(final boolean updateDBMapping, final boolean updateDBStats,
+    private void persistDistributedRunnerData(final boolean updateDBMapping,
                                               final boolean updateDBTestRunHistory,
                                               final long durationMs, final TestRunResult testRunResult,
                                               final DistributedRunnerContext distributedRunnerContext){
@@ -216,7 +215,7 @@ public class TestRunnerService {
         // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
         //    coordinates, so they are safe to be ahead of the commit the sealer will store.
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
-                testRunResult.getSelectedTests(), updateDBMapping, updateDBStats);
+                testRunResult.getSelectedTests(), updateDBMapping);
 
         if (updateDBMapping){
             // 2. The failed set is incremental, so several runners updating it concurrently is
@@ -287,8 +286,8 @@ public class TestRunnerService {
      * suite-attributable total and inside the overhead remainder, where it belongs - a retry is real
      * time the build spent that no fresh suite run accounts for.
      *
-     * <p>Returns 0 when no suite was timed, which is the ordinary state with {@code updateDBStats}
-     * off. The sealer distinguishes that from a genuine zero by checking it against the group's
+     * <p>Returns 0 when no suite was timed, which is the ordinary state on a run that does not own
+     * the mapping. The sealer distinguishes that from a genuine zero by checking it against the group's
      * suites-ran count, and declines to correct anything when a group that ran suites reports no
      * suite time.
      *
@@ -346,39 +345,30 @@ public class TestRunnerService {
      * Assemble and write the run's seal. The method catalogue, the library drain cleanup and the
      * commit value all describe the commit being sealed, so they are handed to the data store as
      * one bundle and written in a single transaction via {@link DataStore#persistSealedRunData}.
-     * On a run that does not own mapping updates the only write is the core row - it carries the
-     * Tia-level run stats as well as the commit value, but there is no catalogue rewrite, no
-     * drain cleanup and no commit advance, exactly as on today's stats-only path.
+     * A run that does not own mapping updates writes nothing here at all: it has no commit to
+     * stamp, no catalogue to rebuild, and - since stats follow the mapping - no stats to
+     * contribute either.
      *
      * @param tiaData the core data read at the start of the persist, mutated with the new commit
      *                and stats before being written
      * @param commitValue the VCS commit / changelist the run was against
      * @param branch the VCS branch the run targeted
-     * @param updateDBMapping whether this run owns mapping-DB updates
-     * @param updateDBStats whether the run stats should be updated
+     * @param updateDBMapping whether this run owns mapping-DB updates, and with them the run stats
      * @param testRunResult the collected results of the test run
      * @param allTestsRun {@code true} when Tia ignored zero suites this run
      */
     private void sealRun(final TiaData tiaData, final String commitValue, final String branch,
-                         final boolean updateDBMapping, final boolean updateDBStats,
-                         final TestRunResult testRunResult, final boolean allTestsRun){
-        if (updateDBStats){
-            tiaData.incrementStats(testRunResult.getTestStats(), allTestsRun);
-        }
-
+                         final boolean updateDBMapping, final TestRunResult testRunResult,
+                         final boolean allTestsRun){
         if (!updateDBMapping) {
-            // This run does not own mapping updates, so there is nothing to seal. The most it
-            // writes is the stats columns of the core row - never the commit value or the branch,
-            // which belong to whichever build owns the mapping. Writing the whole row back would
-            // stamp the commit read at the start of this persist, silently rolling the stored
-            // commit backwards whenever a mapping-owning build advanced it while this run was
-            // executing. tia_source_method, the library baselines and the unsealed flags are all
-            // mapping concerns and stay untouched.
-            if (updateDBStats) {
-                dataStore.persistCoreStats(tiaData.getTestStats());
-            }
+            // Nothing to seal and nothing to write. The commit value and the branch belong to
+            // whichever build owns the mapping, and writing the whole core row back would stamp the
+            // commit read at the start of this persist - silently rolling the stored commit
+            // backwards whenever a mapping-owning build advanced it while this run was executing.
             return;
         }
+
+        tiaData.incrementStats(testRunResult.getTestStats(), allTestsRun);
 
         tiaData.setCommitValue(commitValue);
         tiaData.setBranch(branch);
@@ -439,72 +429,45 @@ public class TestRunnerService {
     }
 
     /**
-     * Update the test suite mapping to source code in the DB.
+     * Update the test suite mapping to source code in the DB, along with the per-suite stats.
      * Remove any deleted test suites from the DB.
-     * <p>
-     * Also update the stats for the test suites if configured for the test run.
      *
-     * <p><b>Persistence routing.</b>
-     * <ul>
-     *   <li>Both flags false (history-only / SE-developer runs): early-return; no read,
-     *       no write. The test suite mapping table is not touched at all.</li>
-     *   <li>{@code updateDBMapping=true}: the merged map (with mapping + optional stats)
-     *       is persisted via {@link DataStore#persistTestSuites(Map)} - includes the
-     *       suite-to-source-class-to-method edges.</li>
-     *   <li>{@code updateDBStats=true} and {@code updateDBMapping=false}: only the stats
-     *       columns of each suite row are persisted via
-     *       {@link DataStore#persistTestSuiteStatsOnly(Map)} - the mapping edges remain
-     *       untouched.</li>
-     * </ul>
+     * <p>A run that does not own mapping updates returns immediately: no read, no write, and the
+     * test-suite table is not touched at all. Skipping the read+persist avoids a full
+     * delete-then-reinsert of every {@code tia_source_class} / {@code tia_source_class_method} row
+     * on every non-update run.
      *
      * @param tiaData the Tia DB
      * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
      * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
      * @param selectedTests the suites Tia selected to run, used to maintain the developer-disabled flag
-     * @param updateDBMapping should the test suite to source code mapping be updated for the test run
-     * @param updateDBStats should the test stats be updated for the test run
+     * @param updateDBMapping should the test suite to source code mapping and stats be updated for
+     *                        the test run
      */
     private void updateTestSuiteMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers,
                                         final Set<String> runnerTestSuites, final Set<String> selectedTests,
-                                        final boolean updateDBMapping, final boolean updateDBStats){
+                                        final boolean updateDBMapping){
 
-        if (!updateDBMapping && !updateDBStats) {
-            // History-only / SE-developer runs do not touch the test-suite mapping table.
-            // Skipping the read+persist here avoids a full delete-then-reinsert of every
-            // tia_source_class / tia_source_class_method row on every non-update run.
+        if (!updateDBMapping) {
             return;
         }
 
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = dataStore.getTestSuitesTracked();
-        tiaData.setTestSuitesTracked(testSuiteTrackersOnDisk);
+        Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
+        tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
 
-        if (updateDBMapping){
-            Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
-            tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
+        // remove any test suites that have been deleted
+        removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
 
-            //mergedTestMappings.forEach( (testClass, methodsCalled) ->
-            //        log.debug(methodsCalled.stream().map(String::valueOf).collect(Collectors.joining("\n", testClass+":\n", ""))));
+        // Maintain the developer-disabled flag before persisting the mapping rows - the flag is
+        // mapping metadata written by persistTestSuites.
+        updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(), selectedTests, runnerTestSuites,
+                testSuiteTrackers.keySet());
 
-            // remove any test suites that have been deleted
-            removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
+        tiaData.setTestSuitesTracked(
+                mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers));
 
-            // Maintain the developer-disabled flag before persisting the mapping rows. Only done
-            // on mapping runs - the flag is mapping metadata written by persistTestSuites.
-            updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(), selectedTests, runnerTestSuites,
-                    testSuiteTrackers.keySet());
-        }
-
-        if (updateDBStats){
-            Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers);
-            tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
-        }
-
-        if (updateDBMapping) {
-            dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
-        } else {
-            // stats-only branch: leave the suite-to-source-class / method-edges untouched
-            dataStore.persistTestSuiteStatsOnly(tiaData.getTestSuitesTracked());
-        }
+        dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
     }
 
     /**

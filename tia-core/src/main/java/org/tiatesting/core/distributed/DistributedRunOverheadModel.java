@@ -136,7 +136,7 @@ public final class DistributedRunOverheadModel {
             if (group.getSuitesRan() > 0 && group.getSuitesDurationMs() <= 0L) {
                 return skipped("group " + group.getGroupNumber() + " ran " + group.getSuitesRan()
                         + " suite(s) but timed none of them, so its whole duration would read as "
-                        + "overhead. Suite times are only recorded when tiaUpdateDBStats is enabled");
+                        + "overhead. Suite times are only recorded on a build that updates the mapping DB");
             }
 
             Integer assigned = assignedSuiteCounts.get(Integer.valueOf(group.getGroupNumber()));

@@ -134,7 +134,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
 
         // when
-        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected(true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_B, 1).sealIfElected(true, false, 9000L);
 
         // then
         assertTrue(sealed, "the last runner to finish must win the election and seal");
@@ -165,7 +165,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -192,7 +192,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         Map<Integer, MethodImpactTracker> catalogue = dataStore.getMethodsTracked();
@@ -217,7 +217,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         TiaData reloaded = dataStore.getTiaCore();
@@ -251,7 +251,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB).isEmpty(),
@@ -278,7 +278,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         assertTrue(dataStore.readStagedMethodTrackers(RUN_ID).isEmpty(),
@@ -298,7 +298,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         DistributedRun run = dataStore.readDistributedRun(RUN_ID);
@@ -324,7 +324,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner cannot seal while another group is still running");
@@ -347,11 +347,11 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
         persistPlan(RUN_ID, 2, null);
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
-        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected(true, false, false, 9000L));
+        assertTrue(sealerFor(RUNNER_B, 1).sealIfElected(true, false, 9000L));
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9500L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9500L);
 
         // then - an empty call order already implies the commit value was never touched, so a
         // separate "still PLAN_COMMIT" assertion would only restate it under a different name
@@ -378,7 +378,7 @@ class DistributedRunSealerTest {
         dataStore.callOrder.clear();
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
 
         // then
         assertFalse(sealed, "a runner whose run no longer exists must not seal");
@@ -402,7 +402,7 @@ class DistributedRunSealerTest {
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
-        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(false, false, false, 9000L);
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(false, false, 9000L);
 
         // then
         assertTrue(sealed, "the elected runner still finishes the run");
@@ -442,10 +442,10 @@ class DistributedRunSealerTest {
 
         // when - the first runner finishes and persists its whole share, and the build tool then
         //        makes its explicit completion, as it does once no more retries are coming
-        service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), firstRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, firstRunner, true, false,
                 System.currentTimeMillis());
 
         // then - nothing has been sealed yet, because a group is still running
@@ -457,10 +457,10 @@ class DistributedRunSealerTest {
                 "the run must stay open until every group has finished");
 
         // when - the last group finishes, persists and the build tool completes it
-        service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.BTest", "com/example/B.java",
                         202, "com/example/B.b.()V"), lastRunner);
-        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, lastRunner, true, false,
                 System.currentTimeMillis());
 
         // then - both groups' methods are in the catalogue, including the last group's
@@ -499,10 +499,10 @@ class DistributedRunSealerTest {
         };
 
         // when
-        service.persistTestRunData(true, true, false, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, false, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), runResultFor("com.example.ATest", "com/example/A.java",
                         101, "com/example/A.a.()V"), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, false,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, false,
                 System.currentTimeMillis());
 
         // then

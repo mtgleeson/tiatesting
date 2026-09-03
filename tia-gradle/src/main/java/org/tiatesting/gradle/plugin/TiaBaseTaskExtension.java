@@ -23,7 +23,6 @@ public class TiaBaseTaskExtension {
     private String dbDialect;
     private Boolean enabled;
     private Boolean updateDBMapping;
-    private Boolean updateDBStats;
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private String runSource;
@@ -181,14 +180,6 @@ public class TiaBaseTaskExtension {
     @Input
     public Boolean getUpdateDBMapping() {
         return updateDBMapping;
-    }
-
-    public Boolean getUpdateDBStats() {
-        return updateDBStats;
-    }
-
-    public void setUpdateDBStats(Boolean updateDBStats) {
-        this.updateDBStats = updateDBStats;
     }
 
     public void setUpdateDBMapping(Boolean updateDBMapping) {

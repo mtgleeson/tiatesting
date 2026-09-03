@@ -60,8 +60,8 @@ class TestRunnerServiceAllTestsRunTriggerTest {
     }
 
     /**
-     * Build a stats-only {@link TestRunResult} carrying a single run of the given duration and the
-     * given selector ignore count. No suites need to have run for the Tia-level stats path.
+     * Build a {@link TestRunResult} carrying a single run of the given duration and the given
+     * selector ignore count. No suites need to have run for the Tia-level stats path.
      */
     private TestRunResult runResult(long durationMs, int ignoredTestSuiteCount){
         TestStats runStats = new TestStats();
@@ -84,8 +84,8 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         // given
         TestRunResult result = runResult(500L, 0);
 
-        // when - stats-only persist (updateDBStats=true)
-        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result, null);
+        // when - a mapping-owning persist, which is the only kind that records stats
+        service.persistTestRunData(true, false, "abc123", "main", System.currentTimeMillis(), result, null);
         TiaData loaded = dataStore.getTiaCore();
 
         // then
@@ -104,7 +104,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         TestRunResult result = runResult(500L, 3);
 
         // when
-        service.persistTestRunData(false, true, false, "abc123", "main", System.currentTimeMillis(), result, null);
+        service.persistTestRunData(true, false, "abc123", "main", System.currentTimeMillis(), result, null);
         TiaData loaded = dataStore.getTiaCore();
 
         // then

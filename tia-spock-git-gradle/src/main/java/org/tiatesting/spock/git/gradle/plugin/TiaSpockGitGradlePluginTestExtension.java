@@ -75,7 +75,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", true);
                     testTask.systemProperty("tiaUpdateDBMapping", tiaTaskExtension.getUpdateDBMapping());
-                    testTask.systemProperty("tiaUpdateDBStats", tiaTaskExtension.getUpdateDBStats());
                     testTask.systemProperty("tiaUpdateDBTestRunHistory", tiaTaskExtension.getUpdateDBTestRunHistory());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
@@ -154,10 +153,6 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getUpdateDBMapping() == null){
             tiaTaskExt.setUpdateDBMapping(tiaProjectExt.getUpdateDBMapping());
-        }
-
-        if (tiaTaskExt.getUpdateDBStats() == null){
-            tiaTaskExt.setUpdateDBStats(tiaProjectExt.getUpdateDBStats());
         }
 
         if (tiaTaskExt.getUpdateDBTestRunHistory() == null){
@@ -357,11 +352,9 @@ public class TiaSpockGitGradlePluginTestExtension {
     private boolean isEnabled(final TiaBaseTaskExtension tiaTaskExtension, Test task){
         boolean enabled = tiaTaskExtension.getEnabled() != null ? tiaTaskExtension.getEnabled() : false;
         boolean updateDBMapping = tiaTaskExtension.getUpdateDBMapping() != null ? tiaTaskExtension.getUpdateDBMapping() : false;
-        boolean updateDBStats = tiaTaskExtension.getUpdateDBStats() != null ? tiaTaskExtension.getUpdateDBStats() : false;
         boolean updateDBTestRunHistory = tiaTaskExtension.getUpdateDBTestRunHistory() != null
                 ? tiaTaskExtension.getUpdateDBTestRunHistory() : true;
-        LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping: " + updateDBMapping
-                + ", update stats: " + updateDBStats
+LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and stats): " + updateDBMapping
                 + ", update test run history: " + updateDBTestRunHistory);
 
         /**
@@ -610,7 +603,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                 DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
         return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
                 groupNumber, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBStats()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
     }
 

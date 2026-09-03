@@ -39,13 +39,6 @@ public final class ForkSystemProperties {
     public static final String PROP_UPDATE_DB_MAPPING = "tiaUpdateDBMapping";
 
     /**
-     * Property name, in the fork properties file, for whether this run updates the stats DB. See
-     * {@link #PROP_UPDATE_DB_MAPPING} for why this name is owned here rather than duplicated as a
-     * literal on the write and read sides.
-     */
-    public static final String PROP_UPDATE_DB_STATS = "tiaUpdateDBStats";
-
-    /**
      * Property name, in the fork properties file, for whether this run logs a history row. See
      * {@link #PROP_UPDATE_DB_MAPPING} for why this name is owned here rather than duplicated as a
      * literal on the write and read sides.

@@ -517,36 +517,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>Issues an {@code UPDATE} listing the stats columns only. {@code tia_core} holds a single
-     * row, so no {@code WHERE} clause is needed - and deliberately none is written against
-     * {@code commit_value}, which is the row's primary key: the point of this path is that the run
-     * making it has no opinion about which commit the row identifies.
-     *
-     * @param testStats the Tia-level run stats to write onto the core row
-     */
-    @Override
-    public void persistCoreStats(final TestStats testStats){
-        long startTime = System.currentTimeMillis();
-        Connection connection = getConnection();
-
-        try {
-            persistTiaCoreStats(connection, testStats);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        log.debug("Time to save the Tia core stats to disk (ms): " + (System.currentTimeMillis() - startTime));
-    }
-
-    /**
      * Persist a run's seal atomically: the method catalogue, the library drain cleanup, the
      * clearing of every currently-flagged unsealed suite, and the commit value are all written in
      * one transaction, so none of them can end up ahead of the others. The catalogue's line ranges
@@ -712,32 +682,11 @@ public class JdbcDataStore implements DataStore {
 
     @Override
     public void persistTestSuites(final Map<String, TestSuiteTracker> testSuites){
-        persistTestSuitesInternal(testSuites, true);
-    }
-
-    @Override
-    public void persistTestSuiteStatsOnly(final Map<String, TestSuiteTracker> testSuites){
-        persistTestSuitesInternal(testSuites, false);
-    }
-
-    /**
-     * Shared implementation behind {@link #persistTestSuites(Map)} and
-     * {@link #persistTestSuiteStatsOnly(Map)}. When {@code includeClassMappings} is {@code false}
-     * the suite-to-source-class / method edges are left untouched - the only writes are the
-     * MERGE on {@code tia_test_suite} (name + stats columns). This is the path used by
-     * stats-only runs.
-     *
-     * @param testSuites           the suites whose rows to persist
-     * @param includeClassMappings whether to also delete-and-reinsert the per-suite
-     *                             {@code tia_source_class} / {@code tia_source_class_method}
-     *                             edges; true for mapping-update runs, false for stats-only.
-     */
-    private void persistTestSuitesInternal(Map<String, TestSuiteTracker> testSuites, boolean includeClassMappings){
         long startTime = System.currentTimeMillis();
         Connection connection = getConnection();
 
         try {
-            persistTestSuites(connection, testSuites.values(), includeClassMappings);
+            persistTestSuites(connection, testSuites.values());
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }finally {
@@ -2644,43 +2593,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Write the Tia-level run stats onto the core row without touching the commit value, the branch
-     * or the last-updated timestamp.
-     *
-     * <p>Unlike {@link #persistTiaCore(Connection, TiaData)} there is no INSERT counterpart. The
-     * commit value is the core table's primary key and cannot be null, so a run with stats but no
-     * commit to stamp has no row it could legitimately create - it would have to invent an identity
-     * for the mapping it does not own. When no row exists the UPDATE matches nothing, which is the
-     * intended outcome: the first mapping run creates the row and the stats resume accumulating from
-     * there.
-     *
-     * @param connection the connection to issue the update on
-     * @param testStats the Tia-level run stats to write
-     * @throws SQLException if the update fails
-     */
-    private void persistTiaCoreStats(Connection connection, TestStats testStats) throws SQLException {
-        String sql = "UPDATE " + TABLE_TIA_CORE + " SET " +
-                COL_NUM_RUNS + "=" + testStats.getNumRuns() +
-                ", " + COL_AVG_RUN_TIME + "=" + testStats.getAvgRunTime() +
-                ", " + COL_NUM_SUCCESS_RUNS + "=" + testStats.getNumSuccessRuns() +
-                ", " + COL_NUM_FAIL_RUNS + "=" + testStats.getNumFailRuns() +
-                ", " + COL_ALL_TESTS_RUN_TIME + "=" + testStats.getAllTestsRunTime() +
-                ", " + COL_NUM_ALL_TESTS_RUNS + "=" + testStats.getNumAllTestsRuns() +
-                ", " + COL_FIXED_OVERHEAD_MS + "=" + testStats.getFixedOverheadMs() +
-                ", " + COL_CAPTURE_OVERHEAD_PER_SUITE_MS + "=" + testStats.getCaptureOverheadPerSuiteMs() +
-                ", " + COL_NUM_OVERHEAD_MEASUREMENTS + "=" + testStats.getNumOverheadMeasurements();
-
-        log.debug("Persisting Tia core stats: {}", sql);
-        Statement statement = connection.createStatement();
-        int rowsUpdated = statement.executeUpdate(sql);
-
-        if (rowsUpdated == 0){
-            log.debug("No Tia core row exists yet, so the run stats were not stored. The first run "
-                    + "that updates the mapping DB will create the row.");
-        }
-    }
-
-    /**
      * Render a string as a SQL literal for the inline-concatenation persist statements: a quoted,
      * single-quote-escaped value, or the keyword {@code NULL} when the value is {@code null}. Used
      * for the {@code branch} column, which is genuinely absent on stats-only runs and must be
@@ -2715,27 +2627,19 @@ public class JdbcDataStore implements DataStore {
      *
      * @param connection the connection to write on
      * @param testSuites the suites whose rows to persist; a no-op when empty
-     * @param includeClassMappings whether to also delete-and-reinsert (and flag as unsealed) the
-     *                             per-suite {@code tia_source_class} / {@code tia_source_class_method}
-     *                             edges; {@code true} for mapping-update runs, {@code false} for stats-only
      * @throws SQLException if any write fails
      */
-    private void persistTestSuites(Connection connection, Collection<TestSuiteTracker> testSuites,
-                                   boolean includeClassMappings) throws SQLException {
+    private void persistTestSuites(Connection connection,
+                                   Collection<TestSuiteTracker> testSuites) throws SQLException {
         if (testSuites.isEmpty()){
             return;
         }
 
-        // developer_disabled is mapping metadata, maintained on mapping-update runs only.
-        // Stats-only runs (includeClassMappings=false) leave the column out of the upsert so
-        // the stored flag is untouched. unsealed is never part of this column list - see the
-        // javadoc above for why. The column set is constant for the whole call, so the upsert
-        // statement is prepared once and reused (re-bound) per suite.
-        List<String> suiteColumns = new ArrayList<>(Arrays.asList(COL_NAME, COL_NUM_RUNS,
-                COL_AVG_RUN_TIME, COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS));
-        if (includeClassMappings){
-            suiteColumns.add(COL_DEVELOPER_DISABLED);
-        }
+        // unsealed is never part of this column list - see the javadoc above for why. The column
+        // set is constant for the whole call, so the upsert statement is prepared once and reused
+        // (re-bound) per suite.
+        List<String> suiteColumns = Arrays.asList(COL_NAME, COL_NUM_RUNS, COL_AVG_RUN_TIME,
+                COL_NUM_SUCCESS_RUNS, COL_NUM_FAIL_RUNS, COL_DEVELOPER_DISABLED);
         String mergeSql = dialect.upsert(TABLE_TIA_TEST_SUITE, suiteColumns,
                 Collections.singletonList(COL_NAME));
 
@@ -2743,18 +2647,13 @@ public class JdbcDataStore implements DataStore {
         // persist, and assign tia_source_class ids application-side from a single atomically
         // reserved block so rows can be inserted INSERT_CHUNK at a time (one round trip per
         // chunk) instead of one per row, without colliding with a concurrent writer's ids.
-        long[] nextSourceClassId = null;
-        PreparedStatement classChunkPs = null;
-        PreparedStatement edgeChunkPs = null;
-        if (includeClassMappings){
-            // Reserve exactly the ids this persist needs, in one atomic allocation, so a
-            // concurrent writer cannot be handed the same range. See the "Persist flow and crash
-            // safety" chapter in WIKI.md.
-            int idsNeeded = countSourceClassRows(testSuites);
-            nextSourceClassId = new long[]{ idsNeeded > 0 ? allocateSourceClassIdBlock(connection, idsNeeded) : 0L };
-            classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
-            edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
-        }
+        // Reserve exactly the ids this persist needs, in one atomic allocation, so a concurrent
+        // writer cannot be handed the same range. See the "Persist flow and crash safety" chapter
+        // in WIKI.md.
+        int idsNeeded = countSourceClassRows(testSuites);
+        long[] nextSourceClassId = new long[]{ idsNeeded > 0 ? allocateSourceClassIdBlock(connection, idsNeeded) : 0L };
+        PreparedStatement classChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_CHUNK_SQL);
+        PreparedStatement edgeChunkPs = connection.prepareStatement(INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL);
 
         PreparedStatement suitePs = connection.prepareStatement(mergeSql, Statement.RETURN_GENERATED_KEYS);
         try {
@@ -2764,17 +2663,13 @@ public class JdbcDataStore implements DataStore {
                 suitePs.setLong(3, testSuite.getTestStats().getAvgRunTime());
                 suitePs.setLong(4, testSuite.getTestStats().getNumSuccessRuns());
                 suitePs.setLong(5, testSuite.getTestStats().getNumFailRuns());
-                if (includeClassMappings){
-                    suitePs.setBoolean(6, testSuite.isDeveloperDisabled());
-                }
+                suitePs.setBoolean(6, testSuite.isDeveloperDisabled());
 
                 suitePs.executeUpdate();
 
-                // only update the source classes mapping for the test suite if the caller is the
-                // full-mapping path AND mapping data exists for this test run. Stats-only runs
-                // (includeClassMappings=false) skip this entirely so tia_source_class /
-                // tia_source_class_method remain untouched.
-                if (includeClassMappings && !testSuite.getClassesImpacted().isEmpty()){
+                // only update the source classes mapping for the test suite when mapping data
+                // exists for this test run.
+                if (!testSuite.getClassesImpacted().isEmpty()){
                     ResultSet rs = suitePs.getGeneratedKeys();
                     rs.next();
                     persistTestSuiteClasses(connection, rs.getLong(COL_ID),
@@ -2783,8 +2678,8 @@ public class JdbcDataStore implements DataStore {
             }
         } finally {
             suitePs.close();
-            if (classChunkPs != null){ classChunkPs.close(); }
-            if (edgeChunkPs != null){ edgeChunkPs.close(); }
+            classChunkPs.close();
+            edgeChunkPs.close();
         }
     }
 
