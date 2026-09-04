@@ -19,6 +19,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -378,6 +379,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public int getNumSourceMethods() { return delegate.getNumSourceMethods(); }
         @Override public Set<String> getTestSuitesFailed() { return delegate.getTestSuitesFailed(); }
         @Override public void persistCoreData(TiaData tiaData) { delegate.persistCoreData(tiaData); }
+        @Override public void persistCoreStats(TestStats testStats) { delegate.persistCoreStats(testStats); }
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
         @Override public void clearUnsealedTestSuites() { delegate.clearUnsealedTestSuites(); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
