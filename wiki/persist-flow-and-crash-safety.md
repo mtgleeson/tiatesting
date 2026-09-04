@@ -164,6 +164,19 @@ original class-of-bug this flag was built to shrink is possible again for that s
 does guarantee: on the common path - a suite runs to completion in the same JVM that seals - the
 suite's mapping rows and the commit value they are cleared against are consistent.
 
+**Parked: scoping the clear to what the run recaptured.** The unconditional clear is the last
+mapping-integrity weakness that multiple forks make materially worse - a fork's seal clearing a flag
+that belongs to a suite a peer fork is still running, or to a stale flag from an earlier build whose
+coverage was never recaptured. The identified fix is to scope `clearUnsealedTestSuites` to the suites
+whose coverage this run actually rewrote, rather than clearing every flag in the table.
+
+Deliberately not done, because nothing today needs it: single-fork runs are the recommended and
+default shape, and there the unconditional clear is exactly correct. It becomes worth doing if
+multi-fork runs (`maxParallelForks > 1`, `forkEvery > 0`) are ever supported for real - at which
+point it is the cheaper alternative to relocating the seal out of the fork, which was considered and
+rejected: an ordinary Maven build currently seals inside `mvn test` / `mvn verify` with no extra
+pipeline step, and keeping it that way is worth more than the guarantee relocation would buy.
+
 **Only a mapping-owning run can clear the flag.** `sealRun` returns without writing anything when
 `updateDBMapping = false` - that path never reaches `persistSealedRunData`, so it never reaches
 `clearUnsealedTestSuites` either.
