@@ -497,6 +497,44 @@ class AbstractTiaAgentMojoDistributedTest {
     }
 
     /**
+     * A declared schema suffix reaches the forked test JVM, which is where the schema is resolved.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldForwardADeclaredSchemaSuffixToTheFork() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-11", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+        mojo.tiaDBSchemaSuffix = "integration";
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertEquals("integration", readForkProperties().getProperty("tiaDBSchemaSuffix"));
+    }
+
+    /**
+     * An undeclared suffix writes no property, so the fork resolves the plain {@code tia_<branch>}
+     * schema rather than one named "null".
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldWriteNoSchemaSuffixPropertyWhenNoneIsDeclared() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-12", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertNull(readForkProperties().getProperty("tiaDBSchemaSuffix"));
+    }
+
+    /**
      * A declared {@code tiaRunSource} reaches the forked test JVM, which is the only place it can be
      * acted on - the history row is written there, not in the build JVM.
      *
