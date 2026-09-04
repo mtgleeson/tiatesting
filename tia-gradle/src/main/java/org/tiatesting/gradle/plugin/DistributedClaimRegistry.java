@@ -85,7 +85,6 @@ public final class DistributedClaimRegistry {
      * @param updateDBMapping whether this test task updates the mapping database - the seal needs
      *                        this to decide whether the completed group's coverage should be
      *                        persisted
-@@DROP1@@     *                       the same reason
      * @param updateDBTestRunHistory whether this test task records test-run history - the seal
      *                               needs this for the same reason
      * @return the recorded claim
@@ -179,7 +178,6 @@ public final class DistributedClaimRegistry {
             return updateDBMapping;
         }
 
-        /** @return whether this test task updates run statistics */
         /** @return whether this test task records test-run history */
         public boolean isUpdateDBTestRunHistory() {
             return updateDBTestRunHistory;

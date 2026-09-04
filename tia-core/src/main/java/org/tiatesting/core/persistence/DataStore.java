@@ -523,8 +523,9 @@ public interface DataStore extends AutoCloseable {
      *                         to named suites and the remainder - the runner's fixed per-JVM
      *                         overhead - so the sealer can charge that overhead once for the build
      *                         rather than once per group; see {@code DistributedRunTotals}. Zero
-     *                         when suite timing was not collected ({@code updateDBStats} off), which
-     *                         the sealer reads as "no decomposition available", not "no overhead"
+     *                         when suite timing was not collected (a run that does not own
+     *                         the mapping), which the sealer reads as "no decomposition
+     *                         available", not "no overhead"
      * @return {@code true} when the guarded update applied, {@code false} when this runner's
      *         claim is no longer live
      */
