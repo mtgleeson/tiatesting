@@ -26,6 +26,7 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private String runSource;
+    private String schemaSuffix;
     private File reportOutputDir;
     private String buildDir;
     private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
@@ -210,6 +211,34 @@ public class TiaBaseTaskExtension {
      */
     public void setRunSource(String runSource) {
         this.runSource = runSource;
+    }
+
+    /**
+     * The schema suffix isolating this test task's datastore from the other test tasks in the
+     * project.
+     *
+     * <p>Two Tia-enabled test tasks sharing a datastore corrupt each other: each sees only its own
+     * source set, so each deletes the other's tracked suites, and they share the one stored commit
+     * value, so the one that ran less recently diffs from a commit it never covered. Declaring a
+     * suffix per test task gives each its own schema - {@code tia_<branch>_<suffix>} - with its own
+     * suite table and its own commit stamp.
+     *
+     * <p>Leave unset for a project with a single test task: the schema is then exactly the
+     * {@code tia_<branch>} Tia has always used, so nothing moves.
+     *
+     * @return the declared schema suffix, or null for none
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getSchemaSuffix() {
+        return schemaSuffix;
+    }
+
+    /**
+     * @param schemaSuffix the schema suffix isolating this test task's datastore, or null for none
+     */
+    public void setSchemaSuffix(String schemaSuffix) {
+        this.schemaSuffix = schemaSuffix;
     }
 
     /**
