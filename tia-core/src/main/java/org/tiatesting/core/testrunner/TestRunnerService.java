@@ -440,6 +440,21 @@ public class TestRunnerService {
      * delete-then-reinsert of every {@code tia_source_class} / {@code tia_source_class_method} row
      * on every non-update run.
      *
+     * <p>The stats handed to the store are this run's own contribution rather than the merged
+     * totals: the store accumulates them onto the stored row at write time, so two builds that both
+     * ran a suite each get counted. The in-memory map is still merged to absolutes, since that is
+     * what a whole-object store writes.
+     *
+     * <p><b>What gets written is what this run touched</b>, not everything it read. The full map is
+     * still read - deletion and the developer-disabled flag both need to see every tracked suite -
+     * but only the suites this run has something to say about are persisted: the ones it executed,
+     * plus any whose {@code developerDisabled} flag its observations changed. Writing the whole map
+     * back made the persist a read-modify-write over the entire table, so a build committing during
+     * this one's persist had its increments overwritten on suites this build never ran; the two did
+     * not need to share a single suite, only to overlap in time. It also issued a row write per
+     * tracked suite on a run that may have executed a handful. See the "Persist flow and crash
+     * safety" chapter in {@code WIKI.md}.
+     *
      * @param tiaData the Tia DB
      * @param testSuiteTrackers the mapping of test suites to source code impacted from the current test run
      * @param runnerTestSuites the lists of test suites known to the runner for the current workspace
@@ -464,13 +479,70 @@ public class TestRunnerService {
 
         // Maintain the developer-disabled flag before persisting the mapping rows - the flag is
         // mapping metadata written by persistTestSuites.
-        updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(), selectedTests, runnerTestSuites,
-                testSuiteTrackers.keySet());
+        Set<String> flagChangedSuites = updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(),
+                selectedTests, runnerTestSuites, testSuiteTrackers.keySet());
 
         tiaData.setTestSuitesTracked(
                 mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers));
 
-        dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
+        dataStore.persistTestSuites(suitesTouchedByThisRun(tiaData.getTestSuitesTracked(),
+                testSuiteTrackers, flagChangedSuites));
+    }
+
+    /**
+     * Collect the suites this run has something to say about - the ones it executed, and any whose
+     * developer-disabled flag its observations changed - as the writes to send to the data store.
+     *
+     * <p><b>The stats on the returned trackers are this run's own contribution, not the merged
+     * totals.</b> The store accumulates them onto whatever the row currently holds, so handing it
+     * the merged figures would count every stored run a second time. Everything else on the tracker
+     * is a value to replace rather than add to: the coverage edges are this run's capture, and the
+     * developer-disabled flag is what this run observed.
+     *
+     * <p>A suite that only had its flag changed contributes no run, so its stats are left at zero
+     * and its edge list empty - the store leaves both its stored stats and its stored coverage
+     * exactly as they are, and writes only the flag.
+     *
+     * <p>A name with no entry in the tracked map is dropped rather than carried through as a null -
+     * a suite that executed can still have been deleted moments earlier by
+     * {@link #removeDeletedTestSuites}, when the runner no longer discovers it.
+     *
+     * @param trackedSuites the merged tracked suites, keyed by suite name, carrying this run's
+     *                      coverage edges and the maintained developer-disabled flag
+     * @param runTestSuiteTrackers the trackers the runner produced, whose stats are this run's
+     *                             measured contribution
+     * @param flagChangedSuites the suites whose developer-disabled flag this run changed
+     * @return the suite writes to persist
+     */
+    private Map<String, TestSuiteTracker> suitesTouchedByThisRun(final Map<String, TestSuiteTracker> trackedSuites,
+                                                                 final Map<String, TestSuiteTracker> runTestSuiteTrackers,
+                                                                 final Set<String> flagChangedSuites) {
+        Set<String> touched = new HashSet<>(runTestSuiteTrackers.keySet());
+        touched.addAll(flagChangedSuites);
+
+        Map<String, TestSuiteTracker> toPersist = new HashMap<>();
+        for (String suiteName : touched) {
+            TestSuiteTracker merged = trackedSuites.get(suiteName);
+            if (merged == null) {
+                continue;
+            }
+
+            TestSuiteTracker write = new TestSuiteTracker(suiteName);
+            write.setClassesImpacted(merged.getClassesImpacted());
+            write.setDeveloperDisabled(merged.isDeveloperDisabled());
+
+            TestSuiteTracker ranThisRun = runTestSuiteTrackers.get(suiteName);
+            if (ranThisRun != null) {
+                write.setTestStats(ranThisRun.getTestStats());
+            }
+
+            toPersist.put(suiteName, write);
+        }
+
+        log.debug("Persisting {} of {} tracked test suite(s): the {} executed this run plus {} "
+                + "whose developer-disabled flag changed.", toPersist.size(), trackedSuites.size(),
+                runTestSuiteTrackers.size(), flagChangedSuites.size());
+        return toPersist;
     }
 
     /**
@@ -487,22 +559,37 @@ public class TestRunnerService {
      *       stored value forward.</li>
      * </ul>
      *
+     * <p>Reports the suites whose flag actually moved, rather than every suite it looked at, because
+     * that set is what decides which rows the persist writes. A suite whose flag is re-derived to
+     * the value it already held is not a change and gives this run no reason to write its row.
+     *
      * @param trackedSuites the merged tracked suites keyed by suite name (mutated in place)
      * @param selectedTests the suites Tia selected to run
      * @param runnerTestSuites the suites the runner discovered (executed + skipped + filtered)
      * @param executedSuiteNames the suites that actually executed this run
+     * @return the names of the suites whose flag this call changed; empty when none moved
      */
-    static void updateDeveloperDisabledFlags(final Map<String, TestSuiteTracker> trackedSuites,
-                                             final Set<String> selectedTests,
-                                             final Set<String> runnerTestSuites,
-                                             final Set<String> executedSuiteNames){
+    static Set<String> updateDeveloperDisabledFlags(final Map<String, TestSuiteTracker> trackedSuites,
+                                                    final Set<String> selectedTests,
+                                                    final Set<String> runnerTestSuites,
+                                                    final Set<String> executedSuiteNames){
+        Set<String> changed = new HashSet<>();
+
         trackedSuites.forEach((suiteName, tracker) -> {
+            Boolean newValue = null;
             if (executedSuiteNames.contains(suiteName)){
-                tracker.setDeveloperDisabled(false);
+                newValue = Boolean.FALSE;
             } else if (selectedTests.contains(suiteName) && runnerTestSuites.contains(suiteName)){
-                tracker.setDeveloperDisabled(true);
+                newValue = Boolean.TRUE;
+            }
+
+            if (newValue != null && newValue.booleanValue() != tracker.isDeveloperDisabled()){
+                tracker.setDeveloperDisabled(newValue.booleanValue());
+                changed.add(suiteName);
             }
         });
+
+        return changed;
     }
 
     /**

@@ -8,6 +8,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.BranchSchema;
@@ -153,7 +154,12 @@ class TestSelectorTrackedFileFilterTest {
         TiaData tiaData = dataStore.getTiaData(true);
         tiaData.getTestStats().setAllTestsRunTime(allTestsRunTimeMs);
         dataStore.persistCoreData(tiaData);
-        tiaData.getTestSuitesTracked().get(SUITE_NAME).getTestStats().setAvgRunTime(suiteAvgMs);
+        // The suite write accumulates, so the seed has to carry the run the average is an average
+        // of - an avgRunTime with numRuns=0 behind it is not data the store can fold in, and is not
+        // a state a real run can produce.
+        TestStats seedStats = tiaData.getTestSuitesTracked().get(SUITE_NAME).getTestStats();
+        seedStats.setNumRuns(1);
+        seedStats.setAvgRunTime(suiteAvgMs);
         dataStore.persistTestSuites(tiaData.getTestSuitesTracked());
         dataStore.clearUnsealedTestSuites();
     }
