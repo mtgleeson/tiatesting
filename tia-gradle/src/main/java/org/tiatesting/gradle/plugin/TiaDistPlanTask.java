@@ -97,7 +97,7 @@ public class TiaDistPlanTask extends DefaultTask {
 
         VCSReader vcsReader = plugin.getVCSReader();
         DistributedRunPlanSummary summary;
-        try (DataStore dataStore = plugin.buildDataStore(vcsReader.getBranchName())) {
+        try (DataStore dataStore = plugin.buildDistributedDataStore(vcsReader.getBranchName())) {
             List<String> sourceFilesDirs = plugin.getSourceFilesDirs() != null
                     ? Arrays.asList(plugin.getSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);

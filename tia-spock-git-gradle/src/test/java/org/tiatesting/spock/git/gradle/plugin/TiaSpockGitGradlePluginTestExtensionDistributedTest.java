@@ -106,10 +106,11 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
          * tiaDBUrl}, which exists only to satisfy the shared-database precondition string check.
          *
          * @param branch the VCS branch name whose schema the store selects
+         * @param schemaSuffix the schema suffix, unused here - these tests declare none
          * @return an embedded datastore the caller owns and closes
          */
         @Override
-        public DataStore buildDataStore(final String branch) {
+        public DataStore buildDataStore(final String branch, final String schemaSuffix) {
             return openStore(dbDir, branch);
         }
     }

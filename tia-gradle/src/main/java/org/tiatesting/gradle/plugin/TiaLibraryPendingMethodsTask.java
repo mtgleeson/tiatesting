@@ -9,7 +9,8 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPendingMethodsReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
 
-import java.util.function.Function;
+import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -26,7 +27,8 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
 
     private String library;
     private Supplier<VCSReader> vcsReaderSupplier;
-    private Function<String, DataStore> dataStoreFactory;
+    private BiFunction<String, String, DataStore> dataStoreFactory;
+    private Supplier<Set<String>> schemaSuffixes;
 
     /**
      * Setter used by Gradle when the user passes {@code --library=groupId:artifactId} on the
@@ -64,8 +66,20 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
      *
      * @param dataStoreFactory factory mapping a branch name to a constructed {@link DataStore}
      */
-    public void setDataStoreFactory(Function<String, DataStore> dataStoreFactory) {
+    public void setDataStoreFactory(BiFunction<String, String, DataStore> dataStoreFactory) {
         this.dataStoreFactory = dataStoreFactory;
+    }
+
+    /**
+     * Supply the schema suffixes this report iterates - one per distinct suffix declared across the
+     * project's Tia-enabled test tasks, so a project that isolates its test tasks into their own
+     * schemas gets a section per schema. A single-schema project supplies one entry and the output
+     * is unchanged.
+     *
+     * @param schemaSuffixes supplier of the suffixes to report over, which may contain null
+     */
+    public void setSchemaSuffixes(Supplier<Set<String>> schemaSuffixes) {
+        this.schemaSuffixes = schemaSuffixes;
     }
 
     /**
@@ -75,9 +89,13 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
     @TaskAction
     public void run() {
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName())) {
-            LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();
-            System.out.println(reportGenerator.generateLibraryPendingMethodsReport(dataStore, library));
+        Set<String> suffixes = schemaSuffixes.get();
+        for (String suffix : suffixes) {
+            TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+            try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName(), suffix)) {
+                LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();
+                System.out.println(reportGenerator.generateLibraryPendingMethodsReport(dataStore, library));
+            }
         }
     }
 }

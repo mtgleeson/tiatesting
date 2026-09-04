@@ -11,7 +11,8 @@ import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.List;
-import java.util.function.Function;
+import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -27,7 +28,8 @@ public class TiaHistoryTask extends DefaultTask {
 
     private String last = "20";
     private Supplier<VCSReader> vcsReaderSupplier;
-    private Function<String, DataStore> dataStoreFactory;
+    private BiFunction<String, String, DataStore> dataStoreFactory;
+    private Supplier<Set<String>> schemaSuffixes;
 
     /**
      * Setter used by Gradle when the user passes {@code --last=N} on the command line.
@@ -65,8 +67,20 @@ public class TiaHistoryTask extends DefaultTask {
      *
      * @param dataStoreFactory factory mapping a branch name to a constructed {@link DataStore}
      */
-    public void setDataStoreFactory(Function<String, DataStore> dataStoreFactory) {
+    public void setDataStoreFactory(BiFunction<String, String, DataStore> dataStoreFactory) {
         this.dataStoreFactory = dataStoreFactory;
+    }
+
+    /**
+     * Supply the schema suffixes this report iterates - one per distinct suffix declared across the
+     * project's Tia-enabled test tasks, so a project that isolates its test tasks into their own
+     * schemas gets a section per schema. A single-schema project supplies one entry and the output
+     * is unchanged.
+     *
+     * @param schemaSuffixes supplier of the suffixes to report over, which may contain null
+     */
+    public void setSchemaSuffixes(Supplier<Set<String>> schemaSuffixes) {
+        this.schemaSuffixes = schemaSuffixes;
     }
 
     /**
@@ -85,10 +99,14 @@ public class TiaHistoryTask extends DefaultTask {
             throw new GradleException("--last must be a positive integer; received " + limit);
         }
         VCSReader vcsReader = vcsReaderSupplier.get();
-        try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName())) {
-            List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
-            System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
-                    history, limit, System.lineSeparator()));
+        Set<String> suffixes = schemaSuffixes.get();
+        for (String suffix : suffixes) {
+            TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+            try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName(), suffix)) {
+                List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+                System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
+                        history, limit, System.lineSeparator()));
+            }
         }
     }
 }

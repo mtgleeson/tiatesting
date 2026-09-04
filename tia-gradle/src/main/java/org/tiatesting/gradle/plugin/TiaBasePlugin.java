@@ -1,6 +1,7 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Plugin;
+import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.logging.Logging;
@@ -147,6 +148,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.getTasks().register("tia-library-publishes", TiaLibraryPublishesTask.class, task -> {
             task.setVcsReaderSupplier(this::getVCSReader);
             task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
     }
 
@@ -159,14 +161,19 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.getTasks().register("tia-library-pending-methods", TiaLibraryPendingMethodsTask.class, task -> {
             task.setVcsReaderSupplier(this::getVCSReader);
             task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
     }
 
     public void createStatusTask() {
         project.task("tia-status").doLast(task -> {
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-                StatusReportGenerator reportGenerator = new StatusReportGenerator();
-                System.out.println(reportGenerator.generateSummaryReport(dataStore));
+            Set<String> suffixes = reportingSchemaSuffixes();
+            for (String suffix : suffixes) {
+                TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+                try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), suffix)) {
+                    StatusReportGenerator reportGenerator = new StatusReportGenerator();
+                    System.out.println(reportGenerator.generateSummaryReport(dataStore));
+                }
             }
         });
     }
@@ -178,9 +185,13 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createLibrariesTask() {
         project.task("tia-libraries").doLast(task -> {
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-                LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
-                System.out.println(reportGenerator.generateLibrariesReport(dataStore));
+            Set<String> suffixes = reportingSchemaSuffixes();
+            for (String suffix : suffixes) {
+                TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+                try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), suffix)) {
+                    LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
+                    System.out.println(reportGenerator.generateLibrariesReport(dataStore));
+                }
             }
         });
     }
@@ -188,12 +199,18 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-                TiaData tiaData = dataStore.getTiaData(true);
-                File reportOutputDir = getReportOutputDir();
-                ReportGenerator reportGenerator = new TextReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
-                reportGenerator.generateReports(tiaData);
-                System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+            String branch = getVCSReader().getBranchName();
+            for (String suffix : reportingSchemaSuffixes()) {
+                try (DataStore dataStore = buildDataStore(branch, suffix)) {
+                    TiaData tiaData = dataStore.getTiaData(true);
+                    File reportOutputDir = getReportOutputDir();
+                    // One report tree per schema, scoped by the same folder mechanism that already
+                    // scopes them per branch - a project with no suffix keeps its existing folder.
+                    ReportGenerator reportGenerator = new TextReportGenerator(
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir);
+                    reportGenerator.generateReports(tiaData);
+                    System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+                }
             }
         });
     }
@@ -201,12 +218,18 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
-                TiaData tiaData = dataStore.getTiaData(true);
-                File reportOutputDir = getReportOutputDir();
-                ReportGenerator reportGenerator = new HtmlReportGenerator(getVCSReader().getBranchName(), reportOutputDir);
-                reportGenerator.generateReports(tiaData);
-                System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
+            String branch = getVCSReader().getBranchName();
+            for (String suffix : reportingSchemaSuffixes()) {
+                try (DataStore dataStore = buildDataStore(branch, suffix)) {
+                    TiaData tiaData = dataStore.getTiaData(true);
+                    File reportOutputDir = getReportOutputDir();
+                    // One report tree per schema, scoped by the same folder mechanism that already
+                    // scopes them per branch - a project with no suffix keeps its existing folder.
+                    ReportGenerator reportGenerator = new HtmlReportGenerator(
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir);
+                    reportGenerator.generateReports(tiaData);
+                    System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
+                }
             }
         });
     }
@@ -220,7 +243,10 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createSelectTestsTask() {
         project.task("tia-select-tests").doLast(task -> {
             System.out.println("Displaying the tests selected by Tia.");
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
+            Set<String> selectSuffixes = reportingSchemaSuffixes();
+            for (String selectSuffix : selectSuffixes) {
+            TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
+            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), selectSuffix)) {
                 List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
                 StringUtil.sanitizeInputArray(sourceFilesDirs);
                 List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -258,6 +284,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                             grouping == null ? null : Long.valueOf(grouping.getHeaviestGroupMs())));
                     printDistributedRunPreview(result, grouping, lineSep);
                 }
+            }
             }
         });
     }
@@ -354,6 +381,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
             task.setVcsReaderSupplier(this::getVCSReader);
             task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
     }
 
@@ -416,7 +444,24 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
         VCSReader vcsReader = getVCSReader();
         StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+
+        // A publish stamp is a write, so unlike the reporting tasks it cannot simply visit every
+        // schema - it has to be told which of them consume this library, which is knowledge only
+        // the consumers have. Until that list exists, refuse rather than write the stamp into a
+        // schema no test task reads: a stamp that lands in the wrong schema is never drained, and
+        // the suites the library changed are never force-run. Silent under-selection.
+        Set<String> stampSuffixes = reportingSchemaSuffixes();
+        if (stampSuffixes.size() > 1) {
+            throw new GradleException("Tia: this project declares more than one schema "
+                    + stampSuffixes + " but a library publish stamp can only be written to one, and"
+                    + " Tia cannot tell which of them consume this library. Stamping one would leave"
+                    + " the others never draining the change and never re-running the suites it"
+                    + " affects. Declaring the consuming schemas is not supported yet - until it is,"
+                    + " use a single schema on a project that publishes a tracked library.");
+        }
+
+        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName(),
+                stampSuffixes.iterator().next())) {
             LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                     .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion, jarFilePath,
                             staticConfig);
@@ -511,8 +556,48 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * @return the constructed datastore for the resolved dialect
      */
     public DataStore buildDataStore(String branch) {
+        return buildDataStore(branch, null);
+    }
+
+    /**
+     * Open the datastore for a branch and a schema suffix. A null suffix is the unsuffixed
+     * {@code tia_<branch>} schema Tia has always used, so a project that declares none is
+     * unaffected.
+     *
+     * @param branch the VCS branch, the base of the schema name
+     * @param schemaSuffix the schema suffix isolating one test task's datastore, or null for none
+     * @return an open datastore the caller owns and closes
+     */
+    public DataStore buildDataStore(String branch, String schemaSuffix) {
         return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), getDbDialect(), branch, null);
+                getDbPassword(), getDbDialect(), branch, schemaSuffix);
+    }
+
+    /**
+     * Open the datastore of this project's one distributed test task.
+     *
+     * <p>Derived rather than selected: a build that configures a second distributed test task is
+     * refused at configuration time, so there is exactly one schema a distributed run can belong to.
+     * The daemon-side distributed tasks must address the same schema the runner's forked test JVM
+     * persists to, or the plan is written where no runner will look for it.
+     *
+     * @param branch the VCS branch, the base of the schema name
+     * @return an open datastore the caller owns and closes
+     */
+    public DataStore buildDistributedDataStore(String branch) {
+        return buildDataStore(branch,
+                TiaSchemaResolver.distributedSchemaSuffix(project, tiaTaskExtension));
+    }
+
+    /**
+     * The schema suffixes this project's reporting tasks iterate: one per distinct suffix declared
+     * across the Tia-enabled test tasks. A single-test-task project yields exactly one entry - null
+     * - so every reporting task behaves as it always has.
+     *
+     * @return the suffixes to report over, possibly containing null
+     */
+    private Set<String> reportingSchemaSuffixes() {
+        return TiaSchemaResolver.schemaSuffixes(project, tiaTaskExtension);
     }
 
     /**
