@@ -148,6 +148,19 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     boolean tiaUpdateDBTestRunHistory;
 
     /**
+     * The label recorded in the history row's {@code run_source} column, overriding Tia's own
+     * detection.
+     * <p>
+     * Leave this unset unless the detection gets it wrong. Tia reads the CI marker environment
+     * variables, which a forked test JVM inherits, so an ordinary CI job is already labelled
+     * {@code CI} and a developer's machine {@code LOCAL} with nothing configured. Set it to
+     * distinguish a build the detection cannot tell apart from any other - a nightly or a
+     * performance rig - or to label a CI system Tia does not recognise.
+     */
+    @Parameter(property = "tiaRunSource")
+    String tiaRunSource;
+
+    /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     @Parameter(property = "tiaCheckLocalChanges")
@@ -424,6 +437,14 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     public boolean isTiaUpdateDBTestRunHistory() {
         return tiaUpdateDBTestRunHistory;
+    }
+
+    /**
+     * @return the declared label for the history row's {@code run_source} column, or null to let
+     *         Tia detect it from the environment
+     */
+    public String getTiaRunSource() {
+        return tiaRunSource;
     }
 
     public boolean isTiaCheckLocalChanges() {

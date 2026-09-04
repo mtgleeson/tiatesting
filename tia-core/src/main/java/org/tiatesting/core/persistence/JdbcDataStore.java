@@ -16,6 +16,7 @@ import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -87,6 +88,8 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
     private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
+    private static final String COL_RUN_SOURCE = "run_source";
+    private static final String COL_HOST_NAME = "host_name";
     private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
     private static final String COL_BLOCK_NAME = "block_name";
     private static final String COL_NEXT_VALUE = "next_value";
@@ -1425,7 +1428,8 @@ public class JdbcDataStore implements DataStore {
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
                             COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT),
+                            COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT,
+                            COL_RUN_SOURCE, COL_HOST_NAME),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1445,6 +1449,10 @@ public class JdbcDataStore implements DataStore {
             setNullableString(ps, 12, entry.getRunId());
             setNullableLong(ps, 13, entry.getWallClockMs());
             setNullableInt(ps, 14, entry.getGroupCount());
+            // Both nullable for the same reason as the distributed columns above: an unknown origin
+            // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
+            setNullableString(ps, 15, entry.getRunOrigin().getRunSource());
+            setNullableString(ps, 16, entry.getRunOrigin().getHostName());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1488,7 +1496,9 @@ public class JdbcDataStore implements DataStore {
                         resultSet.getInt(COL_SAVINGS_PERCENT),
                         resultSet.getString(COL_RUN_ID),
                         getNullableLong(resultSet, COL_WALL_CLOCK_MS),
-                        getNullableInt(resultSet, COL_GROUP_COUNT)));
+                        getNullableInt(resultSet, COL_GROUP_COUNT),
+                        RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
+                                resultSet.getString(COL_HOST_NAME))));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -3751,7 +3761,12 @@ public class JdbcDataStore implements DataStore {
                 // row indistinguishable from one written before distributed runs existed.
                 + COL_RUN_ID + " VARCHAR(255), "
                 + COL_WALL_CLOCK_MS + " BIGINT, "
-                + COL_GROUP_COUNT + " INT)";
+                + COL_GROUP_COUNT + " INT, "
+                // Where the run came from. Nullable throughout: null means "not known", which is
+                // what a row written before these columns existed, a run whose hostname would not
+                // resolve, and a distributed build (no single host ran it) all genuinely are.
+                + COL_RUN_SOURCE + " VARCHAR(32), "
+                + COL_HOST_NAME + " VARCHAR(255))";
     }
 
     /**
@@ -3793,6 +3808,12 @@ public class JdbcDataStore implements DataStore {
                 + COL_WALL_CLOCK_MS + " BIGINT");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_GROUP_COUNT + " INT");
+        // Migration: add the run-origin columns to DBs created before them. No DEFAULT, so old rows
+        // read back null rather than being retro-labelled as something nobody actually recorded.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_RUN_SOURCE + " VARCHAR(32)");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_HOST_NAME + " VARCHAR(255)");
     }
 
     /**

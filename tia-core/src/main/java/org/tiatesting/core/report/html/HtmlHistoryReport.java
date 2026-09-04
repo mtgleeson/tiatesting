@@ -5,6 +5,7 @@ import j2html.rendering.FlatHtml;
 import j2html.tags.DomContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.ReportUtils;
@@ -90,6 +91,9 @@ public class HtmlHistoryReport {
         // The two distributed columns only earn their place when the history has a distributed
         // build in it; otherwise every row would dash them, so the table stays as it was.
         final boolean showDistributed = anyDistributed(history);
+        // Same rule for the run-origin pair: a history recorded entirely before those columns
+        // existed renders neither rather than dashing both on every row.
+        final boolean showOrigin = anyKnownOrigin(history);
 
         try (FileWriter writer = new FileWriter(fileName)) {
             html(
@@ -104,8 +108,8 @@ public class HtmlHistoryReport {
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_HISTORY, "Test Run History"),
                                     table(attrs("#tiaTable"),
-                                            thead(buildHeaderRow(numberDataType, showDistributed)),
-                                            tbody(each(history, entry -> buildRow(entry, showDistributed)))
+                                            thead(buildHeaderRow(numberDataType, showDistributed, showOrigin)),
+                                            tbody(each(history, entry -> buildRow(entry, showDistributed, showOrigin)))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
@@ -144,6 +148,28 @@ public class HtmlHistoryReport {
     }
 
     /**
+     * Report whether any row knows where it came from, which decides whether the run-source and
+     * host columns are rendered at all. Either half counts: a distributed build records a source
+     * with no host, so requiring both would hide the source on a history made up of distributed
+     * builds.
+     *
+     * @param history the history rows about to be rendered; may be null
+     * @return true when at least one row carries a run source or a host
+     */
+    private boolean anyKnownOrigin(List<TestRunHistoryEntry> history) {
+        if (history == null) {
+            return false;
+        }
+        for (TestRunHistoryEntry entry : history) {
+            RunOrigin origin = entry.getRunOrigin();
+            if (origin.getRunSource() != null || origin.getHostName() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Build the table's header row for the layout in use. The two distributed columns sit next to
      * Duration, since the reason they exist is to be read against it: Duration is the
      * serial-equivalent time the build would have taken unsplit and the figure savings come from,
@@ -151,9 +177,11 @@ public class HtmlHistoryReport {
      *
      * @param numberDataType the {@code data-type} attribute simple-datatables sorts numerically by
      * @param showDistributed whether the wall clock and group columns are being rendered
+     * @param showOrigin whether the run source and host columns are being rendered
      * @return the {@code <tr>} of header cells
      */
-    private DomContent buildHeaderRow(String numberDataType, boolean showDistributed) {
+    private DomContent buildHeaderRow(String numberDataType, boolean showDistributed,
+                                      boolean showOrigin) {
         List<DomContent> cells = new ArrayList<>();
         cells.add(th("Date / time (local)").attr(numberDataType));
         cells.add(th("Branch"));
@@ -168,6 +196,10 @@ public class HtmlHistoryReport {
         }
         cells.add(th("Savings").attr(numberDataType));
         cells.add(th("Savings %").attr(numberDataType));
+        if (showOrigin) {
+            cells.add(th("Source").withStyle("width: 6em"));
+            cells.add(th("Host"));
+        }
         cells.add(th("Updated Mapping?").withStyle("width: 8em"));
         cells.add(th("Id"));
         return tr(cells.toArray(new DomContent[0]));
@@ -183,9 +215,11 @@ public class HtmlHistoryReport {
      *
      * @param entry the history entry to render as a row
      * @param showDistributed whether the wall clock and group columns are being rendered
+     * @param showOrigin whether the run source and host columns are being rendered
      * @return the {@code <tr>} content for this entry
      */
-    private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed) {
+    private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed,
+                                boolean showOrigin) {
         long ms = entry.getRunTimestampMs();
         // Fallback text shown only when the localizer script doesn't run (JS disabled). Truncate
         // to whole seconds and drop the UTC 'Z' so the displayed text matches the no-ms /
@@ -221,6 +255,13 @@ public class HtmlHistoryReport {
                 .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())));
         cells.add(td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
                 .attr("data-sort", String.valueOf(entry.getSavingsPercent())));
+        if (showOrigin) {
+            // Dashed rather than blank so an absent origin reads as "not recorded" rather than as
+            // a rendering slip - and so the column sorts the unknown rows together.
+            RunOrigin origin = entry.getRunOrigin();
+            cells.add(td(origin.getRunSource() == null ? "-" : origin.getRunSource()));
+            cells.add(td(origin.getHostName() == null ? "-" : origin.getHostName()));
+        }
         cells.add(td(entry.isUpdatedDbMapping() ? "yes" : "no"));
         // title on a span inside the td so the tooltip survives simple-datatables
         // re-rendering the row chrome on sort/page changes.

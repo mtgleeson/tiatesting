@@ -2,6 +2,7 @@ package org.tiatesting.core.report.html;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 
@@ -35,7 +36,7 @@ class HtmlHistoryReportDistributedColumnsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 20_000L,
-                        true, 4000L, 80, "run-1", Long.valueOf(8_000L), Integer.valueOf(3))));
+                        true, 4000L, 80, "run-1", Long.valueOf(8_000L), Integer.valueOf(3), RunOrigin.unknown())));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
@@ -64,7 +65,7 @@ class HtmlHistoryReportDistributedColumnsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L,
-                        true, 4000L, 80, null, null, null)));
+                        true, 4000L, 80, null, null, null, RunOrigin.unknown())));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
@@ -89,9 +90,9 @@ class HtmlHistoryReportDistributedColumnsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 20_000L,
-                        true, 4000L, 80, "run-1", Long.valueOf(8_000L), Integer.valueOf(3)),
+                        true, 4000L, 80, "run-1", Long.valueOf(8_000L), Integer.valueOf(3), RunOrigin.unknown()),
                 new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L,
-                        true, 0L, 0, null, null, null)));
+                        true, 0L, 0, null, null, null, RunOrigin.unknown())));
 
         // when
         String html = generateAndRead(tiaData, tempDir);

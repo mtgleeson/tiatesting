@@ -611,7 +611,8 @@ gradle tia-select-tests --debug
 
 ### Display the test-run history
 Prints the most recent rows from the `tia_test_run_history` table as a table — one row per run,
-with branch, 8-char commit, suite counts, duration, mapping flag, and 8-char id. Defaults to the
+with branch, 8-char commit, suite counts, duration, savings, run origin, mapping flag, and
+8-char id. Defaults to the
 latest 20 runs; use `-DtiaHistoryLast=N` (Maven) or `--last=N` (Gradle) to change the cap.
 
 Example output:
@@ -638,6 +639,20 @@ Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall cloc
 - **`Groups`** is how many groups the run was split across.
 
 The two are equal when a run had one group - the second row above is a seed run, which is always a single group covering everything. Note that `Savings` is measured against `Duration`, so it never includes the speed-up from distributing; that gain is the gap between `Duration` and `Wall clock`. See [Which time is which](#which-time-is-which).
+
+When any run in view recorded where it came from, two further columns appear after `Savings %`:
+
+```
+Date/time            Branch            Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Source  Host           Mapping  Id
+-------------------  ----------------  --------  ---  -------  ------  --------  -------  ---------  ------  -------------  -------  --------
+2026-05-15 09:30:42  main              abc123de  420        0       0  15m 30s   -                -  CI      build-agent-3  yes      550e8400
+2026-05-14 18:06:40  feature/checkout  9911aabb   12      408       1  41s       14m 49s        95%  LOCAL   mgleeson-mbp   no       6f1a2b3c
+```
+
+- **`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration).
+- **`Host`** is the machine that ran it, rendered whole rather than truncated - unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes it: no single machine ran it.
+
+Both columns are omitted entirely from a history recorded before they existed, and a row that predates them is dashed in a mixed history.
 
 A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
 
@@ -805,6 +820,7 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaDBDialect|dbDialect|`h2`, `postgres`|Explicit SQL dialect override. Only needed when the dialect can't be (or shouldn't be) inferred from `tiaDBUrl` / `dbUrl`'s scheme. See [Using a different database](#using-a-different-database).| inferred from `tiaDBUrl` / `dbUrl` (defaults to `h2` when that is also unset)                 |false|
 |tiaDBUser|dbUser|<string>|Database username for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).|tia|false|
 |tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).| (empty)                                                                                       |false|
+|tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
 |tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|

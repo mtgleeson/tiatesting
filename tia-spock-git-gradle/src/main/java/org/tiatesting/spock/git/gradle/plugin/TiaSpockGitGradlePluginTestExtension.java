@@ -19,6 +19,7 @@ import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
@@ -97,6 +98,11 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+                    // Forwarded only when declared. Unset means "let Tia detect it" - forwarding the
+                    // literal string "null" would be stored verbatim as the run's source.
+                    if (tiaTaskExtension.getRunSource() != null){
+                        testTask.systemProperty(RunEnvironment.PROP_RUN_SOURCE, tiaTaskExtension.getRunSource());
+                    }
 
                     LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
                     String libraryJarsCsv = resolver.resolveLibraryJarsCsv(
@@ -201,6 +207,13 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getCheckLocalChanges() == null){
             tiaTaskExt.setCheckLocalChanges(tiaProjectExt.getCheckLocalChanges());
+        }
+
+        // Like the distributed settings below, the run source describes the build rather than any
+        // one test task, so it is normally declared once at the project level and must reach every
+        // test task from there.
+        if (tiaTaskExt.getRunSource() == null){
+            tiaTaskExt.setRunSource(tiaProjectExt.getRunSource());
         }
 
         if (tiaTaskExt.getSourceLibs() == null){
