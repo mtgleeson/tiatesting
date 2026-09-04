@@ -104,7 +104,4 @@ public final class CoreStatsIncrement {
 
     /** @return the per-suite capture overhead to fold in; only meaningful when {@link #hasOverheadModel()} */
     public long getCaptureOverheadPerSuiteMs() { return captureOverheadPerSuiteMs.longValue(); }
-
-    /** @return true when there is nothing at all for a store to write */
-    public boolean isEmpty() { return numRuns <= 0 && !hasOverheadModel(); }
 }

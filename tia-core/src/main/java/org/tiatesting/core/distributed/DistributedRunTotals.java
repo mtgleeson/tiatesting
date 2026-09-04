@@ -175,8 +175,8 @@ public final class DistributedRunTotals {
                                 + "so the build's per-JVM overhead cannot be measured. Charging the "
                                 + "overhead once is skipped for the whole build and the "
                                 + "serial-equivalent duration falls back to the plain sum of the "
-                                + "group durations. Suite times are only recorded when "
-                                + "tiaUpdateDBStats is enabled.",
+                                + "group durations. Suite times are only recorded by a build that "
+                                + "updates the mapping DB.",
                         group.getGroupNumber(), group.getSuitesRan());
                 return 0L;
             }

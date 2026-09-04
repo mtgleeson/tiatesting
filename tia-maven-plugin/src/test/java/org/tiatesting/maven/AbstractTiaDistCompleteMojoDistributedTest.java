@@ -162,7 +162,6 @@ class AbstractTiaDistCompleteMojoDistributedTest {
             props.put("tiaDistributedGroupNumber", String.valueOf(groupNumber));
         }
         props.put("tiaUpdateDBMapping", String.valueOf(updateDBMapping));
-        props.put("tiaUpdateDBStats", String.valueOf(updateDBMapping));
         props.put("tiaUpdateDBTestRunHistory", String.valueOf(updateDBMapping));
         ForkSystemProperties.write(props, new File(buildDir, "fork.properties"));
     }
