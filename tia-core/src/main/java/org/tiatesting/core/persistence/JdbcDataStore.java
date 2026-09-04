@@ -17,6 +17,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -510,6 +511,36 @@ public class JdbcDataStore implements DataStore {
         }
 
         log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Issues an {@code UPDATE} listing the stats columns only. {@code tia_core} holds a single
+     * row, so no {@code WHERE} clause is needed - and deliberately none is written against
+     * {@code commit_value}, which is the row's primary key: the point of this path is that the run
+     * making it has no opinion about which commit the row identifies.
+     *
+     * @param testStats the Tia-level run stats to write onto the core row
+     */
+    @Override
+    public void persistCoreStats(final TestStats testStats){
+        long startTime = System.currentTimeMillis();
+        Connection connection = getConnection();
+
+        try {
+            persistTiaCoreStats(connection, testStats);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        log.debug("Time to save the Tia core stats to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
     /**
@@ -2600,6 +2631,43 @@ public class JdbcDataStore implements DataStore {
         log.debug("Persisting Tia core data: {}", sql);
         Statement statement = connection.createStatement();
         statement.executeUpdate(sql);
+    }
+
+    /**
+     * Write the Tia-level run stats onto the core row without touching the commit value, the branch
+     * or the last-updated timestamp.
+     *
+     * <p>Unlike {@link #persistTiaCore(Connection, TiaData)} there is no INSERT counterpart. The
+     * commit value is the core table's primary key and cannot be null, so a run with stats but no
+     * commit to stamp has no row it could legitimately create - it would have to invent an identity
+     * for the mapping it does not own. When no row exists the UPDATE matches nothing, which is the
+     * intended outcome: the first mapping run creates the row and the stats resume accumulating from
+     * there.
+     *
+     * @param connection the connection to issue the update on
+     * @param testStats the Tia-level run stats to write
+     * @throws SQLException if the update fails
+     */
+    private void persistTiaCoreStats(Connection connection, TestStats testStats) throws SQLException {
+        String sql = "UPDATE " + TABLE_TIA_CORE + " SET " +
+                COL_NUM_RUNS + "=" + testStats.getNumRuns() +
+                ", " + COL_AVG_RUN_TIME + "=" + testStats.getAvgRunTime() +
+                ", " + COL_NUM_SUCCESS_RUNS + "=" + testStats.getNumSuccessRuns() +
+                ", " + COL_NUM_FAIL_RUNS + "=" + testStats.getNumFailRuns() +
+                ", " + COL_ALL_TESTS_RUN_TIME + "=" + testStats.getAllTestsRunTime() +
+                ", " + COL_NUM_ALL_TESTS_RUNS + "=" + testStats.getNumAllTestsRuns() +
+                ", " + COL_FIXED_OVERHEAD_MS + "=" + testStats.getFixedOverheadMs() +
+                ", " + COL_CAPTURE_OVERHEAD_PER_SUITE_MS + "=" + testStats.getCaptureOverheadPerSuiteMs() +
+                ", " + COL_NUM_OVERHEAD_MEASUREMENTS + "=" + testStats.getNumOverheadMeasurements();
+
+        log.debug("Persisting Tia core stats: {}", sql);
+        Statement statement = connection.createStatement();
+        int rowsUpdated = statement.executeUpdate(sql);
+
+        if (rowsUpdated == 0){
+            log.debug("No Tia core row exists yet, so the run stats were not stored. The first run "
+                    + "that updates the mapping DB will create the row.");
+        }
     }
 
     /**

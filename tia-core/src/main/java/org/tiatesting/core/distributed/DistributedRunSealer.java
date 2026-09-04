@@ -210,7 +210,7 @@ public final class DistributedRunSealer {
             foldOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
         }
 
-        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun);
+        seal(tiaData, commitValue, branch, updateDBMapping, updateDBStats, allTestsRun);
 
         if (updateDBTestRunHistory) {
             // The baseline this build's savings are frozen against, read from the same core data
@@ -229,23 +229,30 @@ public final class DistributedRunSealer {
      * The catalogue's line numbers only mean anything in one commit's coordinate space, so they and
      * the commit value cannot be allowed to land separately.
      *
-     * <p>A build that does not own mapping updates writes only the core row, which carries the
-     * Tia-level stats but no catalogue, no drain cleanup and no commit advance - the same shape the
-     * single-host stats-only path takes.
+     * <p>A build that does not own mapping updates writes only the core row's stats columns - no
+     * catalogue, no drain cleanup and, deliberately, no commit or branch write: those describe the
+     * mapping this build does not own, and writing them back from the snapshot read at the start of
+     * the seal would roll the stored commit backwards if a mapping-owning build advanced it
+     * meanwhile. The same shape the single-host stats-only path takes.
      *
      * @param tiaData the core data read for this seal, already carrying any stats update and
      *                mutated with the commit before being written
      * @param commitValue the commit being sealed
      * @param branch the branch being sealed
      * @param updateDBMapping whether this build owns mapping-DB updates
+     * @param updateDBStats whether the Tia-level run stats should be written. Only consulted on the
+     *                      non-mapping path; a mapping build's seal carries the stats regardless
      * @param allTestsRun whether the groups between them ran every tracked suite
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
-                      final boolean updateDBMapping, final boolean allTestsRun) {
+                      final boolean updateDBMapping, final boolean updateDBStats,
+                      final boolean allTestsRun) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
-            dataStore.persistCoreData(tiaData);
+            if (updateDBStats) {
+                dataStore.persistCoreStats(tiaData.getTestStats());
+            }
             return;
         }
 
