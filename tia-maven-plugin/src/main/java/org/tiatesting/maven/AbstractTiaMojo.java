@@ -387,7 +387,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     protected DataStore buildDataStore(final String branch){
         return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch);
+                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch, null);
     }
 
     public String getTiaSourceFilesDirs() {

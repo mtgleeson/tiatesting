@@ -30,7 +30,7 @@ class StatusReportBranchTest {
         tempDir = File.createTempFile("tia-test-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true); // force schema creation
     }
 

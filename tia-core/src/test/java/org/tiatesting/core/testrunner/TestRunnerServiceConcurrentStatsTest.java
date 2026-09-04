@@ -191,7 +191,7 @@ class TestRunnerServiceConcurrentStatsTest {
         emptyDir.mkdirs();
         try (JdbcDataStore emptyStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(emptyDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"))) {
+                BranchSchema.schemaName("test", null))) {
             emptyStore.getTiaData(true);
             TestRunnerService service = new TestRunnerService(emptyStore);
 
@@ -293,7 +293,7 @@ class TestRunnerServiceConcurrentStatsTest {
         InterleavingDataStore(final File databaseDir) {
             super(new H2Dialect(),
                     new H2ConnectionProvider(H2ConnectionSettings.embedded(databaseDir.getAbsolutePath())),
-                    BranchSchema.schemaName("test"));
+                    BranchSchema.schemaName("test", null));
         }
 
         /**

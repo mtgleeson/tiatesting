@@ -51,7 +51,7 @@ class JdbcDataStoreDistributedPlanTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
     }
 
@@ -128,7 +128,7 @@ class JdbcDataStoreDistributedPlanTest {
         freshTempDir.mkdirs();
         JdbcDataStore freshDataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(freshTempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         try {
             DistributedRunPlan plan = samplePlan("run-1", null);
 
@@ -391,7 +391,7 @@ class JdbcDataStoreDistributedPlanTest {
         }
         JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
 
         try {
             // when

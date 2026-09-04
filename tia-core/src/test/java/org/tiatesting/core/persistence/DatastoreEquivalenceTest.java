@@ -138,7 +138,7 @@ class DatastoreEquivalenceTest {
              Statement statement = connection.createStatement()) {
             // the store's tables now live in the per-branch schema (see DataStoreFactory), not the
             // default "public" schema a raw connection starts in - select it before dropping.
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
                     + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
                     + "tia_pending_library_impacted_method, tia_pending_library_forced_selection, "
@@ -253,9 +253,9 @@ class DatastoreEquivalenceTest {
         cleanPostgres();
 
         h2TempDir = Files.createTempDirectory("tia-h2-postgres-equivalence");
-        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH);
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH);
+                null, BRANCH, null);
         seed(h2Store);
         seed(postgresStore);
 
@@ -287,7 +287,7 @@ class DatastoreEquivalenceTest {
     void forcedSelectionRoundTripAndDelete() throws Exception {
         // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
         h2TempDir = Files.createTempDirectory("tia-h2-forced-selection");
-        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH);
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
         h2Store.getTiaData(true);
 
         // when / then - the H2 leg always runs, regardless of Postgres availability
@@ -298,7 +298,7 @@ class DatastoreEquivalenceTest {
         if (isPostgresReachable()) {
             cleanPostgres();
             postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                    null, BRANCH);
+                    null, BRANCH, null);
             postgresStore.getTiaData(true);
             assertForcedSelectionRoundTrip(postgresStore);
         }

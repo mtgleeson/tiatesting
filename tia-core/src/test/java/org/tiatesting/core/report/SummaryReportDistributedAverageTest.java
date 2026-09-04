@@ -117,7 +117,7 @@ class SummaryReportDistributedAverageTest {
     private static String statusReport(final Path tempDir, final List<TestRunHistoryEntry> history) {
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.toString())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
         dataStore.persistCoreData(coreData(history));
         history.forEach(dataStore::persistTestRunHistoryEntry);

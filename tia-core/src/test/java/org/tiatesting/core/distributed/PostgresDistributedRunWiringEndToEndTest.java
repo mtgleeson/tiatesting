@@ -57,7 +57,7 @@ class PostgresDistributedRunWiringEndToEndTest extends DistributedRunWiringEndTo
     private static void cleanTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_group_suite, "
                     + "tia_distributed_run_method_stage, tia_distributed_run_group, "
                     + "tia_distributed_run, tia_source_class_method, tia_source_class, "
@@ -80,6 +80,6 @@ class PostgresDistributedRunWiringEndToEndTest extends DistributedRunWiringEndTo
         assumePg();
         cleanTables();
         return DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH);
+                null, BRANCH, null);
     }
 }

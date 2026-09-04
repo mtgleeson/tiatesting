@@ -38,7 +38,7 @@ class JdbcDataStoreDeveloperDisabledTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
     }
 
     @AfterEach
@@ -98,12 +98,12 @@ class JdbcDataStoreDeveloperDisabledTest {
             // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
             // JdbcDataStore selects on its own connections - select it explicitly before altering
             // the unqualified table name.
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test")));
+            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
             statement.executeUpdate("ALTER TABLE tia_test_suite DROP COLUMN developer_disabled");
         }
 
         // when - a fresh datastore re-runs ensureSchema (via getTiaData), which must re-add the column
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
+        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
         Map<String, TestSuiteTracker> loaded = migrated.getTiaData(true).getTestSuitesTracked();
         migrated.close();
 

@@ -116,7 +116,7 @@ class DistributedRunWiringEndToEndTest {
         tempDir.mkdirs();
         return new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName(BRANCH));
+                BranchSchema.schemaName(BRANCH, null));
     }
 
     /**

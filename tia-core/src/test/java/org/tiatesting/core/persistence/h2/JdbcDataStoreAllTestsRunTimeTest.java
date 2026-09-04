@@ -37,7 +37,7 @@ class JdbcDataStoreAllTestsRunTimeTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
     }
 
     @AfterEach
@@ -101,13 +101,13 @@ class JdbcDataStoreAllTestsRunTimeTest {
             // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
             // JdbcDataStore selects on its own connections - select it explicitly before altering
             // the unqualified table name.
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test")));
+            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
             statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN all_tests_run_time");
             statement.executeUpdate("ALTER TABLE tia_core DROP COLUMN num_all_tests_runs");
         }
 
         // when - a fresh datastore re-runs ensureSchema (via getTiaCore), which must re-add them
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
+        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
         TiaData loaded = migrated.getTiaCore();
         migrated.close();
 

@@ -92,7 +92,7 @@ class TiaTestExecutionListenerDistributedTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName(BRANCH));
+                BranchSchema.schemaName(BRANCH, null));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaCore();
