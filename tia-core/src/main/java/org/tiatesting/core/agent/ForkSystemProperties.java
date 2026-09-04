@@ -45,6 +45,17 @@ public final class ForkSystemProperties {
      */
     public static final String PROP_UPDATE_DB_TEST_RUN_HISTORY = "tiaUpdateDBTestRunHistory";
 
+    /**
+     * Property name, in the fork properties file, for the comma-separated directories holding the
+     * project's compiled test classes.
+     *
+     * <p>This is what lets a forked test JVM tell a suite deleted from the repository from one it
+     * simply did not run. Without it a fork answers that question from the suites it happened to
+     * observe, so a run split across JVMs has each fork conclude that every suite the others owned
+     * has been deleted. See {@link #PROP_UPDATE_DB_MAPPING} for why the name is owned here.
+     */
+    public static final String PROP_TEST_CLASSES_DIRS = "tiaTestClassesDirs";
+
     private ForkSystemProperties() {
     }
 

@@ -148,9 +148,11 @@ under-selection in the schemas that missed it.
 
 ## What this does not cover
 
-- **The fork variant.** One test task split across JVMs by `maxParallelForks > 1` or `forkEvery > 0`
-  hits the same deletion bug, and suffixes do not help - those JVMs share a schema by definition. The
-  fix there is a project-wide test class list, the way Maven's `testClassesDir` already works.
+- **The fork variant** - one test task split across JVMs by `maxParallelForks > 1` or
+  `forkEvery > 0` - is not addressed by suffixes, because those JVMs share a schema by definition.
+  It is fixed separately, by forwarding the compiled test-classes directories so a fork answers
+  "deleted from the repository?" from disk rather than from the suites it happened to observe. See
+  the persist-flow chapter.
 - **Maven multi-module reactors.** Each module's `testClassesDir` is its own, so a reactor with Tia
   enabled in several modules against a shared datastore has the same mutual deletion, with no guard
   outside the distributed path. Supporting that properly is separate work.

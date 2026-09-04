@@ -10,6 +10,7 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -32,11 +33,13 @@ import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Set;
 
 public class TiaSpockGitGradlePluginTestExtension {
@@ -104,6 +107,18 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+                    // The compiled test classes this task owns. They tell the forked JVM which
+                    // suites still exist in the project, so a suite it did not run is not mistaken
+                    // for one deleted from the repository - which is what a run split across JVMs
+                    // (maxParallelForks > 1, forkEvery > 0) would otherwise conclude about every
+                    // suite the other forks were given. Identical for every fork of this task, so
+                    // the answer no longer depends on how the run was split.
+                    String testClassesDirs = testTask.getTestClassesDirs().getFiles().stream()
+                            .map(File::getAbsolutePath)
+                            .collect(Collectors.joining(","));
+                    if (!testClassesDirs.isEmpty()) {
+                        testTask.systemProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS, testClassesDirs);
+                    }
                     // Forwarded only when declared. Unset means "let Tia detect it" - forwarding the
                     // literal string "null" would be stored verbatim as the run's source.
                     if (tiaTaskExtension.getRunSource() != null){
