@@ -606,7 +606,7 @@ class TestRunnerServiceDistributedPersistTest {
 
     /**
      * Build a run result carrying suites whose run times were measured, as a listener with
-     * {@code updateDBStats} on leaves them: each tracker's {@code avgRunTime} holds that suite's own
+     * a mapping-owning listener leaves them: each tracker's {@code avgRunTime} holds that suite's own
      * measured duration by the time the test plan has finished.
      *
      * @param suiteRunTimesMs the measured run time of each suite, one suite per value
