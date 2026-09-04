@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.dialect.PostgresDialect;
 
@@ -431,9 +432,9 @@ class PostgresCompletionTest {
         TestRunHistoryEntry distributed = new TestRunHistoryEntry(
                 "pg-dist-id", 1_700_000_000_000L, BRANCH, "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80,
-                "ci-run-42", 1_800L, 4);
+                "ci-run-42", 1_800L, 4, RunOrigin.unknown());
         TestRunHistoryEntry singleHost = TestRunHistoryEntry.create(
-                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0);
+                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.unknown());
 
         // when
         postgresStore.persistTestRunHistoryEntry(distributed);

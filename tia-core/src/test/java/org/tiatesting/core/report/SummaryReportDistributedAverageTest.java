@@ -2,6 +2,7 @@ package org.tiatesting.core.report;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.BranchSchema;
@@ -62,11 +63,11 @@ class SummaryReportDistributedAverageTest {
     private static List<TestRunHistoryEntry> mixedHistory() {
         return Arrays.asList(
                 new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0,
-                        "run-1", Long.valueOf(40_000L), Integer.valueOf(3)),
+                        "run-1", Long.valueOf(40_000L), Integer.valueOf(3), RunOrigin.unknown()),
                 new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0,
-                        null, null, null),
+                        null, null, null, RunOrigin.unknown()),
                 new TestRunHistoryEntry("3", 0L, "main", "c3", 6, 2, 0, 140_000L, false, 0L, 0,
-                        "run-2", Long.valueOf(60_000L), Integer.valueOf(3)));
+                        "run-2", Long.valueOf(60_000L), Integer.valueOf(3), RunOrigin.unknown()));
     }
 
     /**
@@ -78,9 +79,9 @@ class SummaryReportDistributedAverageTest {
     private static List<TestRunHistoryEntry> singleHostHistory() {
         return Arrays.asList(
                 new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0,
-                        null, null, null),
+                        null, null, null, RunOrigin.unknown()),
                 new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0,
-                        null, null, null));
+                        null, null, null, RunOrigin.unknown()));
     }
 
     /**
