@@ -1,6 +1,7 @@
 package org.tiatesting.maven;
 
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.plugin.MojoExecution;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
@@ -20,6 +21,8 @@ import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.persistence.BranchSchema;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
@@ -49,6 +52,16 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     @Parameter(property = "jacoco.propertyName")
     String propertyName;
 
+    /** Project-context key prefix under which each execution records the schema it claimed. */
+    private static final String SCHEMA_CLAIM_CONTEXT_PREFIX = "tia.schema.claimed.";
+
+    /**
+     * This mojo's own execution, injected so the collision refusal can name which two executions
+     * clashed rather than only that two did.
+     */
+    @Parameter(defaultValue = "${mojoExecution}", readonly = true)
+    MojoExecution mojoExecution;
+
     /**
      * Prepare the forked test JVM: work out which test suites it must skip and which it must run,
      * write those lists and the properties the Tia agent republishes in the fork, and add the agent
@@ -71,6 +84,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         if (!isEnabled()){
             return;
         }
+
+        refuseCollidingSchema();
 
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
@@ -219,6 +234,49 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     }
 
     /**
+     * Refuse a second Tia execution in this module that resolves to the schema an earlier one
+     * already claimed.
+     *
+     * <p>Two Tia-enabled executions sharing a schema - a surefire and a failsafe execution, say -
+     * delete each other's tracked suites, because each sees only the suites it ran and treats every
+     * other tracked suite as deleted. They also share the one {@code tia_core} row and therefore the
+     * one stored commit value, so whichever ran less recently diffs from a commit it never covered
+     * and under-selects. Neither failure fails a build, so a refusal here is the only thing that
+     * surfaces the misconfiguration.
+     *
+     * <p><b>Uses the resolved value, not the configured text.</b> Each execution records the schema
+     * it actually resolved to in the project's context, and the collision is detected between two
+     * recordings. Reading the configured {@code <tiaDBSchemaSuffix>} out of the POM instead would
+     * miss the very case this exists for: an undefined property reference evaluates to null, so two
+     * executions that both meant to declare a suffix would silently share the unsuffixed schema
+     * while their configuration text looked different.
+     *
+     * <p><b>Scope.</b> This sees the executions of one Maven invocation, which is where surefire and
+     * failsafe both run ({@code mvn verify}). Two executions split across separate invocations are
+     * not caught - nor is a multi-module reactor, where each module's agent resolves its own schema
+     * and supporting that properly is separate work.
+     *
+     * @throws MojoExecutionException if another execution in this module already claimed this schema
+     */
+    private void refuseCollidingSchema() throws MojoExecutionException {
+        String schema = BranchSchema.schemaName(getVCSReader().getBranchName(), getTiaDBSchemaSuffix());
+        String contextKey = SCHEMA_CLAIM_CONTEXT_PREFIX + schema;
+        String executionId = mojoExecution == null ? "(unknown)" : mojoExecution.getExecutionId();
+
+        Object existing = getProject().getContextValue(contextKey);
+        if (existing != null && !existing.equals(executionId)) {
+            throw new MojoExecutionException("Tia: this module has more than one Tia execution "
+                    + "writing to the schema '" + schema + "' (executions '" + existing + "' and '"
+                    + executionId + "'). They would delete each other's tracked test suites and "
+                    + "share one stored commit value, which silently costs selectivity and can "
+                    + "silently under-select. Give each execution its own schema with "
+                    + "<tiaDBSchemaSuffix>, e.g. 'unit' on the surefire execution and 'integration' "
+                    + "on the failsafe one.");
+        }
+        getProject().setContextValue(contextKey, executionId);
+    }
+
+    /**
      * Validate the distributed run properties this runner was given, enforcing the same
      * preconditions and the same configuration rules the planner enforced - a runner pointed at an
      * embedded database cannot see the plan at all, and one that disagreed with the planner about
@@ -357,7 +415,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * {@code premain}. This removes the need for the user to mirror these into the Surefire
      * {@code systemPropertyVariables} (Gradle forwards them automatically); using a file rather than
      * inline command-line properties keeps long values - {@code tiaClassFilesDirs} (a CSV) and
-     * {@code testClassesDir} - off the command line and clear of the comma-delimited agent option
+     * {@code tiaTestClassesDirs} - off the command line and clear of the comma-delimited agent option
      * parser. Entries with a {@code null} value are skipped, so an unset {@code tiaDBUrl} simply
      * leaves the fork in embedded mode.
      *
@@ -381,9 +439,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         // Null when not declared, which ForkSystemProperties.write skips - so the fork sees no
         // property at all and RunEnvironment falls back to detecting the source itself.
         props.put(RunEnvironment.PROP_RUN_SOURCE, getTiaRunSource());
+        // Likewise null-skipped: an undeclared suffix must leave the fork resolving the plain
+        // tia_<branch> schema rather than one named "null".
+        props.put(DataStoreFactory.PROP_DB_SCHEMA_SUFFIX, getTiaDBSchemaSuffix());
         props.put("tiaProjectDir", getTiaProjectDir());
         props.put("tiaClassFilesDirs", getTiaClassFilesDirs());
-        props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());
+        props.put(ForkSystemProperties.PROP_TEST_CLASSES_DIRS,
+                getProject().getBuild().getTestOutputDirectory());
         props.put("tiaDBFilePath", getTiaDBFilePath());
         props.put("tiaDBUrl", getTiaDBUrl());
         props.put("tiaDBDialect", getTiaDBDialect());

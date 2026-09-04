@@ -52,7 +52,7 @@ class JdbcDataStoreMethodStagingTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
     }
 
@@ -256,7 +256,7 @@ class JdbcDataStoreMethodStagingTest {
         freshTempDir.mkdirs();
         JdbcDataStore freshDataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(freshTempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         try {
             Map<Integer, MethodImpactTracker> staged = new HashMap<>();
             staged.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
@@ -296,7 +296,7 @@ class JdbcDataStoreMethodStagingTest {
         RecordingConnectionProvider recordingConnectionProvider = new RecordingConnectionProvider(
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(orderTempDir.getAbsolutePath())));
         JdbcDataStore recordingDataStore = new JdbcDataStore(new H2Dialect(), recordingConnectionProvider,
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
 
         // a LinkedHashMap's iteration order is its insertion order, so populating one map ascending
         // and the other descending gives two maps with the same ids but deliberately opposite

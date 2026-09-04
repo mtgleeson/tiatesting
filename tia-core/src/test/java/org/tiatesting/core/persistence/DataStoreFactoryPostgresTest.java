@@ -40,7 +40,7 @@ class DataStoreFactoryPostgresTest {
         assumePg();
         // when
         DataStore store = DataStoreFactory.fromConfig(null,
-                "jdbc:postgresql://localhost:5432/tiaperf", "tia", "tia", null, "main");
+                "jdbc:postgresql://localhost:5432/tiaperf", "tia", "tia", null, "main", null);
         // then
         assertTrue(store instanceof JdbcDataStore);
     }

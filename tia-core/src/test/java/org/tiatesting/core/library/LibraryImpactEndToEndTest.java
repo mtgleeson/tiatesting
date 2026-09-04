@@ -43,7 +43,7 @@ class LibraryImpactEndToEndTest {
         tempDir = File.createTempFile("tia-e2e-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaData(true);

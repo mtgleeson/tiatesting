@@ -145,7 +145,7 @@ public class TiaDistCompleteTask extends DefaultTask {
     private void completeAndSeal(final DistributedRunnerContext context,
                                  final DistributedClaimRegistry.Claim claim) {
         boolean groupCompleted = false;
-        try (DataStore dataStore = plugin.buildDataStore(plugin.getVCSReader().getBranchName())) {
+        try (DataStore dataStore = plugin.buildDistributedDataStore(plugin.getVCSReader().getBranchName())) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context,
                     claim.isUpdateDBMapping(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());

@@ -22,6 +22,13 @@ public final class DataStoreFactory {
     /** System property holding an explicit dialect override id (e.g. {@code "h2"}). */
     public static final String PROP_DB_DIALECT = "tiaDBDialect";
 
+    /**
+     * System property naming the schema suffix a forked test JVM should isolate itself into. Unset
+     * means no suffix, which is the schema Tia has always used for the branch - so a project that
+     * never declares one is unaffected.
+     */
+    public static final String PROP_DB_SCHEMA_SUFFIX = "tiaDBSchemaSuffix";
+
     private DataStoreFactory() {
     }
 
@@ -36,8 +43,11 @@ public final class DataStoreFactory {
      * @param password       database password
      * @param dialectOverride an explicit dialect id (e.g. {@code "h2"}), or {@code null}/blank to
      *                        infer the dialect from {@code dbUrl}
-     * @param branch         VCS branch name, used to derive the per-branch schema
-     *                       ({@link BranchSchema#schemaName(String)}) selected on each connection
+     * @param branch         VCS branch name, the base of the schema name
+     *                       ({@link BranchSchema#schemaName(String, String)}) selected on each connection
+     * @param schemaSuffix   the caller-declared schema suffix, or null for none. Isolates one
+     *                       datastore per test task where several share a database; null gives the
+     *                       schema Tia has always used for the branch
      * @return the constructed {@link DataStore} for the resolved dialect
      * @throws IllegalArgumentException if the dialect cannot be resolved (see
      *         {@link SqlDialectRegistry#forUrl(String, String)})
@@ -45,9 +55,10 @@ public final class DataStoreFactory {
      *         the classpath (see {@link #missingDriverMessage(String)})
      */
     public static DataStore fromConfig(final String dbFilePath, final String dbUrl, final String user,
-                                       final String password, final String dialectOverride, final String branch) {
+                                       final String password, final String dialectOverride,
+                                       final String branch, final String schemaSuffix) {
         SqlDialect dialect = SqlDialectRegistry.forUrl(dbUrl, dialectOverride);
-        String schema = BranchSchema.schemaName(branch);
+        String schema = BranchSchema.schemaName(branch, schemaSuffix);
 
         if ("h2".equals(dialect.id())) {
             H2ConnectionSettings settings = H2ConnectionSettings.fromConfig(dbFilePath, dbUrl, user, password);
@@ -146,6 +157,7 @@ public final class DataStoreFactory {
                 System.getProperty(H2ConnectionSettings.PROP_DB_USER),
                 System.getProperty(H2ConnectionSettings.PROP_DB_PASSWORD),
                 System.getProperty(PROP_DB_DIALECT),
-                branch);
+                branch,
+                System.getProperty(PROP_DB_SCHEMA_SUFFIX));
     }
 }

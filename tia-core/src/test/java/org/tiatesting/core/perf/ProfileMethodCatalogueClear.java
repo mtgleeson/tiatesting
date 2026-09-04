@@ -57,7 +57,7 @@ public final class ProfileMethodCatalogueClear {
         dir.mkdirs();
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dir.getAbsolutePath())),
-                BranchSchema.schemaName(parsed.branch));
+                BranchSchema.schemaName(parsed.branch, null));
         dataStore.getTiaData(true); // bootstrap schema
 
         Map<Integer, MethodImpactTracker> methods = buildSyntheticMethods(parsed.rows);

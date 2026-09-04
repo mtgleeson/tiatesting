@@ -41,7 +41,7 @@ class JdbcDataStoreTestSuitesFailedTest {
     @Test
     void aFailureDuringTheInsertLeavesThePreviouslyPersistedFailedSuitesIntact(@TempDir Path dir) {
         // given a store seeded with a known set of failed test suites
-        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main");
+        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main", null);
         try {
             store.getTiaData(true);
             store.persistTestSuitesFailed(new HashSet<>(SEEDED_SUITES));

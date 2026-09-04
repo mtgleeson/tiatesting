@@ -61,6 +61,7 @@ Each individual persist call is internally atomic:
 - **`persistCoreData` (tia_core, the standalone entry point)**: single `INSERT` or `UPDATE` of the one core row, commit value and branch included. Atomic. Used directly by the standalone seeding path. A run that does not own mapping updates writes no core row at all - see the next bullet.
 - **The run stats ride on `updateDBMapping`; there is no separate stats flag.** A run that owns the mapping records the stats, and a run that does not writes no core row at all. The two were separate flags until it became clear that `updateDBStats=true, updateDBMapping=false` - a developer's machine writing stats to the shared DB - was the configuration that poisoned the averages: `TestStats.incrementStats` is a plain running mean with no weighting or source tag, and a local run that ignores zero suites folds its duration into `all_tests_run_time`, the baseline every run's reported savings is measured against. Coupling them makes that configuration unrepresentable rather than merely discouraged, and narrows the set of writers to the builds a project already never runs concurrently on one branch.
 - **The stats accumulate in SQL, not in memory.** The seal's core write stamps the commit value, branch and last-updated from the caller's snapshot - those are the run's own to declare - but writes the stats columns as `column = column + ?`, and the two rolling averages as the same arithmetic `TiaData.incrementStats` performs transcribed into SQL. The distinction matters because the stats are a running total several builds contribute to: writing them from the snapshot made the update a read-modify-write spanning the entire mapping persist, so a build committing inside that window had its increment silently overwritten. Moving the read to write time, inside the seal's transaction, closes it. Every reference to a stats column on the right-hand side sees the row's pre-update value, which is what keeps the two assignments making up an average consistent with each other. A run contributing nothing (a Surefire retry) leaves the stats columns out of the statement entirely rather than adding zero, and the very first seal on a database with no core row falls back to the INSERT path, where the increment simply is the absolute value.
+- **A fork tells a deleted suite from an unrun one by reading the disk, not its own observations.** `removeDeletedTestSuites` deletes every tracked suite absent from the runner's suite set, which is sound only when that set covers the whole project. A run split across JVMs (`maxParallelForks > 1`, `forkEvery > 0`) gives each fork a share of the classes, so each would conclude that every suite the others own has been deleted and remove its mapping - and because `TestSelector.getTestsToIgnore` can only ignore a *tracked* suite, the deleted ones then run on every build thereafter. Nothing fails; the project simply stops getting faster. The build tools therefore forward the compiled test-classes directories (`tiaTestClassesDirs`), which every fork sees identically, and `TestRunnerService.getTestClassesFromDirs` answers the question from them. A listed directory that does not exist is skipped, since a build tool routinely names outputs a project never produces; a list where *none* exists is rejected outright, because an empty scan would read as "everything has been deleted" and wipe the whole mapping.
 - **`persistTestRunHistoryEntry` (tia_test_run_history)**: single `MERGE` keyed by a deterministic id derived from `branch|commit|runStartTimestampMs`. Idempotent - re-persisting the same logical run is a no-op.
 
 **The clear-out inside a rewrite is dialect-specific, and the obvious choice was wrong on H2.**
@@ -162,6 +163,19 @@ a suite whose flag was cleared without its coverage having been rewritten, in wh
 original class-of-bug this flag was built to shrink is possible again for that suite. What the flag
 does guarantee: on the common path - a suite runs to completion in the same JVM that seals - the
 suite's mapping rows and the commit value they are cleared against are consistent.
+
+**Parked: scoping the clear to what the run recaptured.** The unconditional clear is the last
+mapping-integrity weakness that multiple forks make materially worse - a fork's seal clearing a flag
+that belongs to a suite a peer fork is still running, or to a stale flag from an earlier build whose
+coverage was never recaptured. The identified fix is to scope `clearUnsealedTestSuites` to the suites
+whose coverage this run actually rewrote, rather than clearing every flag in the table.
+
+Deliberately not done, because nothing today needs it: single-fork runs are the recommended and
+default shape, and there the unconditional clear is exactly correct. It becomes worth doing if
+multi-fork runs (`maxParallelForks > 1`, `forkEvery > 0`) are ever supported for real - at which
+point it is the cheaper alternative to relocating the seal out of the fork, which was considered and
+rejected: an ordinary Maven build currently seals inside `mvn test` / `mvn verify` with no extra
+pipeline step, and keeping it that way is worth more than the guarantee relocation would buy.
 
 **Only a mapping-owning run can clear the flag.** `sealRun` returns without writing anything when
 `updateDBMapping = false` - that path never reaches `persistSealedRunData`, so it never reaches

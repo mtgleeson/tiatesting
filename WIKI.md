@@ -34,6 +34,9 @@ wiki can also be read front to back.
 - [Pluggable datastore (H2, Postgres, and the seam for more)](wiki/pluggable-datastore.md) - the
   `SqlDialect` / `ConnectionProvider` / `DataStoreFactory` architecture, URL-scheme dialect
   inference, and the two-classpath driver model.
+- [Isolating the datastore per test task](wiki/datastore-schema-suffix.md) - the `schemaSuffix`
+  dimension on the schema name, the collision guards, per-schema reporting, and the library stamp
+  fan-out.
 - [Static test selection](wiki/static-test-selection.md) - user-declared change-to-suite rules
   layered on top of dynamic selection.
 - [Setting up a machine to run the release tasks (GPG signing)](wiki/release-signing-setup.md) -

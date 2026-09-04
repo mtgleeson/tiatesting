@@ -55,7 +55,7 @@ class JdbcDataStoreClaimTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
     }
 
@@ -243,7 +243,7 @@ class JdbcDataStoreClaimTest {
         freshTempDir.mkdirs();
         JdbcDataStore freshDataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(freshTempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         try {
             List<DistributedRunGroup> groups = Arrays.asList(DistributedRunGroup.pending("run-1", 0, 1000L));
             Map<Integer, List<String>> suites = new HashMap<>();

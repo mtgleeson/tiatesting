@@ -78,7 +78,7 @@ class TiaSpockRunListenerDistributedTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName(BRANCH));
+                BranchSchema.schemaName(BRANCH, null));
         dataStore.getTiaData(true);
 
         // Seed a prior commit stamp, as every store a real run persists into already has one.

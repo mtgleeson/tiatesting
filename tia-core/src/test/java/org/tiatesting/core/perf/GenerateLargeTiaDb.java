@@ -64,7 +64,7 @@ public final class GenerateLargeTiaDb {
         long t0 = System.currentTimeMillis();
         JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb)),
-                BranchSchema.schemaName(parsed.branch));
+                BranchSchema.schemaName(parsed.branch, null));
         bootstrap.getTiaData(true);
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 
@@ -86,7 +86,7 @@ public final class GenerateLargeTiaDb {
 
         System.out.println("Total time: " + (System.currentTimeMillis() - t0) + " ms");
         System.out.println("DB written to " + parsed.outDb + "/tiadb.mv.db (schema "
-                + BranchSchema.schemaName(parsed.branch) + ")");
+                + BranchSchema.schemaName(parsed.branch, null) + ")");
     }
 
     private static Connection openConnection(String outDb, String branch) throws Exception {
@@ -101,7 +101,7 @@ public final class GenerateLargeTiaDb {
         // The bootstrap JdbcDataStore call above created the tables in the per-branch schema, not
         // the default PUBLIC schema this raw connection starts in - select it before inserting.
         try (Statement statement = connection.createStatement()) {
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName(branch)));
+            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName(branch, null)));
         }
         return connection;
     }

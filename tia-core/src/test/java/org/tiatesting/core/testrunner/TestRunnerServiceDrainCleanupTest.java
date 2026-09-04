@@ -36,7 +36,7 @@ class TestRunnerServiceDrainCleanupTest {
         tempDir = File.createTempFile("tia-runner-", "");
         tempDir.delete();
         tempDir.mkdirs();
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
         service = new TestRunnerService(dataStore);
 

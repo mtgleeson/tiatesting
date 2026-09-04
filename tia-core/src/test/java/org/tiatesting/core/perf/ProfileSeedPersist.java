@@ -56,7 +56,7 @@ public final class ProfileSeedPersist {
                 ? H2ConnectionSettings.server(serverUrl, "tia", "")
                 : H2ConnectionSettings.embedded(dir.getAbsolutePath());
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
-                BranchSchema.schemaName("perf"));
+                BranchSchema.schemaName("perf", null));
         dataStore.getTiaData(true); // bootstrap schema
 
         // Bounded pool of distinct methods (shared across classes), so the edge count can be huge

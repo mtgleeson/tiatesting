@@ -68,7 +68,7 @@ class JdbcDataStoreConnectionModeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.server(
                 "jdbc:h2:tcp://127.0.0.1:1/tiadb", "tia", "secret");
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
-                BranchSchema.schemaName("main"));
+                BranchSchema.schemaName("main", null));
 
         // when / then
         assertDoesNotThrow(dataStore::close);
@@ -83,7 +83,7 @@ class JdbcDataStoreConnectionModeTest {
         try {
             JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
                     new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                    BranchSchema.schemaName("test"));
+                    BranchSchema.schemaName("test", null));
             dataStore.getTiaData(true); // force schema creation / open the DB
 
             // when / then

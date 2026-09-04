@@ -21,6 +21,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.testrunner.TestRunResult;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -54,7 +55,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private final Set<String> testSuitesFailed;
-    private final String testClassesDir;
+    private final String testClassesDirs;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
      */
@@ -62,7 +63,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     /*
     The suites this JVM has actually observed - those it has seen finish or seen skipped - shared
     across Surefire retries via sharedTestRunData exactly like runnerTestSuites, but with no
-    testClassesDir directory-scan override. This, not runnerTestSuites, is what feeds the
+    test-classes directory-scan override. This, not runnerTestSuites, is what feeds the
     distributed completeness guard: see TestRunResult#getSuitesObserved.
      */
     private final Set<String> suitesObserved;
@@ -134,7 +135,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         this.branch = vcsReader.getBranchName();
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
-        this.testClassesDir = System.getProperty("testClassesDir");
+        this.testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
         // Null for every ordinary build, whose persist is therefore exactly the one it always took.
         this.distributedRunnerContext = enabled
                 ? DistributedForkProperties.contextFromSystemProperties() : null;
@@ -286,7 +287,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             // track the test suite was run by the runner but not executed (0 executions)
             String testSuiteName = getTestSuiteName(testIdentifier);
             runnerTestSuites.add(testSuiteName);
-            // this JVM has observed the suite (as skipped), independent of any testClassesDir
+            // this JVM has observed the suite (as skipped), independent of any test-classes directory
             // override applied to runnerTestSuites - see the field's javadoc.
             suitesObserved.add(testSuiteName);
         }
@@ -358,7 +359,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         runnerTestSuites.add(testSuiteName);
-        // this JVM has observed the suite (as finished), independent of any testClassesDir
+        // this JVM has observed the suite (as finished), independent of any test-classes directory
         // override applied to runnerTestSuites - see the field's javadoc.
         suitesObserved.add(testSuiteName);
         suitesFinishedThisAttempt.add(testSuiteName);
@@ -485,11 +486,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * @return the set of all test suite names for the project that Tia is aware of.
      */
     private Set<String> getRunnerTestSuites(){
-        if (testClassesDir == null){
+        if (testClassesDirs == null || testClassesDirs.trim().isEmpty()){
             return runnerTestSuites;
         }
 
-        return testRunnerService.getTestClassesFromDir(testClassesDir);
+        return testRunnerService.getTestClassesFromDirs(testClassesDirs);
     }
 
     private void updateTrackerStatsForFailedRun(String testSuiteName) {
