@@ -113,7 +113,7 @@ class DistributedRunOverheadModelTest {
      * A group that ran suites but timed none of them disqualifies the whole build, exactly as it
      * does for {@link DistributedRunTotals}: its entire duration would read as overhead, so the
      * per-group equation would be measuring something else entirely. Suite times are only recorded
-     * when {@code tiaUpdateDBStats} is on.
+     * by a build that updates the mapping DB.
      */
     @Test
     void aGroupThatRanSuitesWithoutTimingThemSkipsTheSolve() {
