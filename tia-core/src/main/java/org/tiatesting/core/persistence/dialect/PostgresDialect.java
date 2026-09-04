@@ -17,6 +17,36 @@ public final class PostgresDialect implements SqlDialect {
     /** {@inheritDoc} Postgres uses {@code BYTEA}. */
     @Override public String binaryColumnType() { return "BYTEA"; }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Postgres expresses this directly with {@code ON CONFLICT ... DO UPDATE SET}, whose
+     * assignments may reference both the stored row (table-qualified) and the proposed one
+     * ({@code EXCLUDED}). The left-hand side of each assignment must be an unqualified column name.
+     */
+    @Override
+    public String accumulatingTestSuiteUpsert(String table, String nameColumn, String numRunsColumn,
+                                              String avgRunTimeColumn, String numSuccessRunsColumn,
+                                              String numFailRunsColumn, String developerDisabledColumn) {
+        String storedRuns = "COALESCE(" + table + "." + numRunsColumn + ", 0)";
+        String storedAvg = "COALESCE(" + table + "." + avgRunTimeColumn + ", 0)";
+        return "INSERT INTO " + table + " (" + nameColumn + ", " + numRunsColumn + ", "
+                + avgRunTimeColumn + ", " + numSuccessRunsColumn + ", " + numFailRunsColumn + ", "
+                + developerDisabledColumn + ") VALUES (?, ?, ?, ?, ?, ?)"
+                + " ON CONFLICT (" + nameColumn + ") DO UPDATE SET "
+                + avgRunTimeColumn + " = CASE WHEN " + storedRuns + " + EXCLUDED." + numRunsColumn + " = 0"
+                + " THEN " + storedAvg
+                + " ELSE (" + storedRuns + " * " + storedAvg + " + EXCLUDED." + numRunsColumn
+                + " * EXCLUDED." + avgRunTimeColumn + ")"
+                + " / (" + storedRuns + " + EXCLUDED." + numRunsColumn + ") END, "
+                + numRunsColumn + " = " + storedRuns + " + EXCLUDED." + numRunsColumn + ", "
+                + numSuccessRunsColumn + " = COALESCE(" + table + "." + numSuccessRunsColumn
+                + ", 0) + EXCLUDED." + numSuccessRunsColumn + ", "
+                + numFailRunsColumn + " = COALESCE(" + table + "." + numFailRunsColumn
+                + ", 0) + EXCLUDED." + numFailRunsColumn + ", "
+                + developerDisabledColumn + " = EXCLUDED." + developerDisabledColumn;
+    }
+
     /** {@inheritDoc} Postgres upsert via {@code INSERT ... ON CONFLICT (keys) DO UPDATE}. */
     @Override
     public String upsert(String table, List<String> columns, List<String> keyColumns) {

@@ -168,10 +168,16 @@ public interface DataStore extends AutoCloseable {
     void persistSealedRunData(final SealedRunData sealedRunData);
 
     /**
-     * Persist the full test suites data to disk - both the per-suite row (name + stats) AND the
-     * underlying suite-to-source-class-to-method edges. Only a run that owns mapping updates
+     * Persist the given test suites - both the per-suite row (name + stats) AND the underlying
+     * suite-to-source-class-to-method edges. Only a run that owns mapping updates
      * ({@code updateDBMapping=true}) writes suites at all: the stats and the mapping are one
      * decision, so there is no stats-only variant.
+     *
+     * <p><b>The map is the suites this run touched, not every tracked suite.</b> Callers pass the
+     * suites they executed plus any whose {@code developerDisabled} flag changed; a suite absent
+     * from the map is one the caller has nothing to say about, and its stored row must be left
+     * exactly as it is rather than rewritten from the caller's snapshot of it. Absence is
+     * <em>not</em> a deletion - see {@link #deleteTestSuites(Set)} for that.
      *
      * @param testSuites the test suites that should be persisted to disk.
      */

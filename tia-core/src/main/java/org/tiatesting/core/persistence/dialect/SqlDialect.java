@@ -32,6 +32,47 @@ public interface SqlDialect {
     String upsert(String table, List<String> columns, List<String> keyColumns);
 
     /**
+     * Build a parameterised upsert for a test-suite row whose run stats <em>accumulate</em> onto
+     * whatever the row already holds, rather than replacing it.
+     *
+     * <p>This exists because the ordinary {@link #upsert(String, List, List)} cannot express it on
+     * either vendor: it writes the values the caller computed, so a caller that merged the new
+     * figures onto a snapshot it read earlier overwrites any increment that landed in between. The
+     * stats are a running total several builds contribute to, so the addition has to happen at write
+     * time, against the row's current values. See the "Persist flow and crash safety" chapter in
+     * {@code WIKI.md}.
+     *
+     * <p>The run time is a weighted mean rather than a sum - {@code (stored_runs * stored_avg +
+     * new_runs * new_avg) / (stored_runs + new_runs)} - which is the same arithmetic
+     * {@code TestStats.incrementStats} performs in memory. It is guarded for a zero denominator, so
+     * a write that contributes no run (a retry, or a row written only because its
+     * developer-disabled flag changed) leaves the average exactly as it was. Stored values are
+     * coalesced from null, so a row predating a stats column cannot silently turn the whole
+     * expression null.
+     *
+     * <p>{@code developerDisabled} is <em>replaced</em>, not accumulated: it is a fact the run
+     * observed about the suite, not a running total, so the most recent observation is the correct
+     * one.
+     *
+     * <p>The statement takes six bind parameters, in this order: name, num-runs, run-time,
+     * num-success-runs, num-fail-runs, developer-disabled. Both vendors' forms return the row's
+     * generated key, for the matched and the unmatched case alike, so the caller can write the
+     * suite's coverage edges without a second lookup.
+     *
+     * @param table the test-suite table
+     * @param nameColumn the suite-name column, which is the conflict/merge key
+     * @param numRunsColumn the run-count column, accumulated
+     * @param avgRunTimeColumn the average run-time column, folded as a weighted mean
+     * @param numSuccessRunsColumn the successful-run-count column, accumulated
+     * @param numFailRunsColumn the failed-run-count column, accumulated
+     * @param developerDisabledColumn the developer-disabled flag column, replaced
+     * @return the vendor-specific accumulating upsert SQL
+     */
+    String accumulatingTestSuiteUpsert(String table, String nameColumn, String numRunsColumn,
+                                       String avgRunTimeColumn, String numSuccessRunsColumn,
+                                       String numFailRunsColumn, String developerDisabledColumn);
+
+    /**
      * Build the statement that removes every row from a table while still rolling back cleanly
      * if the enclosing transaction is later rolled back. Callers use this for clear-and-reinsert
      * writes, where the clear-out and the reinsert must commit or roll back together - the two
