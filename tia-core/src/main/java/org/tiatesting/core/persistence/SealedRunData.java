@@ -1,6 +1,7 @@
 package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -31,6 +32,7 @@ public class SealedRunData {
     private final List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodBatchKeys;
     private final List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedBatchKeys;
     private final List<TrackedLibrary> librariesToPersist;
+    private final CoreStatsIncrement statsIncrement;
 
     /**
      * Construct a seal payload.
@@ -41,17 +43,25 @@ public class SealedRunData {
      * @param drainedForcedBatchKeys pending forced-selection batches to delete; may be empty
      * @param librariesToPersist tracked libraries whose baseline or applied sequence changed;
      *                           may be empty
+     * @param statsIncrement this run's contribution to the Tia-level stats, as a delta the store
+     *                       accumulates at write time rather than as merged absolutes - see
+     *                       {@link CoreStatsIncrement}
      */
     public SealedRunData(TiaData tiaData, Map<Integer, MethodImpactTracker> methodsTracked,
                          List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodBatchKeys,
                          List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedBatchKeys,
-                         List<TrackedLibrary> librariesToPersist) {
+                         List<TrackedLibrary> librariesToPersist,
+                         CoreStatsIncrement statsIncrement) {
         this.tiaData = tiaData;
         this.methodsTracked = methodsTracked;
         this.drainedMethodBatchKeys = drainedMethodBatchKeys;
         this.drainedForcedBatchKeys = drainedForcedBatchKeys;
         this.librariesToPersist = librariesToPersist;
+        this.statsIncrement = statsIncrement == null ? CoreStatsIncrement.none() : statsIncrement;
     }
+
+    /** @return this run's contribution to the Tia-level stats, never null */
+    public CoreStatsIncrement getStatsIncrement() { return statsIncrement; }
 
     /** @return the core data to write, carrying the commit value being sealed */
     public TiaData getTiaData() { return tiaData; }

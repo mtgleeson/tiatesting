@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -168,35 +169,6 @@ public class SerializedDataStore implements DataStore {
         log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>The serialized store writes the whole object graph in one go, so "only the stats columns"
-     * is expressed by re-reading the file and setting the incoming stats onto that copy rather than
-     * writing back the caller's snapshot. Everything else on the core data - the commit value, the
-     * branch, the last-updated timestamp - therefore reaches disk exactly as it was stored.
-     *
-     * <p>A store with no commit value has never had a mapping run, so as with the JDBC stores there
-     * is nothing to attach the stats to and the file is left alone.
-     *
-     * @param testStats the Tia-level run stats to write onto the core data
-     */
-    @Override
-    public void persistCoreStats(final TestStats testStats) {
-        TiaData tiaDataOnDisk = getTiaData(true);
-
-        if (tiaDataOnDisk.getCommitValue() == null){
-            log.debug("No Tia core data exists yet, so the run stats were not stored. The first run "
-                    + "that updates the mapping DB will create it.");
-            return;
-        }
-
-        tiaDataOnDisk.setTestStats(testStats);
-        long startTime = System.currentTimeMillis();
-        writeTiaDataToDisk(tiaDataOnDisk);
-        log.debug("Time to save the Tia core stats to disk (ms): " + (System.currentTimeMillis() - startTime));
-    }
-
     @Override
     public void persistTestSuitesFailed(Set<String> testSuitesFailed) {
         TiaData tiaData = getTiaData(false);
@@ -262,8 +234,34 @@ public class SerializedDataStore implements DataStore {
 
         TiaData tiaData = sealedRunData.getTiaData();
         tiaData.setMethodsTracked(sealedRunData.getMethodsTracked());
+        // No SQL to accumulate in, so the increment is applied to the in-memory instance instead.
+        // The read-modify-write window the JDBC stores close by accumulating server-side stays open
+        // here - but this store is a single file guarded by a file lock, so the concurrent writers
+        // that window exists for cannot reach it in the first place.
+        applyStatsIncrement(tiaData, sealedRunData.getStatsIncrement());
         clearUnsealedTestSuites();
         persistCoreData(tiaData);
+    }
+
+    /**
+     * Apply a seal's stats increment to the in-memory core data.
+     *
+     * @param tiaData the core data being sealed
+     * @param increment the run's contribution to the Tia-level stats
+     */
+    private void applyStatsIncrement(final TiaData tiaData, final CoreStatsIncrement increment) {
+        if (increment.getNumRuns() > 0) {
+            TestStats runStats = new TestStats();
+            runStats.setNumRuns(increment.getNumRuns());
+            runStats.setAvgRunTime(increment.getRunTimeMs());
+            runStats.setNumSuccessRuns(increment.getNumSuccessRuns());
+            runStats.setNumFailRuns(increment.getNumFailRuns());
+            tiaData.incrementStats(runStats, increment.isAllTestsRun());
+        }
+        if (increment.hasOverheadModel()) {
+            tiaData.getTestStats().incrementOverheadModel(increment.getFixedOverheadMs(),
+                    increment.getCaptureOverheadPerSuiteMs());
+        }
     }
 
     @Override
@@ -273,16 +271,6 @@ public class SerializedDataStore implements DataStore {
         long startTime = System.currentTimeMillis();
         writeTiaDataToDisk(tiaData);
         log.info("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
-    }
-
-    @Override
-    public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) {
-        // Serialized data store has no notion of separate stats vs mapping tables - the file
-        // is the whole DB. The caller (TestRunnerService.updateTestSuiteMapping) only merges
-        // stats fields into the in-memory map for stats-only runs, so writing the whole map
-        // produces an on-disk file with unchanged mapping and updated stats. Delegating to
-        // persistTestSuites is correct here.
-        persistTestSuites(testSuites);
     }
 
     @Override

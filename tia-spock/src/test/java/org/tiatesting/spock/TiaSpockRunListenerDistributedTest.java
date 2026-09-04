@@ -157,7 +157,7 @@ class TiaSpockRunListenerDistributedTest {
      */
     private TiaSpockRunListener listenerFor(final DistributedRunnerContext distributedRunnerContext) {
         return new TiaSpockRunListener(new StubVCSReader(PLAN_COMMIT), dataStore,
-                Collections.singleton("com.example.ATest"), 0, false, false, true, null,
+                Collections.singleton("com.example.ATest"), 0, false, true, null,
                 distributedRunnerContext);
     }
 
@@ -203,7 +203,7 @@ class TiaSpockRunListenerDistributedTest {
         // the completion.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompleter.completeAndSeal(dataStore, context, false, false, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, false, true,
                 System.currentTimeMillis());
 
         // then
@@ -234,7 +234,7 @@ class TiaSpockRunListenerDistributedTest {
         // completeness guard sees it as observed.
         recordSpecObservedViaSkip("com.example.ATest");
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
-        DistributedRunCompleter.completeAndSeal(dataStore, context, false, false, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, false, true,
                 System.currentTimeMillis());
 
         // then

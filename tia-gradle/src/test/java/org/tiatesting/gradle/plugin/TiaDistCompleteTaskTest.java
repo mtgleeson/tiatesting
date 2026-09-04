@@ -267,7 +267,7 @@ class TiaDistCompleteTaskTest {
          */
         void recordClaim(final String runId, final String runnerKey, final Integer groupNumber) {
             DistributedClaimRegistry.forBuild(project.getGradle()).recordClaim(TEST_TASK_PATH, runId,
-                    runnerKey, groupNumber, true, true, true);
+                    runnerKey, groupNumber, true, true);
         }
 
         /**

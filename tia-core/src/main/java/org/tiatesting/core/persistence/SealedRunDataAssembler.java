@@ -3,6 +3,7 @@ package org.tiatesting.core.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -62,12 +63,15 @@ public final class SealedRunDataAssembler {
      * @param commitValue the commit being sealed, recorded as the mapping baseline of every
      *                    library the seal advances
      * @param allTestsRun true when the run ignored zero suites, which re-covers every library
+     * @param statsIncrement this run's contribution to the Tia-level stats, carried through to the
+     *                       seal so the store can accumulate it at write time
      * @return the payload to hand to {@link DataStore#persistSealedRunData(SealedRunData)}
      */
     public SealedRunData assemble(final TiaData tiaData,
                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
                                   final LibraryImpactDrainResult drainResult,
-                                  final String commitValue, final boolean allTestsRun) {
+                                  final String commitValue, final boolean allTestsRun,
+                                  final CoreStatsIncrement statsIncrement) {
         Map<Integer, MethodImpactTracker> methodsTracked =
                 buildMethodsTracked(tiaData, observedMethodTrackers);
 
@@ -82,7 +86,7 @@ public final class SealedRunDataAssembler {
                 collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
 
         return new SealedRunData(tiaData, methodsTracked, drainedMethodKeys, drainedForcedKeys,
-                librariesToPersist);
+                librariesToPersist, statsIncrement);
     }
 
     /**

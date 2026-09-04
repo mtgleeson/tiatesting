@@ -56,7 +56,7 @@ public final class DistributedRunGroup implements Serializable {
      *                         per-JVM overhead, which is what lets the sealer charge that overhead
      *                         once for the build instead of once per group - see
      *                         {@code DistributedRunTotals}. Zero when suite timing was not
-     *                         collected ({@code updateDBStats} off), which the sealer treats as
+     *                         collected (the build does not own the mapping), which the sealer treats as
      *                         "no decomposition available" rather than as "no overhead".
      */
     public DistributedRunGroup(String runId, int groupNumber, DistributedRunGroupStatus status,

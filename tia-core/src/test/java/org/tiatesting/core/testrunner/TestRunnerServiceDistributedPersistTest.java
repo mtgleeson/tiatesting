@@ -124,7 +124,7 @@ class TestRunnerServiceDistributedPersistTest {
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -153,7 +153,7 @@ class TestRunnerServiceDistributedPersistTest {
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -176,7 +176,7 @@ class TestRunnerServiceDistributedPersistTest {
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -197,7 +197,7 @@ class TestRunnerServiceDistributedPersistTest {
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -224,9 +224,9 @@ class TestRunnerServiceDistributedPersistTest {
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -267,9 +267,9 @@ class TestRunnerServiceDistributedPersistTest {
         TestRunResult partialResult = makeResultWithPartialObservation();
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), partialResult, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -294,9 +294,9 @@ class TestRunnerServiceDistributedPersistTest {
         long runStart = System.currentTimeMillis() - 4000L;
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main", runStart,
+        service.persistTestRunData(true, true, "new-commit", "main", runStart,
                 makeResult(), context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -328,8 +328,8 @@ class TestRunnerServiceDistributedPersistTest {
         TestRunResult result = makeResultWithSuiteRunTimes(1200L, 800L);
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main", runStart, result, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        service.persistTestRunData(true, true, "new-commit", "main", runStart, result, context);
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -357,7 +357,7 @@ class TestRunnerServiceDistributedPersistTest {
         dataStore.callOrder.clear();
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -385,7 +385,7 @@ class TestRunnerServiceDistributedPersistTest {
         dataStore.callOrder.clear();
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), context);
 
         // then
@@ -410,7 +410,7 @@ class TestRunnerServiceDistributedPersistTest {
         dataStore.callOrder.clear();
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeEmptyResult(), context);
 
         // then
@@ -428,7 +428,7 @@ class TestRunnerServiceDistributedPersistTest {
         // given - no distributed context at all
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then
@@ -462,9 +462,9 @@ class TestRunnerServiceDistributedPersistTest {
         TestRunResult resultWithForeignSuites = makeResultWithForeignSuitesObserved();
 
         // when
-        service.persistTestRunData(true, true, true, "new-commit", "main",
+        service.persistTestRunData(true, true, "new-commit", "main",
                 System.currentTimeMillis(), resultWithForeignSuites, context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -701,17 +701,6 @@ class TestRunnerServiceDistributedPersistTest {
         public void persistTestSuites(final Map<String, TestSuiteTracker> testSuites) {
             callOrder.add("persistTestSuites");
             super.persistTestSuites(testSuites);
-        }
-
-        /**
-         * Record and delegate the stats-only suite write.
-         *
-         * @param testSuites the suites whose stats columns to write
-         */
-        @Override
-        public void persistTestSuiteStatsOnly(final Map<String, TestSuiteTracker> testSuites) {
-            callOrder.add("persistTestSuiteStatsOnly");
-            super.persistTestSuiteStatsOnly(testSuites);
         }
 
         /**

@@ -86,7 +86,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
-        service.persistTestRunData(false, false, true, "abc123", "main", runStart, testRunResult, null);
+        service.persistTestRunData(false, true, "abc123", "main", runStart, testRunResult, null);
 
         // then - the row records the selector's ignore count, not the runner diff
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -122,7 +122,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4);
 
         // when
-        service.persistTestRunData(false, false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
+        service.persistTestRunData(false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
 
         // then - ignored is 0 even though runner-saw-but-didn't-run is 6
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -145,7 +145,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0);
 
         // when
-        service.persistTestRunData(false, false, true, "first-run-commit", "main",
+        service.persistTestRunData(false, true, "first-run-commit", "main",
                 System.currentTimeMillis(), testRunResult, null);
 
         // then
@@ -179,7 +179,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2);
 
         // when
-        service.persistTestRunData(false, false, true, "retry-commit", "main",
+        service.persistTestRunData(false, true, "retry-commit", "main",
                 System.currentTimeMillis(), testRunResult, null);
 
         // then - ran is 2 (this attempt), not 10 (cumulative trackers)
@@ -207,7 +207,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5);
 
         // when
-        service.persistTestRunData(false, false, true, "first-attempt-commit", "main",
+        service.persistTestRunData(false, true, "first-attempt-commit", "main",
                 System.currentTimeMillis(), testRunResult, null);
 
         // then

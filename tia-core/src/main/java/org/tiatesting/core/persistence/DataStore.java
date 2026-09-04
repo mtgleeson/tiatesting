@@ -9,7 +9,6 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
-import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -131,24 +130,6 @@ public interface DataStore extends AutoCloseable {
     void persistCoreData(final TiaData tiaData);
 
     /**
-     * Persist only the Tia-level run stats onto the core row, leaving the commit value, the branch
-     * and the last-updated timestamp exactly as they are stored.
-     *
-     * <p>This is the write a run that does not own mapping updates makes. Such a run has stats to
-     * contribute but no claim over which commit the stored mapping describes, and
-     * {@link #persistCoreData(TiaData)} would write the whole row back from a snapshot read at the
-     * start of the persist - rolling the stored commit backwards if a mapping-owning build advanced
-     * it in the meantime. See the "Persist flow and crash safety" chapter in {@code WIKI.md}.
-     *
-     * <p>A store with no core row yet has nowhere to put the stats: the commit value is the core
-     * row's identity, and only a mapping run establishes it. Implementations leave the store
-     * untouched in that case rather than inventing a row.
-     *
-     * @param testStats the Tia-level run stats to write onto the core row
-     */
-    void persistCoreStats(final TestStats testStats);
-
-    /**
      * Persist the failed test suites data to disk.
      *
      * @param testSuitesFailed the test suites that were not successful in the test run.
@@ -188,26 +169,13 @@ public interface DataStore extends AutoCloseable {
 
     /**
      * Persist the full test suites data to disk - both the per-suite row (name + stats) AND the
-     * underlying suite-to-source-class-to-method edges. Used on primary-build runs that update
-     * the mapping ({@code updateDBMapping=true}).
-     *
-     * <p>For stats-only runs ({@code updateDBStats=true, updateDBMapping=false}) use
-     * {@link #persistTestSuiteStatsOnly(Map)} instead - that path skips the
-     * {@code tia_source_class} / {@code tia_source_class_method} writes, which would otherwise
-     * be a wasteful delete-then-reinsert of unchanged mapping rows.
+     * underlying suite-to-source-class-to-method edges. Only a run that owns mapping updates
+     * ({@code updateDBMapping=true}) writes suites at all: the stats and the mapping are one
+     * decision, so there is no stats-only variant.
      *
      * @param testSuites the test suites that should be persisted to disk.
      */
     void persistTestSuites(final Map<String, TestSuiteTracker> testSuites);
-
-    /**
-     * Persist only the stats columns of the per-suite row (no source-class / method edges).
-     * Used on stats-only runs where {@code updateDBStats=true} but {@code updateDBMapping=false}
-     * - the mapping rows must remain untouched.
-     *
-     * @param testSuites the test suites whose stats should be persisted to disk.
-     */
-    void persistTestSuiteStatsOnly(final Map<String, TestSuiteTracker> testSuites);
 
     /**
      * Delete the given test suites from disk.

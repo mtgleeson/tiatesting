@@ -72,7 +72,7 @@ class TestRunnerServiceHistoryRunOriginTest {
         long runStart = System.currentTimeMillis();
 
         // when
-        service.persistTestRunData(false, false, true, "abc123", "main", runStart, makeResult(), null);
+        service.persistTestRunData(false, true, "abc123", "main", runStart, makeResult(), null);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
@@ -93,7 +93,7 @@ class TestRunnerServiceHistoryRunOriginTest {
         long runStart = System.currentTimeMillis();
 
         // when
-        service.persistTestRunData(false, false, true, "abc123", "main", runStart, makeResult(), null);
+        service.persistTestRunData(false, true, "abc123", "main", runStart, makeResult(), null);
 
         // then
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();

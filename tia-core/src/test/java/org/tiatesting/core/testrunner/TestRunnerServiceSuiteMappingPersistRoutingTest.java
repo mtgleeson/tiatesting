@@ -35,24 +35,18 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Verifies that {@link TestRunnerService#persistTestRunData} routes test-suite persistence
- * correctly based on the {@code updateDBMapping} / {@code updateDBStats} flag combinations:
+ * Verifies that {@link TestRunnerService#persistTestRunData} routes test-suite persistence on
+ * {@code updateDBMapping} alone:
  *
  * <ul>
- *   <li><b>Both flags false</b> (history-only / SE-developer runs): neither
- *       {@link DataStore#persistTestSuites(Map)} nor
- *       {@link DataStore#persistTestSuiteStatsOnly(Map)} is invoked. The test-suite mapping
- *       table is left completely untouched.</li>
- *   <li><b>Stats-only</b> ({@code updateDBStats=true, updateDBMapping=false}):
- *       {@code persistTestSuiteStatsOnly} is invoked; {@code persistTestSuites} is NOT.
- *       The class/method-edge rows remain untouched.</li>
+ *   <li><b>Non-mapping runs</b> (history-only / SE-developer runs):
+ *       {@link DataStore#persistTestSuites(Map)} is not invoked. The test-suite mapping table is
+ *       left completely untouched.</li>
  *   <li><b>Primary build</b> ({@code updateDBMapping=true}): {@code persistTestSuites} is
- *       invoked (the full path including class/method-edge writes);
- *       {@code persistTestSuiteStatsOnly} is NOT.</li>
+ *       invoked - the full path including the class/method-edge writes and the per-suite stats.</li>
  * </ul>
  *
- * <p>The fix prevents needless delete-then-reinsert churn on the mapping rows during
- * non-mapping runs (history-only and stats-only).
+ * <p>This prevents needless delete-then-reinsert churn on the mapping rows during non-mapping runs.
  */
 class TestRunnerServiceSuiteMappingPersistRoutingTest {
 
@@ -89,64 +83,38 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
     }
 
     /**
-     * History-only runs (both flags false, history flag true) must not touch the test-suite
-     * mapping table at all. Neither persist method should be invoked.
+     * A run that does not own the mapping must not touch the test-suite mapping table at all.
      */
     @Test
-    void historyOnlyRun_neitherPersistMethodIsCalled() {
-        // given - a run with both updateDBMapping and updateDBStats false, history on
+    void nonMappingRun_doesNotPersistTestSuites() {
+        // given - a run with updateDBMapping false, history on
         TestRunResult result = makeResultWithSuites("com.example.ATest", "com.example.BTest");
 
         // when
-        service.persistTestRunData(false, false, true, "new-commit", "main",
+        service.persistTestRunData(false, true, "new-commit", "main",
                 System.currentTimeMillis(), result, null);
 
-        // then - neither persistTestSuites nor persistTestSuiteStatsOnly was invoked
+        // then
         assertEquals(0, spy.persistTestSuitesCallCount,
-                "history-only run must not call persistTestSuites");
-        assertEquals(0, spy.persistTestSuiteStatsOnlyCallCount,
-                "history-only run must not call persistTestSuiteStatsOnly either");
+                "a non-mapping run must not call persistTestSuites");
     }
 
     /**
-     * Stats-only runs (updateDBStats=true, updateDBMapping=false) must invoke the
-     * stats-only persist path so the mapping rows (tia_source_class /
-     * tia_source_class_method) remain untouched.
-     */
-    @Test
-    void statsOnlyRun_callsStatsOnlyPath_notFullPath() {
-        // given
-        TestRunResult result = makeResultWithSuites("com.example.ATest", "com.example.BTest");
-
-        // when - stats on, mapping off
-        service.persistTestRunData(false, true, false, "new-commit", "main",
-                System.currentTimeMillis(), result, null);
-
-        // then - stats-only path was used, full path was not
-        assertEquals(1, spy.persistTestSuiteStatsOnlyCallCount,
-                "stats-only run must call persistTestSuiteStatsOnly exactly once");
-        assertEquals(0, spy.persistTestSuitesCallCount,
-                "stats-only run must NOT call persistTestSuites (would rewrite mapping edges)");
-    }
-
-    /**
-     * Primary-build runs (updateDBMapping=true) must invoke the full persist path so the
+     * Primary-build runs (updateDBMapping=true) must invoke the persist path so the
      * suite-to-source-class / method-edge tables get rewritten with this run's mapping.
      */
     @Test
-    void primaryBuildRun_callsFullPath_notStatsOnly() {
+    void primaryBuildRun_persistsTestSuites() {
         // given
         TestRunResult result = makeResultWithSuites("com.example.ATest", "com.example.BTest");
 
-        // when - mapping on (stats can be either; here also on)
-        service.persistTestRunData(true, true, false, "new-commit", "main",
+        // when
+        service.persistTestRunData(true, false, "new-commit", "main",
                 System.currentTimeMillis(), result, null);
 
-        // then - full path was used, stats-only was not
+        // then
         assertEquals(1, spy.persistTestSuitesCallCount,
                 "primary-build run must call persistTestSuites exactly once");
-        assertEquals(0, spy.persistTestSuiteStatsOnlyCallCount,
-                "primary-build run must NOT call persistTestSuiteStatsOnly");
     }
 
     /**
@@ -166,13 +134,12 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
     }
 
     /**
-     * Delegating {@link DataStore} that counts invocations of the two suite-persist methods.
+     * Delegating {@link DataStore} that counts invocations of the suite-persist method.
      * All other methods pass through to the underlying H2 store.
      */
     private static class CountingDataStore implements DataStore {
         private final DataStore delegate;
         int persistTestSuitesCallCount = 0;
-        int persistTestSuiteStatsOnlyCallCount = 0;
 
         CountingDataStore(DataStore delegate) {
             this.delegate = delegate;
@@ -189,7 +156,6 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public int getNumSourceMethods() { return delegate.getNumSourceMethods(); }
         @Override public Set<String> getTestSuitesFailed() { return delegate.getTestSuitesFailed(); }
         @Override public void persistCoreData(TiaData tiaData) { delegate.persistCoreData(tiaData); }
-        @Override public void persistCoreStats(TestStats testStats) { delegate.persistCoreStats(testStats); }
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
         @Override public void clearUnsealedTestSuites() { delegate.clearUnsealedTestSuites(); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
@@ -199,12 +165,6 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) {
             persistTestSuitesCallCount++;
             delegate.persistTestSuites(testSuites);
-        }
-
-        @Override
-        public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) {
-            persistTestSuiteStatsOnlyCallCount++;
-            delegate.persistTestSuiteStatsOnly(testSuites);
         }
 
         @Override public void deleteTestSuites(Set<String> testSuites) { delegate.deleteTestSuites(testSuites); }

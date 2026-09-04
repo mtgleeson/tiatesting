@@ -379,13 +379,11 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public int getNumSourceMethods() { return delegate.getNumSourceMethods(); }
         @Override public Set<String> getTestSuitesFailed() { return delegate.getTestSuitesFailed(); }
         @Override public void persistCoreData(TiaData tiaData) { delegate.persistCoreData(tiaData); }
-        @Override public void persistCoreStats(TestStats testStats) { delegate.persistCoreStats(testStats); }
         @Override public void persistTestSuitesFailed(Set<String> testSuitesFailed) { delegate.persistTestSuitesFailed(testSuitesFailed); }
         @Override public void clearUnsealedTestSuites() { delegate.clearUnsealedTestSuites(); }
         @Override public void persistSourceMethods(Map<Integer, MethodImpactTracker> methodsTracked) { delegate.persistSourceMethods(methodsTracked); }
         @Override public void persistSealedRunData(SealedRunData sealedRunData) { delegate.persistSealedRunData(sealedRunData); }
         @Override public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuites(testSuites); }
-        @Override public void persistTestSuiteStatsOnly(Map<String, TestSuiteTracker> testSuites) { delegate.persistTestSuiteStatsOnly(testSuites); }
         @Override public void deleteTestSuites(Set<String> testSuites) { delegate.deleteTestSuites(testSuites); }
         @Override public Map<String, TrackedLibrary> readTrackedLibraries() { return delegate.readTrackedLibraries(); }
         @Override public List<LibraryPublish> readLibraryPublishes(String groupArtifact) { return delegate.readLibraryPublishes(groupArtifact); }

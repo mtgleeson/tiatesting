@@ -85,7 +85,6 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
-    private final boolean updateDBStats;
     private final boolean updateDBTestRunHistory;
     private long testRunStartTime;
     private final TestStats testRunStats;
@@ -115,7 +114,6 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     public TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, VCSReader vcsReader) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
-        this.updateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
         // updateDBTestRunHistory defaults to TRUE - log a row unless explicitly switched off.
         // The inverse predicate handles a missing system property as "enabled".
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
@@ -175,8 +173,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private boolean isEnabled(){
         boolean enabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
-        log.info("Tia TestExecutionListener: enabled: {}, update mapping: {}, update stats: {}, update test run history: {}",
-                enabled, updateDBMapping, updateDBStats, updateDBTestRunHistory);
+        log.info("Tia TestExecutionListener: enabled: {}, update mapping (and stats): {}, update test run history: {}",
+                enabled, updateDBMapping, updateDBTestRunHistory);
 
         /*
          * If the user specified specific individual tests to run, disable Tia so we don't try to update the test mapping.
@@ -192,7 +190,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
 
         // Enable the listener if Tia is on AND at least one DB write is requested. The history
         // log defaults on, so this is almost always true when Tia is enabled.
-        return enabled && (updateDBMapping || updateDBStats || updateDBTestRunHistory);
+        return enabled && (updateDBMapping || updateDBTestRunHistory);
     }
 
     private void setSelectedTests(){
@@ -259,7 +257,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
         }
 
-        if (updateDBStats){
+        if (updateDBMapping){
             // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
             testSuiteTracker.getTestStats().setNumSuccessRuns(1);
 
@@ -338,7 +336,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         String testSuiteName = getTestSuiteName(testIdentifier);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
-        if (updateDBStats){
+        if (updateDBMapping){
             testSuiteTracker.getTestStats().setNumRuns(1);
 
             if (shouldCalcTestSuiteAvgTime(testSuiteName)){
@@ -374,14 +372,14 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     @Override
     public void testPlanExecutionFinished(TestPlan testPlan) {
-        if (!enabled || (!updateDBMapping && !updateDBStats && !updateDBTestRunHistory)){
+        if (!enabled || (!updateDBMapping && !updateDBTestRunHistory)){
             // not enabled, or not updating the DB in any way
             return;
         }
 
         log.info("Test run finished. Persisting the DB.");
         Set<String> runnerTestSuites = getRunnerTestSuites();
-        TestStats testStats = updateDBStats ? getStatsForTestRun() : null;
+        TestStats testStats = updateDBMapping ? getStatsForTestRun() : null;
         LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
@@ -391,7 +389,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last
         // runner to finish.
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult, distributedRunnerContext);
     }
 
@@ -495,7 +493,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     }
 
     private void updateTrackerStatsForFailedRun(String testSuiteName) {
-        if (updateDBStats) {
+        if (updateDBMapping) {
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
             testSuiteTracker.getTestStats().setNumSuccessRuns(0);
             testSuiteTracker.getTestStats().setNumFailRuns(1);

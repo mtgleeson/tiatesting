@@ -30,7 +30,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private static final Logger log = LoggerFactory.getLogger(TiaSpockGlobalExtension.class);
     private final boolean tiaEnabled;
     private final boolean tiaUpdateDBMapping;
-    private final boolean tiaUpdateDBStats;
     private final boolean tiaUpdateDBTestRunHistory;
     private final List<String> sourceFilesDirs;
     private final List<String> testFilesDirs;
@@ -85,7 +84,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             DistributedRunnerContext distributedRunnerContext =
                     DistributedForkProperties.contextFromSystemProperties();
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
-            tiaUpdateDBStats = Boolean.parseBoolean(System.getProperty("tiaUpdateDBStats"));
             // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
             tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
             dataStore = DataStoreFactory.fromSystemProperties(vcsReader.getBranchName());
@@ -152,13 +150,13 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 drainResult = testSelectorResult.getLibraryImpactDrainResult();
             }
 
-            if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
+            if (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory){
                 // the listener is used for collecting coverage, updating the stored mapping,
                 // and/or recording the run in the history log
                 int ignoredTestSuiteCount = ignoredTests != null ? ignoredTests.size() : 0;
                 this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testsToRun,
                         ignoredTestSuiteCount,
-                        tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory,
+                        tiaUpdateDBMapping, tiaUpdateDBTestRunHistory,
                         drainResult, distributedRunnerContext);
             } else {
                 // not updating the DB, no need to use the Spock listener
@@ -166,7 +164,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             }
         } else {
             tiaUpdateDBMapping = false;
-            tiaUpdateDBStats = false;
             tiaUpdateDBTestRunHistory = false;
             dataStore = null;
             sourceFilesDirs = null;
@@ -175,8 +172,8 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             this.checkLocalChanges = false;
         }
 
-        log.info("Tia: enabled: {}, update mapping: {}, update stats: {}, update test run history: {}",
-                tiaEnabled, tiaUpdateDBMapping, tiaUpdateDBStats, tiaUpdateDBTestRunHistory);
+        log.info("Tia: enabled: {}, update mapping (and stats): {}, update test run history: {}",
+                tiaEnabled, tiaUpdateDBMapping, tiaUpdateDBTestRunHistory);
     }
 
     @Override
@@ -189,7 +186,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void visitSpec(SpecInfo spec){
         if (tiaEnabled){
-            if (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory){
+            if (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory){
                 runnerTestSuites.add(specificationUtil.getSpecName(spec));
                 spec.addListener(tiaTestingSpockRunListener);
             }
@@ -202,7 +199,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
     @Override
     public void stop(){
-        if (tiaEnabled && (tiaUpdateDBMapping || tiaUpdateDBStats || tiaUpdateDBTestRunHistory)) {
+        if (tiaEnabled && (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory)) {
             tiaTestingSpockRunListener.finishAllTests(runnerTestSuites, testRunStartTime);
         }
     }
