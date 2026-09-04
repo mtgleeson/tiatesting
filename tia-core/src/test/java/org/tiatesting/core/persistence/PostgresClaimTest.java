@@ -75,7 +75,7 @@ class PostgresClaimTest {
     private static void cleanDistributedTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_group_suite, "
                     + "tia_distributed_run_method_stage, tia_distributed_run_group, "
                     + "tia_distributed_run CASCADE");
@@ -94,7 +94,7 @@ class PostgresClaimTest {
         assumePg();
         cleanDistributedTables();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH);
+                null, BRANCH, null);
         postgresStore.getTiaData(true); // bootstrap the core schema on first contact
     }
 

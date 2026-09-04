@@ -26,6 +26,8 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
     private String runSource;
+    private String schemaSuffix;
+    private String libraryStampSchemas;
     private File reportOutputDir;
     private String buildDir;
     private List<GradleStaticTestSelectionRule> staticTestSelectionRules = new ArrayList<>();
@@ -210,6 +212,67 @@ public class TiaBaseTaskExtension {
      */
     public void setRunSource(String runSource) {
         this.runSource = runSource;
+    }
+
+    /**
+     * The schema suffix isolating this test task's datastore from the other test tasks in the
+     * project.
+     *
+     * <p>Two Tia-enabled test tasks sharing a datastore corrupt each other: each sees only its own
+     * source set, so each deletes the other's tracked suites, and they share the one stored commit
+     * value, so the one that ran less recently diffs from a commit it never covered. Declaring a
+     * suffix per test task gives each its own schema - {@code tia_<branch>_<suffix>} - with its own
+     * suite table and its own commit stamp.
+     *
+     * <p>Leave unset for a project with a single test task: the schema is then exactly the
+     * {@code tia_<branch>} Tia has always used, so nothing moves.
+     *
+     * @return the declared schema suffix, or null for none
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getSchemaSuffix() {
+        return schemaSuffix;
+    }
+
+    /**
+     * @param schemaSuffix the schema suffix isolating this test task's datastore, or null for none
+     */
+    public void setSchemaSuffix(String schemaSuffix) {
+        this.schemaSuffix = schemaSuffix;
+    }
+
+    /**
+     * The schema suffixes a library publish stamp is written to, comma separated - the schemas of
+     * the projects that <em>consume</em> this library.
+     *
+     * <p>Only needed by a project that publishes a tracked library to consumers which isolate their
+     * test tasks into suffixed schemas. Tia cannot derive the list: the consuming app is a separate
+     * build, so the library's own project has no visibility of its schemas at all. A stamp written
+     * to a schema no consumer reads is never drained, and the suites the library change affects are
+     * never re-run - silent under-selection - which is why this is declared rather than guessed.
+     *
+     * <p>Leave unset when the consumers use the plain {@code tia_<branch>} schema, which is the
+     * single-test-task default: the stamp then goes where it always did.
+     *
+     * <p>Comma separated rather than a list because that is how every other multi-valued Tia
+     * setting is expressed, and because a Maven {@code List} parameter cannot be driven from a
+     * single property - which would break the centralised parent-pom configuration real projects
+     * use.
+     *
+     * @return the consuming schemas' suffixes as a comma-separated string, or null for none
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getLibraryStampSchemas() {
+        return libraryStampSchemas;
+    }
+
+    /**
+     * @param libraryStampSchemas the consuming schemas' suffixes, comma separated, or null for none
+     */
+    public void setLibraryStampSchemas(String libraryStampSchemas) {
+        this.libraryStampSchemas = libraryStampSchemas;
     }
 
     /**

@@ -48,8 +48,8 @@ class SchemaPerBranchIsolationTest {
     @Test
     void h2StoresOnDifferentBranchesAreIsolated(@TempDir Path dir) {
         // given two H2 stores against the same database directory, differing only in branch
-        DataStore storeA = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_A);
-        DataStore storeB = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_B);
+        DataStore storeA = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_A, null);
+        DataStore storeB = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_B, null);
 
         // when / then each branch persists into and reads back only its own schema
         assertBranchesIsolated(storeA, storeB);
@@ -69,9 +69,9 @@ class SchemaPerBranchIsolationTest {
         dropBranchSchemas();
 
         DataStore storeA = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH_A);
+                null, BRANCH_A, null);
         DataStore storeB = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH_B);
+                null, BRANCH_B, null);
 
         // when / then each branch persists into and reads back only its own schema
         assertBranchesIsolated(storeA, storeB);
@@ -127,8 +127,8 @@ class SchemaPerBranchIsolationTest {
     private static void dropBranchSchemas() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH_A) + " CASCADE");
-            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH_B) + " CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH_A, null) + " CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH_B, null) + " CASCADE");
         }
     }
 }

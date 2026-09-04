@@ -61,8 +61,9 @@ class TiaTestExecutionListenerDistributedTest {
     private static final String SUITE = "com.example.ATest";
 
     private static final String[] MANAGED_PROPERTIES = {
-            "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBStats", "tiaUpdateDBTestRunHistory",
-            "tiaSelectedTests", "tiaIgnoredTestSuiteCount", "testClassesDir", "test",
+            "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory",
+            "tiaSelectedTests", "tiaIgnoredTestSuiteCount",
+            ForkSystemProperties.PROP_TEST_CLASSES_DIRS, "test",
             H2ConnectionSettings.PROP_DB_FILE_PATH, H2ConnectionSettings.PROP_DB_URL,
             DistributedForkProperties.PROP_DISTRIBUTED, DistributedForkProperties.PROP_RUN_ID,
             DistributedForkProperties.PROP_RUNNER_KEY, DistributedForkProperties.PROP_GROUP_NUMBER
@@ -92,7 +93,7 @@ class TiaTestExecutionListenerDistributedTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName(BRANCH));
+                BranchSchema.schemaName(BRANCH, null));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaCore();

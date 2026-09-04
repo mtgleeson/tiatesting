@@ -52,7 +52,7 @@ class PostgresAccumulatingSuiteStatsTest extends AccumulatingSuiteStatsTest {
     private static void cleanTables() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
                     + "tia_test_suite, tia_core CASCADE");
         }
@@ -70,6 +70,6 @@ class PostgresAccumulatingSuiteStatsTest extends AccumulatingSuiteStatsTest {
         assumePg();
         cleanTables();
         return DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH);
+                null, BRANCH, null);
     }
 }

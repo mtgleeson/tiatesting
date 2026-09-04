@@ -688,31 +688,65 @@ public class TestRunnerService {
     }
 
     /**
-     * Compile a set of test suite names based on test classes found in the test class directory.
+     * Compile the set of test suite names from the compiled test classes on disk.
      *
-     * @param testClassesDir the directory containing the test class files
-     * @return a set of test suite names based on test classes found in the directory
+     * <p>This is how a forked test JVM tells a suite <em>deleted from the repository</em> from one
+     * it simply <em>did not run</em>. Answering that from the suites a JVM observed is only correct
+     * when one JVM runs the whole project; split the run across JVMs and each concludes that every
+     * suite the others were given has been deleted, and the persist removes it.
+     *
+     * <p>Directories in the list that do not exist are skipped, because a build tool routinely names
+     * output directories a given project never produces. A list where <em>none</em> exists is a
+     * misconfiguration rather than evidence of deletion, and is rejected: returning an empty set
+     * would delete the project's entire stored mapping.
+     *
+     * @param testClassesDirsCsv comma-separated directories holding the compiled test classes
+     * @return the suite names found across those directories
+     * @throws IllegalArgumentException if none of the listed directories exists
      */
-    public Set<String> getTestClassesFromDir(final String testClassesDir) {
-        Path path = Paths.get(testClassesDir);
-        if (!Files.isDirectory(path)) {
-            throw new IllegalArgumentException("Test classes path must be a directory - " + testClassesDir);
+    public Set<String> getTestClassesFromDirs(final String testClassesDirsCsv) {
+        Set<String> testClasses = new HashSet<>();
+        String classFileExt = "." + FileExtensions.CLASS_FILE_EXT;
+        int directoriesScanned = 0;
+
+        for (String dir : testClassesDirsCsv.split(",")) {
+            String testClassesDir = dir.trim();
+            if (testClassesDir.isEmpty()) {
+                continue;
+            }
+
+            Path path = Paths.get(testClassesDir);
+            if (!Files.isDirectory(path)) {
+                // A build tool routinely names output directories a given project never produces -
+                // Gradle lists the java and groovy test outputs whether or not both source sets
+                // exist. Skipping is normal; the guard below covers the case where none exists.
+                log.debug("Skipping test classes directory that does not exist: {}", testClassesDir);
+                continue;
+            }
+            directoriesScanned++;
+
+            try (Stream<Path> walk = Files.walk(path)) {
+                testClasses.addAll(walk
+                        .filter(p -> !Files.isDirectory(p))
+                        // convert from the full file system path for the class files into the class name
+                        .map(Path::toString)
+                        .filter(f -> f.toLowerCase().endsWith(classFileExt))
+                        .map(p -> p.replace(testClassesDir, "").replace(classFileExt, ""))
+                        .map(p -> p.substring((p.startsWith(File.separator) ? 1 : 0)).replace(File.separator, "."))
+                        .collect(Collectors.toSet()));
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
 
-        Set<String> testClasses;
-        String classFileExt = "." + FileExtensions.CLASS_FILE_EXT;
-
-        try (Stream<Path> walk = Files.walk(path)) {
-            testClasses = walk
-                    .filter(p -> !Files.isDirectory(p))
-                    // convert from the full file system path for the class files into the class name
-                    .map(Path::toString)
-                    .filter(f -> f.toLowerCase().endsWith(classFileExt))
-                    .map(p -> p.replace(testClassesDir, "").replace(classFileExt, ""))
-                    .map(p -> p.substring((p.startsWith(File.separator) ? 1 : 0)).replace(File.separator, "."))
-                    .collect(Collectors.toSet());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        if (directoriesScanned == 0) {
+            // Returning an empty set here would be read as "every tracked suite has been deleted
+            // from the repository", and the persist would delete the project's entire mapping. A
+            // configured-but-absent path is a misconfiguration, not evidence of deletion.
+            throw new IllegalArgumentException("None of the configured test classes directories "
+                    + "exist: " + testClassesDirsCsv + ". Tia uses them to tell a deleted test suite "
+                    + "from one this JVM simply did not run, so an empty scan would delete the "
+                    + "project's whole stored mapping.");
         }
 
         log.debug("Test classes found: " + testClasses);

@@ -102,7 +102,7 @@ class AbstractTiaAgentMojoDistributedTest {
     private JdbcDataStore openStore(final String branch) {
         return new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName(branch));
+                BranchSchema.schemaName(branch, null));
     }
 
     /**
@@ -494,6 +494,44 @@ class AbstractTiaAgentMojoDistributedTest {
         assertNull(forkProperties.getProperty("tiaDistributedRunnerKey"));
         assertNull(forkProperties.getProperty("tiaDistributedGroupNumber"));
         assertEquals("true", forkProperties.getProperty("tiaEnabled"));
+    }
+
+    /**
+     * A declared schema suffix reaches the forked test JVM, which is where the schema is resolved.
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldForwardADeclaredSchemaSuffixToTheFork() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-11", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+        mojo.tiaDBSchemaSuffix = "integration";
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertEquals("integration", readForkProperties().getProperty("tiaDBSchemaSuffix"));
+    }
+
+    /**
+     * An undeclared suffix writes no property, so the fork resolves the plain {@code tia_<branch>}
+     * schema rather than one named "null".
+     *
+     * @throws Exception if the properties file cannot be written or read
+     */
+    @Test
+    void shouldWriteNoSchemaSuffixPropertyWhenNoneIsDeclared() throws Exception {
+        // given
+        TestMojo mojo = distributedMojo("run-12", PLAN_COMMIT);
+        mojo.tiaDistributed = false;
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        assertNull(readForkProperties().getProperty("tiaDBSchemaSuffix"));
     }
 
     /**

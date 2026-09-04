@@ -80,7 +80,7 @@ class DistributedRunSealerStatsHistoryTest {
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
-                BranchSchema.schemaName("test"));
+                BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
 
         TiaData tiaData = dataStore.getTiaCore();
@@ -384,7 +384,7 @@ class DistributedRunSealerStatsHistoryTest {
      *
      * <p>The disqualification is the same one the serial-equivalent correction applies: a group that
      * ran suites but timed none of them has a duration that would read entirely as overhead. Suite
-     * times are only recorded when {@code tiaUpdateDBStats} is on.
+     * times are only recorded by a build that updates the mapping DB.
      */
     @Test
     void aBuildThatCannotBeDecomposedLeavesTheStoredOverheadModelAlone() {

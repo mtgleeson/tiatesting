@@ -157,6 +157,34 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaRunSource;
 
     /**
+     * Isolates this execution's datastore into its own schema, {@code tia_<branch>_<suffix>}.
+     * <p>
+     * Declare one per test execution on a module that runs more than one Tia-enabled execution -
+     * surefire and failsafe, say. Two executions sharing a schema delete each other's tracked test
+     * suites and share one stored commit value, which costs selectivity and can silently
+     * under-select.
+     * <p>
+     * Leave unset for a module with a single test execution: the schema is then the
+     * {@code tia_<branch>} Tia has always used, so nothing moves.
+     */
+    @Parameter(property = "tiaDBSchemaSuffix")
+    String tiaDBSchemaSuffix;
+
+    /**
+     * Comma-separated schema suffixes a library publish stamp is written to - the schemas of the
+     * projects that <em>consume</em> this library.
+     * <p>
+     * Only needed by a module publishing a tracked library to consumers that isolate their tests
+     * into suffixed schemas. Tia cannot derive the list: the consuming app is a separate build, so
+     * this module has no visibility of its schemas, and a stamp written where no consumer reads it
+     * is never drained - the suites the library change affects are never re-run.
+     * <p>
+     * Leave unset when consumers use the plain {@code tia_<branch>} schema.
+     */
+    @Parameter(property = "tiaLibraryStampSchemas")
+    String tiaLibraryStampSchemas;
+
+    /**
      * Specifies the default option for whether Tia should analyse local changes when selecting tests.
      */
     @Parameter(property = "tiaCheckLocalChanges")
@@ -386,8 +414,19 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * @return the constructed datastore for the resolved dialect
      */
     protected DataStore buildDataStore(final String branch){
+        return buildDataStore(branch, getTiaDBSchemaSuffix());
+    }
+
+    /**
+     * Construct the datastore for a branch and an explicit schema suffix.
+     *
+     * @param branch the VCS branch, the base of the schema name
+     * @param schemaSuffix the schema suffix, or null for the unsuffixed {@code tia_<branch>} schema
+     * @return the constructed datastore for the resolved dialect
+     */
+    protected DataStore buildDataStore(final String branch, final String schemaSuffix){
         return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch);
+                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch, schemaSuffix);
     }
 
     public String getTiaSourceFilesDirs() {
@@ -437,6 +476,20 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     public String getTiaRunSource() {
         return tiaRunSource;
+    }
+
+    /**
+     * @return the schema suffix isolating this execution's datastore, or null for none
+     */
+    public String getTiaDBSchemaSuffix() {
+        return tiaDBSchemaSuffix;
+    }
+
+    /**
+     * @return the consuming schemas' suffixes for a library publish stamp, comma separated, or null
+     */
+    public String getTiaLibraryStampSchemas() {
+        return tiaLibraryStampSchemas;
     }
 
     public boolean isTiaCheckLocalChanges() {

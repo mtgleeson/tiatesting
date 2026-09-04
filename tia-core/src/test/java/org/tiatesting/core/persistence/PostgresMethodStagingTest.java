@@ -75,7 +75,7 @@ class PostgresMethodStagingTest {
     private static void cleanMethodStageTable() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH)));
+            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
             statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_method_stage CASCADE");
         }
     }
@@ -92,7 +92,7 @@ class PostgresMethodStagingTest {
         assumePg();
         cleanMethodStageTable();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
-                null, BRANCH);
+                null, BRANCH, null);
         postgresStore.getTiaData(true); // bootstrap the core schema on first contact
     }
 

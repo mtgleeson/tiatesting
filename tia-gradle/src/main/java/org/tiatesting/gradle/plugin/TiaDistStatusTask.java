@@ -99,7 +99,7 @@ public class TiaDistStatusTask extends DefaultTask {
     @TaskAction
     public void run() {
         String requestedRunId = runId != null && !runId.trim().isEmpty() ? runId : plugin.getRunId();
-        try (DataStore dataStore = plugin.buildDataStore(plugin.getVCSReader().getBranchName())) {
+        try (DataStore dataStore = plugin.buildDistributedDataStore(plugin.getVCSReader().getBranchName())) {
             System.out.println(DistributedRunStatusReport.format(dataStore, requestedRunId, suites,
                     System.currentTimeMillis(), System.lineSeparator()));
         }

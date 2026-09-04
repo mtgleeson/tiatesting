@@ -106,10 +106,11 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
          * tiaDBUrl}, which exists only to satisfy the shared-database precondition string check.
          *
          * @param branch the VCS branch name whose schema the store selects
+         * @param schemaSuffix the schema suffix, unused here - these tests declare none
          * @return an embedded datastore the caller owns and closes
          */
         @Override
-        public DataStore buildDataStore(final String branch) {
+        public DataStore buildDataStore(final String branch, final String schemaSuffix) {
             return openStore(dbDir, branch);
         }
     }
@@ -126,7 +127,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     private static JdbcDataStore openStore(final File dbDir, final String branch) {
         return new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName(branch));
+                BranchSchema.schemaName(branch, null));
     }
 
     /**

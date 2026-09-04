@@ -10,6 +10,7 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -18,6 +19,7 @@ import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.vcs.VCSReader;
@@ -25,15 +27,19 @@ import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.gradle.plugin.TiaSchemaResolver;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
 import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Set;
 
 public class TiaSpockGitGradlePluginTestExtension {
@@ -71,6 +77,10 @@ public class TiaSpockGitGradlePluginTestExtension {
                 populateTestTaskExtension(tiaProjectExtension, tiaTaskExtension);
                 boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
 
+                if (isTiaEnabled && Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())){
+                    refuseCollidingSchemas(testTask, tiaProjectExtension);
+                }
+
                 if (isTiaEnabled){
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", true);
@@ -97,10 +107,28 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+                    // The compiled test classes this task owns. They tell the forked JVM which
+                    // suites still exist in the project, so a suite it did not run is not mistaken
+                    // for one deleted from the repository - which is what a run split across JVMs
+                    // (maxParallelForks > 1, forkEvery > 0) would otherwise conclude about every
+                    // suite the other forks were given. Identical for every fork of this task, so
+                    // the answer no longer depends on how the run was split.
+                    String testClassesDirs = testTask.getTestClassesDirs().getFiles().stream()
+                            .map(File::getAbsolutePath)
+                            .collect(Collectors.joining(","));
+                    if (!testClassesDirs.isEmpty()) {
+                        testTask.systemProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS, testClassesDirs);
+                    }
                     // Forwarded only when declared. Unset means "let Tia detect it" - forwarding the
                     // literal string "null" would be stored verbatim as the run's source.
                     if (tiaTaskExtension.getRunSource() != null){
                         testTask.systemProperty(RunEnvironment.PROP_RUN_SOURCE, tiaTaskExtension.getRunSource());
+                    }
+                    // Likewise forwarded only when declared: an unset suffix must leave the fork
+                    // resolving the plain tia_<branch> schema, not one named "null".
+                    if (tiaTaskExtension.getSchemaSuffix() != null){
+                        testTask.systemProperty(DataStoreFactory.PROP_DB_SCHEMA_SUFFIX,
+                                tiaTaskExtension.getSchemaSuffix());
                     }
 
                     LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
@@ -209,6 +237,13 @@ public class TiaSpockGitGradlePluginTestExtension {
         // test task from there.
         if (tiaTaskExt.getRunSource() == null){
             tiaTaskExt.setRunSource(tiaProjectExt.getRunSource());
+        }
+
+        // The suffix is the opposite case - it exists to tell test tasks apart, so it is normally
+        // declared per task. The project-level fallback is still honoured, for the project that
+        // wants every task in one named schema rather than the unsuffixed default.
+        if (tiaTaskExt.getSchemaSuffix() == null){
+            tiaTaskExt.setSchemaSuffix(tiaProjectExt.getSchemaSuffix());
         }
 
         if (tiaTaskExt.getSourceLibs() == null){
@@ -604,6 +639,64 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
                 groupNumber, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+    }
+
+    /**
+     * Refuse a project whose Tia-enabled test tasks would write to the same schema, rather than let
+     * them corrupt each other silently.
+     *
+     * <p>Two mapping-owning test tasks sharing a datastore delete each other's suites - each sees
+     * only its own source set, so every suite the other owns looks deleted to it - and share the one
+     * stored commit value, so whichever ran less recently diffs from a commit it never covered. The
+     * first costs all selectivity; the second silently under-selects. Neither fails a build, and
+     * both are invisible short of noticing that Tia stopped saving time, so a hard failure here is
+     * the only thing that makes the schema suffix's opt-in shape safe.
+     *
+     * <p><b>Every defined test task counts, not only the ones in this build.</b> The corruption
+     * spans invocations: a pipeline running {@code test} in one stage and {@code integrationTest} in
+     * another produces it just as reliably as one command running both, because the datastore
+     * outlives either build.
+     *
+     * <p><b>Only mapping-owning tasks count.</b> A task with {@code updateDBMapping} off writes no
+     * mapping and deletes nothing - {@code TestRunnerService.updateTestSuiteMapping} returns before
+     * touching the suite table - so it cannot collide with anything. Including it would fail builds
+     * that are perfectly safe.
+     *
+     * <p>Refused at task-action time rather than during configuration because the effective settings
+     * are the task's own merged over the project's, and the merge for a task that has not run is not
+     * in its extension yet - so the check resolves each task's effective values itself rather than
+     * reading a merge that may not have happened.
+     *
+     * @param currentTask the test task whose action is running, used to reach the project
+     * @param tiaProjectExtension the project-level Tia extension each task's settings fall back to
+     * @throws IllegalStateException if two or more mapping-owning test tasks resolve to one schema
+     */
+    private void refuseCollidingSchemas(final Test currentTask,
+                                        final TiaBaseTaskExtension tiaProjectExtension) {
+        // withType rather than findPlugin, for the same reason claimDistributedRun uses it: the
+        // applied plugin is a TiaBasePlugin subclass, which findPlugin(Class) would not match.
+        TiaBasePlugin plugin = currentTask.getProject().getPlugins().withType(TiaBasePlugin.class)
+                .stream().findFirst().orElse(null);
+        if (plugin == null) {
+            // Nothing to check against without a VCS reader to resolve the branch. A project with
+            // no Tia plugin applied cannot be writing to a Tia datastore either.
+            return;
+        }
+
+        Map<String, List<String>> taskPathsBySchema = TiaSchemaResolver.taskPathsBySchema(
+                currentTask.getProject(), tiaProjectExtension, plugin.getVCSReader().getBranchName());
+
+        for (Map.Entry<String, List<String>> entry : taskPathsBySchema.entrySet()) {
+            if (entry.getValue().size() > 1) {
+                throw new IllegalStateException("Tia: the test tasks " + entry.getValue()
+                        + " all update the mapping in the same datastore and schema (" + entry.getKey()
+                        + "). They would delete each other's tracked test suites and share one stored"
+                        + " commit value, which silently costs selectivity and can silently"
+                        + " under-select. Give each test task its own schema, e.g."
+                        + " test { tia { schemaSuffix = \"unit\" } } and"
+                        + " integrationTest { tia { schemaSuffix = \"integration\" } }.");
+            }
+        }
     }
 
     /**

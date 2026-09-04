@@ -19,7 +19,7 @@ class DataStoreFactoryPostgresRoutingTest {
         // given
         String url = "jdbc:postgresql://localhost:5432/tiaperf";
         // when
-        DataStore store = DataStoreFactory.fromConfig(null, url, "tia", "tia", null, "main");
+        DataStore store = DataStoreFactory.fromConfig(null, url, "tia", "tia", null, "main", null);
         // then
         assertTrue(store instanceof JdbcDataStore);
         assertTrue(((JdbcDataStore) store).getConnectionProvider() instanceof PostgresConnectionProvider);

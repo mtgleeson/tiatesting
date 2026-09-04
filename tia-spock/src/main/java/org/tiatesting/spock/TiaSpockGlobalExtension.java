@@ -11,6 +11,8 @@ import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
@@ -200,8 +202,33 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     @Override
     public void stop(){
         if (tiaEnabled && (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory)) {
-            tiaTestingSpockRunListener.finishAllTests(runnerTestSuites, testRunStartTime);
+            tiaTestingSpockRunListener.finishAllTests(knownTestSuites(), testRunStartTime);
         }
+    }
+
+    /**
+     * The test suites this run treats as still existing in the project.
+     *
+     * <p>Read from the compiled test-classes directories when the build tool names them, and only
+     * from the specs this JVM visited when it does not. The distinction decides whether a suite
+     * absent from this JVM's view is <em>deleted</em> or merely <em>not run here</em>, and the
+     * persist deletes the stored mapping of anything it concludes is deleted.
+     *
+     * <p>Visited specs are the right answer for one JVM running the whole project, and the wrong one
+     * the moment a run is split - {@code maxParallelForks > 1} or {@code forkEvery > 0} give each
+     * JVM a share of the classes, so each would conclude that every suite the others own has been
+     * deleted and remove it. The directories are identical for every fork, so answering from them
+     * makes the question independent of how the run was split. This is the same override the JUnit
+     * listeners have always had, which is why the Maven path was never exposed to this.
+     *
+     * @return the suites to treat as present, from the directory scan when configured
+     */
+    private Set<String> knownTestSuites() {
+        String testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
+        if (testClassesDirs == null || testClassesDirs.trim().isEmpty()) {
+            return runnerTestSuites;
+        }
+        return new TestRunnerService(dataStore).getTestClassesFromDirs(testClassesDirs);
     }
 
 }

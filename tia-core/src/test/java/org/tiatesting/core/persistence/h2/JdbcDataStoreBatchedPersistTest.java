@@ -44,7 +44,7 @@ class JdbcDataStoreBatchedPersistTest {
         tempDir.delete();
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
-        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
     }
 
@@ -124,7 +124,7 @@ class JdbcDataStoreBatchedPersistTest {
             // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
             // JdbcDataStore selects on its own connections - select it explicitly before querying
             // unqualified table names.
-            st.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test")));
+            st.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
             ResultSet rs = st.executeQuery("SELECT MIN(id), MAX(id), COUNT(*) FROM tia_source_class");
             rs.next();
             assertEquals(1, rs.getLong(1));

@@ -147,7 +147,7 @@ class AbstractTiaDistStatusMojoTest {
     private JdbcDataStore openStore() {
         return new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName(BRANCH));
+                BranchSchema.schemaName(BRANCH, null));
     }
 
     /**
