@@ -377,7 +377,6 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         Map<String, String> props = new LinkedHashMap<>();
         props.put("tiaEnabled", String.valueOf(isTiaEnabled()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
-        props.put(ForkSystemProperties.PROP_UPDATE_DB_STATS, String.valueOf(isTiaUpdateDBStats()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY, String.valueOf(isTiaUpdateDBTestRunHistory()));
         // Null when not declared, which ForkSystemProperties.write skips - so the fork sees no
         // property at all and RunEnvironment falls back to detecting the source itself.
@@ -528,9 +527,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      */
     private boolean isEnabled(){
         boolean enabled = isTiaEnabled();
-        getLog().info("Tia AgentMojo: enabled: " + enabled + ", update mapping: " + isTiaUpdateDBMapping() +
-                ", update stats: " + isTiaUpdateDBStats() +
-                ", update test run history: " + isTiaUpdateDBTestRunHistory());
+        getLog().info("Tia AgentMojo: enabled: " + enabled + ", update mapping (and stats): "
+                + isTiaUpdateDBMapping()
+                + ", update test run history: " + isTiaUpdateDBTestRunHistory());
 
         /**
          * If the user specified specific individual tests to run, disable Tia so those tests are run

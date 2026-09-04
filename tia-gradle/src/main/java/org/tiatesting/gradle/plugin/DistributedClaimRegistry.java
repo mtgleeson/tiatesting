@@ -85,8 +85,7 @@ public final class DistributedClaimRegistry {
      * @param updateDBMapping whether this test task updates the mapping database - the seal needs
      *                        this to decide whether the completed group's coverage should be
      *                        persisted
-     * @param updateDBStats whether this test task updates run statistics - the seal needs this for
-     *                       the same reason
+@@DROP1@@     *                       the same reason
      * @param updateDBTestRunHistory whether this test task records test-run history - the seal
      *                               needs this for the same reason
      * @return the recorded claim
@@ -96,7 +95,7 @@ public final class DistributedClaimRegistry {
      */
     public synchronized Claim recordClaim(final String testTaskPath, final String runId,
             final String runnerKey, final Integer groupNumber, final boolean updateDBMapping,
-            final boolean updateDBStats, final boolean updateDBTestRunHistory) {
+            final boolean updateDBTestRunHistory) {
         for (Map.Entry<String, Claim> existing : claimsByTaskPath.entrySet()) {
             if (!existing.getKey().equals(testTaskPath)) {
                 throw new IllegalStateException("Distributed test run '" + existing.getValue().getRunId()
@@ -111,7 +110,7 @@ public final class DistributedClaimRegistry {
             }
         }
 
-        Claim claim = new Claim(runId, runnerKey, groupNumber, updateDBMapping, updateDBStats,
+        Claim claim = new Claim(runId, runnerKey, groupNumber, updateDBMapping,
                 updateDBTestRunHistory);
         claimsByTaskPath.put(testTaskPath, claim);
         return claim;
@@ -138,7 +137,6 @@ public final class DistributedClaimRegistry {
         private final String runnerKey;
         private final Integer groupNumber;
         private final boolean updateDBMapping;
-        private final boolean updateDBStats;
         private final boolean updateDBTestRunHistory;
 
         /**
@@ -149,17 +147,15 @@ public final class DistributedClaimRegistry {
          * @param runnerKey the runner identity the claim was recorded under
          * @param groupNumber the claimed group, or null for a surplus runner
          * @param updateDBMapping whether this test task updates the mapping database
-         * @param updateDBStats whether this test task updates run statistics
          * @param updateDBTestRunHistory whether this test task records test-run history
          */
         private Claim(final String runId, final String runnerKey, final Integer groupNumber,
-                final boolean updateDBMapping, final boolean updateDBStats,
+                final boolean updateDBMapping,
                 final boolean updateDBTestRunHistory) {
             this.runId = runId;
             this.runnerKey = runnerKey;
             this.groupNumber = groupNumber;
             this.updateDBMapping = updateDBMapping;
-            this.updateDBStats = updateDBStats;
             this.updateDBTestRunHistory = updateDBTestRunHistory;
         }
 
@@ -184,10 +180,6 @@ public final class DistributedClaimRegistry {
         }
 
         /** @return whether this test task updates run statistics */
-        public boolean isUpdateDBStats() {
-            return updateDBStats;
-        }
-
         /** @return whether this test task records test-run history */
         public boolean isUpdateDBTestRunHistory() {
             return updateDBTestRunHistory;

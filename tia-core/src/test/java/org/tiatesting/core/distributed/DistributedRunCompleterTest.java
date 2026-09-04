@@ -120,10 +120,10 @@ class DistributedRunCompleterTest {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0),
                 context);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_SECOND_PLAN, METHOD_SECOND_PLAN, 1, 0),
                 context);
         assertEquals(0, Collections.frequency(dataStore.callOrder, "completeGroup"),
@@ -131,7 +131,7 @@ class DistributedRunCompleterTest {
                         + dataStore.callOrder);
 
         // when
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
 
         // then
@@ -154,12 +154,12 @@ class DistributedRunCompleterTest {
         // given
         persistPlan(RUN_ID, 2);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 2, 0),
                 context);
 
         // when - a second test plan covers a suite the first never saw
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_SECOND_PLAN, METHOD_SECOND_PLAN, 1, 0),
                 context);
 
@@ -183,10 +183,10 @@ class DistributedRunCompleterTest {
         // given
         persistPlan(RUN_ID, 1);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
-        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+        DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                 System.currentTimeMillis());
         assertEquals(1, Collections.frequency(dataStore.callOrder, "electSealer"),
                 "test setup expects the first call to have stood for election");
@@ -194,7 +194,7 @@ class DistributedRunCompleterTest {
 
         // when / then
         assertDoesNotThrow(() -> DistributedRunCompleter.completeAndSeal(dataStore, context, true,
-                        true, true, System.currentTimeMillis()),
+                        true, System.currentTimeMillis()),
                 "a rejected completion must not be reported as a failure");
         assertEquals(Collections.singletonList("completeGroup"), dataStore.callOrder,
                 "the second call may attempt the guarded completion write, but that write must be "
@@ -213,14 +213,14 @@ class DistributedRunCompleterTest {
         // given
         persistPlan(RUN_ID, 1);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
         dataStore.failCompleteGroup = true;
 
         // when / then
         RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                         System.currentTimeMillis()),
                 "a failure completing the group must not be swallowed");
         assertTrue(thrown instanceof IllegalStateException,
@@ -241,7 +241,7 @@ class DistributedRunCompleterTest {
         // given
         persistPlan(RUN_ID, 1);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
-        service.persistTestRunData(true, true, true, PLAN_COMMIT, "main",
+        service.persistTestRunData(true, true, PLAN_COMMIT, "main",
                 System.currentTimeMillis(), resultFor(SUITE_FIRST_PLAN, METHOD_FIRST_PLAN, 1, 0),
                 context);
         dataStore.failElectSealer = true;
@@ -249,7 +249,7 @@ class DistributedRunCompleterTest {
         // when / then
         DistributedRunCompleter.SealFailedAfterCompletionException thrown = assertThrows(
                 DistributedRunCompleter.SealFailedAfterCompletionException.class,
-                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true, true,
+                () -> DistributedRunCompleter.completeAndSeal(dataStore, context, true, true,
                         System.currentTimeMillis()),
                 "a failure sealing after the group completed must be reported distinctly");
         assertTrue(thrown.getCause() instanceof IllegalStateException,

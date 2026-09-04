@@ -52,7 +52,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final Set<String> selectedTests;
     private final int ignoredTestSuiteCount;
     private final boolean updateDBMapping;
-    private final boolean updateDBStats;
     private final boolean updateDBTestRunHistory;
     private final SpecificationUtil specificationUtil;
     private final LibraryImpactDrainResult libraryImpactDrainResult;
@@ -72,8 +71,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * @param selectedTests           tests Tia selected to run
      * @param ignoredTestSuiteCount   number of test suites Tia chose to ignore for this run;
      *                                persisted as {@code tia_test_run_history.num_suites_ignored}
-     * @param updateDBMapping         persist test-suite ↔ method mapping
-     * @param updateDBStats           persist run stats
+     * @param updateDBMapping         persist test-suite ↔ method mapping, and with it the run
+     *                                stats - the two are one decision
      * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
      * @param libraryImpactDrainResult drain result from selection (may be {@code null})
      * @param distributedRunnerContext the run id, runner identity and claimed group when this build
@@ -82,7 +81,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
      */
     public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
                                final int ignoredTestSuiteCount,
-                               final boolean updateDBMapping, final boolean updateDBStats,
+                               final boolean updateDBMapping,
                                final boolean updateDBTestRunHistory,
                                final LibraryImpactDrainResult libraryImpactDrainResult,
                                final DistributedRunnerContext distributedRunnerContext){
@@ -98,7 +97,6 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.selectedTests = selectedTests;
         this.ignoredTestSuiteCount = ignoredTestSuiteCount;
         this.updateDBMapping = updateDBMapping;
-        this.updateDBStats = updateDBStats;
         this.updateDBTestRunHistory = updateDBTestRunHistory;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.distributedRunnerContext = distributedRunnerContext;
@@ -117,7 +115,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         TestSuiteTracker testSuiteTracker = new TestSuiteTracker(specName);
         testSuiteTrackers.put(specName, testSuiteTracker);
 
-        if (updateDBStats){
+        if (updateDBMapping){
             // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
             testSuiteTracker.getTestStats().setNumRuns(1);
             testSuiteTracker.getTestStats().setNumSuccessRuns(1);
@@ -153,7 +151,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         TestSuiteTracker testSuiteTracker = testSuiteTrackers.get(specName);
 
-        if (updateDBStats){
+        if (updateDBMapping){
             testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
         }
 
@@ -192,7 +190,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
 
         stopStepRan = true; // this method is called twice for some reason - avoid processing it twice.
         log.info("Test run finished. Persisting the DB.");
-        TestStats testStats = updateDBStats ? updateStatsForTestRun(testRunStartTime) : null;
+        TestStats testStats = updateDBMapping ? updateStatsForTestRun(testRunStartTime) : null;
         // Merge in the specs this JVM's JUnit Platform listener saw skipped - see the field comment
         // above and TiaSpockSkipExecutionListener for why that observation cannot come from Spock's
         // own specSkipped hook. Merged here, once, rather than as each skip happens, since this is
@@ -209,7 +207,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last
         // runner to finish.
-        testRunnerService.persistTestRunData(updateDBMapping, updateDBStats, updateDBTestRunHistory,
+        testRunnerService.persistTestRunData(updateDBMapping, updateDBTestRunHistory,
                 headCommit, branch, testRunStartTime, testRunResult, distributedRunnerContext);
     }
 
@@ -236,7 +234,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     }
 
     private void updateTrackerStatsForFailedRun(String specName) {
-        if (updateDBStats) {
+        if (updateDBMapping) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(specName);
             testSuiteTracker.getTestStats().setNumSuccessRuns(0);

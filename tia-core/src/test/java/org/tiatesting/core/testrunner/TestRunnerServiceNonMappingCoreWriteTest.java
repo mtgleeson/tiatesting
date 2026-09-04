@@ -71,23 +71,22 @@ class TestRunnerServiceNonMappingCoreWriteTest {
     }
 
     /**
-     * A history-only run has neither mapping nor stats to contribute, so it must not write the core
-     * row at all.
+     * A run that does not own the mapping has nothing to contribute to the core row - not the
+     * commit, not the branch, and (since stats follow the mapping) not the stats either - so it must
+     * not write the row at all.
      */
     @Test
-    void historyOnlyRunMakesNoCoreRowWrite() {
+    void nonMappingRunMakesNoCoreRowWrite() {
         // given
         TestRunnerService service = new TestRunnerService(dataStore);
 
         // when
-        service.persistTestRunData(false, false, true, "dev-commit", "feature/x",
+        service.persistTestRunData(false, true, "dev-commit", "feature/x",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then
         assertEquals(0, Collections.frequency(dataStore.callOrder, "persistCoreData"),
-                "a history-only run must not write the whole core row");
-        assertEquals(0, Collections.frequency(dataStore.callOrder, "persistCoreStats"),
-                "a history-only run has no stats to write");
+                "a non-mapping run must not write the core row");
     }
 
     /**
@@ -101,7 +100,7 @@ class TestRunnerServiceNonMappingCoreWriteTest {
         dataStore.afterNextCoreRead = () -> advanceStoredCommitAsCiWould("ci-commit-2", "main");
 
         // when
-        service.persistTestRunData(false, false, true, "dev-commit", "feature/x",
+        service.persistTestRunData(false, true, "dev-commit", "feature/x",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then
@@ -113,33 +112,6 @@ class TestRunnerServiceNonMappingCoreWriteTest {
     }
 
     /**
-     * A stats-only run does have stats to contribute, so it writes - but through the stats-only
-     * path, which leaves a commit CI advanced mid-run alone.
-     */
-    @Test
-    void statsOnlyRunWritesStatsWithoutTouchingTheCommitOrBranch() {
-        // given - CI seals mid-run, after this run's own core read
-        TestRunnerService service = new TestRunnerService(dataStore);
-        dataStore.afterNextCoreRead = () -> advanceStoredCommitAsCiWould("ci-commit-2", "main");
-
-        // when
-        service.persistTestRunData(false, true, false, "dev-commit", "feature/x",
-                System.currentTimeMillis(), makeResult(), null);
-
-        // then
-        assertEquals(1, Collections.frequency(dataStore.callOrder, "persistCoreStats"),
-                "a stats-only run must write its stats");
-        assertEquals(0, Collections.frequency(dataStore.callOrder, "persistCoreData"),
-                "a stats-only run must not write the whole core row");
-
-        TiaData read = dataStore.getTiaCore();
-        assertEquals("ci-commit-2", read.getCommitValue(),
-                "a stats-only run must not roll the stored commit back");
-        assertEquals("main", read.getBranch(),
-                "a stats-only run must not roll the stored branch back");
-    }
-
-    /**
      * A mapping-owning run is unaffected: it still advances the commit and branch through the seal.
      */
     @Test
@@ -148,7 +120,7 @@ class TestRunnerServiceNonMappingCoreWriteTest {
         TestRunnerService service = new TestRunnerService(dataStore);
 
         // when
-        service.persistTestRunData(true, true, false, "ci-commit-2", "release",
+        service.persistTestRunData(true, false, "ci-commit-2", "release",
                 System.currentTimeMillis(), makeResult(), null);
 
         // then
@@ -255,15 +227,5 @@ class TestRunnerServiceNonMappingCoreWriteTest {
             super.persistCoreData(tiaData);
         }
 
-        /**
-         * Record and delegate the stats-only core write.
-         *
-         * @param testStats the Tia-level run stats to write
-         */
-        @Override
-        public void persistCoreStats(final TestStats testStats) {
-            callOrder.add("persistCoreStats");
-            super.persistCoreStats(testStats);
-        }
     }
 }
