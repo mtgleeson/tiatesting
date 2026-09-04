@@ -126,7 +126,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     private static JdbcDataStore openStore(final File dbDir, final String branch) {
         return new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
-                BranchSchema.schemaName(branch));
+                BranchSchema.schemaName(branch, null));
     }
 
     /**

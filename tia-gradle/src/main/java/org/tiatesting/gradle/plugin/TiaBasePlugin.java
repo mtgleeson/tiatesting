@@ -512,7 +512,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public DataStore buildDataStore(String branch) {
         return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), getDbDialect(), branch);
+                getDbPassword(), getDbDialect(), branch, null);
     }
 
     /**

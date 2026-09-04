@@ -19,7 +19,7 @@ class DataStoreFactoryTest {
     @Test
     void buildsH2StoreForNullUrl(@TempDir Path dir) {
         // given / when
-        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main");
+        DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main", null);
         // then
         assertNotNull(store);
         assertTrue(store instanceof JdbcDataStore);
@@ -29,7 +29,7 @@ class DataStoreFactoryTest {
     void unknownUrlSchemeThrowsWithSupportedList() {
         // given / when / then
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DataStoreFactory.fromConfig(null, "jdbc:oracle:thin:@x", "u", "p", null, "main"));
+                () -> DataStoreFactory.fromConfig(null, "jdbc:oracle:thin:@x", "u", "p", null, "main", null));
         assertTrue(ex.getMessage().toLowerCase().contains("h2"));
     }
 

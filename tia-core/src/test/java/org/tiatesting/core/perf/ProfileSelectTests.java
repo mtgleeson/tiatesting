@@ -98,7 +98,7 @@ public final class ProfileSelectTests {
                 ? H2ConnectionSettings.embedded(args.outDb)
                 : H2ConnectionSettings.server(args.url, args.user, args.password);
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
-                BranchSchema.schemaName(args.branch));
+                BranchSchema.schemaName(args.branch, null));
         long tConstruct = System.nanoTime();
         printPhase("Phase 1 - JdbcDataStore construction", t0, tConstruct);
 

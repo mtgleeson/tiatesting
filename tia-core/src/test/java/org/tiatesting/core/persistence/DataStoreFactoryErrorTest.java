@@ -17,7 +17,7 @@ class DataStoreFactoryErrorTest {
     void unknownDialectOverrideListsSupported() {
         // given / when / then
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DataStoreFactory.fromConfig(null, "jdbc:postgresql://h/db", "u", "p", "oracle", "main"));
+                () -> DataStoreFactory.fromConfig(null, "jdbc:postgresql://h/db", "u", "p", "oracle", "main", null));
         assertTrue(ex.getMessage().contains("postgres"));
         assertTrue(ex.getMessage().contains("h2"));
     }

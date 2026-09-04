@@ -39,8 +39,8 @@ class TableExistsWildcardCollisionTest {
     void branchSchemaNamesCollideUnderWildcardExpansion() {
         // given the two branch names used by the isolation test below
         // when their schema names are derived
-        String seededSchema = BranchSchema.schemaName(BRANCH_SEEDED);
-        String freshSchema = BranchSchema.schemaName(BRANCH_FRESH);
+        String seededSchema = BranchSchema.schemaName(BRANCH_SEEDED, null);
+        String freshSchema = BranchSchema.schemaName(BRANCH_FRESH, null);
         // then they are the expected literal names, and freshSchema (used as a LIKE pattern, since
         // '_' is a single-character wildcard) matches seededSchema: "tia_v1_2" as a pattern matches
         // the literal "tia_v1x2"
@@ -67,7 +67,7 @@ class TableExistsWildcardCollisionTest {
     @Test
     void freshBranchSchemaIsNotFooledBySeededSiblingUnderWildcardCollision(@TempDir Path dir) {
         // given a seeded store on branch "v1x2" (schema tia_v1x2) whose Tia tables already exist
-        DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_SEEDED);
+        DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_SEEDED, null);
         try {
             seededStore.getTiaData(true);
             seededStore.persistTestSuitesFailed(new HashSet<>(Collections.singleton("seeded_only")));
@@ -77,7 +77,7 @@ class TableExistsWildcardCollisionTest {
 
         // when a fresh store on branch "v1_2" (schema tia_v1_2, which as a LIKE pattern matches the
         // literal schema tia_v1x2 above) bootstraps against the same physical database
-        DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_FRESH);
+        DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_FRESH, null);
         try {
             freshStore.getTiaData(true);
             freshStore.persistTestSuitesFailed(new HashSet<>(SUITES_FRESH));

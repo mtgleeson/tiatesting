@@ -734,7 +734,7 @@ class DistributedRunSealerTest {
         RecordingDataStore(final File databaseDir) {
             super(new H2Dialect(),
                     new H2ConnectionProvider(H2ConnectionSettings.embedded(databaseDir.getAbsolutePath())),
-                    BranchSchema.schemaName("test"));
+                    BranchSchema.schemaName("test", null));
         }
 
         /**

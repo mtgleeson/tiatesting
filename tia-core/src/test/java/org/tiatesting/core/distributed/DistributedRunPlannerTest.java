@@ -65,7 +65,7 @@ class DistributedRunPlannerTest {
         tempDir.delete();
         tempDir.mkdirs();
         connectionProvider = new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath()));
-        dataStore = new JdbcDataStore(new H2Dialect(), connectionProvider, BranchSchema.schemaName("test"));
+        dataStore = new JdbcDataStore(new H2Dialect(), connectionProvider, BranchSchema.schemaName("test", null));
         dataStore.getTiaData(true);
     }
 
@@ -308,7 +308,7 @@ class DistributedRunPlannerTest {
             // A raw connection from the provider is not pinned to the per-branch schema the way
             // JdbcDataStore.getConnection() pins its own connections, so the schema must be
             // selected explicitly before the unqualified table name below resolves correctly.
-            statement.execute("SET SCHEMA \"" + BranchSchema.schemaName("test") + "\"");
+            statement.execute("SET SCHEMA \"" + BranchSchema.schemaName("test", null) + "\"");
             statement.executeUpdate("UPDATE tia_distributed_run_group SET status = 'COMPLETED' "
                     + "WHERE run_id = 'run-old' AND group_number = 0");
         }
