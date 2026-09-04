@@ -415,7 +415,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * {@code premain}. This removes the need for the user to mirror these into the Surefire
      * {@code systemPropertyVariables} (Gradle forwards them automatically); using a file rather than
      * inline command-line properties keeps long values - {@code tiaClassFilesDirs} (a CSV) and
-     * {@code testClassesDir} - off the command line and clear of the comma-delimited agent option
+     * {@code tiaTestClassesDirs} - off the command line and clear of the comma-delimited agent option
      * parser. Entries with a {@code null} value are skipped, so an unset {@code tiaDBUrl} simply
      * leaves the fork in embedded mode.
      *
@@ -444,7 +444,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put(DataStoreFactory.PROP_DB_SCHEMA_SUFFIX, getTiaDBSchemaSuffix());
         props.put("tiaProjectDir", getTiaProjectDir());
         props.put("tiaClassFilesDirs", getTiaClassFilesDirs());
-        props.put("testClassesDir", getProject().getBuild().getTestOutputDirectory());
+        props.put(ForkSystemProperties.PROP_TEST_CLASSES_DIRS,
+                getProject().getBuild().getTestOutputDirectory());
         props.put("tiaDBFilePath", getTiaDBFilePath());
         props.put("tiaDBUrl", getTiaDBUrl());
         props.put("tiaDBDialect", getTiaDBDialect());

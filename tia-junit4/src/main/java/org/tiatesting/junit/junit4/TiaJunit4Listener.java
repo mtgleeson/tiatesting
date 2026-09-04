@@ -19,6 +19,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.testrunner.TestRunResult;
+import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -40,7 +41,7 @@ public class TiaJunit4Listener extends RunListener {
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
     private final Set<String> testSuitesFailed;
-    private final String testClassesDir;
+    private final String testClassesDirs;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
     Track how many times the test suite was executed (hit the finish hook, this doesn't happen for ignored tests).
@@ -48,7 +49,7 @@ public class TiaJunit4Listener extends RunListener {
     private final Map<String, Integer> runnerTestSuites;
     /*
     The suites this JVM has actually observed - those it has seen finish (testSuiteFinished) or seen
-    skipped (testIgnored) - with no testClassesDir directory-scan override, unlike
+    skipped (testIgnored) - with no test-classes directory-scan override, unlike
     getRunnerTestSuites(). This, not the (possibly overridden) discovered set, is what feeds the
     distributed completeness guard: see TestRunResult#getSuitesObserved. JUnit4 reuses this listener
     instance across Surefire retries, so a single field (rather than something shared like JUnit5's
@@ -120,7 +121,7 @@ public class TiaJunit4Listener extends RunListener {
         this.branch = vcsReader.getBranchName();
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
-        this.testClassesDir = System.getProperty("testClassesDir");
+        this.testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
         // Null for every ordinary build, whose persist is therefore exactly the one it always took.
         this.distributedRunnerContext = enabled
                 ? DistributedForkProperties.contextFromSystemProperties() : null;
@@ -279,7 +280,7 @@ public class TiaJunit4Listener extends RunListener {
         // track the test suite was run by the runner but not executed (0 executions)
         runnerTestSuites.put(testSuiteName, 0);
         if (description.getMethodName() == null){
-            // this JVM has observed the whole suite (as skipped), independent of any testClassesDir
+            // this JVM has observed the whole suite (as skipped), independent of any test-classes directory
             // override applied by getRunnerTestSuites() - see the field's javadoc.
             suitesObserved.add(testSuiteName);
         }
@@ -347,7 +348,7 @@ public class TiaJunit4Listener extends RunListener {
         if (!isParameterizedTest(description)){
             int previousRuns = runnerTestSuites.get(testSuiteName) == null ? 0 : runnerTestSuites.get(testSuiteName);
             runnerTestSuites.put(testSuiteName, previousRuns+1);
-            // this JVM has observed the suite (as finished), independent of any testClassesDir
+            // this JVM has observed the suite (as finished), independent of any test-classes directory
             // override applied by getRunnerTestSuites() - see the field's javadoc.
             suitesObserved.add(testSuiteName);
             suitesFinishedThisAttempt.add(testSuiteName);
@@ -506,11 +507,11 @@ public class TiaJunit4Listener extends RunListener {
      * @return the set of all test suite names for the project that Tia is aware of.
      */
     private Set<String> getRunnerTestSuites(){
-        if (testClassesDir == null){
+        if (testClassesDirs == null || testClassesDirs.trim().isEmpty()){
             return runnerTestSuites.keySet();
         }
 
-        return testRunnerService.getTestClassesFromDir(testClassesDir);
+        return testRunnerService.getTestClassesFromDirs(testClassesDirs);
     }
 
     private void updateTrackerStatsForFailedRun(String testSuiteName) {

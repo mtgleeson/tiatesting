@@ -373,7 +373,11 @@ and the shared DB location.
 
 The Gradle plugin pre-resolves library metadata (declared version, source directories, resolved version, JAR path) at task-action time and forwards it to the forked test JVM via system properties — TIA's library partitioning, reconcile, stamp, and drain phases all run inside the test JVM as part of Spock's selection lifecycle. No state is exchanged via files; the wire format is internal and not part of the public configuration surface.
 
-**Single-fork requirement when `updateDBMapping=true`.** The Gradle/Spock path must run with `maxParallelForks=1` and `forkEvery=0` (Gradle's defaults) when persisting mapping data. Each forked JVM persists independently using only the test suites it observed, so multi-fork runs corrupt the on-disk mapping by deleting the suites other forks owned. This affects test-suite-mapping persistence in general (not specific to library tracking) — leaving Gradle's defaults in place avoids it.
+**Single-fork recommendation when `updateDBMapping=true`.** Keep `maxParallelForks=1` and `forkEvery=0` (Gradle's defaults) when persisting mapping data, unless you have validated otherwise for your project.
+
+The specific corruption this used to describe is fixed: a forked JVM no longer deletes the suites the other forks owned. It used to answer "has this suite been deleted from the repository?" from the suites it happened to observe, which is only correct when one JVM runs the whole project; it now answers from the compiled test classes on disk, which every fork sees identically. (The Maven path was never exposed to this — it has always forwarded its test-output directory.) A forked JVM also now writes only the suites it touched rather than the whole map, so it no longer rewrites another fork's rows from a stale snapshot.
+
+What is *not* established is that multi-fork is now safe end to end. Every fork still seals independently, and the `unsealed` flag one fork clears may belong to a suite another fork is still running — a documented best-effort weakening (see the persist-flow chapter) that multiple forks make more likely. Until someone validates a multi-fork build against a real project, the defaults remain the recommendation.
 
 #### How library change tracking works (publish-time stamping)
 
