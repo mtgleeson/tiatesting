@@ -100,7 +100,7 @@ class TiaDistCompleteTaskTest {
         }
 
         @Override
-        public DataStore buildDataStore(final String branch) {
+        public DataStore buildDataStore(final String branch, final String schemaSuffix) {
             if (throwOnBuildDataStore) {
                 throw new RuntimeException("simulated datastore failure");
             }

@@ -17,7 +17,6 @@ import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
-import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
@@ -27,6 +26,7 @@ import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
+import org.tiatesting.gradle.plugin.TiaSchemaResolver;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
 import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
@@ -668,36 +668,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             return;
         }
 
-        String branch = plugin.getVCSReader().getBranchName();
-        Map<String, List<String>> taskPathsBySchema = new LinkedHashMap<>();
-
-        for (Test task : currentTask.getProject().getTasks().withType(Test.class)) {
-            TiaBaseTaskExtension taskExtension =
-                    task.getExtensions().findByType(TiaBaseTaskExtension.class);
-            if (taskExtension == null) {
-                continue;
-            }
-            if (!Boolean.TRUE.equals(effective(taskExtension.getEnabled(), tiaProjectExtension.getEnabled()))
-                    || !Boolean.TRUE.equals(effective(taskExtension.getUpdateDBMapping(),
-                            tiaProjectExtension.getUpdateDBMapping()))) {
-                continue;
-            }
-
-            String schema = BranchSchema.schemaName(branch,
-                    effective(taskExtension.getSchemaSuffix(), tiaProjectExtension.getSchemaSuffix()));
-            String datastore = effective(taskExtension.getDbUrl(), tiaProjectExtension.getDbUrl());
-            if (datastore == null) {
-                datastore = effective(taskExtension.getDbFilePath(), tiaProjectExtension.getDbFilePath());
-            }
-
-            String storeIdentity = datastore + " :: " + schema;
-            List<String> paths = taskPathsBySchema.get(storeIdentity);
-            if (paths == null) {
-                paths = new ArrayList<>();
-                taskPathsBySchema.put(storeIdentity, paths);
-            }
-            paths.add(task.getPath());
-        }
+        Map<String, List<String>> taskPathsBySchema = TiaSchemaResolver.taskPathsBySchema(
+                currentTask.getProject(), tiaProjectExtension, plugin.getVCSReader().getBranchName());
 
         for (Map.Entry<String, List<String>> entry : taskPathsBySchema.entrySet()) {
             if (entry.getValue().size() > 1) {
@@ -710,18 +682,6 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                         + " integrationTest { tia { schemaSuffix = \"integration\" } }.");
             }
         }
-    }
-
-    /**
-     * Resolve a setting to the task's own value when it has one, falling back to the project's.
-     *
-     * @param taskValue the task-level value, or null when not declared on the task
-     * @param projectValue the project-level value to fall back to
-     * @param <T> the setting's type
-     * @return the effective value, which may be null when neither declares one
-     */
-    private static <T> T effective(final T taskValue, final T projectValue) {
-        return taskValue != null ? taskValue : projectValue;
     }
 
     /**
