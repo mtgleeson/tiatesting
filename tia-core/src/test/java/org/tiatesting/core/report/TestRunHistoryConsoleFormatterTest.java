@@ -245,7 +245,7 @@ class TestRunHistoryConsoleFormatterTest {
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
+                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -264,9 +264,9 @@ class TestRunHistoryConsoleFormatterTest {
     void savingsColumns_renderDurationPercentAndDashForZero() {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.unknown());
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
-                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
+                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -289,7 +289,7 @@ class TestRunHistoryConsoleFormatterTest {
     void singleHostOnlyHistory_omitsTheDistributedColumns() {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.unknown());
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -312,7 +312,7 @@ class TestRunHistoryConsoleFormatterTest {
         // given - a build whose groups summed to 20s but which took 8s of wall clock across 3 groups
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.unknown());
+                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -337,9 +337,9 @@ class TestRunHistoryConsoleFormatterTest {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.unknown());
+                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
         TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
-                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.unknown());
+                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -355,12 +355,12 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * A history with no recorded origin - every row written before the columns existed - renders
-     * neither. The table is already wide; two columns that are a dash on every row would cost width
-     * while telling the reader nothing.
+     * Source is always rendered - every recorded run resolves one - but a history where no row
+     * names a machine drops Host. The table is already wide; a column that is a dash on every row
+     * costs width while telling the reader nothing.
      */
     @Test
-    void historyWithNoRecordedOrigin_rendersNeitherOriginColumn() {
+    void aHistoryWhereNoRowNamesAHost_dropsOnlyTheHostColumn() {
         // given
         TestRunHistoryEntry entry = entry(2026, 5, 15, 9, 30, 42, "main", "abc123", "id-1",
                 42, 3, 1, 83_000L, true);
@@ -370,7 +370,8 @@ class TestRunHistoryConsoleFormatterTest {
                 Collections.singletonList(entry), 20, LF);
 
         // then
-        assertFalse(output.contains("Source"), output);
+        assertTrue(output.contains("Source"), output);
+        assertTrue(output.contains(RunOrigin.SOURCE_LOCAL), output);
         assertFalse(output.contains("Host"), output);
     }
 
@@ -395,11 +396,11 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * A distributed build records a source but no host, so requiring both halves would hide the
-     * source entirely on a history made up of distributed builds. Either half turns the group on.
+     * A distributed build records a source but no host. The source still renders: gating it on the
+     * host would hide it entirely on a history made up of distributed builds.
      */
     @Test
-    void aSourceWithNoHostStillTurnsTheOriginColumnsOn() {
+    void aDistributedRunStillRendersItsSource() {
         // given
         TestRunHistoryEntry entry = entryWithOrigin(RunOrigin.of(RunOrigin.SOURCE_CI, null));
 
@@ -413,24 +414,25 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * In a mixed history, a row that predates the columns dashes them rather than rendering blank -
-     * the same treatment a single-host row gets in the distributed layout.
+     * Once some row names a host the column appears, and a row with no host - a distributed build,
+     * which no single machine ran - is dashed rather than blank, the same treatment a single-host
+     * row gets in the distributed layout. Its source still renders.
      */
     @Test
-    void aRowWithNoOriginIsDashedWhenOtherRowsHaveOne() {
+    void aHostlessRowIsDashedWhenOtherRowsNameAHost() {
         // given
         List<TestRunHistoryEntry> entries = Arrays.asList(
                 entryWithOrigin(RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3")),
-                entry(2026, 5, 15, 9, 30, 42, "main", "abc123", "id-old",
+                entry(2026, 5, 15, 9, 30, 42, "main", "abc123", "id-dist",
                         42, 3, 1, 83_000L, true));
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(entries, 20, LF);
 
-        // then - read the two origin cells by column position rather than searching the row for a
-        // dash, which the date and the savings cells would satisfy on their own.
-        assertEquals("-", cellOf(output, "Source", "id-old"), output);
-        assertEquals("-", cellOf(output, "Host", "id-old"), output);
+        // then - read the cells by column position rather than searching the row for a dash, which
+        // the date and the savings cells would satisfy on their own.
+        assertEquals("-", cellOf(output, "Host", "id-dist"), output);
+        assertEquals(RunOrigin.SOURCE_LOCAL, cellOf(output, "Source", "id-dist"), output);
         assertEquals(RunOrigin.SOURCE_CI, cellOf(output, "Source", "build-agent-3"), output);
         assertEquals("build-agent-3", cellOf(output, "Host", "build-agent-3"), output);
     }
@@ -504,7 +506,7 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.unknown());
+                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -512,7 +514,7 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.unknown()));
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null)));
         }
         return entries;
     }

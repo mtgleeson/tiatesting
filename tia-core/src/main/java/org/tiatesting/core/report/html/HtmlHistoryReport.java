@@ -93,7 +93,7 @@ public class HtmlHistoryReport {
         final boolean showDistributed = anyDistributed(history);
         // Same rule for the run-origin pair: a history recorded entirely before those columns
         // existed renders neither rather than dashing both on every row.
-        final boolean showOrigin = anyKnownOrigin(history);
+        final boolean showHost = anyHost(history);
 
         try (FileWriter writer = new FileWriter(fileName)) {
             html(
@@ -108,8 +108,8 @@ public class HtmlHistoryReport {
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_HISTORY, "Test Run History"),
                                     table(attrs("#tiaTable"),
-                                            thead(buildHeaderRow(numberDataType, showDistributed, showOrigin)),
-                                            tbody(each(history, entry -> buildRow(entry, showDistributed, showOrigin)))
+                                            thead(buildHeaderRow(numberDataType, showDistributed, showHost)),
+                                            tbody(each(history, entry -> buildRow(entry, showDistributed, showHost)))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
@@ -148,21 +148,20 @@ public class HtmlHistoryReport {
     }
 
     /**
-     * Report whether any row knows where it came from, which decides whether the run-source and
-     * host columns are rendered at all. Either half counts: a distributed build records a source
-     * with no host, so requiring both would hide the source on a history made up of distributed
-     * builds.
+     * Report whether any row names the machine that ran it, which decides whether the Host column
+     * is rendered at all. A distributed build spans several machines and names none, so a history
+     * made up entirely of distributed builds would otherwise carry a column of dashes. The Source
+     * column needs no such gate - every recorded run resolves a source.
      *
      * @param history the history rows about to be rendered; may be null
-     * @return true when at least one row carries a run source or a host
+     * @return true when at least one row carries a host
      */
-    private boolean anyKnownOrigin(List<TestRunHistoryEntry> history) {
+    private boolean anyHost(List<TestRunHistoryEntry> history) {
         if (history == null) {
             return false;
         }
         for (TestRunHistoryEntry entry : history) {
-            RunOrigin origin = entry.getRunOrigin();
-            if (origin.getRunSource() != null || origin.getHostName() != null) {
+            if (entry.getRunOrigin().getHostName() != null) {
                 return true;
             }
         }
@@ -177,11 +176,11 @@ public class HtmlHistoryReport {
      *
      * @param numberDataType the {@code data-type} attribute simple-datatables sorts numerically by
      * @param showDistributed whether the wall clock and group columns are being rendered
-     * @param showOrigin whether the run source and host columns are being rendered
+     * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} of header cells
      */
     private DomContent buildHeaderRow(String numberDataType, boolean showDistributed,
-                                      boolean showOrigin) {
+                                      boolean showHost) {
         List<DomContent> cells = new ArrayList<>();
         cells.add(th("Date / time (local)").attr(numberDataType));
         cells.add(th("Branch"));
@@ -196,8 +195,8 @@ public class HtmlHistoryReport {
         }
         cells.add(th("Savings").attr(numberDataType));
         cells.add(th("Savings %").attr(numberDataType));
-        if (showOrigin) {
-            cells.add(th("Source").withStyle("width: 6em"));
+        cells.add(th("Source").withStyle("width: 6em"));
+        if (showHost) {
             cells.add(th("Host"));
         }
         cells.add(th("Updated Mapping?").withStyle("width: 8em"));
@@ -215,11 +214,11 @@ public class HtmlHistoryReport {
      *
      * @param entry the history entry to render as a row
      * @param showDistributed whether the wall clock and group columns are being rendered
-     * @param showOrigin whether the run source and host columns are being rendered
+     * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} content for this entry
      */
     private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed,
-                                boolean showOrigin) {
+                                boolean showHost) {
         long ms = entry.getRunTimestampMs();
         // Fallback text shown only when the localizer script doesn't run (JS disabled). Truncate
         // to whole seconds and drop the UTC 'Z' so the displayed text matches the no-ms /
@@ -255,11 +254,11 @@ public class HtmlHistoryReport {
                 .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())));
         cells.add(td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
                 .attr("data-sort", String.valueOf(entry.getSavingsPercent())));
-        if (showOrigin) {
-            // Dashed rather than blank so an absent origin reads as "not recorded" rather than as
-            // a rendering slip - and so the column sorts the unknown rows together.
-            RunOrigin origin = entry.getRunOrigin();
-            cells.add(td(origin.getRunSource() == null ? "-" : origin.getRunSource()));
+        RunOrigin origin = entry.getRunOrigin();
+        cells.add(td(origin.getRunSource()));
+        if (showHost) {
+            // Dashed rather than blank so a distributed build's absent host reads as "no single
+            // machine" rather than as a rendering slip, and sorts those rows together.
             cells.add(td(origin.getHostName() == null ? "-" : origin.getHostName()));
         }
         cells.add(td(entry.isUpdatedDbMapping() ? "yes" : "no"));

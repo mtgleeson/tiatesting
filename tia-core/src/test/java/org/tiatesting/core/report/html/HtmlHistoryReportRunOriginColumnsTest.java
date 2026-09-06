@@ -49,39 +49,38 @@ class HtmlHistoryReportRunOriginColumnsTest {
     }
 
     /**
-     * A history recorded entirely before the columns existed renders neither, rather than dashing
-     * both on every row.
+     * Source is always rendered - every recorded run resolves one - but a history where no row
+     * names a machine drops Host rather than dashing it on every row.
      *
      * @param tempDir JUnit-supplied directory the report is written into
      * @throws Exception if the report cannot be written or read back
      */
     @Test
-    void aHistoryWithNoRecordedOrigin_omitsBothColumns(@TempDir File tempDir) throws Exception {
+    void aHistoryWhereNoRowNamesAHost_dropsOnlyTheHostColumn(@TempDir File tempDir) throws Exception {
         // given
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
-                entry("id1", 1_700_000_000_000L, RunOrigin.unknown())));
+                entry("id1", 1_700_000_000_000L, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null))));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
 
         // then
-        assertFalse(html.contains(">Source<"),
-                "a history with no recorded origin needs no Source column. Output:\n" + html);
+        assertTrue(html.contains(">Source<"),
+                "every run resolves a source, so the column always renders. Output:\n" + html);
         assertFalse(html.contains(">Host<"),
-                "a history with no recorded origin needs no Host column. Output:\n" + html);
+                "no row names a host, so the column is only dashes. Output:\n" + html);
     }
 
     /**
-     * A distributed build records a source but no host, so requiring both halves would hide the
-     * source entirely on a history made up of distributed builds. Either half turns the pair on,
-     * and the missing host is dashed.
+     * A distributed build records a source but no host. The source still renders: gating it on the
+     * host would hide it entirely on a history made up of distributed builds.
      *
      * @param tempDir JUnit-supplied directory the report is written into
      * @throws Exception if the report cannot be written or read back
      */
     @Test
-    void aSourceWithNoHost_stillRendersThePairWithTheHostDashed(@TempDir File tempDir) throws Exception {
+    void aDistributedRunStillRendersItsSource(@TempDir File tempDir) throws Exception {
         // given
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
@@ -91,28 +90,26 @@ class HtmlHistoryReportRunOriginColumnsTest {
         String html = generateAndRead(tiaData, tempDir);
 
         // then
-        assertTrue(html.contains(">Host<"),
-                "a recorded source alone warrants the pair. Output:\n" + html);
+        assertTrue(html.contains(">Source<"),
+                "the source renders even with no host. Output:\n" + html);
         assertTrue(html.contains(RunOrigin.SOURCE_CI),
                 "the row should carry its run source. Output:\n" + html);
-        assertTrue(html.contains(">-</td>"),
-                "the absent host should be dashed, not blank. Output:\n" + html);
     }
 
     /**
-     * In a mixed history a row that predates the columns dashes them, so an absent origin reads as
-     * "not recorded" rather than as a rendering slip.
+     * In a mixed history a row that names no machine - a distributed build - dashes its host, so it
+     * reads as "no single machine" rather than as a rendering slip.
      *
      * @param tempDir JUnit-supplied directory the report is written into
      * @throws Exception if the report cannot be written or read back
      */
     @Test
-    void aMixedHistory_dashesTheRowThatPredatesTheColumns(@TempDir File tempDir) throws Exception {
+    void aMixedHistory_dashesTheHostOfTheRowThatNamesNoMachine(@TempDir File tempDir) throws Exception {
         // given
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
                 entry("id1", 1_700_000_000_000L, RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3")),
-                entry("id2", 1_699_000_000_000L, RunOrigin.unknown())));
+                entry("id2", 1_699_000_000_000L, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null))));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
