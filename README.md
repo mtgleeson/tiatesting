@@ -651,7 +651,7 @@ Date/time            Branch            Commit    Ran  Ignored  Failed  Duration 
 - **`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration).
 - **`Host`** is the machine that ran it, rendered whole rather than truncated - unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes it: no single machine ran it.
 
-Both columns are omitted entirely from a history recorded before they existed, and a row that predates them is dashed in a mixed history.
+`Source` always renders - every recorded run resolves one. `Host` is omitted when no row in view names a machine, and dashed on a distributed build's row in a mixed history, since no single machine ran it.
 
 A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
 

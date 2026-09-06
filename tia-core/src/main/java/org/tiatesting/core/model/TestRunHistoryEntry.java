@@ -70,9 +70,8 @@ public final class TestRunHistoryEntry implements Serializable {
      *                    duration - or null for a single-host run
      * @param groupCount the number of groups the distributed build was split across, or null for a
      *                   single-host run
-     * @param runOrigin where the run came from and which machine executed it. Never null - use
-     *                  {@link RunOrigin#unknown()} for a row whose origin is not known, such as one
-     *                  read back from a database written before those columns existed
+     * @param runOrigin where the run came from and which machine executed it; never null, though
+     *                  its host may be
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
@@ -94,7 +93,7 @@ public final class TestRunHistoryEntry implements Serializable {
         this.runId = runId;
         this.wallClockMs = wallClockMs;
         this.groupCount = groupCount;
-        this.runOrigin = runOrigin == null ? RunOrigin.unknown() : runOrigin;
+        this.runOrigin = Objects.requireNonNull(runOrigin, "runOrigin");
     }
 
     /**
@@ -268,13 +267,10 @@ public final class TestRunHistoryEntry implements Serializable {
     public Integer getGroupCount() { return groupCount; }
 
     /**
-     * @return where the run came from and which machine executed it. Never null, though either of
-     *         its components may be - see {@link RunOrigin}. The null coalesce is not redundant with
-     *         the constructor's: an entry restored from a serialized store written before this field
-     *         existed is materialised without running any constructor, so the field really can be
-     *         null on such an instance
+     * @return where the run came from and which machine executed it; never null, though its host
+     *         may be - see {@link RunOrigin}
      */
-    public RunOrigin getRunOrigin() { return runOrigin == null ? RunOrigin.unknown() : runOrigin; }
+    public RunOrigin getRunOrigin() { return runOrigin; }
 
     @Override
     public boolean equals(Object o) {

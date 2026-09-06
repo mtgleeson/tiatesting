@@ -14,8 +14,10 @@ import java.util.Objects;
  * average silently mixes a maxed-out laptop with a workstation. See the "Test run history" chapter
  * in {@code WIKI.md}.
  *
- * <p>Both components are nullable and mean "not known" when null: rows written before these columns
- * existed read back that way, as does a run whose hostname could not be resolved.
+ * <p>The run source is always resolved - {@link org.tiatesting.core.testrunner.RunEnvironment}
+ * falls back to {@link #SOURCE_LOCAL} when nothing marks the run as CI - so every run Tia records
+ * carries one. The host is genuinely optional: a distributed build spans several machines and
+ * names none, and a hostname lookup can fail.
  */
 public final class RunOrigin implements Serializable {
 
@@ -39,8 +41,9 @@ public final class RunOrigin implements Serializable {
      * Build an origin from an already-resolved source and host.
      *
      * @param runSource where the run came from, conventionally {@link #SOURCE_CI} or
-     *                  {@link #SOURCE_LOCAL}; may be null when not known
-     * @param hostName the machine that executed the run; may be null when not known
+     *                  {@link #SOURCE_LOCAL}
+     * @param hostName the machine that executed the run, or null when no single machine did (a
+     *                 distributed build) or the hostname could not be resolved
      * @return the populated origin
      */
     public static RunOrigin of(final String runSource, final String hostName) {
@@ -48,25 +51,14 @@ public final class RunOrigin implements Serializable {
     }
 
     /**
-     * The origin of a run nothing is known about: a history row written before these columns
-     * existed, or a test that does not care about the origin.
-     *
-     * @return an origin with both components null
-     */
-    public static RunOrigin unknown() {
-        return new RunOrigin(null, null);
-    }
-
-    /**
-     * @return where the run came from ({@link #SOURCE_CI} / {@link #SOURCE_LOCAL}), or null when the
-     *         run predates the column or its source could not be determined
+     * @return where the run came from ({@link #SOURCE_CI} / {@link #SOURCE_LOCAL})
      */
     public String getRunSource() { return runSource; }
 
     /**
-     * @return the machine that executed the run, or null when the run predates the column, the
-     *         hostname could not be resolved, or the run spanned several machines (a distributed
-     *         build, where no single host executed it)
+     * @return the machine that executed the run, or null when the hostname could not be resolved
+     *         or the run spanned several machines (a distributed build, where no single host
+     *         executed it)
      */
     public String getHostName() { return hostName; }
 
