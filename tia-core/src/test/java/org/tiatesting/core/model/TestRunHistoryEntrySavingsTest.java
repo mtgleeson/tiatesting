@@ -19,7 +19,7 @@ class TestRunHistoryEntrySavingsTest {
     void create_carriesSavingsFigures(){
         // given / when
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
-                "main", "abc", 1000L, 3, 2, 0, 1000L, true, 4000L, 80, RunOrigin.unknown());
+                "main", "abc", 1000L, 3, 2, 0, 1000L, true, 4000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // then
         assertEquals(4000L, entry.getTimeSavingsMs());
@@ -33,7 +33,7 @@ class TestRunHistoryEntrySavingsTest {
     void fullConstructor_carriesSavingsFigures(){
         // given / when
         TestRunHistoryEntry entry = new TestRunHistoryEntry(
-                "id", 1000L, "main", "abc", 3, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.unknown());
+                "id", 1000L, "main", "abc", 3, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
 
         // then
         assertEquals(4000L, entry.getTimeSavingsMs());

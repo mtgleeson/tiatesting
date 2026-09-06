@@ -34,8 +34,9 @@ import java.util.List;
  *       build. {@code Duration} keeps the serial-equivalent time in both modes, so it stays the
  *       figure savings are computed from and stays comparable across the two; single-host rows in a
  *       mixed history dash the two extra columns.</li>
- *   <li>{@code Source} and {@code Host} appear when any row in view carries a known run origin.
- *       A history recorded entirely before those columns existed renders neither.</li>
+ *   <li>{@code Source} is always rendered - every recorded run resolves one. {@code Host} appears
+ *       only when some row in view names a machine, so a history made up entirely of distributed
+ *       builds does not carry a column that could only ever be dashes.</li>
  * </ul>
  *
  * <p>When the input list is empty, the formatter returns the single sentence
@@ -115,7 +116,7 @@ public final class TestRunHistoryConsoleFormatter {
         int rowCount = Math.min(effectiveLimit, total);
         List<TestRunHistoryEntry> visible = entries.subList(0, rowCount);
 
-        List<Column> columns = layout(anyDistributed(visible), anyKnownOrigin(visible));
+        List<Column> columns = layout(anyDistributed(visible), anyHost(visible));
 
         String[] headers = new String[columns.size()];
         boolean[] rightAlign = new boolean[columns.size()];
@@ -155,10 +156,10 @@ public final class TestRunHistoryConsoleFormatter {
      * view have something to put in it.
      *
      * @param showDistributed whether to include the wall-clock and group-count columns
-     * @param showOrigin whether to include the run-source and host columns
+     * @param showHost whether to include the host column
      * @return the columns in display order
      */
-    private static List<Column> layout(final boolean showDistributed, final boolean showOrigin) {
+    private static List<Column> layout(final boolean showDistributed, final boolean showHost) {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("Date/time", false, (e, zone) ->
                 Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME)));
@@ -186,11 +187,11 @@ public final class TestRunHistoryConsoleFormatter {
         columns.add(new Column("Savings %", true, (e, zone) -> e.getTimeSavingsMs() > 0
                 ? e.getSavingsPercent() + "%" : NOT_APPLICABLE));
 
-        if (showOrigin) {
-            columns.add(new Column("Source", false, (e, zone) ->
-                    orNotApplicable(e.getRunOrigin().getRunSource())));
-            // Dashed for a distributed build as well as for a row that predates the column: no
-            // single machine ran it, so there is no host to name.
+        columns.add(new Column("Source", false, (e, zone) ->
+                orNotApplicable(e.getRunOrigin().getRunSource())));
+        if (showHost) {
+            // Dashed for a distributed build in a mixed history: no single machine ran it, so
+            // there is no host to name.
             columns.add(new Column("Host", false, (e, zone) ->
                     orNotApplicable(e.getRunOrigin().getHostName())));
         }
@@ -216,17 +217,16 @@ public final class TestRunHistoryConsoleFormatter {
     }
 
     /**
-     * Report whether any visible row knows where it came from. Either half counts: a distributed
-     * build records a source with no host, so requiring both would hide the source on a history
-     * made up entirely of distributed builds.
+     * Report whether any visible row names the machine that ran it. A distributed build spans
+     * several machines and names none, so a history made up entirely of distributed builds would
+     * otherwise carry a Host column that could only ever be dashes.
      *
      * @param entries the rows about to be rendered
-     * @return true when at least one row carries a run source or a host
+     * @return true when at least one row carries a host
      */
-    private static boolean anyKnownOrigin(List<TestRunHistoryEntry> entries) {
+    private static boolean anyHost(List<TestRunHistoryEntry> entries) {
         for (TestRunHistoryEntry entry : entries) {
-            RunOrigin origin = entry.getRunOrigin();
-            if (origin.getRunSource() != null || origin.getHostName() != null) {
+            if (entry.getRunOrigin().getHostName() != null) {
                 return true;
             }
         }
