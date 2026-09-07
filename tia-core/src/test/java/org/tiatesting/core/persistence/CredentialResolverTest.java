@@ -1,12 +1,18 @@
 package org.tiatesting.core.persistence;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link CredentialResolver}, covering the precedence between a configured value,
@@ -164,5 +170,148 @@ class CredentialResolverTest {
 
         // then
         assertNull(resolved);
+    }
+
+    /**
+     * Write the given bytes to a file in the temporary directory.
+     *
+     * @param dir      the temporary directory to write into
+     * @param contents the exact bytes to write, with no line ending added
+     * @return the path of the file written
+     * @throws Exception if the file cannot be written
+     */
+    private static Path passwordFile(final Path dir, final String contents) throws Exception {
+        Path file = dir.resolve("pw.txt");
+        Files.write(file, contents.getBytes(StandardCharsets.UTF_8));
+        return file;
+    }
+
+    /**
+     * The rule that bites in practice: {@code echo secret > pw.txt} appends a newline, and sending
+     * "secret\n" to the database is the classic failure of the password-file pattern.
+     */
+    @Test
+    void readPasswordFileStripsExactlyOneTrailingNewline(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, "secret\n");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals("secret", password);
+    }
+
+    @Test
+    void readPasswordFileStripsACarriageReturnBeforeTheNewline(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, "secret\r\n");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals("secret", password);
+    }
+
+    /**
+     * Only one line ending is stripped, so a password that genuinely ends in a newline survives
+     * when the file carries two.
+     */
+    @Test
+    void readPasswordFileStripsOnlyOneOfTwoTrailingNewlines(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, "secret\n\n");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals("secret\n", password);
+    }
+
+    @Test
+    void readPasswordFileLeavesAFileWithNoTrailingNewlineUnchanged(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, "secret");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals("secret", password);
+    }
+
+    /**
+     * Nothing but the single trailing line ending is removed, keeping the rule that whitespace
+     * inside a password is significant.
+     */
+    @Test
+    void readPasswordFileNeverTrimsSurroundingWhitespace(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, " secret \n");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals(" secret ", password);
+    }
+
+    /**
+     * An empty file means an explicitly empty password, matching what an empty configured value
+     * means, rather than falling through to the environment.
+     */
+    @Test
+    void readPasswordFileTreatsAnEmptyFileAsAnEmptyPassword(@TempDir Path dir) throws Exception {
+        // given
+        Path file = passwordFile(dir, "");
+
+        // when
+        String password = CredentialResolver.readPasswordFile(file.toString());
+
+        // then
+        assertEquals("", password);
+    }
+
+    @Test
+    void readPasswordFileFailsLoudlyAndNamesThePathWhenTheFileIsMissing(@TempDir Path dir) {
+        // given
+        String missing = dir.resolve("does-not-exist.txt").toString();
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> CredentialResolver.readPasswordFile(missing));
+
+        // then
+        assertTrue(thrown.getMessage().contains(missing),
+                "the message must name the path so the misconfiguration is obvious: "
+                        + thrown.getMessage());
+    }
+
+    @Test
+    void readPasswordFileFailsWhenThePathIsADirectory(@TempDir Path dir) throws Exception {
+        // given
+        Path directory = dir.resolve("a-directory");
+        Files.createDirectory(directory);
+
+        // when
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> CredentialResolver.readPasswordFile(directory.toString()));
+
+        // then
+        assertTrue(thrown.getMessage().contains(directory.toString()));
+    }
+
+    @Test
+    void passwordFilePropertyNameIsTheOneTheForkReads() {
+        // given
+        String expected = "tiaDBPasswordFile";
+
+        // when
+        String actual = CredentialResolver.PROP_DB_PASSWORD_FILE;
+
+        // then
+        assertEquals(expected, actual, "the build plugins and the fork must agree on this literal");
     }
 }
