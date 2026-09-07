@@ -24,6 +24,7 @@ import org.tiatesting.core.distributed.DistributedRunPlanner;
 import org.tiatesting.core.distributed.DistributedRunPreviewFormatter;
 import org.tiatesting.core.distributed.GroupingResult;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.report.LibrariesReportGenerator;
@@ -606,7 +607,31 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public H2ConnectionSettings buildH2ConnectionSettings() {
         return H2ConnectionSettings.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword());
+                resolveDbPassword());
+    }
+
+    /**
+     * Resolve the database password from the channels a build can supply it through, in precedence
+     * order: the configured {@code dbPassword}, then {@code dbPasswordFile}, then the
+     * {@value CredentialResolver#ENV_DB_PASSWORD} environment variable.
+     *
+     * <p>Shared by both daemon-side datastore paths so they cannot disagree about which credential
+     * this build is using. Returns null rather than an empty string when nothing is configured, so
+     * the environment fallback stays with {@code DataStoreFactory} and the null-vs-empty rule -
+     * where an explicitly empty password bypasses the environment - is preserved.
+     *
+     * @return the configured password, or null when only the environment supplies one
+     */
+    public String resolveDbPassword() {
+        String configured = tiaTaskExtension.getDbPassword();
+        if (configured != null) {
+            return configured;
+        }
+        String passwordFile = tiaTaskExtension.getDbPasswordFile();
+        if (passwordFile != null && !passwordFile.trim().isEmpty()) {
+            return CredentialResolver.readPasswordFile(passwordFile);
+        }
+        return null;
     }
 
     /**
@@ -634,7 +659,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public DataStore buildDataStore(String branch, String schemaSuffix) {
         return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
-                getDbPassword(), getDbDialect(), branch, schemaSuffix);
+                resolveDbPassword(), getDbDialect(), branch, schemaSuffix);
     }
 
     /**

@@ -20,6 +20,7 @@ public class TiaBaseTaskExtension {
     private String dbUrl;
     private String dbUser;
     private String dbPassword;
+    private String dbPasswordFile;
     private String dbDialect;
     private Boolean enabled;
     private Boolean updateDBMapping;
@@ -151,6 +152,29 @@ public class TiaBaseTaskExtension {
      */
     public void setDbPassword(String dbPassword) {
         this.dbPassword = dbPassword;
+    }
+
+    /**
+     * The path of a file holding the database password, as an alternative to {@link
+     * #getDbPassword()}. Tia only ever reads this file - it never writes one here - so the secret
+     * need not appear in {@code build.gradle} and no copy of it is staged anywhere: only the path
+     * is forwarded to the test worker, and a path is not a secret.
+     *
+     * @return the configured password file path, or null when none is configured
+     */
+    public String getDbPasswordFile() {
+        return dbPasswordFile;
+    }
+
+    /**
+     * Set the path of a file holding the database password. Intended for a mounted Docker or
+     * Kubernetes secret, or a file CI writes. Exactly one trailing newline is stripped when it is
+     * read.
+     *
+     * @param dbPasswordFile the path of the file holding the password
+     */
+    public void setDbPasswordFile(String dbPasswordFile) {
+        this.dbPasswordFile = dbPasswordFile;
     }
 
     /**

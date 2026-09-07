@@ -190,11 +190,11 @@ public final class DataStoreFactory {
      * {@value H2ConnectionSettings#PROP_DB_FILE_PATH} for embedded mode, plus the optional
      * {@value #PROP_DB_DIALECT} override.
      *
-     * <p>The password is named by a file path rather than carried as a value, because a value would
-     * have to be a system property here and surefire publishes the fork's system properties in
-     * {@code target/surefire-reports/TEST-*.xml}. The
-     * {@value H2ConnectionSettings#PROP_DB_PASSWORD} fallback below is transitional: Gradle still
-     * forwards a system property until its transport is switched over. Used by the JUnit/Spock
+     * <p>The password is never carried as a system property, only named by one. A value here would
+     * be published: surefire dumps the fork's system properties into
+     * {@code target/surefire-reports/TEST-*.xml}, and Gradle turns one into a {@code -D} on the
+     * worker command line. With no path forwarded the password resolves from the environment this
+     * JVM inherited from the build, which is the channel a build that configured nothing uses. Used by the JUnit/Spock
      * test-runner listeners, which read connection config from system properties rather than a
      * build-tool extension.
      *
@@ -212,7 +212,7 @@ public final class DataStoreFactory {
         String passwordFile = System.getProperty(CredentialResolver.PROP_DB_PASSWORD_FILE);
         String password = passwordFile != null
                 ? CredentialResolver.readPasswordFile(passwordFile)
-                : System.getProperty(H2ConnectionSettings.PROP_DB_PASSWORD);
+                : null;
 
         return fromConfig(
                 System.getProperty(H2ConnectionSettings.PROP_DB_FILE_PATH),

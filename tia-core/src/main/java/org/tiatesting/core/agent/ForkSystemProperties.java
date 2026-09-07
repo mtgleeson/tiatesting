@@ -6,6 +6,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 
@@ -67,11 +68,14 @@ public final class ForkSystemProperties {
      * @param properties the property name to value pairs to persist
      * @param file       the destination file
      * @throws IOException if the file cannot be written
+     * @throws IllegalArgumentException if a property name looks like a credential rather than a
+     *                                  reference to one (see {@link #rejectCredentialKey(String)})
      */
     public static void write(final Map<String, String> properties, final File file) throws IOException {
         Properties props = new Properties();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getValue() != null) {
+                rejectCredentialKey(entry.getKey());
                 props.setProperty(entry.getKey(), entry.getValue());
             }
         }
@@ -81,6 +85,37 @@ public final class ForkSystemProperties {
         }
         try (Writer writer = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8)) {
             props.store(writer, "Tia forked-JVM system properties");
+        }
+    }
+
+    /**
+     * Refuse to write a property whose name suggests it carries a credential rather than a
+     * reference to one.
+     *
+     * <p>Structural rather than conventional, because the failure this prevents is invisible.
+     * Every key written here is republished as a system property in the forked test JVM by
+     * {@link #applyToSystemProperties(String)}, and surefire dumps the fork's system properties
+     * into {@code target/surefire-reports/TEST-*.xml} - the artifact CI ingests and routinely
+     * publishes. A credential added to this file in future would therefore be published without
+     * anything failing or warning, which is exactly how the {@code tiaDBPassword} leak survived so
+     * long. Forward a reference instead: a file path, or the name of an environment variable.
+     *
+     * <p>Names ending in {@code File} are allowed, since a path to a credential is not itself a
+     * credential and is the intended way to carry one across this boundary.
+     *
+     * @param name the property name about to be written
+     * @throws IllegalArgumentException if the name looks like a credential rather than a reference
+     */
+    private static void rejectCredentialKey(final String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        boolean credential = lower.contains("password") || lower.contains("passwd")
+                || lower.contains("secret") || lower.contains("token")
+                || lower.contains("credential");
+        if (credential && !lower.endsWith("file")) {
+            throw new IllegalArgumentException("Refusing to write '" + name + "' to the fork "
+                    + "properties file: every key here becomes a system property in the forked test "
+                    + "JVM and is published in the surefire report XML. Forward a file path or an "
+                    + "environment variable name instead of the value.");
         }
     }
 
