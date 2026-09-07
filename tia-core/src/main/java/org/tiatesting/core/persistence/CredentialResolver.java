@@ -1,5 +1,10 @@
 package org.tiatesting.core.persistence;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Paths;
 import java.util.function.Function;
 
 /**
@@ -20,6 +25,16 @@ public final class CredentialResolver {
 
     /** Environment variable consulted for the database password when none is configured. */
     public static final String ENV_DB_PASSWORD = "TIA_DB_PASSWORD";
+
+    /**
+     * System property naming the file a forked test JVM should read the database password from.
+     *
+     * <p>The single source of truth for this name: the build-tool plugins write it and the fork
+     * reads it back, and both must agree on the literal or the fork silently falls back to an empty
+     * password. A path is not a secret, so unlike the password itself this key is safe in
+     * {@code fork.properties} and harmless in the Surefire report XML.
+     */
+    public static final String PROP_DB_PASSWORD_FILE = "tiaDBPasswordFile";
 
     private CredentialResolver() {
     }
@@ -68,5 +83,55 @@ public final class CredentialResolver {
             return envValue;
         }
         return defaultUser;
+    }
+
+    /**
+     * Read a password from a file the user owns, such as a Docker or Kubernetes mounted secret.
+     *
+     * <p>Tia never writes this file, so it is the one channel where a configured password reaches
+     * the forked test JVM without Tia staging a copy of the secret itself: only the path is
+     * forwarded. See the credentials chapter in {@code WIKI.md}.
+     *
+     * <p>Exactly one trailing newline is stripped, along with a carriage return preceding it,
+     * because {@code echo secret > pw.txt} appends one and sending the newline on to the database
+     * is the usual failure of this pattern. Nothing else is trimmed, preserving the rule that
+     * whitespace inside a password is significant. An empty file means an explicitly empty
+     * password, matching what an empty configured value means.
+     *
+     * @param path filesystem path of the password file
+     * @return the password read from the file, with at most one trailing line ending removed
+     * @throws IllegalStateException if the path is malformed, or the file does not exist or cannot
+     *                               be read. Named in the message, because a password file that
+     *                               silently resolved to an empty password would surface only as an
+     *                               opaque authentication failure much later
+     */
+    public static String readPasswordFile(final String path) {
+        byte[] bytes;
+        try {
+            bytes = Files.readAllBytes(Paths.get(path));
+        } catch (IOException | InvalidPathException e) {
+            throw new IllegalStateException("Tia could not read the database password file at '"
+                    + path + "'. Check the path is correct and readable by the build user.", e);
+        }
+        return stripSingleTrailingLineEnding(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Remove at most one trailing line ending, handling both {@code \n} and {@code \r\n}. Only
+     * one is removed so that a password genuinely ending in a newline survives a file that carries
+     * two.
+     *
+     * @param contents the file contents as read
+     * @return the contents with a single trailing line ending removed, if there was one
+     */
+    private static String stripSingleTrailingLineEnding(final String contents) {
+        if (!contents.endsWith("\n")) {
+            return contents;
+        }
+        String withoutNewline = contents.substring(0, contents.length() - 1);
+        if (withoutNewline.endsWith("\r")) {
+            return withoutNewline.substring(0, withoutNewline.length() - 1);
+        }
+        return withoutNewline;
     }
 }
