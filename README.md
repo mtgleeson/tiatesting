@@ -817,7 +817,9 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaDBUrl|dbUrl|<string>|JDBC URL of an H2 database running in server (TCP) mode, e.g. `jdbc:h2:tcp://h2host:9092/tiadb;DB_CLOSE_DELAY=-1`, or a JDBC URL for another supported vendor, e.g. `jdbc:postgresql://pghost:5432/tiadb`. When set, Tia connects to that URL instead of an embedded file and `tiaDBFilePath` / `dbFilePath` is ignored. The URL is used exactly as given - the same URL on every branch - and Tia isolates each branch's mapping into its own schema within that one database automatically, derived from the current branch (see [Branch isolation](#branch-isolation-schema-per-branch)). For H2 server mode, include `;DB_CLOSE_DELAY=-1` - see [Using a shared H2 server](#using-a-shared-h2-server). For a non-H2 vendor, see [Using a different database](#using-a-different-database).|                                                                                               |false|
 |tiaDBDialect|dbDialect|`h2`, `postgres`|Explicit SQL dialect override. Only needed when the dialect can't be (or shouldn't be) inferred from `tiaDBUrl` / `dbUrl`'s scheme. See [Using a different database](#using-a-different-database).| inferred from `tiaDBUrl` / `dbUrl` (defaults to `h2` when that is also unset)                 |false|
 |tiaDBUser|dbUser|<string>|Database username for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).|tia|false|
-|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 or a non-H2 vendor (`tiaDBUrl`).| (empty)                                                                                       |false|
+|tiaDBPassword|dbPassword|<string>|Database password for server-mode H2 or a non-H2 vendor (`tiaDBUrl`). Putting it here means committing a secret; see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) for the alternatives.| (empty)                                                                                       |false|
+|tiaDBPasswordFile|dbPasswordFile|<string>|Path of a file holding the database password, read by Tia and never written by it. Intended for a mounted Docker or Kubernetes secret, or a file CI writes. Exactly one trailing newline is stripped, so `echo secret > pw.txt` works; nothing else is trimmed. An empty file means an explicitly empty password. Only the path is forwarded to the test JVM.| |false|
+|tiaDBServerId|N/A|<string>|**Maven only.** Id of a `<server>` entry in `~/.m2/settings.xml` to take the database username and password from. A server id is not a secret, so it can live in a committed parent POM while the credential stays on each developer's machine - and this is the only route on which Maven's own password encryption applies. A machine with no matching `<server>` falls through to the next channel rather than failing, so one POM can serve both CI and developer machines. See [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config).| |false|
 |tiaLibraryStampSchemas|libraryStampSchemas|<string>|Comma-separated schema suffixes a library publish stamp is written to - the schemas of the projects that **consume** this library. Only needed by a project publishing a tracked library to consumers that isolate their test tasks into suffixed schemas: the consuming app is a separate build, so Tia cannot see its schemas, and a stamp written where no consumer reads it is never drained and the affected suites are never re-run. Stamping several schemas is not atomic - every one is attempted, and the build then fails naming which hold the stamp and which do not. Leave unset when consumers use the plain `tia_<branch>` schema.| (the publishing project's own schema)                                                        |false|
 |tiaDBSchemaSuffix|schemaSuffix|<string>|Isolates this test task's datastore into its own schema, `tia_<branch>_<suffix>`. Declare one per test task (Gradle) or per test execution (Maven) where a project runs more than one Tia-enabled test run: two that share a schema delete each other's tracked test suites and share one stored commit value, which costs selectivity and can silently under-select. Both build systems refuse a configuration whose Tia-enabled test runs resolve to the same schema, naming them and this setting. Leave unset for a single-test-task project - the schema is then the `tia_<branch>` Tia has always used, so nothing moves.| (none - the plain `tia_<branch>` schema)                                                    |false|
 |tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
@@ -1196,7 +1198,13 @@ tia {
 ```
 
 ### Keeping the password out of checked-in config
-Putting `tiaDBPassword` / `dbPassword` directly in your POM or `build.gradle` means committing a secret to source control. To avoid that, leave the password (and optionally the user) unset in the build config and let Tia fall back to environment variables: when the configured value is blank, Tia reads `TIA_DB_PASSWORD` and `TIA_DB_USER` from the environment. CI sets those as secrets and the repo carries no credential.
+Putting `tiaDBPassword` / `dbPassword` directly in your POM or `build.gradle` means committing a secret to source control. Tia supports three alternatives, and the same precedence applies on both build tools:
+
+```
+tiaDBPassword / dbPassword  >  tiaDBServerId (Maven)  >  tiaDBPasswordFile / dbPasswordFile  >  TIA_DB_PASSWORD  >  empty
+```
+
+**1. An environment variable.** Leave the password (and optionally the user) unset and let Tia read `TIA_DB_PASSWORD` and `TIA_DB_USER` from the environment. This works for every database vendor, not only H2. CI sets them as secrets and the repo carries no credential.
 
 ```groovy
 tia {
@@ -1205,9 +1213,35 @@ tia {
 }
 ```
 
-The build tools also support their own indirection if you prefer it: Maven resolves `<tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>` or a property from `~/.m2/settings.xml` (which supports [encrypted passwords](https://maven.apache.org/guides/mini/guide-encryption.html)); Gradle can read from `~/.gradle/gradle.properties` or a `-P` property. Tia never logs the password (only the JDBC URL), so avoid embedding credentials directly in `dbUrl`.
+**2. A password file you own.** Point `tiaDBPasswordFile` / `dbPasswordFile` at a file Tia only ever reads - a mounted Docker or Kubernetes secret, or one CI writes. Tia forwards the path, never the contents. Exactly one trailing newline is stripped, so `echo secret > pw.txt` does the right thing; nothing else is trimmed, because whitespace inside a password can be significant.
+
+**3. A `<server>` entry in `settings.xml` (Maven only).** The cleanest option for developer machines, because the reference is safe to commit while the secret is not in any POM:
+
+```xml
+<!-- parent pom.xml, committed -->
+<configuration>
+  <tiaDBUrl>${tia.db.url}</tiaDBUrl>
+  <tiaDBServerId>tia-db</tiaDBServerId>
+</configuration>
+```
+```xml
+<!-- ~/.m2/settings.xml on each developer's machine -->
+<servers>
+  <server>
+    <id>tia-db</id>
+    <username>tia</username>
+    <password>{COQLCE6DU6GtcS5P=}</password>
+  </server>
+</servers>
+```
+
+A machine with no matching `<server>` falls through to the next channel rather than failing, so **one parent POM can serve both CI and developer machines**: CI has no such entry and supplies `TIA_DB_PASSWORD` instead, with no profile switching and no password element in any POM. The `<username>` is used for `tiaDBUser` too. This is also the only route on which Maven's [password encryption](https://maven.apache.org/guides/mini/guide-encryption.html) applies - see the caution below. If the entry cannot be decrypted, Tia fails the build rather than sending the ciphertext to the database.
+
+> **Two indirections that do not work as you would expect.** `<tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>` looks equivalent to option 1 but is not: Maven interpolates it into the parameter before Tia sees anything, so Tia never reaches its own environment fallback, and when the variable is unset Maven leaves the literal string `${env.TIA_DB_PASSWORD}` in place and the build succeeds with it as the password. Tia now fails the build on that rather than letting it reach the database. Separately, Maven's password encryption applies **only** to `<server>` and `<proxy>` entries, never to an arbitrary `<properties>` entry - an "encrypted" property arrives verbatim as the `{...}` string. Use option 3 if you want encryption.
 
 The environment fallback only kicks in when the password is **not configured at all**. If your database genuinely uses an empty password, set it explicitly - `dbPassword = ''` (Gradle) or `<tiaDBPassword></tiaDBPassword>` (Maven) - and Tia uses the empty value verbatim rather than falling back to `TIA_DB_PASSWORD`.
+
+**How the password reaches the test JVM.** Whichever channel you use, Tia never lets the password become a system property in the forked test JVM, because Maven Surefire dumps the fork's system properties into `target/surefire-reports/TEST-*.xml` and Gradle turns one into a `-D` on the worker command line. Only a reference travels: Gradle forwards the value in the worker's environment, and Maven forwards a file path. Maven stages a file only when the password reached it as a value - option 3 above, or `<tiaDBPassword>` directly - and that file is owner-only, created outside the build directory, and deleted when the build JVM exits. Options 1 and 2 make Tia write nothing at all: the environment is inherited by the fork, and a password file you own is referenced where it lies. Tia never logs the password, only the JDBC URL, so avoid embedding credentials directly in `dbUrl`.
 
 Things to know when using server mode:
 - **Start the server with `-ifNotExists`.** Tia creates the database (on first use) and its per-branch schema automatically. An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag, so the first Tia run will fail without it.
@@ -1248,7 +1282,7 @@ tia {
 
 **Note:** Tia auto-creates the database named in `tiaDBUrl` (`tiadb` above) when it is missing, if the connecting role holds `CREATEDB`. Otherwise pre-create it and grant the role `CREATE` on it (e.g. `GRANT CREATE ON DATABASE tiadb TO tia;`) - Tia then creates the per-branch schema inside it (see [Branch isolation](#branch-isolation-schema-per-branch)). If the database is missing and the role has neither the database nor `CREATEDB`, Tia fails with a message telling you to create the database or grant `CREATEDB`.
 
-**Note:** unlike H2 server mode, Tia does not fall back to a `TIA_DB_USER` / `TIA_DB_PASSWORD` environment variable for non-H2 vendors - that fallback is specific to `H2ConnectionSettings`. To keep a non-H2 password out of checked-in config, use the build tool's own indirection instead: Maven `${env.TIA_DB_PASSWORD}` or an encrypted `~/.m2/settings.xml` property, or Gradle `~/.gradle/gradle.properties` / a `-P` property (see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) above).
+**Note:** the `TIA_DB_USER` / `TIA_DB_PASSWORD` environment fallback applies to every vendor, not only H2, as do `tiaDBPasswordFile` / `dbPasswordFile` and (on Maven) `tiaDBServerId` - see [Keeping the password out of checked-in config](#keeping-the-password-out-of-checked-in-config) above. The one credential default that stays H2-specific is the `tia` username: a non-H2 vendor with no username configured and none in the environment is left unset rather than being given a username it was never told about.
 
 ### Declaring the JDBC driver in two places
 

@@ -974,24 +974,39 @@ The dependency is worth naming because it is invisible from the pruning code its
 scan narrow to its own group would turn this into a mapping-wide deletion on every distributed
 build.
 
-## Security note: `fork.properties` holds the database password
+## Security note: `fork.properties` carries a reference, not the password
 
-On Maven, `${tiaBuildDir}/fork.properties` contains `tiaDBPassword` in plaintext, because the forked
-test JVM needs it to reach the shared database and the file is how the build JVM hands it over. The
-same file also carries the distributed handoff.
+On Maven, `${tiaBuildDir}/fork.properties` carries the distributed handoff and the forked test JVM's
+connection settings. It does **not** contain the database password, and cannot: `ForkSystemProperties.write`
+refuses any key whose name looks like a credential rather than a reference to one.
 
-The consequences, plainly:
+That refusal is structural rather than conventional because the failure it prevents is invisible.
+The Tia agent's `premain` republishes every key of this file as a system property in the fork, and
+Surefire dumps the fork's system properties into `target/surefire-reports/TEST-*.xml` - the artifact
+CI ingests and routinely publishes. A password written here would therefore be published with
+nothing failing or warning. An earlier version of Tia did exactly that.
 
-- **Do not archive the build directory as a CI artifact** on a job that ran Tia against a
-  password-protected database.
-- The file's lifetime is the length of the build, on the runner's own workspace. It is not written
-  anywhere shared and is not read by anything but that build's fork and its completion step.
+What the file carries instead is `tiaDBPasswordFile`, a path. Where that path points depends on how
+the build supplied the password: at the file the user already owns, if they configured one; or at a
+file Tia staged, if the password was configured in the build or came from a `settings.xml`
+`<server>` entry. A staged file is owner-only (`0600`), is created outside the build directory, and
+is deleted when the build JVM exits - the Maven JVM outlives every Surefire fork, so its lifetime
+really is the length of the build. A build that supplies the password through `TIA_DB_PASSWORD`
+forwards no path at all, because the fork inherits the build JVM's environment.
+
+An earlier version of this note claimed the password file's "lifetime is the length of the build".
+That was never true of `fork.properties`: nothing deleted it, so it survived in `target/` until the
+next `mvn clean`, and archiving the build directory captured it. It is true of the staged password
+file, which is both deleted and outside the archived directory.
+
+See [Keeping the password out of checked-in config](../README.md#keeping-the-password-out-of-checked-in-config)
+for the channels a build can supply the password through.
 
 The other side of that boundary is a deliberate design choice worth stating, because it is what
 makes a safe pipeline possible: **the completion step reads its connection settings from its own
 parameters, never from `fork.properties`.** It reads only the run id, runner key, group number and
 the three update-DB flags out of that file - the values that describe the claim and cannot be
-re-derived - and takes `tiaDBUrl`, `tiaDBUser` and `tiaDBPassword` from its own configuration. So a
+re-derived - and resolves `tiaDBUrl`, `tiaDBUser` and the password from its own configuration. So a
 pipeline can keep the password in CI variables or `settings.xml` and never has to read it back off
 disk. It also never publishes the file's contents into its own system properties, which would leak
 test-fork configuration into a build JVM that is not a fork.

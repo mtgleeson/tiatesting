@@ -31,6 +31,9 @@ wiki can also be read front to back.
   barrier and the sealer election, plus what a pipeline has to run.
 - [Embedded vs server-mode H2 connections](wiki/h2-connection-modes.md) - connection resolution,
   the embedded engine options and the shared-server considerations.
+- [Database credentials](wiki/database-credentials.md) - the four channels a build can supply the
+  password through, why the forked test JVM is handed a reference rather than the value, and why
+  Maven and Gradle transport it differently.
 - [Pluggable datastore (H2, Postgres, and the seam for more)](wiki/pluggable-datastore.md) - the
   `SqlDialect` / `ConnectionProvider` / `DataStoreFactory` architecture, URL-scheme dialect
   inference, and the two-classpath driver model.
