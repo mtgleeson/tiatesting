@@ -506,12 +506,12 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         // environment fallback in the fork exactly as it does here - forwarding nothing would let a
         // TIA_DB_PASSWORD that happens to be set in the environment win in the fork while the build
         // JVM used the empty value, and the two would connect as different users.
-        if (tiaDBPassword == null) {
+        String configured = configuredPassword();
+        if (configured == null) {
             return null;
         }
-        String resolved = resolveDbPassword();
         try {
-            return SecretFile.write(resolved).toString();
+            return SecretFile.write(configured).toString();
         } catch (IOException e) {
             throw new MojoExecutionException("Tia could not stage the database password for the "
                     + "forked test JVM.", e);
