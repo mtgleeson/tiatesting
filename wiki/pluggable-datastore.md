@@ -46,7 +46,9 @@ Three pieces divide the responsibility:
   classpath (see "The two-classpath driver model" below). Either way the resolved schema is passed
   into `JdbcDataStore`'s constructor alongside the dialect and connection provider.
   `fromSystemProperties(branch)` is the same resolution read from the `tiaDBUrl` / `tiaDBUser` /
-  `tiaDBPassword` / `tiaDBFilePath` / `tiaDBDialect` system properties the forked test JVM receives.
+  `tiaDBPasswordFile` / `tiaDBFilePath` / `tiaDBDialect` system properties the forked test JVM
+  receives. The password travels as a *path*, never as a value - see the security note in the
+  [distributed test runs](distributed-test-runs.md) chapter for why.
 - **`SqlDialectRegistry`** (`org.tiatesting.core.persistence.dialect`) - resolves a dialect id or
   JDBC URL to a `SqlDialect` instance, and is the single source of truth for "what does Tia
   support": `SUPPORTED_IDS` (`["h2", "postgres"]`, in the order they're listed in error messages)
