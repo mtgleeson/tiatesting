@@ -114,7 +114,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *
      * <p>A machine with no matching {@code <server>} is not an error - resolution falls through to
      * the next channel - so one parent POM can name a server id that only developer machines
-     * define while CI supplies {@value CredentialResolver#ENV_DB_PASSWORD} instead.
+     * define while CI supplies {@code TIA_DB_PASSWORD} instead.
      */
     @Parameter(property = "tiaDBServerId")
     String tiaDBServerId;
@@ -482,7 +482,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *         the named server entry cannot be decrypted, or the password file cannot be read
      */
     String configuredPassword() throws MojoExecutionException {
-        rejectUnresolvedExpression(tiaDBPassword);
+        rejectUnresolvedExpression("tiaDBPassword", tiaDBPassword);
         if (tiaDBPassword != null) {
             return tiaDBPassword;
         }
@@ -512,6 +512,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * @throws MojoExecutionException if the named server entry cannot be decrypted
      */
     String resolveDbUser() throws MojoExecutionException {
+        rejectUnresolvedExpression("tiaDBUser", tiaDBUser);
         if (tiaDBUser != null && !tiaDBUser.trim().isEmpty()) {
             return tiaDBUser;
         }
@@ -563,23 +564,32 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * Fail the build when a configured password is still a literal Maven expression.
+     * Fail the build when a configured credential is still a literal Maven expression.
      *
      * <p>Maven leaves an unresolvable {@code ${...}} in place rather than erroring, so a POM
      * carrying {@code <tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>} on a machine where the
-     * variable is not set hands Tia the literal text and the build succeeds. Sending that on to the
-     * database surfaces only as an opaque authentication failure, so reject it here and name it.
+     * variable is not set - or {@code <tiaDBUser>${tia.db.user}</tiaDBUser>} where the property is
+     * undefined - hands Tia the literal text and the build succeeds. Tia then authenticates with
+     * that literal and the failure surfaces only as an opaque authentication error from the
+     * database, a long way from its cause. Reject it here and name it instead.
      *
-     * @param value the configured password value to check
+     * <p>Only a value that is entirely one expression is rejected. A credential that merely
+     * contains a dollar sign is a real credential, and Maven would have interpolated a genuine
+     * expression before the mojo ever saw it.
+     *
+     * @param parameterName the configuration parameter's name, for the message
+     * @param value         the configured value to check
      * @throws MojoExecutionException if the value is entirely an unresolved Maven expression
      */
-    private void rejectUnresolvedExpression(final String value) throws MojoExecutionException {
+    private void rejectUnresolvedExpression(final String parameterName, final String value)
+            throws MojoExecutionException {
         if (value != null && value.startsWith("${") && value.endsWith("}")
                 && value.indexOf('}') == value.length() - 1) {
-            throw new MojoExecutionException("tiaDBPassword resolved to the literal expression "
+            throw new MojoExecutionException(parameterName + " resolved to the literal expression "
                     + value + ", which means the property or environment variable behind it is not "
-                    + "set. Either set it, or remove <tiaDBPassword> and let Tia read "
-                    + CredentialResolver.ENV_DB_PASSWORD + " from the environment itself.");
+                    + "set. Either set it, or remove <" + parameterName + "> and let Tia resolve "
+                    + "the credential from a settings.xml <server> entry or the environment "
+                    + "itself.");
         }
     }
 

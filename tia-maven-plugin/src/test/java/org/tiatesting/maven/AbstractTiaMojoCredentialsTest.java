@@ -239,6 +239,44 @@ class AbstractTiaMojoCredentialsTest {
     }
 
     /**
+     * The username has the same unresolved-expression footgun as the password, and it is easier to
+     * hit: a POM carrying {@code <tiaDBUser>${tia.db.user}</tiaDBUser>} on a machine where the
+     * property is undefined hands Tia the literal text, and the build succeeds with it as the
+     * username.
+     */
+    @Test
+    void anUnresolvedMavenExpressionInTheUsernameFailsTheBuild() {
+        // given
+        TestMojo mojo = mojo();
+        mojo.tiaDBUser = "${tia.db.user}";
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class,
+                mojo::resolveDbUser);
+
+        // then
+        assertTrue(thrown.getMessage().contains("tiaDBUser"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("${tia.db.user}"), thrown.getMessage());
+    }
+
+    /**
+     * A username that merely contains a dollar sign is a real username, not an unresolved
+     * expression, so the guard must not reject it.
+     */
+    @Test
+    void aUsernameContainingADollarSignIsNotMistakenForAnExpression() throws Exception {
+        // given
+        TestMojo mojo = mojo();
+        mojo.tiaDBUser = "user${a}name";
+
+        // when
+        String resolved = mojo.resolveDbUser();
+
+        // then
+        assertEquals("user${a}name", resolved);
+    }
+
+    /**
      * Concrete agent mojo for the test, supplying only the members the real wrapper plugins supply.
      * Nothing here reaches the VCS or a datastore: these tests drive the credential resolution and
      * the fork-properties write directly.

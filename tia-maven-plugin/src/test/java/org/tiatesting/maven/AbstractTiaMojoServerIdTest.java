@@ -287,6 +287,48 @@ class AbstractTiaMojoServerIdTest {
     }
 
     /**
+     * A username reaching the build through a server entry has to reach the fork too. Forwarding
+     * the raw parameter instead of the resolved value leaves the fork falling back to TIA_DB_USER
+     * and then to H2's "tia" default, so the build JVM and the fork connect as different users -
+     * invisible on H2 with the username "tia", and a plain authentication failure on Postgres.
+     */
+    @Test
+    void aServerEntryUsernameReachesTheFork() throws Exception {
+        // given
+        TestMojo mojo = mojo();
+        mojo.tiaDBUrl = SHARED_DB_URL;
+        mojo.tiaDBServerId = SERVER_ID;
+        withServer(mojo, SERVER_ID, "server-user", "server-secret");
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        java.util.Properties props = ForkSystemProperties.read(new File(buildDir, "fork.properties"));
+        assertEquals("server-user", props.getProperty("tiaDBUser"));
+    }
+
+    /**
+     * An explicitly configured username still wins on the fork side, matching the build JVM.
+     */
+    @Test
+    void anExplicitlyConfiguredUserIsTheOneForwardedToTheFork() throws Exception {
+        // given
+        TestMojo mojo = mojo();
+        mojo.tiaDBUrl = SHARED_DB_URL;
+        mojo.tiaDBServerId = SERVER_ID;
+        mojo.tiaDBUser = "configured-user";
+        withServer(mojo, SERVER_ID, "server-user", "server-secret");
+
+        // when
+        mojo.writeForkPropertiesFile(null);
+
+        // then
+        java.util.Properties props = ForkSystemProperties.read(new File(buildDir, "fork.properties"));
+        assertEquals("configured-user", props.getProperty("tiaDBUser"));
+    }
+
+    /**
      * Concrete agent mojo for the test. Nothing here reaches the VCS or a datastore: these tests
      * drive the credential resolution and the fork-properties write directly.
      */

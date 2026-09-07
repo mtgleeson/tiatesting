@@ -452,7 +452,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put("tiaDBFilePath", getTiaDBFilePath());
         props.put("tiaDBUrl", getTiaDBUrl());
         props.put("tiaDBDialect", getTiaDBDialect());
-        props.put("tiaDBUser", getTiaDBUser());
+        // The resolved username, not the raw parameter: one supplied by a settings.xml <server>
+        // entry has to reach the fork too. Forwarding the parameter left the fork falling back to
+        // TIA_DB_USER and then to H2's "tia" default, so the build JVM and the fork connected as
+        // different users - invisible on H2 with the username "tia", an authentication failure on
+        // any other vendor. Null when nothing is configured, which ForkSystemProperties.write
+        // skips, leaving the fork to resolve the environment it already inherits.
+        props.put("tiaDBUser", resolveDbUser());
         // A path, never the password. Every key written here is republished as a system property in
         // the forked test JVM by ForkSystemProperties.applyToSystemProperties, and surefire dumps
         // the fork's system properties into target/surefire-reports/TEST-*.xml - the artifact CI
