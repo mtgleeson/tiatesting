@@ -53,6 +53,13 @@ tiaDBPassword / dbPassword  >  tiaDBServerId (Maven)  >  tiaDBPasswordFile / dbP
 | `tiaDBPasswordFile` / `dbPasswordFile` | a file you own | **nothing** |
 | `TIA_DB_PASSWORD` | the environment | **nothing** |
 
+Both halves of the credential are resolved in the build JVM and then forwarded, the username as a
+value (it is not a secret) and the password as a reference. Forwarding the *raw* `tiaDBUser`
+parameter rather than the resolved username was a real bug: a username supplied by a `<server>`
+entry never reached the fork, which then fell back to `TIA_DB_USER` and finally to H2's `tia`
+default, so the build JVM and the fork connected as different users. Invisible on H2 with the
+username `tia`; a plain authentication failure on any other vendor.
+
 Resolution happens once, in the build JVM, in `CredentialResolver` and the two plugins' resolvers.
 It is deliberately not H2-specific: it is called by `DataStoreFactory.fromConfig` *before* that
 method branches on the dialect, because while the fallback lived inside `H2ConnectionSettings` a
@@ -114,7 +121,10 @@ warning. That is exactly how the original leak survived.
 **An unresolved Maven expression fails the build.** Maven leaves an unresolvable `${...}` in place
 rather than erroring, so `<tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>` on a machine where
 the variable is unset hands Tia the literal string and the build succeeds with it as the password.
-Tia rejects that and says why. A password merely *containing* a dollar sign is not rejected.
+Tia rejects that and says why. The guard covers `<tiaDBUser>` too, where the trap is easier to hit,
+since an undefined `${tia.db.user}` would otherwise silently become the database username. A value
+merely *containing* a dollar sign is not rejected - Maven would have interpolated a genuine
+expression before the mojo saw it.
 
 **A `settings.xml` decryption failure fails the build.** `SettingsDecrypter` reports a failure only
 through `getProblems()` and hands back the server with its password still encrypted, so ignoring the
