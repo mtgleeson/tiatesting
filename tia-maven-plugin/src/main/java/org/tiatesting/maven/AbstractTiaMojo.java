@@ -114,7 +114,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *
      * <p>A machine with no matching {@code <server>} is not an error - resolution falls through to
      * the next channel - so one parent POM can name a server id that only developer machines
-     * define while CI supplies {@value CredentialResolver#ENV_DB_PASSWORD} instead.
+     * define while CI supplies {@code TIA_DB_PASSWORD} instead.
      */
     @Parameter(property = "tiaDBServerId")
     String tiaDBServerId;
