@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPendingMethodsReportGenerator;
@@ -25,7 +26,7 @@ public abstract class AbstractLibraryPendingMethodsMojo extends AbstractTiaMojo 
      * the formatted table.
      */
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException {
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();

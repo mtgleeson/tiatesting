@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.distributed.DistributedRunStatusReport;
 import org.tiatesting.core.persistence.DataStore;
@@ -56,7 +57,7 @@ public abstract class AbstractTiaDistStatusMojo extends AbstractTiaMojo {
      * that prints the run's state must not be the thing that fails the build.
      */
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException {
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             System.out.println(DistributedRunStatusReport.format(dataStore, getTiaRunId(),

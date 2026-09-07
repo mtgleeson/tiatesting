@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPublishesReportGenerator;
@@ -23,7 +24,7 @@ public abstract class AbstractLibraryPublishesMojo extends AbstractTiaMojo {
      * Read the library's publish ledger from the Tia DB and print the formatted table.
      */
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException {
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             LibraryPublishesReportGenerator reportGenerator = new LibraryPublishesReportGenerator();

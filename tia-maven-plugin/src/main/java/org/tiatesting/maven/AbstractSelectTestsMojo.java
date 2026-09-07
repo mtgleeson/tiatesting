@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
@@ -33,7 +34,7 @@ import java.util.Set;
  */
 public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException {
         System.out.println("Displaying the tests selected by Tia:");
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
