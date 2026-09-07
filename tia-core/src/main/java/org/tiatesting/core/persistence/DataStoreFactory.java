@@ -185,9 +185,16 @@ public final class DataStoreFactory {
     /**
      * Build a {@link DataStore} from the Tia system properties set on the forked test JVM by the
      * build-tool plugins: {@value H2ConnectionSettings#PROP_DB_URL} /
-     * {@value H2ConnectionSettings#PROP_DB_USER} / {@value H2ConnectionSettings#PROP_DB_PASSWORD}
-     * for server mode, falling back to {@value H2ConnectionSettings#PROP_DB_FILE_PATH} for embedded
-     * mode, plus the optional {@value #PROP_DB_DIALECT} override. Used by the JUnit/Spock
+     * {@value H2ConnectionSettings#PROP_DB_USER} /
+     * {@value CredentialResolver#PROP_DB_PASSWORD_FILE} for server mode, falling back to
+     * {@value H2ConnectionSettings#PROP_DB_FILE_PATH} for embedded mode, plus the optional
+     * {@value #PROP_DB_DIALECT} override.
+     *
+     * <p>The password is named by a file path rather than carried as a value, because a value would
+     * have to be a system property here and surefire publishes the fork's system properties in
+     * {@code target/surefire-reports/TEST-*.xml}. The
+     * {@value H2ConnectionSettings#PROP_DB_PASSWORD} fallback below is transitional: Gradle still
+     * forwards a system property until its transport is switched over. Used by the JUnit/Spock
      * test-runner listeners, which read connection config from system properties rather than a
      * build-tool extension.
      *
@@ -198,11 +205,20 @@ public final class DataStoreFactory {
      *         {@link SqlDialectRegistry#forUrl(String, String)})
      */
     public static DataStore fromSystemProperties(final String branch) {
+        // The password arrives as a path, never as a value: a value here would have been a system
+        // property in this JVM, and surefire dumps the fork's system properties into the report XML.
+        // A null path means no password was configured, so resolution falls through to the
+        // environment this JVM inherited from the build.
+        String passwordFile = System.getProperty(CredentialResolver.PROP_DB_PASSWORD_FILE);
+        String password = passwordFile != null
+                ? CredentialResolver.readPasswordFile(passwordFile)
+                : System.getProperty(H2ConnectionSettings.PROP_DB_PASSWORD);
+
         return fromConfig(
                 System.getProperty(H2ConnectionSettings.PROP_DB_FILE_PATH),
                 System.getProperty(H2ConnectionSettings.PROP_DB_URL),
                 System.getProperty(H2ConnectionSettings.PROP_DB_USER),
-                System.getProperty(H2ConnectionSettings.PROP_DB_PASSWORD),
+                password,
                 System.getProperty(PROP_DB_DIALECT),
                 branch,
                 System.getProperty(PROP_DB_SCHEMA_SUFFIX));

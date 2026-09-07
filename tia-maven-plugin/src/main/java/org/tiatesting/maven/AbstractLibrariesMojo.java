@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
@@ -21,7 +22,7 @@ public abstract class AbstractLibrariesMojo extends AbstractTiaMojo {
      * formatted listing.
      */
     @Override
-    public void execute() {
+    public void execute() throws MojoExecutionException {
         final VCSReader vcsReader = getVCSReader();
         try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
             LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
