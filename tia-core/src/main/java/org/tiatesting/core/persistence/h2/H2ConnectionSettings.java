@@ -37,8 +37,6 @@ public class H2ConnectionSettings {
     public static final String PROP_DB_URL = "tiaDBUrl";
     /** System property holding the server-mode database username. */
     public static final String PROP_DB_USER = "tiaDBUser";
-    /** System property holding the server-mode database password. */
-    public static final String PROP_DB_PASSWORD = "tiaDBPassword";
 
     private final String dbFilePath;
     private final String dbUrl;
@@ -128,23 +126,6 @@ public class H2ConnectionSettings {
             return server(dbUrl, dbUser, dbPassword);
         }
         return embedded(dbFilePath);
-    }
-
-    /**
-     * Resolve connection settings from the Tia system properties set on the forked test JVM by
-     * the build-tool plugins: {@value #PROP_DB_URL} / {@value #PROP_DB_USER} /
-     * {@value #PROP_DB_PASSWORD} for server mode, falling back to {@value #PROP_DB_FILE_PATH} for
-     * embedded mode. Used by the JUnit/Spock test-runner listeners, which read connection config
-     * from system properties rather than a build-tool extension.
-     *
-     * @return the resolved embedded- or server-mode connection settings
-     */
-    public static H2ConnectionSettings fromSystemProperties() {
-        return fromConfig(
-                System.getProperty(PROP_DB_FILE_PATH),
-                System.getProperty(PROP_DB_URL),
-                System.getProperty(PROP_DB_USER),
-                System.getProperty(PROP_DB_PASSWORD));
     }
 
     /**

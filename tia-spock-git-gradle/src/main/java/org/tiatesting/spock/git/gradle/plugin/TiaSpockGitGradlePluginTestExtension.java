@@ -19,6 +19,7 @@ import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
@@ -100,8 +101,23 @@ public class TiaSpockGitGradlePluginTestExtension {
                     if (tiaTaskExtension.getDbUser() != null){
                         testTask.systemProperty("tiaDBUser", tiaTaskExtension.getDbUser());
                     }
-                    if (tiaTaskExtension.getDbPassword() != null){
-                        testTask.systemProperty("tiaDBPassword", tiaTaskExtension.getDbPassword());
+                    // The password travels in the worker's environment, never as a system
+                    // property: Gradle turns a system property into a -D on the worker command
+                    // line, which any local user can read out of the process table. A password
+                    // file is referenced by path instead, so the secret stays in the file the user
+                    // owns and nothing sensitive is forwarded at all.
+                    //
+                    // Null-checked rather than blank-checked on purpose: an explicit dbPassword = ''
+                    // means the database has no password and must reach the worker as a set-but-
+                    // empty value. Forwarding nothing there would let a TIA_DB_PASSWORD that
+                    // happened to be set in the daemon's environment win in the worker while the
+                    // daemon used the empty value, and the two would connect as different users.
+                    if (tiaTaskExtension.getDbPasswordFile() != null){
+                        testTask.systemProperty(CredentialResolver.PROP_DB_PASSWORD_FILE,
+                                tiaTaskExtension.getDbPasswordFile());
+                    } else if (tiaTaskExtension.getDbPassword() != null){
+                        testTask.environment(CredentialResolver.ENV_DB_PASSWORD,
+                                tiaTaskExtension.getDbPassword());
                     }
                     if (tiaTaskExtension.getDbDialect() != null){
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
@@ -222,6 +238,10 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getDbPassword() == null){
             tiaTaskExt.setDbPassword(tiaProjectExt.getDbPassword());
+        }
+
+        if (tiaTaskExt.getDbPasswordFile() == null){
+            tiaTaskExt.setDbPasswordFile(tiaProjectExt.getDbPasswordFile());
         }
 
         if (tiaTaskExt.getDbDialect() == null){
