@@ -2,11 +2,14 @@ package org.tiatesting.core.agent;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -225,5 +228,61 @@ class ForkSystemPropertiesTest {
         assertEquals(ForkSystemProperties.read(file), applied,
                 "applyToSystemProperties must return exactly what read returns for the same file");
         assertEquals("from-file", System.getProperty(KEY_PLAIN));
+    }
+
+    /**
+     * The guard that makes the "never write a credential here" rule structural. Without it a
+     * credential added to this file in future would be republished as a system property in the fork
+     * and land in the surefire report XML, with nothing failing or warning - which is exactly how
+     * the tiaDBPassword leak survived.
+     */
+    @Test
+    void writeRefusesAPropertyNamedLikeACredential(@TempDir Path dir) {
+        // given
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("tiaDBPassword", "hunter2-super-secret");
+        File file = dir.resolve("fork.properties").toFile();
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> ForkSystemProperties.write(props, file));
+
+        // then
+        assertTrue(thrown.getMessage().contains("tiaDBPassword"), thrown.getMessage());
+        assertFalse(thrown.getMessage().contains("hunter2-super-secret"),
+                "the refusal must not echo the value it is refusing: " + thrown.getMessage());
+    }
+
+    /**
+     * A path to a credential is not itself a credential, and is the intended way to carry one
+     * across the fork boundary, so the guard must not reject it.
+     */
+    @Test
+    void writeAllowsAPathToACredential(@TempDir Path dir) throws IOException {
+        // given
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put(CredentialResolver.PROP_DB_PASSWORD_FILE, "/run/secrets/tia-db-password");
+        File file = dir.resolve("fork.properties").toFile();
+
+        // when
+        ForkSystemProperties.write(props, file);
+
+        // then
+        assertEquals("/run/secrets/tia-db-password",
+                ForkSystemProperties.read(file).getProperty(CredentialResolver.PROP_DB_PASSWORD_FILE));
+    }
+
+    @Test
+    void writeRefusesOtherCredentialShapedNames(@TempDir Path dir) {
+        // given
+        File file = dir.resolve("fork.properties").toFile();
+
+        // when / then
+        for (String name : new String[]{"apiSecret", "authToken", "dbPasswd", "someCredential"}) {
+            Map<String, String> props = new LinkedHashMap<>();
+            props.put(name, "value");
+            assertThrows(IllegalArgumentException.class,
+                    () -> ForkSystemProperties.write(props, file), name + " should be refused");
+        }
     }
 }

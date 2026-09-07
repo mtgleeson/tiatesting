@@ -23,6 +23,8 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.persistence.SecretFile;
+import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
@@ -146,7 +148,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
          */
     }
 
-    private TestSelectorResult getTestSelectorResult() {
+    private TestSelectorResult getTestSelectorResult() throws MojoExecutionException {
         VCSReader gitReader = getVCSReader();
         // try-with-resources: release the H2 MVStore file lock before surefire forks the test
         // JVM. With DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest
@@ -431,7 +433,8 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      *                   non-distributed build
      * @return absolute path of the file written
      */
-    String writeForkPropertiesFile(final DistributedRunnerAssignment assignment){
+    String writeForkPropertiesFile(final DistributedRunnerAssignment assignment)
+            throws MojoExecutionException {
         Map<String, String> props = new LinkedHashMap<>();
         props.put("tiaEnabled", String.valueOf(isTiaEnabled()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
@@ -450,7 +453,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         props.put("tiaDBUrl", getTiaDBUrl());
         props.put("tiaDBDialect", getTiaDBDialect());
         props.put("tiaDBUser", getTiaDBUser());
-        props.put("tiaDBPassword", getTiaDBPassword());
+        // A path, never the password. Every key written here is republished as a system property in
+        // the forked test JVM by ForkSystemProperties.applyToSystemProperties, and surefire dumps
+        // the fork's system properties into target/surefire-reports/TEST-*.xml - the artifact CI
+        // publishes. A path is not a secret; the password is. Null when the fork needs no path
+        // because the password is unset or comes from the environment it already inherits, and
+        // ForkSystemProperties.write skips nulls, so such a build writes no key at all.
+        props.put(CredentialResolver.PROP_DB_PASSWORD_FILE, resolvePasswordFileForFork());
 
         if (assignment != null){
             // The property names and the rendering of the values are owned by
@@ -469,6 +478,44 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             throw new RuntimeException(e);
         }
         return filename;
+    }
+
+    /**
+     * Give the forked test JVM a way to reach the database password without the password itself
+     * crossing the fork boundary.
+     *
+     * <p>Three cases, and only the middle one puts a secret on disk. A password the user already
+     * keeps in a file is referenced where it lies, so nothing is staged. A password configured in
+     * the build - including one explicitly configured as empty - is staged into an owner-only file
+     * outside the build directory, deleted when this JVM exits (see {@link SecretFile}). A build
+     * that configures no password at all forwards nothing, because the surefire fork is a child of
+     * this JVM and inherits its environment, so it resolves
+     * {@value CredentialResolver#ENV_DB_PASSWORD} for itself.
+     *
+     * @return the path for the fork to read the password from, or {@code null} when the fork needs
+     *         no path
+     * @throws MojoExecutionException if the configured password cannot be resolved, or the file
+     *                                cannot be staged
+     */
+    private String resolvePasswordFileForFork() throws MojoExecutionException {
+        if (tiaDBPasswordFile != null && !tiaDBPasswordFile.trim().isEmpty()) {
+            return tiaDBPasswordFile;
+        }
+        // Deliberately keyed off "configured at all", not off the resolved value being non-empty.
+        // An explicit <tiaDBPassword></tiaDBPassword> means an empty password and must bypass the
+        // environment fallback in the fork exactly as it does here - forwarding nothing would let a
+        // TIA_DB_PASSWORD that happens to be set in the environment win in the fork while the build
+        // JVM used the empty value, and the two would connect as different users.
+        String configured = configuredPassword();
+        if (configured == null) {
+            return null;
+        }
+        try {
+            return SecretFile.write(configured).toString();
+        } catch (IOException e) {
+            throw new MojoExecutionException("Tia could not stage the database password for the "
+                    + "forked test JVM.", e);
+        }
     }
 
     /**
