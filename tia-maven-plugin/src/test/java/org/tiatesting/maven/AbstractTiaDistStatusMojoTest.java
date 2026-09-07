@@ -1,6 +1,7 @@
 package org.tiatesting.maven;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -68,7 +69,7 @@ class AbstractTiaDistStatusMojoTest {
      * that never went distributed - must not have it be the thing that fails.
      */
     @Test
-    void shouldReportThatNothingIsPlannedRatherThanFailing() {
+    void shouldReportThatNothingIsPlannedRatherThanFailing() throws Exception {
         // given - no run planned
 
         // when
@@ -84,7 +85,7 @@ class AbstractTiaDistStatusMojoTest {
      * one at its build.
      */
     @Test
-    void shouldReportTheRunNamedByTiaRunId() {
+    void shouldReportTheRunNamedByTiaRunId() throws Exception {
         // given - two planned runs, one of which is named by tiaRunId
         persistPlan("build-99");
         TestMojo mojo = mojo();
@@ -104,7 +105,7 @@ class AbstractTiaDistStatusMojoTest {
      * previous run's rows, so there is normally only one to find.
      */
     @Test
-    void shouldReportTheMostRecentlyPlannedRunWhenNoRunIdIsGiven() {
+    void shouldReportTheMostRecentlyPlannedRunWhenNoRunIdIsGiven() throws Exception {
         // given - a planned run and a mojo with no tiaRunId set
         persistPlan("build-99");
 
@@ -121,7 +122,7 @@ class AbstractTiaDistStatusMojoTest {
      * - so it must not be the default even though the names are read either way.
      */
     @Test
-    void shouldListAssignedSuiteNamesOnlyWhenTheSuitesParameterIsSet() {
+    void shouldListAssignedSuiteNamesOnlyWhenTheSuitesParameterIsSet() throws Exception {
         // given - a planned run whose groups carry suite names
         persistPlan("build-99");
 
@@ -188,7 +189,7 @@ class AbstractTiaDistStatusMojoTest {
      * @param mojo the mojo to execute
      * @return everything the goal wrote to stdout
      */
-    private static String run(final TestMojo mojo) {
+    private static String run(final TestMojo mojo) throws MojoExecutionException {
         PrintStream originalOut = System.out;
         ByteArrayOutputStream captured = new ByteArrayOutputStream();
         try {

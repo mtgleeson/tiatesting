@@ -1,6 +1,7 @@
 package org.tiatesting.core.persistence.h2;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.persistence.CredentialResolver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,8 +64,8 @@ class H2ConnectionSettingsTest {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
         java.util.Map<String, String> env = new java.util.HashMap<>();
-        env.put(H2ConnectionSettings.ENV_DB_USER, "envuser");
-        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+        env.put(CredentialResolver.ENV_DB_USER, "envuser");
+        env.put(CredentialResolver.ENV_DB_PASSWORD, "envsecret");
 
         // when
         H2ConnectionSettings settings = H2ConnectionSettings.server(url, null, null, env::get);
@@ -79,7 +80,7 @@ class H2ConnectionSettingsTest {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
         java.util.Map<String, String> env = new java.util.HashMap<>();
-        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+        env.put(CredentialResolver.ENV_DB_PASSWORD, "envsecret");
 
         // when
         // an explicitly-configured empty password must be used verbatim, not treated as "unset"
@@ -94,7 +95,7 @@ class H2ConnectionSettingsTest {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
         java.util.Map<String, String> env = new java.util.HashMap<>();
-        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+        env.put(CredentialResolver.ENV_DB_PASSWORD, "envsecret");
 
         // when
         // whitespace is non-null, so it is honoured verbatim and the env fallback is not consulted
@@ -109,7 +110,7 @@ class H2ConnectionSettingsTest {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
         java.util.Map<String, String> env = new java.util.HashMap<>();
-        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+        env.put(CredentialResolver.ENV_DB_PASSWORD, "envsecret");
 
         // when
         H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", null, env::get);
@@ -123,8 +124,8 @@ class H2ConnectionSettingsTest {
         // given
         String url = "jdbc:h2:tcp://h2host:9092/tiadb";
         java.util.Map<String, String> env = new java.util.HashMap<>();
-        env.put(H2ConnectionSettings.ENV_DB_USER, "envuser");
-        env.put(H2ConnectionSettings.ENV_DB_PASSWORD, "envsecret");
+        env.put(CredentialResolver.ENV_DB_USER, "envuser");
+        env.put(CredentialResolver.ENV_DB_PASSWORD, "envsecret");
 
         // when
         H2ConnectionSettings settings = H2ConnectionSettings.server(url, "tia", "secret", env::get);
@@ -188,43 +189,5 @@ class H2ConnectionSettingsTest {
         // then
         assertFalse(settings.isServerMode());
         assertEquals("/var/tia", settings.getDbFilePath());
-    }
-
-    @Test
-    void fromSystemPropertiesPicksServerModeWhenUrlPropertySet() {
-        // given
-        System.setProperty(H2ConnectionSettings.PROP_DB_URL, "jdbc:h2:tcp://h2host:9092/tiadb");
-        System.setProperty(H2ConnectionSettings.PROP_DB_USER, "tia");
-        System.setProperty(H2ConnectionSettings.PROP_DB_PASSWORD, "secret");
-        try {
-            // when
-            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties();
-
-            // then
-            assertTrue(settings.isServerMode());
-            assertEquals("jdbc:h2:tcp://h2host:9092/tiadb", settings.getDbUrl());
-            assertEquals("tia", settings.getUsername());
-            assertEquals("secret", settings.getPassword());
-        } finally {
-            System.clearProperty(H2ConnectionSettings.PROP_DB_URL);
-            System.clearProperty(H2ConnectionSettings.PROP_DB_USER);
-            System.clearProperty(H2ConnectionSettings.PROP_DB_PASSWORD);
-        }
-    }
-
-    @Test
-    void fromSystemPropertiesPicksEmbeddedModeWhenOnlyFilePathSet() {
-        // given
-        System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, "/var/tia");
-        try {
-            // when
-            H2ConnectionSettings settings = H2ConnectionSettings.fromSystemProperties();
-
-            // then
-            assertFalse(settings.isServerMode());
-            assertEquals("/var/tia", settings.getDbFilePath());
-        } finally {
-            System.clearProperty(H2ConnectionSettings.PROP_DB_FILE_PATH);
-        }
     }
 }

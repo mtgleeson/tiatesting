@@ -2,12 +2,20 @@ package org.tiatesting.maven;
 
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
+import org.apache.maven.settings.Server;
+import org.apache.maven.settings.Settings;
+import org.apache.maven.settings.building.SettingsProblem;
+import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
+import org.apache.maven.settings.crypto.SettingsDecrypter;
+import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
@@ -83,6 +91,41 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(property = "tiaDBPassword")
     String tiaDBPassword;
+
+    /**
+     * Path of a file holding the database password, as an alternative to {@link #tiaDBPassword}.
+     *
+     * <p>Tia only ever reads this file - it never writes one here - so the secret need not appear
+     * in the POM and no copy of it is staged anywhere: only the path is forwarded to the forked
+     * test JVM, and a path is not a secret. Intended for a mounted Docker or Kubernetes secret, or
+     * a file CI writes. Exactly one trailing newline is stripped when it is read.
+     */
+    @Parameter(property = "tiaDBPasswordFile")
+    String tiaDBPasswordFile;
+
+    /**
+     * Id of a {@code <server>} entry in {@code ~/.m2/settings.xml} to take the database username
+     * and password from.
+     *
+     * <p>A server id is not a secret, so it can live in a committed parent POM while the credential
+     * stays on each developer's machine. This is also the only route on which Maven's own password
+     * encryption applies: {@code mvn --encrypt-password} covers {@code <server>} and
+     * {@code <proxy>} passwords, never an arbitrary {@code <properties>} entry.
+     *
+     * <p>A machine with no matching {@code <server>} is not an error - resolution falls through to
+     * the next channel - so one parent POM can name a server id that only developer machines
+     * define while CI supplies {@value CredentialResolver#ENV_DB_PASSWORD} instead.
+     */
+    @Parameter(property = "tiaDBServerId")
+    String tiaDBServerId;
+
+    /** The effective settings, supplying the {@code <server>} entry {@link #tiaDBServerId} names. */
+    @Parameter(defaultValue = "${settings}", readonly = true)
+    Settings settings;
+
+    /** Maven's own decrypter, so an encrypted {@code <server>} password works as it does elsewhere. */
+    @Component
+    SettingsDecrypter settingsDecrypter;
 
     /**
      * The source files directories for the project being analyzed.
@@ -404,6 +447,143 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
+     * Resolve the database password from the channels a build can supply it through, in precedence
+     * order: the configured {@link #tiaDBPassword}, then {@link #tiaDBPasswordFile}, then the
+     * {@value CredentialResolver#ENV_DB_PASSWORD} environment variable, then an empty password.
+     *
+     * <p>Resolving in the build JVM rather than in the forked test JVM is what lets the fork be
+     * handed a reference instead of the secret. See the credentials chapter in {@code WIKI.md}.
+     *
+     * @return the resolved password, never {@code null}
+     * @throws MojoExecutionException if the configured password is an unresolved Maven expression,
+     *         or the configured password file cannot be read
+     */
+    String resolveDbPassword() throws MojoExecutionException {
+        String configured = configuredPassword();
+        return configured != null
+                ? configured
+                : CredentialResolver.resolvePassword(null, System::getenv);
+    }
+
+    /**
+     * The password this build configured through a channel other than the environment: the
+     * {@link #tiaDBPassword} parameter, the {@code <server>} entry {@link #tiaDBServerId} names, or
+     * {@link #tiaDBPasswordFile}, in that order.
+     *
+     * <p>Separate from {@link #resolveDbPassword()} because the two callers need different answers.
+     * Resolution wants a usable password and so falls through to the environment; the fork handoff
+     * needs to know whether anything was configured *at all*, since a build that configured nothing
+     * must forward nothing and let the fork read the environment it already inherits. Keeping the
+     * environment out of this method is also what preserves the null-vs-empty rule across the fork
+     * boundary: an explicit empty password is a configured value and is forwarded.
+     *
+     * @return the configured password, or {@code null} when no non-environment channel supplied one
+     * @throws MojoExecutionException if the configured password is an unresolved Maven expression,
+     *         the named server entry cannot be decrypted, or the password file cannot be read
+     */
+    String configuredPassword() throws MojoExecutionException {
+        rejectUnresolvedExpression(tiaDBPassword);
+        if (tiaDBPassword != null) {
+            return tiaDBPassword;
+        }
+        Server server = decryptedServer();
+        if (server != null && server.getPassword() != null) {
+            return server.getPassword();
+        }
+        if (tiaDBPasswordFile != null && !tiaDBPasswordFile.trim().isEmpty()) {
+            try {
+                return CredentialResolver.readPasswordFile(tiaDBPasswordFile);
+            } catch (IllegalStateException e) {
+                // Rethrown as a Maven failure so a misconfigured path is reported as a build error
+                // with its message, rather than as an internal error with a stack trace.
+                throw new MojoExecutionException(e.getMessage(), e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolve the database username by precedence: the configured {@link #tiaDBUser}, then the
+     * username on the {@code <server>} entry {@link #tiaDBServerId} names, then
+     * {@value CredentialResolver#ENV_DB_USER}, then H2's {@code tia} convention. A build naming a
+     * server id should not have to repeat the username the entry already carries.
+     *
+     * @return the resolved username
+     * @throws MojoExecutionException if the named server entry cannot be decrypted
+     */
+    String resolveDbUser() throws MojoExecutionException {
+        if (tiaDBUser != null && !tiaDBUser.trim().isEmpty()) {
+            return tiaDBUser;
+        }
+        Server server = decryptedServer();
+        if (server != null && server.getUsername() != null && !server.getUsername().trim().isEmpty()) {
+            return server.getUsername();
+        }
+        // Null rather than a blank string, so DataStoreFactory treats the username as unconfigured
+        // and applies the environment fallback and the H2-only default itself.
+        return null;
+    }
+
+    /**
+     * Decrypt the {@code <server>} entry {@link #tiaDBServerId} names, if there is one.
+     *
+     * <p>A missing entry returns {@code null} rather than failing, so a parent POM can name a
+     * server id that only some machines define. A decryption *failure* is a different matter and
+     * must be fatal: {@link SettingsDecrypter} reports it only through
+     * {@link SettingsDecryptionResult#getProblems()} and hands back the server with its password
+     * still encrypted, so a caller that ignored the problems would send the ciphertext to the
+     * database and the user would see only an opaque authentication error.
+     *
+     * @return the decrypted server entry, or {@code null} when no server id is configured, no
+     *         matching entry exists, or the settings are unavailable
+     * @throws MojoExecutionException if the entry exists but could not be decrypted
+     */
+    private Server decryptedServer() throws MojoExecutionException {
+        if (tiaDBServerId == null || tiaDBServerId.trim().isEmpty() || settings == null) {
+            return null;
+        }
+        Server configured = settings.getServer(tiaDBServerId);
+        if (configured == null) {
+            return null;
+        }
+        SettingsDecryptionResult result =
+                settingsDecrypter.decrypt(new DefaultSettingsDecryptionRequest(configured));
+        for (SettingsProblem problem : result.getProblems()) {
+            if (problem.getSeverity() == SettingsProblem.Severity.ERROR
+                    || problem.getSeverity() == SettingsProblem.Severity.FATAL) {
+                // Deliberately does not echo the stored value: the message is user-facing and the
+                // ciphertext is still a credential.
+                throw new MojoExecutionException("Tia could not decrypt the password for "
+                        + "<server><id>" + tiaDBServerId + "</id></server> in settings.xml: "
+                        + problem.getMessage() + ". Check that settings-security.xml exists and "
+                        + "holds the master password the entry was encrypted with.");
+            }
+        }
+        return result.getServer();
+    }
+
+    /**
+     * Fail the build when a configured password is still a literal Maven expression.
+     *
+     * <p>Maven leaves an unresolvable {@code ${...}} in place rather than erroring, so a POM
+     * carrying {@code <tiaDBPassword>${env.TIA_DB_PASSWORD}</tiaDBPassword>} on a machine where the
+     * variable is not set hands Tia the literal text and the build succeeds. Sending that on to the
+     * database surfaces only as an opaque authentication failure, so reject it here and name it.
+     *
+     * @param value the configured password value to check
+     * @throws MojoExecutionException if the value is entirely an unresolved Maven expression
+     */
+    private void rejectUnresolvedExpression(final String value) throws MojoExecutionException {
+        if (value != null && value.startsWith("${") && value.endsWith("}")
+                && value.indexOf('}') == value.length() - 1) {
+            throw new MojoExecutionException("tiaDBPassword resolved to the literal expression "
+                    + value + ", which means the property or environment variable behind it is not "
+                    + "set. Either set it, or remove <tiaDBPassword> and let Tia read "
+                    + CredentialResolver.ENV_DB_PASSWORD + " from the environment itself.");
+        }
+    }
+
+    /**
      * Build the {@link DataStore} for this mojo, resolving the SQL dialect from the mojo's
      * configured connection parameters via {@link DataStoreFactory}. Centralising this here keeps
      * every mojo's datastore construction consistent, and is the single place a mojo needs to
@@ -412,8 +592,9 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * @param branch the VCS branch name, used to derive the per-branch schema selected on each
      *               connection
      * @return the constructed datastore for the resolved dialect
+     * @throws MojoExecutionException if the configured password cannot be resolved
      */
-    protected DataStore buildDataStore(final String branch){
+    protected DataStore buildDataStore(final String branch) throws MojoExecutionException {
         return buildDataStore(branch, getTiaDBSchemaSuffix());
     }
 
@@ -423,10 +604,12 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * @param branch the VCS branch, the base of the schema name
      * @param schemaSuffix the schema suffix, or null for the unsuffixed {@code tia_<branch>} schema
      * @return the constructed datastore for the resolved dialect
+     * @throws MojoExecutionException if the configured password cannot be resolved
      */
-    protected DataStore buildDataStore(final String branch, final String schemaSuffix){
+    protected DataStore buildDataStore(final String branch, final String schemaSuffix)
+            throws MojoExecutionException {
         return DataStoreFactory.fromConfig(getTiaDBFilePath(), getTiaDBUrl(),
-                getTiaDBUser(), getTiaDBPassword(), getTiaDBDialect(), branch, schemaSuffix);
+                resolveDbUser(), resolveDbPassword(), getTiaDBDialect(), branch, schemaSuffix);
     }
 
     public String getTiaSourceFilesDirs() {
