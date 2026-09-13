@@ -1,5 +1,7 @@
 package org.tiatesting.core.agent;
 
+import org.tiatesting.core.vcs.WorkspaceIdentity;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
@@ -58,6 +60,56 @@ public final class ForkSystemProperties {
     public static final String PROP_TEST_CLASSES_DIRS = "tiaTestClassesDirs";
 
     private ForkSystemProperties() {
+    }
+
+    /**
+     * Read the branch the build JVM resolved for this run, as republished into the forked test
+     * JVM's system properties.
+     *
+     * <p>The fork does not work this out for itself. The branch decides which schema the run's rows
+     * live in, and the build JVM has already resolved it - from {@code tiaBranch} or from the
+     * version control system - before the fork started. Reading it back here means the fork opens no
+     * repository of its own, which is what lets a test JVM run on a machine with no version control
+     * access, and means the two ends cannot disagree about which branch's schema the run belongs to.
+     *
+     * @return the branch, trimmed
+     * @throws IllegalStateException if the property is absent or blank, which means the handoff
+     *                               file was not written or not republished - there is no safe
+     *                               default, since a missing branch would silently resolve to a
+     *                               different schema than the build JVM used
+     */
+    public static String branchFromSystemProperties() {
+        String branch = System.getProperty(WorkspaceIdentity.PROP_BRANCH);
+        if (branch == null || branch.trim().isEmpty()) {
+            throw new IllegalStateException(WorkspaceIdentity.PROP_BRANCH + " was not set in this "
+                    + "test JVM. It is written to the fork properties file by Tia's build-tool "
+                    + "plugin and republished by the Tia agent at premain time, so an absent value "
+                    + "means the agent did not run - check that the Tia agent is on the test JVM's "
+                    + "command line and that the fork properties file was written.");
+        }
+        return branch.trim();
+    }
+
+    /**
+     * Read the commit the build JVM resolved for this run, as republished into the forked test
+     * JVM's system properties. Resolved by the build JVM for the same reasons as {@link
+     * #branchFromSystemProperties()}.
+     *
+     * @return the commit, trimmed
+     * @throws IllegalStateException if the property is absent or blank; the commit is what a
+     *                               single-host run stamps its mapping with, and a null stamp would
+     *                               leave the next build diffing from nothing
+     */
+    public static String commitValueFromSystemProperties() {
+        String commitValue = System.getProperty(WorkspaceIdentity.PROP_COMMIT_VALUE);
+        if (commitValue == null || commitValue.trim().isEmpty()) {
+            throw new IllegalStateException(WorkspaceIdentity.PROP_COMMIT_VALUE + " was not set in "
+                    + "this test JVM. It is written to the fork properties file by Tia's build-tool "
+                    + "plugin and republished by the Tia agent at premain time, so an absent value "
+                    + "means the agent did not run - check that the Tia agent is on the test JVM's "
+                    + "command line and that the fork properties file was written.");
+        }
+        return commitValue.trim();
     }
 
     /**

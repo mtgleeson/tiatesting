@@ -5,7 +5,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
@@ -21,18 +20,15 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -67,6 +63,7 @@ class TiaJunit4ListenerDistributedTest {
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory",
+            "tiaBranch", "tiaCommitValue",
             "tiaSelectedTests", "tiaIgnoredTestSuiteCount",
             ForkSystemProperties.PROP_TEST_CLASSES_DIRS, "test",
             H2ConnectionSettings.PROP_DB_FILE_PATH, H2ConnectionSettings.PROP_DB_URL,
@@ -108,6 +105,10 @@ class TiaJunit4ListenerDistributedTest {
         dataStore.persistCoreData(tiaData);
 
         System.setProperty("tiaEnabled", "true");
+        // Written to the fork properties file by the build JVM and republished here by the Tia
+        // agent: the listener reads both from system properties rather than from a repository.
+        System.setProperty("tiaBranch", BRANCH);
+        System.setProperty("tiaCommitValue", PLAN_COMMIT);
         System.setProperty(H2ConnectionSettings.PROP_DB_FILE_PATH, tempDir.getAbsolutePath());
         System.setProperty("tiaSelectedTests", SUITE);
     }
@@ -207,7 +208,7 @@ class TiaJunit4ListenerDistributedTest {
      * @throws Exception if the JUnit 4 run-start hook fails, which its signature allows
      */
     private void runTheListener(final Description ignoredDescription) throws Exception {
-        TiaJunit4Listener listener = new TiaJunit4Listener(new StubVCSReader());
+        TiaJunit4Listener listener = new TiaJunit4Listener();
         listener.testIgnored(ignoredDescription);
         listener.testRunStarted(null);
         listener.testRunFinished(null);
@@ -332,75 +333,4 @@ class TiaJunit4ListenerDistributedTest {
                 "a non-distributed run must not seal anybody's run");
     }
 
-    /**
-     * Minimal VCS reader reporting a fixed branch and commit. The listener reads only those two
-     * values from it and then closes it; nothing on this path diffs.
-     */
-    private static final class StubVCSReader implements VCSReader {
-
-        /**
-         * @return the fixed branch these tests plan and claim against
-         */
-        @Override
-        public String getBranchName() {
-            return BRANCH;
-        }
-
-        /**
-         * @return the commit the plan was pinned to, which this workspace is reported to be on
-         */
-        @Override
-        public String getHeadCommit() {
-            return PLAN_COMMIT;
-        }
-
-        /**
-         * Never called: the listener runs after selection, and a distributed runner never diffs.
-         *
-         * @param baseChangeNum ignored
-         * @param sourceFilesDirs ignored
-         * @param testFilesDirs ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum,
-                                                        final List<String> sourceFilesDirs,
-                                                        final List<String> testFilesDirs,
-                                                        final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the test listener must not diff");
-        }
-
-        /**
-         * Never called on this path.
-         *
-         * @param diffs ignored
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         */
-        @Override
-        public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs,
-                                         final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the test listener must not diff");
-        }
-
-        /**
-         * Never called on this path.
-         *
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the test listener must not diff");
-        }
-
-        /**
-         * No resources to release.
-         */
-        @Override
-        public void close() {
-        }
-    }
 }
