@@ -5,6 +5,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPublishesReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 /**
  * Mojo that prints a tracked library's publish ledger as a table - one row per published build
@@ -25,8 +26,8 @@ public abstract class AbstractLibraryPublishesMojo extends AbstractTiaMojo {
      */
     @Override
     public void execute() throws MojoExecutionException {
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             LibraryPublishesReportGenerator reportGenerator = new LibraryPublishesReportGenerator();
             getLog().info(reportGenerator.generateLibraryPublishesReport(dataStore, tiaLibrary));
         }

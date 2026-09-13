@@ -21,6 +21,7 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
@@ -76,6 +77,12 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     static class TestPlugin extends TiaBasePlugin {
         private File dbDir;
         private String workspaceCommit = PLAN_COMMIT;
+        /**
+         * How many times this plugin was asked for a VCS reader. Counted rather than inferred from
+         * the resolved branch, because a reader constructed and then ignored would leave the branch
+         * looking right while still failing on a runner that has no repository.
+         */
+        int vcsReaderConstructions;
 
         /**
          * @param dbDir the temp directory {@link #buildDataStore} opens an embedded H2 database
@@ -98,6 +105,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
          */
         @Override
         public VCSReader getVCSReader() {
+            vcsReaderConstructions++;
             return new StubVCSReader(workspaceCommit);
         }
 
@@ -324,6 +332,101 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
             assertEquals(DistributedRunGroupStatus.PENDING, untouchedGroup.getStatus());
             assertNull(untouchedGroup.getRunnerKey());
         }
+    }
+
+    /**
+     * Verify a test task given both {@code tia.branch} and {@code tia.commitValue} claims its group
+     * without the daemon ever asking for a VCS reader, and forwards both values to the fork. This is
+     * the whole point of the two settings: a CI runner holding nothing but a checked-out tree has no
+     * repository to read, and the fork must not have to find one either.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimWithoutAVcsReaderWhenTheBranchAndCommitAreConfigured(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-20", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-20");
+        extension.setBranch(BRANCH);
+        extension.setCommitValue(PLAN_COMMIT);
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaBasePlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        assertEquals(0, plugin.vcsReaderConstructions,
+                "a test task given both values must not construct a VCS reader");
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertEquals(BRANCH, systemProperties.get("tiaBranch"));
+        assertEquals(PLAN_COMMIT, systemProperties.get("tiaCommitValue"));
+        assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
+    }
+
+    /**
+     * Verify the branch and commit the daemon resolved reach the fork even when neither is
+     * configured. The fork needs the branch to open the datastore on the right schema, and taking
+     * the daemon's already-resolved value is what stops it opening a repository of its own - and
+     * what stops the two disagreeing about which branch the run belongs to.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldForwardTheResolvedBranchAndCommitToTheFork(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-21", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-21");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertEquals(BRANCH, systemProperties.get("tiaBranch"));
+        assertEquals(PLAN_COMMIT, systemProperties.get("tiaCommitValue"));
+    }
+
+    /**
+     * Verify the claim the finalizer reads back records the branch it was made in. The finalizer
+     * runs after the fork has exited and opens the claimed group's schema from this record; a
+     * finalizer that resolved a branch of its own could not run on a machine with no repository, and
+     * could land on a different schema than the claim did.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRecordTheClaimsBranchForTheFinalizer(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-22", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-22");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry
+                .forBuild(testTask.getProject().getGradle()).claimFor(testTask.getPath());
+        assertNotNull(claim);
+        assertEquals(BRANCH, claim.getBranch());
     }
 
     /**

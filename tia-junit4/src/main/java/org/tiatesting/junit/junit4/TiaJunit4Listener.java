@@ -21,7 +21,6 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
-import org.tiatesting.core.vcs.VCSReader;
 
 import java.util.HashSet;
 import java.util.List;
@@ -98,10 +97,15 @@ public class TiaJunit4Listener extends RunListener {
      * an edge set holding only its own group's suites and stamps the commit - dropping every method
      * only the other groups reach, and silently under-selecting on the next build.
      *
-     * @param vcsReader the VCS reader for the workspace under test; supplies the branch and head
-     *                  commit, and is closed here
+     * <p>The branch and the commit are read from the system properties the build JVM resolved them
+     * into, never from the version control system. This JVM has no need of a repository otherwise -
+     * the selection ran in the build JVM - and requiring one here would stop a test JVM running on a
+     * machine that holds nothing but a checked-out tree. Neither is read when Tia is not enabled for
+     * this run, since nothing then consumes them: Surefire constructs this listener from its
+     * {@code listener} property whatever Tia is configured to do, so a disabled build reaches this
+     * constructor too and must not fail in it.
      */
-    public TiaJunit4Listener(VCSReader vcsReader) {
+    public TiaJunit4Listener() {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
@@ -117,15 +121,16 @@ public class TiaJunit4Listener extends RunListener {
         this.runnerTestSuites = new ConcurrentHashMap<>();
         this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testRunMethodsImpacted = new ConcurrentHashMap<>();
-        this.headCommit = vcsReader.getHeadCommit();
-        this.branch = vcsReader.getBranchName();
+        // Resolved by the build JVM and republished here by the Tia agent - see the javadoc above
+        // for why this JVM does not resolve them itself.
+        this.headCommit = enabled ? ForkSystemProperties.commitValueFromSystemProperties() : null;
+        this.branch = enabled ? ForkSystemProperties.branchFromSystemProperties() : null;
         DataStore dataStore = enabled ? DataStoreFactory.fromSystemProperties(this.branch) : null;
         this.testRunnerService = new TestRunnerService(dataStore);
         this.testClassesDirs = System.getProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS);
         // Null for every ordinary build, whose persist is therefore exactly the one it always took.
         this.distributedRunnerContext = enabled
                 ? DistributedForkProperties.contextFromSystemProperties() : null;
-        vcsReader.close();
         setSelectedTests();
         setIgnoredTestSuiteCount();
     }

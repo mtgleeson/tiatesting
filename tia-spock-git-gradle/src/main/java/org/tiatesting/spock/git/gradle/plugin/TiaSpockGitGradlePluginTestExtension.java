@@ -23,7 +23,7 @@ import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
-import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
@@ -78,13 +78,30 @@ public class TiaSpockGitGradlePluginTestExtension {
                 populateTestTaskExtension(tiaProjectExtension, tiaTaskExtension);
                 boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
 
-                if (isTiaEnabled && Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())){
-                    refuseCollidingSchemas(testTask, tiaProjectExtension);
+                if (!isTiaEnabled){
+                    testTask.systemProperty("tiaEnabled", false);
+                    return;
                 }
 
-                if (isTiaEnabled){
+                // One identity for the whole action. When tia.branch and tia.commitValue are both
+                // configured nothing below constructs a VCS reader at all, which is what lets a
+                // distributed runner hold nothing but a checked-out tree; when they are not, the
+                // fallback opens one repository handle rather than one per step - and closes it,
+                // which the inline getVCSReader() calls this replaces never did.
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity(testTask, tiaTaskExtension)) {
+                    if (Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())){
+                        refuseCollidingSchemas(testTask, tiaProjectExtension, workspaceIdentity);
+                    }
+
                     // set the system properties needed by Tia passed in as configuration from the Gradle plugin
                     testTask.systemProperty("tiaEnabled", true);
+                    // The branch and commit this daemon already resolved. Forwarded for every build,
+                    // not only a distributed one, so the forked test JVM never resolves them for
+                    // itself and the two can never disagree about which branch's schema the run
+                    // belongs to.
+                    testTask.systemProperty(WorkspaceIdentity.PROP_BRANCH, workspaceIdentity.getBranch());
+                    testTask.systemProperty(WorkspaceIdentity.PROP_COMMIT_VALUE,
+                            workspaceIdentity.getCommitValue());
                     testTask.systemProperty("tiaUpdateDBMapping", tiaTaskExtension.getUpdateDBMapping());
                     testTask.systemProperty("tiaUpdateDBTestRunHistory", tiaTaskExtension.getUpdateDBTestRunHistory());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
@@ -163,7 +180,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
                     // finalizer reads it back from there after the test task's forked JVM(s)
                     // finish - see the "Distributed test runs" chapter in WIKI.md.
-                    claimDistributedRun(testTask, tiaTaskExtension);
+                    claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -171,8 +188,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                         jacocoTaskExtension.setEnabled(true);
                         jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
                     }
-                }else{
-                    testTask.systemProperty("tiaEnabled", false);
                 }
             }
         };
@@ -287,6 +302,17 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getDistributedRunnerKey() == null){
             tiaTaskExt.setDistributedRunnerKey(tiaProjectExt.getDistributedRunnerKey());
+        }
+
+        // The branch and the commit describe the build, not any one test task, so like the
+        // distributed settings above they are declared once at the project level (or on the command
+        // line) and must reach every test task from there.
+        if (tiaTaskExt.getBranch() == null){
+            tiaTaskExt.setBranch(tiaProjectExt.getBranch());
+        }
+
+        if (tiaTaskExt.getCommitValue() == null){
+            tiaTaskExt.setCommitValue(tiaProjectExt.getCommitValue());
         }
     }
 
@@ -519,6 +545,81 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     }
 
     /**
+     * Resolve this test task's branch and commit, from the configured overrides where they are set
+     * and from the version control system where they are not.
+     *
+     * <p>Built from the test task's own merged extension rather than the plugin's project-level one,
+     * since {@link #populateTestTaskExtension} has already merged the project's values into it and a
+     * task-level override must win here as it does everywhere else.
+     *
+     * @param testTask the test task whose action is running
+     * @param tiaTaskExtension that task's merged Tia extension
+     * @return an identity resolving each value on demand; the caller must close it
+     */
+    private WorkspaceIdentity workspaceIdentity(final Test testTask,
+                                                final TiaBaseTaskExtension tiaTaskExtension) {
+        TiaBasePlugin plugin = findTiaPlugin(testTask);
+        return WorkspaceIdentity.resolving(tiaTaskExtension.getBranch(),
+                tiaTaskExtension.getCommitValue(),
+                plugin == null ? () -> null : plugin::getVCSReader);
+    }
+
+    /**
+     * Find the Tia plugin applied to this test task's project.
+     *
+     * <p>{@code withType}, not {@code findPlugin}: {@code findPlugin(Class)} only matches a plugin's
+     * exact registered class and would never find the concrete {@code TiaSpockGitGradlePlugin}
+     * instance this project actually has applied, since it is a {@link TiaBasePlugin} subclass
+     * rather than a {@code TiaBasePlugin} itself. {@code withType} does assignability-based matching
+     * and finds it correctly.
+     *
+     * @param testTask the test task whose project to search
+     * @return the applied Tia plugin, or null when the project has none
+     */
+    private TiaBasePlugin findTiaPlugin(final Test testTask) {
+        return testTask.getProject().getPlugins().withType(TiaBasePlugin.class)
+                .stream().findFirst().orElse(null);
+    }
+
+    /**
+     * Tell a distributed runner that it is about to read the version control system for a value it
+     * could have been handed, naming the property that would avoid it.
+     *
+     * <p>Logged at INFO rather than warned about: a developer running a distributed build from a
+     * workspace that has a repository is the ordinary case for this path, and there is nothing wrong
+     * with it. It is worth saying once all the same, because the same build on a CI runner holding
+     * only a checked-out tree is the one that fails, and the message names the fix before it becomes
+     * a failure.
+     *
+     * @param tiaTaskExtension the test task's merged Tia extension, holding the two values
+     */
+    private void logVcsFallbackForARunner(final TiaBaseTaskExtension tiaTaskExtension) {
+        List<String> unset = new ArrayList<>(2);
+        if (isBlank(tiaTaskExtension.getBranch())) {
+            unset.add(WorkspaceIdentity.PROP_BRANCH);
+        }
+        if (isBlank(tiaTaskExtension.getCommitValue())) {
+            unset.add(WorkspaceIdentity.PROP_COMMIT_VALUE);
+        }
+        if (!unset.isEmpty()) {
+            LOGGER.info("Tia distributed run: {} {} not set, so this runner reads {} from the "
+                            + "version control system. Set {} to run on a machine with no version "
+                            + "control access.", String.join(" and ", unset),
+                    unset.size() == 1 ? "is" : "are",
+                    unset.size() == 1 ? "that value" : "those values",
+                    unset.size() == 1 ? "it" : "them");
+        }
+    }
+
+    /**
+     * @param value the value to test
+     * @return true when the value is null or contains only whitespace
+     */
+    private static boolean isBlank(final String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    /**
      * Claim this test task's share of a distributed run in the daemon, at task-action time, before
      * the test JVM forks - and forward only the claim's result to that JVM.
      *
@@ -580,6 +681,9 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *                         project-level extension by {@link #populateTestTaskExtension} - which
      *                         carries the distributed master switch, the run id, the configured
      *                         runner key and the update-DB flags the registry records for the finalizer
+     * @param workspaceIdentity this build's branch and commit - the branch whose schema the plan
+     *                          lives in, and the commit the claim is verified against, so a runner
+     *                          given both claims with no version control system present at all
      * @return this test task's recorded claim, or null when this build is not a distributed runner
      *         (nothing is forwarded to the fork or recorded in the registry in that case, either)
      * @throws IllegalStateException if the distributed-run preconditions fail (Tia disabled, a
@@ -595,17 +699,13 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *                                claim to run against, or with a claim that collides with
      *                                another test task's
      */
-    private DistributedClaimRegistry.Claim claimDistributedRun(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
+    private DistributedClaimRegistry.Claim claimDistributedRun(Test testTask,
+            TiaBaseTaskExtension tiaTaskExtension, WorkspaceIdentity workspaceIdentity) {
         if (!Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
             return null;
         }
 
-        // withType, not findPlugin: findPlugin(Class) only matches a plugin's exact registered
-        // class and would never find the concrete TiaSpockGitGradlePlugin instance this project
-        // actually has applied, since it is a TiaBasePlugin subclass rather than a TiaBasePlugin
-        // itself. withType does assignability-based matching and finds it correctly.
-        TiaBasePlugin plugin = testTask.getProject().getPlugins().withType(TiaBasePlugin.class)
-                .stream().findFirst().orElse(null);
+        TiaBasePlugin plugin = findTiaPlugin(testTask);
         if (plugin == null) {
             throw new IllegalStateException("Tia distributed test runs require the Tia Gradle "
                     + "plugin (a " + TiaBasePlugin.class.getName() + ") to be applied to project '"
@@ -624,15 +724,15 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
-        VCSReader vcsReader = plugin.getVCSReader();
+        logVcsFallbackForARunner(tiaTaskExtension);
         ClaimOutcome outcome;
         // try-with-resources: this connection is only needed long enough to make the claim: it
         // must not stay open for the rest of the build, since nothing else this daemon-side action
         // does touches the datastore, and holding a shared-database connection open across the
         // whole test run would tie up a resource none of that work needs.
-        try (DataStore dataStore = plugin.buildDataStore(vcsReader.getBranchName())) {
+        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch())) {
             outcome = new DistributedRunCoordinator(dataStore, config)
-                    .claim(vcsReader.getHeadCommit(), System.currentTimeMillis());
+                    .claim(workspaceIdentity.getCommitValue(), System.currentTimeMillis());
         }
 
         Integer groupNumber = outcome.isClaimed()
@@ -657,7 +757,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         DistributedClaimRegistry registry =
                 DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
         return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
-                groupNumber, Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                groupNumber, workspaceIdentity.getBranch(),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
     }
 
@@ -689,14 +790,14 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *
      * @param currentTask the test task whose action is running, used to reach the project
      * @param tiaProjectExtension the project-level Tia extension each task's settings fall back to
+     * @param workspaceIdentity this build's workspace identity, supplying the branch the schema
+     *                          names are built from
      * @throws IllegalStateException if two or more mapping-owning test tasks resolve to one schema
      */
     private void refuseCollidingSchemas(final Test currentTask,
-                                        final TiaBaseTaskExtension tiaProjectExtension) {
-        // withType rather than findPlugin, for the same reason claimDistributedRun uses it: the
-        // applied plugin is a TiaBasePlugin subclass, which findPlugin(Class) would not match.
-        TiaBasePlugin plugin = currentTask.getProject().getPlugins().withType(TiaBasePlugin.class)
-                .stream().findFirst().orElse(null);
+                                        final TiaBaseTaskExtension tiaProjectExtension,
+                                        final WorkspaceIdentity workspaceIdentity) {
+        TiaBasePlugin plugin = findTiaPlugin(currentTask);
         if (plugin == null) {
             // Nothing to check against without a VCS reader to resolve the branch. A project with
             // no Tia plugin applied cannot be writing to a Tia datastore either.
@@ -704,7 +805,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         }
 
         Map<String, List<String>> taskPathsBySchema = TiaSchemaResolver.taskPathsBySchema(
-                currentTask.getProject(), tiaProjectExtension, plugin.getVCSReader().getBranchName());
+                currentTask.getProject(), tiaProjectExtension, workspaceIdentity.getBranch());
 
         for (Map.Entry<String, List<String>> entry : taskPathsBySchema.entrySet()) {
             if (entry.getValue().size() > 1) {

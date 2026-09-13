@@ -7,6 +7,7 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.distributed.DistributedRunStatusReport;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 /**
  * Gradle task that prints the state of a distributed test run: the run itself, every group in its
@@ -90,8 +91,10 @@ public class TiaDistStatusTask extends DefaultTask {
     /**
      * Read the distributed run's state from the shared datastore and print the report to stdout.
      *
-     * <p>Opens the datastore against the workspace's current branch, since Tia isolates each branch
-     * in its own schema and a run is only visible from the branch it was planned on. Every "no such
+     * <p>Opens the datastore against this build's branch - {@code tia.branch} when set, the
+     * workspace's own otherwise - since Tia isolates each branch in its own schema and a run is only
+     * visible from the branch it was planned on. With the branch configured this task reports on a
+     * run from a machine with no version control access at all. Every "no such
      * run" case - an unplanned branch, a superseded id, a private database - is reported as an
      * explanatory message rather than a failure: this task answers a question, and a pipeline step
      * that prints a run's state must not be the thing that fails the build.
@@ -99,7 +102,8 @@ public class TiaDistStatusTask extends DefaultTask {
     @TaskAction
     public void run() {
         String requestedRunId = runId != null && !runId.trim().isEmpty() ? runId : plugin.getRunId();
-        try (DataStore dataStore = plugin.buildDistributedDataStore(plugin.getVCSReader().getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = plugin.workspaceIdentity();
+             DataStore dataStore = plugin.buildDistributedDataStore(workspaceIdentity.getBranch())) {
             System.out.println(DistributedRunStatusReport.format(dataStore, requestedRunId, suites,
                     System.currentTimeMillis(), System.lineSeparator()));
         }

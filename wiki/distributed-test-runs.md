@@ -235,6 +235,49 @@ Two renderings are deliberate and must not be "tidied":
 The field-by-field reference for pipeline authors lives in the README, under the distributed test
 runs section, alongside a worked example.
 
+## What the post-plan steps need from the version control system
+
+Only the plan step reads the VCS for what it is for - the diff the selection is made from. Every step
+after it needs exactly two scalars, and neither has to come from a repository:
+
+| Value | Why it cannot come from the database | Where each step gets it |
+|---|---|---|
+| **branch** | it selects the schema, so it must be known before the first connection | `tiaBranch` / `tia.branch` when set, otherwise the VCS. `dist-complete` takes it from `fork.properties`; the Gradle finalizer from the recorded claim |
+| **commit** | it is one side of the claim's comparison against the plan's commit, so reading it from the plan row would compare a value with itself | `tiaCommitValue` / `tia.commitValue` when set, otherwise the VCS |
+
+`WorkspaceIdentity` owns that resolution, per value and lazily: a configured value never causes a
+reader to be constructed, which is what lets a runner hold nothing but a checked-out tree. The
+distinction matters more than it looks - `GitReader` opens a JGit repository and `P4Reader` opens a
+**Perforce server connection** in its constructor, so "resolve the branch" is a network call on
+Perforce, not a file read.
+
+Nothing is mandatory. An unset value falls back to the VCS exactly as before, so an existing build
+needs no configuration change; a runner that has no repository and was given no value fails naming
+the property to set, rather than on a missing `.git` directory.
+
+**The two values that cross the fork boundary are resolved once, in the build JVM.** Maven writes
+them into `fork.properties` and Gradle sets them as test task system properties, for every build
+rather than only a distributed one, so no test JVM resolves either for itself - see the
+[test-runner data exchange](test-runner-data-exchange.md) chapter. That is not only about machines
+without repositories: a fork that resolved its own branch could disagree with the build JVM about
+which schema the run belongs to, and write its mapping somewhere no later build reads.
+
+### The commit guard is weaker than it was, and the docs must not overstate it
+
+Reading real `HEAD` observes the tree. A `tiaCommitValue` passed by a pipeline reports what the
+pipeline *believes* it checked out. The guard still catches the wrong branch, a stale pinned SHA and
+a mismatched job re-run - as long as the value comes from the CI system's own checkout variable
+(`$GITHUB_SHA` and equivalents) rather than being echoed back from `tia-run-plan.json`, which would
+compare a value with itself. It cannot catch a pipeline that reports one commit and checks out
+another.
+
+That trade is worth making because of what the guard protects. A runner on different code than the
+plan was built from runs a selection chosen for code it does not have, and the sealer then stamps the
+mapping with the **plan's** commit regardless - so the coverage and line numbers captured from one
+tree are stored as describing another. Worse, when the runner is *behind* the plan, the seal advances
+the stored commit past the gap: those changes were never covered by the run that just happened and
+are now behind the diff baseline, so no future build looks at them again.
+
 ## The run lifecycle
 
 ### End to end, and which process each step happens in

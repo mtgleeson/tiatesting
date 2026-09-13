@@ -4,7 +4,7 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.distributed.DistributedRunStatusReport;
 import org.tiatesting.core.persistence.DataStore;
-import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 /**
  * Mojo that prints the state of a distributed test run: the run itself, every group in its plan,
@@ -50,16 +50,29 @@ public abstract class AbstractTiaDistStatusMojo extends AbstractTiaMojo {
     /**
      * Read the distributed run's state from the shared datastore and print the report to stdout.
      *
-     * <p>Opens the datastore against the workspace's current branch, since Tia isolates each branch
-     * in its own schema and a run is only visible from the branch it was planned on. Every "no such
+     * <p>Opens the datastore against this build's branch - {@code tiaBranch} when set, the
+     * workspace's own otherwise - since Tia isolates each branch in its own schema and a run is only
+     * visible from the branch it was planned on. With the branch configured this goal reports on a
+     * run from a machine with no version control access at all.
+     *
+     * <p>Does nothing when Tia is disabled, rather than resolving a branch and opening a datastore
+     * for a build that switched Tia off - which on Perforce meant reaching for a connection the
+     * disabled reader had never opened. Every "no such
      * run" case - an unplanned branch, a superseded id, a private database - is reported as an
      * explanatory message rather than a failure: this goal answers a question, and a pipeline step
      * that prints the run's state must not be the thing that fails the build.
      */
     @Override
     public void execute() throws MojoExecutionException {
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        if (!isTiaEnabled()) {
+            getLog().info("Tia is disabled (tiaEnabled=false) - not reporting on any distributed "
+                    + "run. Set tiaEnabled to report on one; this goal reads nothing and changes "
+                    + "nothing either way.");
+            return;
+        }
+
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             System.out.println(DistributedRunStatusReport.format(dataStore, getTiaRunId(),
                     tiaDistStatusSuites, System.currentTimeMillis(), System.lineSeparator()));
         }
