@@ -28,7 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -202,16 +204,74 @@ class AbstractTiaDistStatusMojoTest {
     }
 
     /**
+     * Verify a build with Tia disabled reports that and stops, without resolving a branch or opening
+     * a datastore. Reaching for the version control system there is what made this goal fail on a
+     * Perforce project that had switched Tia off: the reader skips its connection when disabled, and
+     * the goal then asked it for a branch anyway.
+     *
+     * @throws Exception if the goal fails
+     */
+    @Test
+    void shouldDoNothingWhenTiaIsDisabled() throws Exception {
+        // given
+        persistPlan("build-99");
+        TestMojo mojo = mojo();
+        mojo.tiaEnabled = false;
+
+        // when
+        String output = run(mojo);
+
+        // then
+        assertFalse(output.contains("Distributed run"), output);
+        assertEquals(0, mojo.vcsReaderConstructions,
+                "a disabled build must not reach the version control system");
+        assertNull(mojo.datastoreBranch, "a disabled build must not open a datastore");
+    }
+
+    /**
+     * Verify a configured branch is what the goal reports against, with no VCS reader constructed -
+     * which is what lets a run be inspected from a machine that has no repository, or from one whose
+     * checkout is on a different branch than the run was planned on.
+     *
+     * @throws Exception if the goal fails
+     */
+    @Test
+    void shouldReportAgainstTheConfiguredBranchWithoutAVcsReader() throws Exception {
+        // given
+        TestMojo mojo = mojo();
+        mojo.tiaBranch = "feature-x";
+
+        // when
+        run(mojo);
+
+        // then
+        assertEquals("feature-x", mojo.datastoreBranch);
+        assertEquals(0, mojo.vcsReaderConstructions,
+                "a configured branch must not cause a VCS reader to be constructed");
+    }
+
+    /**
      * The goal under test, with its VCS reader and datastore construction pointed at this test's
      * fixtures.
      */
     private final class TestMojo extends AbstractTiaDistStatusMojo {
+
+        /** The branch the goal resolved and opened its datastore on. */
+        private String datastoreBranch;
+
+        /**
+         * How many times this mojo was asked for a VCS reader. Counted rather than inferred from the
+         * branch, because a reader constructed and then ignored would leave the branch looking right
+         * while still failing on a machine with no repository.
+         */
+        private int vcsReaderConstructions;
 
         /**
          * @return a stub VCS reader reporting this test's fixed branch
          */
         @Override
         public VCSReader getVCSReader() {
+            vcsReaderConstructions++;
             return new StubVCSReader();
         }
 
@@ -224,6 +284,7 @@ class AbstractTiaDistStatusMojoTest {
          */
         @Override
         protected DataStore buildDataStore(final String branch) {
+            this.datastoreBranch = branch;
             return openStore();
         }
     }

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -44,8 +45,16 @@ class TiaDistStatusTaskTest {
 
     /** Concrete plugin with a stub VCS reader so the task can run without a real repo. */
     static class TestPlugin extends TiaBasePlugin {
+        /**
+         * How many times this plugin was asked for a VCS reader. Counted rather than inferred from
+         * the report's content, because a reader constructed and then ignored would leave the report
+         * looking right while still failing on a machine that has no repository.
+         */
+        int vcsReaderConstructions;
+
         @Override
         public VCSReader getVCSReader() {
+            vcsReaderConstructions++;
             return new StubVCSReader();
         }
     }
@@ -85,6 +94,31 @@ class TiaDistStatusTaskTest {
 
         // then
         assertTrue(output.contains("No distributed run has been planned on this branch"), output);
+    }
+
+    /**
+     * Verify a configured branch is what the task reports against, with no VCS reader constructed -
+     * which is what lets a run be inspected from a machine that has no repository, or from one whose
+     * checkout is on a different branch than the run was planned on.
+     */
+    @Test
+    void reportsAgainstTheConfiguredBranchWithoutAVcsReader(@TempDir File projectDir) {
+        // given a run planned on a branch the stubbed reader does not report
+        Project project = configuredProject(projectDir);
+        TiaBaseTaskExtension extension = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        extension.setBranch("feature-x");
+        persistPlanOnBranch(project, "build-99", "feature-x");
+        extension.setRunId("build-99");
+
+        // when
+        String output = runTask(project);
+
+        // then
+        assertTrue(output.contains("Distributed run 'build-99'"), output);
+        TestPlugin plugin = (TestPlugin) project.getPlugins().withType(TiaBasePlugin.class)
+                .stream().findFirst().orElseThrow(IllegalStateException::new);
+        assertEquals(0, plugin.vcsReaderConstructions,
+                "a configured branch must not cause a VCS reader to be constructed");
     }
 
     /**
@@ -175,6 +209,20 @@ class TiaDistStatusTaskTest {
      * @param runId the run identifier to plan under
      */
     private static void persistPlan(final Project project, final String runId) {
+        persistPlanOnBranch(project, runId, "main");
+    }
+
+    /**
+     * Persist a two-group run plan into a named branch's schema, for the test that needs the plan to
+     * live somewhere other than the branch the stubbed VCS reader reports - which is how a
+     * configured branch is told apart from the workspace's own.
+     *
+     * @param project the project whose plugin owns the datastore
+     * @param runId the run identifier to plan under
+     * @param branch the branch whose schema the plan is written to
+     */
+    private static void persistPlanOnBranch(final Project project, final String runId,
+                                            final String branch) {
         Map<Integer, List<String>> suitesByGroup = new LinkedHashMap<>();
         suitesByGroup.put(0, Arrays.asList("com.example.ATest", "com.example.BTest"));
         suitesByGroup.put(1, Collections.singletonList("com.example.CTest"));
@@ -182,11 +230,11 @@ class TiaDistStatusTaskTest {
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, "main", "head-1", groups.size(), null, 2000L,
+        DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), null, 2000L,
                 System.currentTimeMillis(), false);
 
         TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
-        try (DataStore dataStore = plugin.buildDataStore("main")) {
+        try (DataStore dataStore = plugin.buildDataStore(branch)) {
             dataStore.getTiaData(true);
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

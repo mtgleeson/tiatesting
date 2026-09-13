@@ -6,7 +6,6 @@ import org.gradle.api.tasks.TaskProvider;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.model.DistributedRun;
@@ -94,9 +93,16 @@ class TiaDistCompleteTaskTest {
             this.failClose = failClose;
         }
 
+        /**
+         * Fails rather than returning a reader. The finalizer takes the branch from the claim the
+         * daemon recorded, so every test in this class doubles as a check that it opens no
+         * repository - a completion runs on the machine the tests ran on, which may have none.
+         *
+         * @return never returns
+         */
         @Override
         public VCSReader getVCSReader() {
-            return new StubVCSReader();
+            throw new UnsupportedOperationException("tia-dist-complete must not reach the VCS");
         }
 
         @Override
@@ -267,7 +273,7 @@ class TiaDistCompleteTaskTest {
          */
         void recordClaim(final String runId, final String runnerKey, final Integer groupNumber) {
             DistributedClaimRegistry.forBuild(project.getGradle()).recordClaim(TEST_TASK_PATH, runId,
-                    runnerKey, groupNumber, true, true);
+                    runnerKey, groupNumber, BRANCH, true, true);
         }
 
         /**
@@ -509,46 +515,6 @@ class TiaDistCompleteTaskTest {
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-7");
             assertEquals(DistributedRunGroupStatus.COMPLETED, groups.get(0).getStatus());
-        }
-    }
-
-    /**
-     * Stub VCS reader reporting a fixed branch; the head commit and diff methods are never reached
-     * on the completion path, which never diffs.
-     */
-    private static final class StubVCSReader implements VCSReader {
-
-        @Override
-        public String getBranchName() {
-            return BRANCH;
-        }
-
-        @Override
-        public String getHeadCommit() {
-            return PLAN_COMMIT;
-        }
-
-        @Override
-        public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum,
-                                                        final List<String> sourceFilesDirs,
-                                                        final List<String> testFilesDirs,
-                                                        final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("a distributed completion must not diff");
-        }
-
-        @Override
-        public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs,
-                                         final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("a distributed completion must not diff");
-        }
-
-        @Override
-        public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("a distributed completion must not diff");
-        }
-
-        @Override
-        public void close() {
         }
     }
 }

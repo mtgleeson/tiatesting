@@ -20,6 +20,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -74,7 +75,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * must not: the plan produced by {@code dist-plan} already ran the VCS diff, the static
      * rules and the library-impact drain once, for every runner, and its output is in the shared
      * database. So a distributed build claims a group from that plan instead - see
-     * {@link #claimDistributedRunGroup()}.
+     * {@link #claimDistributedRunGroup(WorkspaceIdentity)}.
      *
      * @throws MojoExecutionException if a distributed runner cannot claim its share of the planned
      *                                run - it fails the build rather than continue, since a runner
@@ -87,7 +88,31 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             return;
         }
 
-        refuseCollidingSchema();
+        // One identity for the whole goal. When tiaBranch and tiaCommitValue are both configured
+        // nothing below constructs a VCS reader at all, which is what lets a distributed runner
+        // hold nothing but a checked-out tree; when they are not, the fallback opens one repository
+        // handle - or one Perforce server connection - rather than one per step.
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+            prepareForkedTestRun(workspaceIdentity);
+        }
+    }
+
+    /**
+     * Do the goal's work against an already-resolved workspace identity: refuse a colliding schema,
+     * work out the two suite lists, and write everything the forked test JVM needs.
+     *
+     * <p>Split out of {@link #execute()} only so the identity can be opened and closed around it in
+     * one try-with-resources block rather than resolved separately by each step below, which on
+     * Perforce would mean a separate server connection per step.
+     *
+     * @param workspaceIdentity this build's branch and commit, and the shared VCS reader for the
+     *                          steps that need more than those two values
+     * @throws MojoExecutionException if this module has a colliding Tia execution, or if a
+     *                                distributed runner cannot claim its share of the planned run
+     */
+    private void prepareForkedTestRun(final WorkspaceIdentity workspaceIdentity)
+            throws MojoExecutionException {
+        refuseCollidingSchema(workspaceIdentity);
 
         final String name = getEffectivePropertyName();
         final Properties projectProperties = getProject().getProperties();
@@ -105,18 +130,18 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             // plan already ran the diff and the library-impact drain once; repeating the drain
             // per-runner would race, and its cleanup belongs to the run's sealer, so no drain
             // result is written here.
-            assignment = claimDistributedRunGroup();
+            assignment = claimDistributedRunGroup(workspaceIdentity);
             testsToIgnore = assignment.getTestsToIgnore();
             testsToRun = assignment.getTestsToRun();
             drainResult = null;
         } else {
-            TestSelectorResult testSelectorResult = getTestSelectorResult();
+            TestSelectorResult testSelectorResult = getTestSelectorResult(workspaceIdentity);
             testsToIgnore = testSelectorResult.getTestsToIgnore();
             testsToRun = testSelectorResult.getTestsToRun();
             drainResult = testSelectorResult.getLibraryImpactDrainResult();
         }
 
-        String forkPropertiesFile = writeForkPropertiesFile(assignment);
+        String forkPropertiesFile = writeForkPropertiesFile(assignment, workspaceIdentity);
         writeIgnoredTestsToFile(testsToIgnore);
         writeSelectedTestsToFile(testsToRun);
         String drainResultFile = writeDrainResultFile(drainResult);
@@ -148,13 +173,27 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
          */
     }
 
-    private TestSelectorResult getTestSelectorResult() throws MojoExecutionException {
-        VCSReader gitReader = getVCSReader();
+    /**
+     * Run the test selection for an ordinary, non-distributed build.
+     *
+     * <p>This is the one caller that needs more than the branch and the commit: the selection diffs
+     * the workspace, so it takes the identity's own reader rather than constructing a second one.
+     * The branch still comes from the identity, so a configured {@code tiaBranch} selects the schema
+     * here exactly as it does everywhere else.
+     *
+     * @param workspaceIdentity this build's workspace identity, supplying both the branch and the
+     *                          VCS reader the diff is read through
+     * @return the suites this build must run and skip, and any library-impact drain result
+     * @throws MojoExecutionException if the datastore cannot be opened
+     */
+    private TestSelectorResult getTestSelectorResult(final WorkspaceIdentity workspaceIdentity)
+            throws MojoExecutionException {
+        VCSReader gitReader = workspaceIdentity.openVCSReader();
         // try-with-resources: release the H2 MVStore file lock before surefire forks the test
         // JVM. With DB_CLOSE_DELAY=-1 the Maven JVM would otherwise hold the lock for the rest
         // of the build, and the test JVM's JdbcDataStore would fail with "Database may be
         // already in use".
-        try (DataStore dataStore = buildDataStore(gitReader.getBranchName())) {
+        try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             long startQueryTime = System.currentTimeMillis();
 
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
@@ -188,21 +227,27 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * already claimed - is the legitimate surplus runner, and returns an assignment that runs
      * nothing.
      *
+     * <p>Both values it needs - the branch whose schema holds the plan, and the commit the claim is
+     * verified against - come from the workspace identity, so a runner given {@code tiaBranch} and
+     * {@code tiaCommitValue} claims without a version control system being present at all.
+     *
+     * @param workspaceIdentity this build's branch and commit
      * @return this runner's assignment, either its claimed group's suites or the run-nothing
      *         assignment of a surplus runner
      * @throws MojoExecutionException if the distributed configuration is invalid, or if the run
      *                                cannot be claimed because it is absent or was planned against
      *                                a different commit
      */
-    private DistributedRunnerAssignment claimDistributedRunGroup() throws MojoExecutionException {
+    private DistributedRunnerAssignment claimDistributedRunGroup(final WorkspaceIdentity workspaceIdentity)
+            throws MojoExecutionException {
         DistributedRunConfig config = validatedDistributedRunConfig();
-        VCSReader vcsReader = getVCSReader();
+        logVcsFallbackForARunner();
 
         // try-with-resources for the same reason as getTestSelectorResult: release the datastore
         // before surefire forks the test JVM.
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
-                    config, vcsReader.getHeadCommit(), System.currentTimeMillis());
+                    config, workspaceIdentity.getCommitValue(), System.currentTimeMillis());
 
             if (assignment.isClaimed()){
                 // A seed run's group deliberately carries no suite names - there is no mapping yet
@@ -236,6 +281,34 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     }
 
     /**
+     * Tell a distributed runner that it is about to read the version control system for a value it
+     * could have been handed, naming the property that would avoid it.
+     *
+     * <p>Logged at INFO rather than warned about: a developer running a distributed build from a
+     * workspace that has a repository is the ordinary case for this path, and there is nothing wrong
+     * with it. It is worth saying once all the same, because the same build on a CI runner holding
+     * only a checked-out tree is the one that fails, and the message names the fix before it
+     * becomes a failure.
+     */
+    private void logVcsFallbackForARunner() {
+        List<String> unset = new ArrayList<>(2);
+        if (getTiaBranch() == null || getTiaBranch().trim().isEmpty()) {
+            unset.add(WorkspaceIdentity.PROP_BRANCH);
+        }
+        if (getTiaCommitValue() == null || getTiaCommitValue().trim().isEmpty()) {
+            unset.add(WorkspaceIdentity.PROP_COMMIT_VALUE);
+        }
+        if (!unset.isEmpty()) {
+            getLog().info("Tia distributed run: " + String.join(" and ", unset) + " "
+                    + (unset.size() == 1 ? "is" : "are") + " not set, so this runner reads "
+                    + (unset.size() == 1 ? "that value" : "those values")
+                    + " from the version control system. Set "
+                    + (unset.size() == 1 ? "it" : "them") + " to run on a machine with no version "
+                    + "control access.");
+        }
+    }
+
+    /**
      * Refuse a second Tia execution in this module that resolves to the schema an earlier one
      * already claimed.
      *
@@ -258,10 +331,13 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      * not caught - nor is a multi-module reactor, where each module's agent resolves its own schema
      * and supporting that properly is separate work.
      *
+     * @param workspaceIdentity this build's workspace identity, supplying the branch the schema
+     *                          name is built from
      * @throws MojoExecutionException if another execution in this module already claimed this schema
      */
-    private void refuseCollidingSchema() throws MojoExecutionException {
-        String schema = BranchSchema.schemaName(getVCSReader().getBranchName(), getTiaDBSchemaSuffix());
+    private void refuseCollidingSchema(final WorkspaceIdentity workspaceIdentity)
+            throws MojoExecutionException {
+        String schema = BranchSchema.schemaName(workspaceIdentity.getBranch(), getTiaDBSchemaSuffix());
         String contextKey = SCHEMA_CLAIM_CONTEXT_PREFIX + schema;
         String executionId = mojoExecution == null ? "(unknown)" : mojoExecution.getExecutionId();
 
@@ -431,12 +507,22 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
      *
      * @param assignment this runner's claimed share of a distributed run, or {@code null} for a
      *                   non-distributed build
+     * @param workspaceIdentity this build's branch and commit, forwarded so the fork does not have
+     *                          to resolve either for itself
      * @return absolute path of the file written
+     * @throws MojoExecutionException if the database password cannot be resolved for the fork
      */
-    String writeForkPropertiesFile(final DistributedRunnerAssignment assignment)
+    String writeForkPropertiesFile(final DistributedRunnerAssignment assignment,
+                                   final WorkspaceIdentity workspaceIdentity)
             throws MojoExecutionException {
         Map<String, String> props = new LinkedHashMap<>();
         props.put("tiaEnabled", String.valueOf(isTiaEnabled()));
+        // The branch and commit this build JVM already resolved. Forwarded for every build, not
+        // only a distributed one, so the forked test JVM never opens a repository of its own to
+        // learn what this goal has already established - and so the two can never disagree about
+        // which branch's schema the run belongs to.
+        props.put(WorkspaceIdentity.PROP_BRANCH, workspaceIdentity.getBranch());
+        props.put(WorkspaceIdentity.PROP_COMMIT_VALUE, workspaceIdentity.getCommitValue());
         props.put(ForkSystemProperties.PROP_UPDATE_DB_MAPPING, String.valueOf(isTiaUpdateDBMapping()));
         props.put(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY, String.valueOf(isTiaUpdateDBTestRunHistory()));
         // Null when not declared, which ForkSystemProperties.write skips - so the fork sees no

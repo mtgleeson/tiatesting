@@ -47,6 +47,26 @@ The size/structure limits don't bite on Gradle for two reasons:
 
 So Gradle gets to use system properties for everything that needs to cross the boundary, with no file artefacts and no parallel "data file" lifecycle to manage.
 
+### The branch and the commit always cross this boundary
+
+Two values are forwarded on every Tia build, not only a distributed one: `tiaBranch` and
+`tiaCommitValue`, as resolved by the build JVM. The test JVM used to work both out for itself by
+opening a repository - which meant a JGit open (or a Perforce server connection) in every forked test
+JVM, and meant the two ends could disagree about which branch's schema the run belonged to.
+
+They travel the same way everything else does: in `fork.properties` on Maven, as test task system
+properties on Gradle. `ForkSystemProperties.branchFromSystemProperties()` and
+`commitValueFromSystemProperties()` read them back, and both fail naming the property when it is
+absent rather than defaulting - a missing branch would silently resolve to a different schema than
+the build JVM used, and a missing commit would leave a single-host run stamping a null and the next
+build with no diff baseline. Neither is read when Tia is not enabled for the run.
+
+The Gradle fork is the one that still constructs a reader, and only on the non-distributed path: its
+test selection runs in the fork and diffs the workspace. It takes a `Supplier<VCSReader>` rather than
+a constructed one, so a distributed runner - which never selects - never invokes it. See the
+["What the post-plan steps need from the version control system"](distributed-test-runs.md) section
+for why that matters.
+
 ### When this design might shift
 
 The current asymmetry is pragmatic, not principled. If Maven Surefire ever exposed a hook that lets a mojo inject system properties at fork time (the way Gradle's `doFirst` does), Tia-Maven could move some payloads off files. Conversely, if a Gradle test task someday accumulates a large enough payload to push past `ARG_MAX`, it'd need to fall back to a file like Maven. Neither pressure exists today.

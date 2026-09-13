@@ -22,6 +22,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -256,6 +257,30 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(property = "tiaVcsClientName")
     String tiaVcsClientName;
+
+    /**
+     * The branch this build is running against, overriding the branch Tia would otherwise read
+     * from the version control system. The branch selects the datastore schema, so it has to be
+     * known before any database connection is opened and cannot be read back out of the database.
+     *
+     * <p>Set this on a build with no version control access - a distributed test run's runner job
+     * holding nothing but a checked-out tree - and Tia never constructs a VCS reader to resolve it.
+     * Leave it unset and the branch is read from the VCS exactly as before.
+     */
+    @Parameter(property = "tiaBranch")
+    String tiaBranch;
+
+    /**
+     * The commit this build is running against, overriding the head commit Tia would otherwise
+     * read from the version control system.
+     *
+     * <p>On a distributed runner this is what the claim compares against the commit the plan was
+     * built by diffing, so it must be the commit the pipeline actually checked out (a CI system's
+     * own checkout SHA variable), not the plan's own reported commit fed back in - that would
+     * compare a value with itself. Leave it unset and the commit is read from the VCS as before.
+     */
+    @Parameter(property = "tiaCommitValue")
+    String tiaCommitValue;
 
     /**
      * Whether this build participates in a distributed test run: the tests Tia selects are split
@@ -758,7 +783,42 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaStaticTestSelectionRules != null ? tiaStaticTestSelectionRules : Collections.emptyList();
     }
 
+    /**
+     * @return the configured branch override, or {@code null} to read the branch from the VCS
+     */
+    public String getTiaBranch() {
+        return tiaBranch;
+    }
+
+    /**
+     * @return the configured commit override, or {@code null} to read the commit from the VCS
+     */
+    public String getTiaCommitValue() {
+        return tiaCommitValue;
+    }
+
     public abstract VCSReader getVCSReader();
+
+    /**
+     * Resolve this build's branch and commit, from the configured overrides where they are set and
+     * from the version control system where they are not.
+     *
+     * <p>Every goal that needs either value goes through this rather than calling {@link
+     * #getVCSReader()} itself, for two reasons. A configured value must never cause a reader to be
+     * constructed - that is what lets a runner with no {@code .git} directory, or no reachable
+     * Perforce server, resolve its schema at all. And the goals must agree on the answer: a plan
+     * written to the schema the VCS reported while its runners claim from the schema {@code
+     * tiaBranch} named would leave every runner unable to find the plan.
+     *
+     * <p>The returned identity holds at most one reader and closes it, so callers must close it -
+     * use try-with-resources. A caller that also needs diffs takes the same reader from it through
+     * {@code openVCSReader()} rather than constructing a second one.
+     *
+     * @return this build's workspace identity; never null
+     */
+    protected WorkspaceIdentity workspaceIdentity() {
+        return WorkspaceIdentity.resolving(getTiaBranch(), getTiaCommitValue(), this::getVCSReader);
+    }
 
     /**
      * Build the library impact analysis configuration from the Maven plugin parameters.

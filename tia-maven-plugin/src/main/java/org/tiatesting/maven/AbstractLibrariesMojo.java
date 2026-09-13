@@ -4,6 +4,7 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 /**
  * Mojo used to print the tracked libraries and their state (project dir, source dirs,
@@ -23,8 +24,8 @@ public abstract class AbstractLibrariesMojo extends AbstractTiaMojo {
      */
     @Override
     public void execute() throws MojoExecutionException {
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
             getLog().info(reportGenerator.generateLibrariesReport(dataStore));
         }

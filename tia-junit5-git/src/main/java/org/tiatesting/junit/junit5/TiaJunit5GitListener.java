@@ -1,13 +1,16 @@
 package org.tiatesting.junit.junit5;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.tiatesting.vcs.git.GitReader;
-
+/**
+ * The JUnit 5 listener as registered for a Git project. It adds nothing to {@link
+ * TiaTestExecutionListener} beyond the name the service descriptor and the launcher session
+ * listener refer to: the branch and the commit are resolved by the build JVM and republished into
+ * this JVM's system properties, so nothing here opens a repository.
+ */
 public class TiaJunit5GitListener extends TiaTestExecutionListener {
-    private static final Logger log = LoggerFactory.getLogger(TiaJunit5GitListener.class);
-
+    /**
+     * @param sharedTestRunData the per-JVM state carried across Surefire retries
+     */
     public TiaJunit5GitListener(final SharedTestRunData sharedTestRunData) {
-        super(sharedTestRunData, new GitReader(System.getProperty("tiaProjectDir")));
+        super(sharedTestRunData);
     }
 }

@@ -17,6 +17,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
@@ -148,7 +149,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createLibraryPublishesTask() {
         project.getTasks().register("tia-library-publishes", TiaLibraryPublishesTask.class, task -> {
-            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
             task.setDataStoreFactory(this::buildDataStore);
             task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
@@ -161,7 +162,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createLibraryPendingMethodsTask() {
         project.getTasks().register("tia-library-pending-methods", TiaLibraryPendingMethodsTask.class, task -> {
-            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
             task.setDataStoreFactory(this::buildDataStore);
             task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
@@ -172,7 +173,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             Set<String> suffixes = reportingSchemaSuffixes();
             for (String suffix : suffixes) {
                 TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
-                try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), suffix)) {
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                     DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
                     StatusReportGenerator reportGenerator = new StatusReportGenerator();
                     System.out.println(reportGenerator.generateSummaryReport(dataStore));
                 }
@@ -190,7 +192,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             Set<String> suffixes = reportingSchemaSuffixes();
             for (String suffix : suffixes) {
                 TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
-                try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), suffix)) {
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                     DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
                     LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
                     System.out.println(reportGenerator.generateLibrariesReport(dataStore));
                 }
@@ -201,7 +204,10 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createTextReportTask() {
         project.task("tia-text-report").doLast(task -> {
             System.out.println("Starting text report generation");
-            String branch = getVCSReader().getBranchName();
+            String branch;
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+                branch = workspaceIdentity.getBranch();
+            }
             for (String suffix : reportingSchemaSuffixes()) {
                 try (DataStore dataStore = buildDataStore(branch, suffix)) {
                     TiaData tiaData = dataStore.getTiaData(true);
@@ -220,7 +226,10 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public void createHtmlReportTask() {
         project.task("tia-html-report").doLast(task -> {
             System.out.println("Starting HTML report generation");
-            String branch = getVCSReader().getBranchName();
+            String branch;
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+                branch = workspaceIdentity.getBranch();
+            }
             for (String suffix : reportingSchemaSuffixes()) {
                 try (DataStore dataStore = buildDataStore(branch, suffix)) {
                     TiaData tiaData = dataStore.getTiaData(true);
@@ -248,7 +257,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             Set<String> selectSuffixes = reportingSchemaSuffixes();
             for (String selectSuffix : selectSuffixes) {
             TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
-            try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName(), selectSuffix)) {
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                 DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
                 List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
                 StringUtil.sanitizeInputArray(sourceFilesDirs);
                 List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
@@ -257,7 +267,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
                 // Read-only preview: no mapping writes (updateDBMapping=false).
-                TestSelectorResult result = testSelector.selectTestsToIgnore(getVCSReader(), sourceFilesDirs,
+                // The preview diffs the workspace, so it takes the identity's own reader rather
+                // than constructing a second one - the branch may be configured, the diff never is.
+                TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
                         testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
                 Set<String> testsToRun = result.getTestsToRun();
                 String lineSep = System.lineSeparator();
@@ -381,7 +393,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createHistoryTask() {
         project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
-            task.setVcsReaderSupplier(this::getVCSReader);
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
             task.setDataStoreFactory(this::buildDataStore);
             task.setSchemaSuffixes(this::reportingSchemaSuffixes);
         });
@@ -444,11 +456,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         String publishedVersion = String.valueOf(project.getVersion());
         String jarFilePath = resolveBuiltArchivePath();
 
-        VCSReader vcsReader = getVCSReader();
         StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
 
-        stampPublishToEachConsumingSchema(groupArtifact, publishedVersion, jarFilePath, vcsReader,
-                staticConfig);
+        // Unlike the reporting tasks this one cannot be satisfied by a configured branch alone -
+        // the stamper reads the publish's own commit from the VCS - but it still opens one reader
+        // for the whole publish rather than one per consuming schema, and closes it.
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+            stampPublishToEachConsumingSchema(groupArtifact, publishedVersion, jarFilePath,
+                    workspaceIdentity.openVCSReader(), workspaceIdentity.getBranch(), staticConfig);
+        }
     }
 
     /**
@@ -472,12 +488,14 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * @param publishedVersion the version being published
      * @param jarFilePath the built archive's path, for content hashing; may be null
      * @param vcsReader this project's VCS reader
+     * @param branch the branch whose schemas are stamped
      * @param staticConfig this project's static test selection configuration
      */
     private void stampPublishToEachConsumingSchema(final String groupArtifact,
                                                    final String publishedVersion,
                                                    final String jarFilePath,
                                                    final VCSReader vcsReader,
+                                                   final String branch,
                                                    final StaticTestSelectionConfig staticConfig) {
         List<String> targetSuffixes = declaredLibraryStampSchemas();
         if (targetSuffixes.isEmpty()) {
@@ -489,7 +507,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
         for (String suffix : targetSuffixes) {
             String schemaLabel = suffix == null ? "(none)" : suffix;
-            try (DataStore dataStore = buildDataStore(vcsReader.getBranchName(), suffix)) {
+            try (DataStore dataStore = buildDataStore(branch, suffix)) {
                 LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
                         .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
                                 jarFilePath, staticConfig);
@@ -557,6 +575,45 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     public abstract VCSReader getVCSReader();
+
+    /**
+     * @return the configured branch override from the {@code tia { ... }} extension, or
+     *         {@code null} to read the branch from the version control system
+     */
+    public String getBranch() {
+        return tiaTaskExtension.getBranch();
+    }
+
+    /**
+     * @return the configured commit override from the {@code tia { ... }} extension, or
+     *         {@code null} to read the head commit from the version control system
+     */
+    public String getCommitValue() {
+        return tiaTaskExtension.getCommitValue();
+    }
+
+    /**
+     * Resolve this build's branch and commit, from the configured overrides where they are set and
+     * from the version control system where they are not.
+     *
+     * <p>Every task that needs either value goes through this rather than calling {@link
+     * #getVCSReader()} itself, for two reasons. A configured value must never cause a reader to be
+     * constructed - that is what lets a distributed runner with no {@code .git} directory resolve
+     * its schema at all. And the tasks must agree on the answer: a plan written to the schema the
+     * version control system reported while its runners claim from the schema {@code tia.branch}
+     * named would leave every runner unable to find the plan.
+     *
+     * <p>The returned identity holds at most one reader and closes it, so callers must close it -
+     * use try-with-resources. A caller that also needs diffs takes the same reader from it through
+     * {@code openVCSReader()} rather than constructing a second one. That closing also ends a
+     * long-standing leak: the task actions used to call {@link #getVCSReader()} inline and never
+     * close the JGit repository it opened.
+     *
+     * @return this build's workspace identity; never null
+     */
+    public WorkspaceIdentity workspaceIdentity() {
+        return WorkspaceIdentity.resolving(getBranch(), getCommitValue(), this::getVCSReader);
+    }
 
     public String getProjectDir() {
         return tiaTaskExtension.getProjectDir();
