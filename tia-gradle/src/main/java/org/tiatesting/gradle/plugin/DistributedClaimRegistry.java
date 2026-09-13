@@ -82,6 +82,9 @@ public final class DistributedClaimRegistry {
      * @param runId the distributed run id the claim was made against
      * @param runnerKey the runner identity the claim was recorded under
      * @param groupNumber the group this test task claimed, or null for a surplus runner
+     * @param branch the branch whose schema the claim was made in - recorded so the finalizer opens
+     *               the same schema rather than resolving a branch of its own, which on a machine
+     *               with no repository it could not do at all
      * @param updateDBMapping whether this test task updates the mapping database - the seal needs
      *                        this to decide whether the completed group's coverage should be
      *                        persisted
@@ -93,8 +96,8 @@ public final class DistributedClaimRegistry {
      *                                distributed run supports exactly one test task per runner
      */
     public synchronized Claim recordClaim(final String testTaskPath, final String runId,
-            final String runnerKey, final Integer groupNumber, final boolean updateDBMapping,
-            final boolean updateDBTestRunHistory) {
+            final String runnerKey, final Integer groupNumber, final String branch,
+            final boolean updateDBMapping, final boolean updateDBTestRunHistory) {
         for (Map.Entry<String, Claim> existing : claimsByTaskPath.entrySet()) {
             if (!existing.getKey().equals(testTaskPath)) {
                 throw new IllegalStateException("Distributed test run '" + existing.getValue().getRunId()
@@ -109,7 +112,7 @@ public final class DistributedClaimRegistry {
             }
         }
 
-        Claim claim = new Claim(runId, runnerKey, groupNumber, updateDBMapping,
+        Claim claim = new Claim(runId, runnerKey, groupNumber, branch, updateDBMapping,
                 updateDBTestRunHistory);
         claimsByTaskPath.put(testTaskPath, claim);
         return claim;
@@ -135,6 +138,7 @@ public final class DistributedClaimRegistry {
         private final String runId;
         private final String runnerKey;
         private final Integer groupNumber;
+        private final String branch;
         private final boolean updateDBMapping;
         private final boolean updateDBTestRunHistory;
 
@@ -145,15 +149,17 @@ public final class DistributedClaimRegistry {
          * @param runId the distributed run id the claim was made against
          * @param runnerKey the runner identity the claim was recorded under
          * @param groupNumber the claimed group, or null for a surplus runner
+         * @param branch the branch whose schema the claim was made in
          * @param updateDBMapping whether this test task updates the mapping database
          * @param updateDBTestRunHistory whether this test task records test-run history
          */
         private Claim(final String runId, final String runnerKey, final Integer groupNumber,
-                final boolean updateDBMapping,
+                final String branch, final boolean updateDBMapping,
                 final boolean updateDBTestRunHistory) {
             this.runId = runId;
             this.runnerKey = runnerKey;
             this.groupNumber = groupNumber;
+            this.branch = branch;
             this.updateDBMapping = updateDBMapping;
             this.updateDBTestRunHistory = updateDBTestRunHistory;
         }
@@ -171,6 +177,16 @@ public final class DistributedClaimRegistry {
         /** @return the claimed group number, or null when this test task claimed a surplus (no group) */
         public Integer getGroupNumber() {
             return groupNumber;
+        }
+
+        /**
+         * @return the branch whose schema this claim was made in. Read back by the finalizer rather
+         *         than resolved afresh: the claimed group's row lives in that schema, and a
+         *         finalizer that landed on another would find nothing to complete and exit
+         *         successfully while the group stayed CLAIMED and the run never sealed
+         */
+        public String getBranch() {
+            return branch;
         }
 
         /** @return whether this test task updates the mapping database */

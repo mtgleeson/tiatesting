@@ -38,6 +38,8 @@ public class TiaBaseTaskExtension {
     private Long distributedTargetRunTime;
     private Integer distributedMaxGroups;
     private String distributedRunnerKey;
+    private String branch;
+    private String commitValue;
 
     @Input
     public String getProjectDir() {
@@ -511,6 +513,48 @@ public class TiaBaseTaskExtension {
      */
     public void setDistributedRunnerKey(String distributedRunnerKey) {
         this.distributedRunnerKey = distributedRunnerKey;
+    }
+
+    /**
+     * @return the configured branch override, or {@code null} to read the branch from the version
+     *         control system. The branch selects the datastore schema, so it has to be known before
+     *         any database connection is opened and cannot be read back out of the database.
+     *         Mirrors the Maven {@code tiaBranch} parameter.
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getBranch() {
+        return branch;
+    }
+
+    /**
+     * @param branch the branch this build is running against; set it on a build with no version
+     *               control access - a distributed test run's runner job holding nothing but a
+     *               checked-out tree - and Tia never constructs a VCS reader to resolve it
+     */
+    public void setBranch(String branch) {
+        this.branch = branch;
+    }
+
+    /**
+     * @return the configured commit override, or {@code null} to read the head commit from the
+     *         version control system. Mirrors the Maven {@code tiaCommitValue} parameter.
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getCommitValue() {
+        return commitValue;
+    }
+
+    /**
+     * @param commitValue the commit this build is running against. On a distributed runner this is
+     *                    what the claim compares against the commit the plan was built by diffing,
+     *                    so it must be the commit the pipeline actually checked out rather than the
+     *                    plan's own reported commit fed back in - that would compare a value with
+     *                    itself
+     */
+    public void setCommitValue(String commitValue) {
+        this.commitValue = commitValue;
     }
 
 }

@@ -145,7 +145,10 @@ public class TiaDistCompleteTask extends DefaultTask {
     private void completeAndSeal(final DistributedRunnerContext context,
                                  final DistributedClaimRegistry.Claim claim) {
         boolean groupCompleted = false;
-        try (DataStore dataStore = plugin.buildDistributedDataStore(plugin.getVCSReader().getBranchName())) {
+        // The branch the claim was made in, read back from the registry rather than resolved here -
+        // see DistributedClaimRegistry.Claim#getBranch for why a second resolution is unsafe, and
+        // note this task can therefore run on a machine with no repository.
+        try (DataStore dataStore = plugin.buildDistributedDataStore(claim.getBranch())) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context,
                     claim.isUpdateDBMapping(), claim.isUpdateDBTestRunHistory(),
                     System.currentTimeMillis());

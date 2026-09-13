@@ -15,7 +15,6 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
-import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.IOException;
 import java.util.Map;
@@ -66,7 +65,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * same test JVM, so re-deriving it here would claim a second group, leave the first one open
      * forever and the run would never seal.
      *
-     * @param vcsReader               VCS reader (provides branch + head commit; closed here)
+     * @param branch                  the branch this run is against, resolved by the build JVM
+     * @param headCommit              the commit this run is against, resolved by the build JVM
      * @param dataStore               persistence backend
      * @param selectedTests           tests Tia selected to run
      * @param ignoredTestSuiteCount   number of test suites Tia chose to ignore for this run;
@@ -79,7 +79,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
      *                                 is one runner of a distributed run, or {@code null} for an
      *                                 ordinary single-host build
      */
-    public TiaSpockRunListener(final VCSReader vcsReader, final DataStore dataStore, Set<String> selectedTests,
+    public TiaSpockRunListener(final String branch, final String headCommit,
+                               final DataStore dataStore, Set<String> selectedTests,
                                final int ignoredTestSuiteCount,
                                final boolean updateDBMapping,
                                final boolean updateDBTestRunHistory,
@@ -100,10 +101,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.updateDBTestRunHistory = updateDBTestRunHistory;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.distributedRunnerContext = distributedRunnerContext;
-        this.headCommit = vcsReader.getHeadCommit();
-        this.branch = vcsReader.getBranchName();
+        this.headCommit = headCommit;
+        this.branch = branch;
 
-        vcsReader.close();
         if (updateDBMapping){
             this.coverageClient.initialize();
         }
