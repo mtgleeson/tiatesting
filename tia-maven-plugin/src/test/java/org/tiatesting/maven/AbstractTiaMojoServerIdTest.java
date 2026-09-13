@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
 import java.io.IOException;
@@ -50,6 +51,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AbstractTiaMojoServerIdTest {
 
+    /**
+     * Write the fork properties file the way {@code execute()} does: with this mojo's workspace
+     * identity resolved around the call, and closed afterwards.
+     *
+     * @param mojo the mojo whose fork properties file to write
+     * @throws MojoExecutionException if the mojo cannot resolve its database password
+     */
+    private void writeForkPropertiesFile(final TestMojo mojo) throws MojoExecutionException {
+        try (WorkspaceIdentity identity = mojo.workspaceIdentity()) {
+            mojo.writeForkPropertiesFile(null, identity);
+        }
+    }
+
     private static final String SERVER_ID = "tia-db";
     private static final String SHARED_DB_URL = "jdbc:h2:tcp://localhost:9092/tiadb";
 
@@ -76,6 +90,10 @@ class AbstractTiaMojoServerIdTest {
         mojo.tiaEnabled = true;
         mojo.settings = new Settings();
         mojo.settingsDecrypter = passThroughDecrypter();
+        // Configured rather than read from the VCS, which is what lets these tests keep a VCS
+        // reader that throws: a mojo given both values never constructs one.
+        mojo.tiaBranch = "main";
+        mojo.tiaCommitValue = "commit-1";
         return mojo;
     }
 
@@ -275,7 +293,7 @@ class AbstractTiaMojoServerIdTest {
         withServer(mojo, SERVER_ID, "tia", "server-secret");
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         java.util.Properties props = ForkSystemProperties.read(new File(buildDir, "fork.properties"));
@@ -301,7 +319,7 @@ class AbstractTiaMojoServerIdTest {
         withServer(mojo, SERVER_ID, "server-user", "server-secret");
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         java.util.Properties props = ForkSystemProperties.read(new File(buildDir, "fork.properties"));
@@ -321,7 +339,7 @@ class AbstractTiaMojoServerIdTest {
         withServer(mojo, SERVER_ID, "server-user", "server-secret");
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         java.util.Properties props = ForkSystemProperties.read(new File(buildDir, "fork.properties"));
