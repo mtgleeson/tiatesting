@@ -6,6 +6,7 @@ import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.TestRunHistoryConsoleFormatter;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.List;
 
@@ -39,8 +40,8 @@ public abstract class AbstractHistoryMojo extends AbstractTiaMojo {
             throw new MojoExecutionException(
                     "tiaHistoryLast must be a positive integer; received " + tiaHistoryLast);
         }
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
             System.out.println(TestRunHistoryConsoleFormatter.formatHistory(
                     history, tiaHistoryLast, System.lineSeparator()));

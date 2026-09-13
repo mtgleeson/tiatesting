@@ -7,15 +7,15 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
-import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 public abstract class AbstractHtmlReportMojo extends AbstractReportMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             TiaData tiaData = dataStore.getTiaData(true);
-            ReportGenerator reportGenerator = new HtmlReportGenerator(vcsReader.getBranchName(), getTiaReportOutputDir());
+            ReportGenerator reportGenerator = new HtmlReportGenerator(workspaceIdentity.getBranch(), getTiaReportOutputDir());
             reportGenerator.generateReports(tiaData);
         }
     }

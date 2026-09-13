@@ -5,6 +5,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPendingMethodsReportGenerator;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 /**
  * Mojo that prints a tracked library's pending impacted methods as a table - one row per pending
@@ -27,8 +28,8 @@ public abstract class AbstractLibraryPendingMethodsMojo extends AbstractTiaMojo 
      */
     @Override
     public void execute() throws MojoExecutionException {
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();
             getLog().info(reportGenerator.generateLibraryPendingMethodsReport(dataStore, tiaLibrary));
         }

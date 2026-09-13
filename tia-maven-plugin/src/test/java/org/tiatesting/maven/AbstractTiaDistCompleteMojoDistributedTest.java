@@ -5,7 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
@@ -22,12 +21,10 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -161,6 +158,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
         if (groupNumber != null) {
             props.put("tiaDistributedGroupNumber", String.valueOf(groupNumber));
         }
+        props.put("tiaBranch", BRANCH);
         props.put("tiaUpdateDBMapping", String.valueOf(updateDBMapping));
         props.put("tiaUpdateDBTestRunHistory", String.valueOf(updateDBMapping));
         ForkSystemProperties.write(props, new File(buildDir, "fork.properties"));
@@ -504,18 +502,75 @@ class AbstractTiaDistCompleteMojoDistributedTest {
      * the datastore construction at this test's temp directory, or - when {@link #failDataStore} is
      * set - simulates an unreachable datastore by throwing instead of opening one.
      */
+    /**
+     * Verify the goal opens the schema of the branch the claim recorded in the handoff file, rather
+     * than resolving a branch of its own. The claimed group's row lives in that branch's schema, so
+     * a goal that landed on another would find nothing to complete and exit successfully while the
+     * group stayed CLAIMED and the run never sealed.
+     *
+     * @throws Exception if the goal fails
+     */
+    @Test
+    void shouldOpenTheSchemaOfTheBranchRecordedInTheHandoff() throws Exception {
+        // given
+        persistPlan("run-20", 1);
+        writeForkProperties("run-20", "runner-a", 0, true);
+        TestMojo mojo = mojo();
+
+        // when
+        mojo.execute();
+
+        // then
+        assertEquals(BRANCH, mojo.datastoreBranch);
+    }
+
+    /**
+     * Verify a handoff file with no branch fails naming the property, rather than quietly resolving
+     * one here. Every file this goal is meant to read carries the value, so one that does not was
+     * written by something else - and resolving a branch independently is exactly the silent
+     * mismatch that leaves a run unsealed.
+     *
+     * @throws IOException if the fork properties file cannot be written
+     */
+    @Test
+    void shouldFailLoudlyWhenTheHandoffCarriesNoBranch() throws IOException {
+        // given - the handoff a claim would write, minus the branch
+        persistPlan("run-21", 1);
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("tiaDistributed", "true");
+        props.put("tiaRunId", "run-21");
+        props.put("tiaDistributedRunnerKey", "runner-a");
+        props.put("tiaDistributedGroupNumber", "0");
+        ForkSystemProperties.write(props, new File(buildDir, "fork.properties"));
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo()::execute);
+
+        // then
+        assertTrue(thrown.getMessage().contains("tiaBranch"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("NOT be sealed"), thrown.getMessage());
+    }
+
     private final class TestMojo extends AbstractTiaDistCompleteMojo {
+
+        /** The branch the goal took from the handoff file and opened its datastore on. */
+        private String datastoreBranch;
 
         private boolean failDataStore;
         private boolean failSeal;
         private boolean failClose;
 
         /**
-         * @return a stub VCS reader reporting this test's fixed branch
+         * Fails rather than returning a reader. This goal takes the branch from the handoff file the
+         * claim wrote, so every test in this class doubles as a check that it reaches for no
+         * repository and no Perforce server - the completion step runs on the same machine the tests
+         * ran on, which may have neither.
+         *
+         * @return never returns
          */
         @Override
         public VCSReader getVCSReader() {
-            return new StubVCSReader();
+            throw new UnsupportedOperationException("tia-dist-complete must not reach the VCS");
         }
 
         /**
@@ -529,6 +584,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
          */
         @Override
         protected DataStore buildDataStore(final String branch) {
+            this.datastoreBranch = branch;
             if (failDataStore) {
                 throw new RuntimeException("simulated datastore connection failure");
             }
@@ -603,77 +659,4 @@ class AbstractTiaDistCompleteMojoDistributedTest {
         }
     }
 
-    /**
-     * Minimal VCS reader reporting a fixed branch. This goal never diffs, so only the branch name
-     * is ever read.
-     */
-    private static final class StubVCSReader implements VCSReader {
-
-        /**
-         * @return the fixed branch these tests plan and claim against
-         */
-        @Override
-        public String getBranchName() {
-            return BRANCH;
-        }
-
-        /**
-         * Never called by this goal.
-         *
-         * @return never returns
-         */
-        @Override
-        public String getHeadCommit() {
-            throw new UnsupportedOperationException("dist-complete must not read the head commit");
-        }
-
-        /**
-         * Never called by this goal.
-         *
-         * @param baseChangeNum ignored
-         * @param sourceFilesDirs ignored
-         * @param testFilesDirs ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum,
-                                                        final List<String> sourceFilesDirs,
-                                                        final List<String> testFilesDirs,
-                                                        final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("dist-complete must not diff");
-        }
-
-        /**
-         * Never called by this goal.
-         *
-         * @param diffs ignored
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         */
-        @Override
-        public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs,
-                                         final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("dist-complete must not diff");
-        }
-
-        /**
-         * Never called by this goal.
-         *
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("dist-complete must not diff");
-        }
-
-        /**
-         * No resources to release.
-         */
-        @Override
-        public void close() {
-        }
-    }
 }

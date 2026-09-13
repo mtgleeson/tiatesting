@@ -12,6 +12,7 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.Arrays;
 import java.util.List;
@@ -36,8 +37,11 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
     @Override
     public void execute() throws MojoExecutionException {
         System.out.println("Displaying the tests selected by Tia:");
-        final VCSReader vcsReader = getVCSReader();
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
+            // The preview diffs the workspace, so it takes the identity's own reader rather than
+            // constructing a second one - the branch may be configured, the diff never is.
+            VCSReader vcsReader = workspaceIdentity.openVCSReader();
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
