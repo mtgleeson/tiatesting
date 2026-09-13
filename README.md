@@ -828,6 +828,8 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaBranch|branch|<string>|The branch this build is running against, overriding the branch Tia would otherwise read from the VCS. The branch selects the datastore schema, so it has to be known before any database connection is opened and cannot be read back out of the database. Set it on a build with **no VCS access** - a distributed test run's runner job holding nothing but a checked-out tree - and Tia never opens a repository to resolve it. See [Runners do not need VCS access](#runners-do-not-need-vcs-access).| read from the VCS |false|
+|tiaCommitValue|commitValue|<string>|The commit this build is running against, overriding the head commit Tia would otherwise read from the VCS. On a distributed runner this is what the claim compares against the commit the plan was built by diffing, so it must be the commit **the pipeline actually checked out** - not the plan's own reported commit fed back in, which would compare a value with itself. See [Runners do not need VCS access](#runners-do-not-need-vcs-access).| read from the VCS |false|
 |tiaDistributed|distributed|true, false|When true this build takes part in a [distributed test run](#distributed-test-runs): the selection is split into groups across CI runners that coordinate through a shared database. Requires `tiaDBUrl` / `dbUrl` (a shared datastore - embedded H2 is rejected) and `tiaCheckLocalChanges` / `checkLocalChanges` disabled.| false |false|
 |tiaRunId|runId|<string>|The shared identifier every job in one distributed build must agree on, so each runner finds the same run's rows in the shared database. Must be the **same** for every job in a build and **different** for every build - a CI pipeline/run id is the natural value.| |true (when distributed)|
 |tiaDistributedGroupCount|distributedGroupCount|<integer>|Split the selection into exactly this many groups, minimising the heaviest one. Mutually exclusive with `tiaDistributedTargetRunTime` - exactly one of the two must be set.| |one of the two|
@@ -916,6 +918,7 @@ For the mechanism (the claim protocol, the completeness guard, how the two durat
 - **A single-project build.** Multi-module reactors are refused at configuration time. Use `mvn -pl <module>` to distribute one module's tests.
 - **`tiaCheckLocalChanges` / `checkLocalChanges` off.** A distributed run is a primary build of a committed state.
 - **One JVM per runner.** Maven `forkCount > 1` / `reuseForks=false` and Gradle `maxParallelForks > 1` / `forkEvery > 0` break the one-JVM-per-group assumption. Gradle refuses both; on Maven it is your responsibility.
+- **A VCS on the planning job only.** The plan step reads the diff, so it needs your repository. Every step after it can run on a machine that has none - see [Runners do not need VCS access](#runners-do-not-need-vcs-access).
 
 ### The pipeline shape
 
@@ -1110,6 +1113,45 @@ The two columns to read together are **Assigned** and **Observed**: a group comp
 
 A seed run's single group shows `all` in the Assigned column rather than `0`: its plan carries no suite names, because there is no mapping yet to draw them from, while its runner executes every suite it discovers. Its Observed column shows `n/a` for the same reason - with nothing assigned, the completeness guard is satisfied without that count ever moving, so it carries no information. Read the Ran column instead.
 
+### Runners do not need VCS access
+
+Only the **plan** step reads your version control system: it computes the diff the selection is made from. Everything after it - the runner jobs, their completions, and `dist-status` - needs exactly two values out of the VCS, and both can be handed to them instead:
+
+- **`tiaBranch`** selects the datastore schema. It has to be known before the first database connection, so it cannot be read back out of the database.
+- **`tiaCommitValue`** is what the claim compares against the commit the plan was built by diffing.
+
+Set both on the runner jobs and no Tia step opens a repository or a Perforce connection:
+
+```
+# the planning job needs the repository
+mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedGroupCount=5
+
+# the runner jobs do not
+mvn verify -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID \
+    -DtiaBranch=$CI_BRANCH -DtiaCommitValue=$CI_COMMIT_SHA
+mvn tia-junit5-git:dist-complete
+```
+
+**`dist-complete` needs neither.** It reads the branch back out of `<tiaBuildDir>/fork.properties`, alongside the run id, runner key and update flags it already took from there - so it uses the branch the claim actually used and cannot land on a different schema. `dist-status` does need `-DtiaBranch` when run from a machine with no repository, since it has no claim to read.
+
+Both settings are optional and independent of distributed runs: leave either unset and Tia reads it from the VCS exactly as before, so no existing configuration changes. Omit them on a machine that has no repository and the build fails naming the one to set, rather than failing on a missing `.git` directory.
+
+**Take the commit from your CI's checkout variable, not from the plan.** `$GITHUB_SHA`, `$CI_COMMIT_SHA` and their equivalents report the commit the checkout step actually used, so comparing it against the plan's commit is a real check that the runner holds the code the selection was made for. Feeding the plan's own `commit` field back in would compare a value with itself and check nothing. That guard is what stands between a runner on stale source and a green build whose mapping is stamped with a commit it never ran - see the [distributed test runs](wiki/distributed-test-runs.md) WIKI chapter.
+
+One caveat worth stating plainly: with the VCS gone the guard verifies what your **pipeline believes** it checked out rather than what is in the tree. It still catches a runner on the wrong branch, a stale pinned SHA and a mismatched job re-run; it cannot catch a pipeline that reports one commit and checks out another.
+
+**Gradle** is the same, with the extension's property names - set them from the CI environment in `build.gradle`:
+
+```groovy
+tia {
+    // ...existing Tia configuration...
+    branch = System.getenv("CI_BRANCH")
+    commitValue = System.getenv("CI_COMMIT_SHA")
+}
+```
+
+Both fall back to the VCS when the environment variable is unset, so the same build file still works on a developer machine. The `tia-dist-complete` finalizer reads the branch from the claim the daemon recorded, so it needs nothing of its own there either.
+
 ### Full example (GitHub Actions)
 
 ```yaml
@@ -1140,6 +1182,8 @@ test:
         -DtiaDistributed=true
         -DtiaRunId=${{ github.run_id }}
         -DtiaDistributedRunnerKey=${{ matrix.group }}
+        -DtiaBranch=${{ github.ref_name }}
+        -DtiaCommitValue=${{ github.sha }}
 
     - name: Complete this runner's group
       if: always()          # <- the whole point: runs even when the tests failed
