@@ -23,6 +23,7 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
 import java.io.IOException;
@@ -64,6 +65,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * part of what these tests exercise.
  */
 class AbstractTiaAgentMojoDistributedTest {
+
+    /**
+     * Write the fork properties file the way {@code execute()} does: with this mojo's workspace
+     * identity resolved around the call, and closed afterwards.
+     *
+     * @param mojo the mojo whose fork properties file to write
+     * @throws MojoExecutionException if the mojo cannot resolve its database password
+     */
+    private void writeForkPropertiesFile(final TestMojo mojo) throws MojoExecutionException {
+        try (WorkspaceIdentity identity = mojo.workspaceIdentity()) {
+            mojo.writeForkPropertiesFile(null, identity);
+        }
+    }
 
     private static final String BRANCH = "main";
     private static final String PLAN_COMMIT = "commit-1";
@@ -132,13 +146,29 @@ class AbstractTiaAgentMojoDistributedTest {
      */
     private void persistPlan(final String runId, final String commitValue,
                               final Map<Integer, List<String>> suitesByGroup) {
+        persistPlan(runId, BRANCH, commitValue, suitesByGroup);
+    }
+
+    /**
+     * Persist a run plan into a named branch's schema, for the tests that need the plan to live
+     * somewhere other than the branch this test's stubbed VCS reader reports - which is how a
+     * configured {@code tiaBranch} is told apart from the workspace's own branch.
+     *
+     * @param runId the run identifier to plan under
+     * @param branch the branch whose schema the plan is written to
+     * @param commitValue the VCS commit the plan is pinned to
+     * @param suitesByGroup the suite names each group number owns; group numbers must run from 0
+     *                      upwards with no gaps, since the group rows are derived from this map
+     */
+    private void persistPlan(final String runId, final String branch, final String commitValue,
+                              final Map<Integer, List<String>> suitesByGroup) {
         List<DistributedRunGroup> groups = new ArrayList<>();
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, BRANCH, commitValue, groups.size(), null,
+        DistributedRun run = DistributedRun.open(runId, branch, commitValue, groups.size(), null,
                 1000L * groups.size(), 5000L, false);
-        try (DataStore dataStore = openStore(BRANCH)) {
+        try (DataStore dataStore = openStore(branch)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }
     }
@@ -485,7 +515,7 @@ class AbstractTiaAgentMojoDistributedTest {
         mojo.tiaDistributed = false;
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         Properties forkProperties = readForkProperties();
@@ -509,7 +539,7 @@ class AbstractTiaAgentMojoDistributedTest {
         mojo.tiaDBSchemaSuffix = "integration";
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertEquals("integration", readForkProperties().getProperty("tiaDBSchemaSuffix"));
@@ -528,7 +558,7 @@ class AbstractTiaAgentMojoDistributedTest {
         mojo.tiaDistributed = false;
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertNull(readForkProperties().getProperty("tiaDBSchemaSuffix"));
@@ -548,7 +578,7 @@ class AbstractTiaAgentMojoDistributedTest {
         mojo.tiaRunSource = "NIGHTLY";
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertEquals("NIGHTLY", readForkProperties().getProperty("tiaRunSource"));
@@ -568,7 +598,7 @@ class AbstractTiaAgentMojoDistributedTest {
         mojo.tiaDistributed = false;
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertNull(readForkProperties().getProperty("tiaRunSource"));
@@ -640,13 +670,112 @@ class AbstractTiaAgentMojoDistributedTest {
         // given
         TestMojo mojo = distributedMojo("run-10", PLAN_COMMIT);
         mojo.tiaDistributed = false;
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // when
         DistributedRunnerContext context = resolveContextInAFork();
 
         // then
         assertNull(context, "an ordinary build's fork must stay on the single-host persist");
+    }
+
+    /**
+     * Verify a runner given both {@code tiaBranch} and {@code tiaCommitValue} claims its group
+     * without ever asking for a VCS reader. This is the whole point of the two properties: a CI
+     * runner holding nothing but a checked-out tree has no repository to read, so a claim that
+     * constructed a reader here would fail on the machine this is meant to support.
+     *
+     * @throws Exception if the goal fails or the written files cannot be read
+     */
+    @Test
+    void shouldClaimWithoutAVcsReaderWhenTheBranchAndCommitAreConfigured() throws Exception {
+        // given
+        persistPlan("run-20", PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = distributedMojo("run-20", PLAN_COMMIT);
+        mojo.tiaBranch = BRANCH;
+        mojo.tiaCommitValue = PLAN_COMMIT;
+
+        // when
+        mojo.execute();
+
+        // then
+        assertEquals(0, mojo.vcsReaderConstructions,
+                "a runner given both values must not construct a VCS reader");
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")),
+                readTestsFile("selected-tests.txt"));
+    }
+
+    /**
+     * Verify the configured branch, not the branch the workspace reports, is what selects the
+     * schema the plan is claimed from. Tia isolates each branch in its own schema, so a runner that
+     * fell back to the workspace's branch would look in a schema holding no plan and fail the build
+     * - which is exactly what a detached-HEAD CI checkout, whose branch reads as a commit SHA,
+     * would produce.
+     *
+     * @throws Exception if the goal fails or the written files cannot be read
+     */
+    @Test
+    void shouldClaimFromTheConfiguredBranchesSchemaRatherThanTheWorkspaceBranch() throws Exception {
+        // given - the plan lives on a branch the stubbed VCS reader does not report
+        String planBranch = "feature-x";
+        persistPlan("run-21", planBranch, PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = distributedMojo("run-21", PLAN_COMMIT);
+        mojo.tiaBranch = planBranch;
+
+        // when
+        mojo.execute();
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")),
+                readTestsFile("selected-tests.txt"));
+    }
+
+    /**
+     * Verify the plan-commit guard is fed by the configured commit when one is set. The guard is
+     * the only thing standing between a runner on the wrong code and a green build whose mapping is
+     * stamped with a commit it never ran, so it has to keep firing once the commit stops coming
+     * from the VCS.
+     */
+    @Test
+    void shouldFailTheGoalWhenTheConfiguredCommitDiffersFromThePlan() {
+        // given - the workspace's own commit matches, but the configured one does not
+        persistPlan("run-22", PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = distributedMojo("run-22", PLAN_COMMIT);
+        mojo.tiaBranch = BRANCH;
+        mojo.tiaCommitValue = "a-configured-different-commit";
+
+        // when
+        MojoExecutionException thrown = assertThrows(MojoExecutionException.class, mojo::execute);
+
+        // then
+        assertTrue(thrown.getMessage().contains(PLAN_COMMIT), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("a-configured-different-commit"),
+                thrown.getMessage());
+        assertEquals(0, mojo.vcsReaderConstructions,
+                "the configured commit must be used without falling back to the VCS");
+    }
+
+    /**
+     * Verify the branch and commit this goal resolved reach the forked test JVM. The fork needs the
+     * branch to open the datastore on the right schema, and taking this goal's already-resolved
+     * value is what stops it opening a repository of its own - and what stops the two disagreeing
+     * about which branch the run belongs to.
+     *
+     * @throws Exception if the goal fails or the written files cannot be read
+     */
+    @Test
+    void shouldHandTheResolvedBranchAndCommitToTheForkedTestJvm() throws Exception {
+        // given
+        persistPlan("run-23", PLAN_COMMIT, twoGroupAssignment());
+        TestMojo mojo = distributedMojo("run-23", PLAN_COMMIT);
+
+        // when
+        mojo.execute();
+
+        // then
+        Properties forkProperties = readForkProperties();
+        assertEquals(BRANCH, forkProperties.getProperty("tiaBranch"));
+        assertEquals(PLAN_COMMIT, forkProperties.getProperty("tiaCommitValue"));
     }
 
     /**
@@ -693,6 +822,13 @@ class AbstractTiaAgentMojoDistributedTest {
 
         private final String workspaceCommit;
         private final MavenProject mavenProject;
+        /**
+         * How many times this mojo was asked for a VCS reader. Counted rather than inferred from
+         * the resolved values, because the whole point of configuring the branch and commit is that
+         * no reader is constructed - and a reader that was constructed and then ignored would leave
+         * the values looking identical while still failing on a runner that has no repository.
+         */
+        private int vcsReaderConstructions;
         private List<MavenProject> reactorProjects = Collections.singletonList(new MavenProject(new Model()));
 
         /**
@@ -712,6 +848,7 @@ class AbstractTiaAgentMojoDistributedTest {
          */
         @Override
         public VCSReader getVCSReader() {
+            vcsReaderConstructions++;
             return new StubVCSReader(workspaceCommit);
         }
 

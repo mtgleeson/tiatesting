@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,6 +40,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AbstractTiaMojoCredentialsTest {
 
+    /**
+     * Write the fork properties file the way {@code execute()} does: with this mojo's workspace
+     * identity resolved around the call, and closed afterwards.
+     *
+     * @param mojo the mojo whose fork properties file to write
+     * @throws MojoExecutionException if the mojo cannot resolve its database password
+     */
+    private void writeForkPropertiesFile(final TestMojo mojo) throws MojoExecutionException {
+        try (WorkspaceIdentity identity = mojo.workspaceIdentity()) {
+            mojo.writeForkPropertiesFile(null, identity);
+        }
+    }
+
     private static final String SECRET = "hunter2-super-secret";
     private static final String SHARED_DB_URL = "jdbc:h2:tcp://localhost:9092/tiadb";
 
@@ -62,6 +76,10 @@ class AbstractTiaMojoCredentialsTest {
         TestMojo mojo = new TestMojo();
         mojo.tiaBuildDir = buildDir.getAbsolutePath();
         mojo.tiaEnabled = true;
+        // Configured rather than read from the VCS, which is what lets these tests keep a VCS
+        // reader that throws: a mojo given both values never constructs one.
+        mojo.tiaBranch = "main";
+        mojo.tiaCommitValue = "commit-1";
         return mojo;
     }
 
@@ -101,7 +119,7 @@ class AbstractTiaMojoCredentialsTest {
         mojo.tiaDBPassword = SECRET;
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         Properties props = forkProperties();
@@ -127,7 +145,7 @@ class AbstractTiaMojoCredentialsTest {
         mojo.tiaDBPasswordFile = userFile.toString();
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertEquals(userFile.toString(),
@@ -144,7 +162,7 @@ class AbstractTiaMojoCredentialsTest {
         TestMojo mojo = mojo();
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         assertNull(forkProperties().getProperty(CredentialResolver.PROP_DB_PASSWORD_FILE));
@@ -165,7 +183,7 @@ class AbstractTiaMojoCredentialsTest {
         mojo.tiaDBPassword = "";
 
         // when
-        mojo.writeForkPropertiesFile(null);
+        writeForkPropertiesFile(mojo);
 
         // then
         String path = forkProperties().getProperty(CredentialResolver.PROP_DB_PASSWORD_FILE);

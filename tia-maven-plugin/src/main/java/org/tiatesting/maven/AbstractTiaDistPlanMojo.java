@@ -15,6 +15,7 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -67,9 +68,14 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
         }
 
-        final VCSReader vcsReader = getVCSReader();
+        // The plan's branch and commit go through the same resolution the runners use, so a
+        // configured tiaBranch writes the plan to the schema those runners will claim from. A plan
+        // written to the branch the VCS happened to report while its runners claim from a schema
+        // tiaBranch named would leave every runner unable to find it.
         DistributedRunPlanSummary summary;
-        try (DataStore dataStore = buildDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
+            VCSReader vcsReader = workspaceIdentity.openVCSReader();
             List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null
                     ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
@@ -88,8 +94,9 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
-                summary = planner.plan(selection, vcsReader.getBranchName(), vcsReader.getHeadCommit(),
-                        isTiaUpdateDBMapping(), System.currentTimeMillis());
+                summary = planner.plan(selection, workspaceIdentity.getBranch(),
+                        workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
+                        System.currentTimeMillis());
             } catch (IllegalStateException e) {
                 throw new MojoExecutionException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }
