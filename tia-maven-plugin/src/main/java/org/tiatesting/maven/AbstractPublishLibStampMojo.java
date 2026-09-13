@@ -5,6 +5,7 @@ import org.tiatesting.core.library.LibraryPublishStamper;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,7 +52,6 @@ public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
         String publishedVersion = getProject().getVersion();
         String jarFilePath = resolveBuiltArtifactPath();
 
-        final VCSReader vcsReader = getVCSReader();
         StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
 
         // The consuming schemas are declared, never derived: the consuming app is a separate build,
@@ -62,21 +62,28 @@ public abstract class AbstractPublishLibStampMojo extends AbstractTiaMojo {
         List<String> stamped = new ArrayList<>();
         Map<String, String> failed = new LinkedHashMap<>();
 
-        for (String suffix : targetSuffixes) {
-            String schemaLabel = suffix == null ? "(none)" : suffix;
-            try (DataStore dataStore = buildDataStore(vcsReader.getBranchName(), suffix)) {
-                LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
-                        .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
-                                jarFilePath, staticConfig);
-                getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
-                        + " into schema " + schemaLabel + ": " + result.getOutcome() + " (seq "
-                        + result.getPublishSeq() + ", " + result.getStampedMethodIds().size()
-                        + " methods).");
-                stamped.add(schemaLabel);
-            } catch (RuntimeException e) {
-                getLog().error("Tia publish stamp for " + groupArtifact + " " + publishedVersion
-                        + " FAILED for schema " + schemaLabel + ".", e);
-                failed.put(schemaLabel, String.valueOf(e.getMessage()));
+        // One identity for every schema stamped. Unlike the reporting goals this one cannot be
+        // satisfied by a configured branch alone - the stamper reads the publish's own commit from
+        // the VCS - but it still opens one reader for the whole goal rather than one per schema.
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+            VCSReader vcsReader = workspaceIdentity.openVCSReader();
+
+            for (String suffix : targetSuffixes) {
+                String schemaLabel = suffix == null ? "(none)" : suffix;
+                try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
+                    LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
+                            .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
+                                    jarFilePath, staticConfig);
+                    getLog().info("Tia publish stamp for " + groupArtifact + " " + publishedVersion
+                            + " into schema " + schemaLabel + ": " + result.getOutcome() + " (seq "
+                            + result.getPublishSeq() + ", " + result.getStampedMethodIds().size()
+                            + " methods).");
+                    stamped.add(schemaLabel);
+                } catch (RuntimeException e) {
+                    getLog().error("Tia publish stamp for " + groupArtifact + " " + publishedVersion
+                            + " FAILED for schema " + schemaLabel + ".", e);
+                    failed.put(schemaLabel, String.valueOf(e.getMessage()));
+                }
             }
         }
 

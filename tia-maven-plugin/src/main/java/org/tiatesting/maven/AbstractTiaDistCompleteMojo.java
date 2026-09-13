@@ -8,6 +8,7 @@ import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
 import java.io.IOException;
@@ -138,7 +139,44 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
         boolean updateDBTestRunHistory = Boolean.parseBoolean(
                 forkProperties.getProperty(ForkSystemProperties.PROP_UPDATE_DB_TEST_RUN_HISTORY));
 
-        completeAndSeal(context, updateDBMapping, updateDBTestRunHistory);
+        completeAndSeal(context, branchFrom(forkProperties, forkPropertiesFile), updateDBMapping,
+                updateDBTestRunHistory);
+    }
+
+    /**
+     * Read the branch this runner claimed under out of the fork properties file, rather than
+     * resolving it again here.
+     *
+     * <p>The branch decides which schema the claimed group's row lives in, and the {@code
+     * prepare-agent} execution that made the claim already resolved it - from {@code tiaBranch} or
+     * from the version control system. Reading it back means this goal needs no configuration of its
+     * own for it, works on a machine with no version control access, and above all cannot land on a
+     * different answer than the claim did: a goal that resolved another branch would open a schema
+     * holding no claimed row, find nothing to complete, and exit successfully while the group stayed
+     * {@code CLAIMED} and the run never sealed.
+     *
+     * <p>Absent is a failure rather than a fallback for that same reason. Every file this goal is
+     * meant to read carries the value, so one that does not was written by something else, or by a
+     * build from before the value existed - and quietly resolving the branch here is exactly the
+     * silent mismatch above.
+     *
+     * @param forkProperties the fork properties file's contents
+     * @param forkPropertiesFile the file they were read from, named in the failure message
+     * @return the branch recorded by the claim
+     * @throws MojoExecutionException if the file carries no branch
+     */
+    private String branchFrom(final Properties forkProperties, final File forkPropertiesFile)
+            throws MojoExecutionException {
+        String branch = forkProperties.getProperty(WorkspaceIdentity.PROP_BRANCH);
+        if (branch == null || branch.trim().isEmpty()) {
+            throw new MojoExecutionException("The distributed run handoff in " + forkPropertiesFile
+                    + " carries no " + WorkspaceIdentity.PROP_BRANCH + ", so this goal cannot tell "
+                    + "which branch's schema the claimed group is in - this build will NOT be "
+                    + "sealed, and the next build will redo the work. The file is written by the "
+                    + "prepare-agent execution that made the claim, so an absent value means it was "
+                    + "written by something else or by an earlier build.");
+        }
+        return branch.trim();
     }
 
     /**
@@ -159,6 +197,8 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      * group has, in that case, already completed (and possibly sealed) despite the close failure.
      *
      * @param context the claimed runner context read from the fork properties file
+     * @param branch the branch whose schema this run's rows live in, as recorded in the fork
+     *               properties file by the {@code prepare-agent} execution that made the claim
      * @param updateDBMapping whether this run updates the mapping DB, as recorded in the fork
      *                        properties file
      * @param updateDBTestRunHistory whether this run logs a history row, as recorded in the fork
@@ -167,11 +207,12 @@ public abstract class AbstractTiaDistCompleteMojo extends AbstractTiaMojo {
      *                                 datastore fails to close afterwards; the message distinguishes
      *                                 which of the three happened
      */
-    private void completeAndSeal(final DistributedRunnerContext context, final boolean updateDBMapping,
+    private void completeAndSeal(final DistributedRunnerContext context, final String branch,
+                                 final boolean updateDBMapping,
                                  final boolean updateDBTestRunHistory)
             throws MojoExecutionException {
         boolean groupCompleted = false;
-        try (DataStore dataStore = buildDataStore(getVCSReader().getBranchName())) {
+        try (DataStore dataStore = buildDataStore(branch)) {
             groupCompleted = DistributedRunCompleter.completeAndSeal(dataStore, context, updateDBMapping,
                     updateDBTestRunHistory, System.currentTimeMillis());
         } catch (DistributedRunCompleter.SealFailedAfterCompletionException e) {
