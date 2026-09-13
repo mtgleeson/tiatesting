@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TiaSpockGlobalExtension implements IGlobalExtension {
@@ -65,15 +66,21 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
      * build JVM's claim used. Claiming a second time here would take a second group and leave the
      * first open forever, so the run would never seal.
      *
-     * @param vcsReader the VCS reader for the workspace under test, or null when Tia is disabled;
-     *                  supplies the branch whose mapping is read
+     * <p>The branch and the commit come from the system properties the Gradle daemon resolved them
+     * into, never from a repository this JVM opens. The supplier is for the one thing those two
+     * values cannot answer: an ordinary build's selection, which diffs the workspace. A distributed
+     * runner does not select, so on that path the supplier is never invoked and the fork runs with
+     * no version control system present at all.
+     *
+     * @param vcsReaderSupplier constructs a reader for the workspace under test; invoked only when
+     *                          this build runs its own selection
      * @throws IllegalStateException if this build is a distributed runner but the shared plan its
      *                                group was claimed from is no longer readable - for example a
      *                                later build superseded it between the daemon's claim and this
      *                                JVM starting - since a runner that cannot tell whether its
      *                                share of the suite ran must never report green
      */
-    public TiaSpockGlobalExtension(final VCSReader vcsReader){
+    public TiaSpockGlobalExtension(final Supplier<VCSReader> vcsReaderSupplier){
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
 
@@ -88,7 +95,9 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
             // updateDBTestRunHistory defaults to TRUE - log unless explicitly switched off.
             tiaUpdateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
-            dataStore = DataStoreFactory.fromSystemProperties(vcsReader.getBranchName());
+            String branch = ForkSystemProperties.branchFromSystemProperties();
+            String headCommit = ForkSystemProperties.commitValueFromSystemProperties();
+            dataStore = DataStoreFactory.fromSystemProperties(branch);
             sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
             testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
@@ -106,7 +115,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 this.checkLocalChanges = checkLocalChanges;
             }
 
-            TiaSpockTestRunInitializer tiaSpockTestRunInitializer = new TiaSpockTestRunInitializer(vcsReader, dataStore);
             Set<String> testsToRun;
             LibraryImpactDrainResult drainResult;
 
@@ -145,18 +153,28 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // through the tiaStaticTestSelectionRules system property; absent property means
                 // no rules in effect.
                 StaticTestSelectionConfig staticMappingConfig = StaticTestSelectionSystemProperties.fromSystemProperties();
-                TestSelectorResult testSelectorResult = tiaSpockTestRunInitializer.selectTests(sourceFilesDirs, testFilesDirs,
-                        this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig, staticMappingConfig);
-                ignoredTests = testSelectorResult.getTestsToIgnore();
-                testsToRun = testSelectorResult.getTestsToRun();
-                drainResult = testSelectorResult.getLibraryImpactDrainResult();
+                // The one path that needs a reader, and the one that closes it: an ordinary build
+                // runs its own selection here, which diffs the workspace.
+                VCSReader vcsReader = vcsReaderSupplier.get();
+                try {
+                    TestSelectorResult testSelectorResult = new TiaSpockTestRunInitializer(dataStore)
+                            .selectTests(vcsReader, sourceFilesDirs, testFilesDirs,
+                                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig,
+                                    staticMappingConfig);
+                    ignoredTests = testSelectorResult.getTestsToIgnore();
+                    testsToRun = testSelectorResult.getTestsToRun();
+                    drainResult = testSelectorResult.getLibraryImpactDrainResult();
+                } finally {
+                    vcsReader.close();
+                }
             }
 
             if (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory){
                 // the listener is used for collecting coverage, updating the stored mapping,
                 // and/or recording the run in the history log
                 int ignoredTestSuiteCount = ignoredTests != null ? ignoredTests.size() : 0;
-                this.tiaTestingSpockRunListener = new TiaSpockRunListener(vcsReader, dataStore, testsToRun,
+                this.tiaTestingSpockRunListener = new TiaSpockRunListener(branch, headCommit,
+                        dataStore, testsToRun,
                         ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBTestRunHistory,
                         drainResult, distributedRunnerContext);

@@ -16,6 +16,7 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -95,9 +96,14 @@ public class TiaDistPlanTask extends DefaultTask {
                     + withReactorProjectNamesIfRelevant(e.getMessage(), tiaEnabled, reactorProjects), e);
         }
 
-        VCSReader vcsReader = plugin.getVCSReader();
+        // The plan's branch and commit go through the same resolution the runners use, so a
+        // configured tia.branch writes the plan to the schema those runners will claim from. A plan
+        // written to the branch the VCS happened to report while its runners claim from the schema
+        // tia.branch named would leave every runner unable to find it.
         DistributedRunPlanSummary summary;
-        try (DataStore dataStore = plugin.buildDistributedDataStore(vcsReader.getBranchName())) {
+        try (WorkspaceIdentity workspaceIdentity = plugin.workspaceIdentity();
+             DataStore dataStore = plugin.buildDistributedDataStore(workspaceIdentity.getBranch())) {
+            VCSReader vcsReader = workspaceIdentity.openVCSReader();
             List<String> sourceFilesDirs = plugin.getSourceFilesDirs() != null
                     ? Arrays.asList(plugin.getSourceFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(sourceFilesDirs);
@@ -118,7 +124,8 @@ public class TiaDistPlanTask extends DefaultTask {
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
-                summary = planner.plan(selection, vcsReader.getBranchName(), vcsReader.getHeadCommit(),
+                summary = planner.plan(selection, workspaceIdentity.getBranch(),
+                        workspaceIdentity.getCommitValue(),
                         updateDBMapping, System.currentTimeMillis());
             } catch (IllegalStateException e) {
                 throw new GradleException("Failed to plan the distributed test run: " + e.getMessage(), e);

@@ -7,7 +7,7 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.options.Option;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.LibraryPendingMethodsReportGenerator;
-import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -26,7 +26,7 @@ import java.util.function.Supplier;
 public class TiaLibraryPendingMethodsTask extends DefaultTask {
 
     private String library;
-    private Supplier<VCSReader> vcsReaderSupplier;
+    private Supplier<WorkspaceIdentity> workspaceIdentitySupplier;
     private BiFunction<String, String, DataStore> dataStoreFactory;
     private Supplier<Set<String>> schemaSuffixes;
 
@@ -54,10 +54,12 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
      * Inject the VCS reader factory; called from {@code TiaBasePlugin} at task registration so
      * the reader is resolved lazily at execution time.
      *
-     * @param vcsReaderSupplier supplier of the active {@link VCSReader}
+     * @param workspaceIdentitySupplier supplier of this build's {@link WorkspaceIdentity}, which
+     *                                  resolves the branch from configuration where it is set and
+     *                                  from the version control system where it is not
      */
-    public void setVcsReaderSupplier(Supplier<VCSReader> vcsReaderSupplier) {
-        this.vcsReaderSupplier = vcsReaderSupplier;
+    public void setWorkspaceIdentitySupplier(Supplier<WorkspaceIdentity> workspaceIdentitySupplier) {
+        this.workspaceIdentitySupplier = workspaceIdentitySupplier;
     }
 
     /**
@@ -88,11 +90,16 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
      */
     @TaskAction
     public void run() {
-        VCSReader vcsReader = vcsReaderSupplier.get();
+        // Resolved and released before the loop: every schema below belongs to the one branch,
+        // and holding a repository handle open across the reads would serve nothing.
+        final String branch;
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentitySupplier.get()) {
+            branch = workspaceIdentity.getBranch();
+        }
         Set<String> suffixes = schemaSuffixes.get();
         for (String suffix : suffixes) {
             TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
-            try (DataStore dataStore = dataStoreFactory.apply(vcsReader.getBranchName(), suffix)) {
+            try (DataStore dataStore = dataStoreFactory.apply(branch, suffix)) {
                 LibraryPendingMethodsReportGenerator reportGenerator = new LibraryPendingMethodsReportGenerator();
                 System.out.println(reportGenerator.generateLibraryPendingMethodsReport(dataStore, library));
             }

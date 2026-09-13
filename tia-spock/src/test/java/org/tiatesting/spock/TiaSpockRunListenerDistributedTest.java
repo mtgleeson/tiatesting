@@ -8,7 +8,6 @@ import org.junit.platform.engine.UniqueId;
 import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor;
 import org.junit.platform.engine.support.descriptor.ClassSource;
 import org.junit.platform.launcher.TestIdentifier;
-import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.distributed.DistributedRunCompleter;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
@@ -25,7 +24,6 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
-import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
 import java.time.Instant;
@@ -156,7 +154,7 @@ class TiaSpockRunListenerDistributedTest {
      * @return the listener under test
      */
     private TiaSpockRunListener listenerFor(final DistributedRunnerContext distributedRunnerContext) {
-        return new TiaSpockRunListener(new StubVCSReader(PLAN_COMMIT), dataStore,
+        return new TiaSpockRunListener(BRANCH, PLAN_COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
                 distributedRunnerContext);
     }
@@ -270,86 +268,5 @@ class TiaSpockRunListenerDistributedTest {
                 "a non-distributed run must not complete anybody's group");
         assertEquals(DistributedRunStatus.OPEN, dataStore.readDistributedRun(RUN_ID).getStatus(),
                 "a non-distributed run must not seal anybody's run");
-    }
-
-    /**
-     * Minimal VCS reader reporting a fixed branch and commit. The listener reads only those two
-     * values from it and then closes it; nothing on this path diffs.
-     */
-    private static final class StubVCSReader implements VCSReader {
-
-        private final String headCommit;
-
-        /**
-         * @param headCommit the commit this workspace is reported to be on
-         */
-        private StubVCSReader(final String headCommit) {
-            this.headCommit = headCommit;
-        }
-
-        /**
-         * @return the fixed branch these tests plan and claim against
-         */
-        @Override
-        public String getBranchName() {
-            return BRANCH;
-        }
-
-        /**
-         * @return the workspace commit this reader was built with
-         */
-        @Override
-        public String getHeadCommit() {
-            return headCommit;
-        }
-
-        /**
-         * Never called: the listener runs after selection, and a distributed runner never diffs.
-         *
-         * @param baseChangeNum ignored
-         * @param sourceFilesDirs ignored
-         * @param testFilesDirs ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<SourceFileDiffContext> getDiffFiles(final String baseChangeNum,
-                                                        final List<String> sourceFilesDirs,
-                                                        final List<String> testFilesDirs,
-                                                        final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the run listener must not diff");
-        }
-
-        /**
-         * Never called on this path.
-         *
-         * @param diffs ignored
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         */
-        @Override
-        public void loadContentForDiffs(final Collection<SourceFileDiffContext> diffs,
-                                         final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the run listener must not diff");
-        }
-
-        /**
-         * Never called on this path.
-         *
-         * @param baseChangeNum ignored
-         * @param checkLocalChanges ignored
-         * @return never returns
-         */
-        @Override
-        public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("the run listener must not diff");
-        }
-
-        /**
-         * No resources to release.
-         */
-        @Override
-        public void close() {
-        }
     }
 }
