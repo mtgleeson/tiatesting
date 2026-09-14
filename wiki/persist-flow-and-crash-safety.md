@@ -48,6 +48,26 @@ rows as being "as of" that prior commit. Consistency between the commit value an
 from **ordering plus the `unsealed` flag** (see "The `unsealed` flag" below), not from a single
 enclosing transaction across the whole sequence.
 
+### An empty run performs none of these steps
+
+Steps 1-3 are skipped entirely - and step 4 is written with `updated_db_mapping = false` - when the
+run executed **none of the suites Tia expected it to run**
+(`TestRunResult.ranNoExpectedSuites()`; the distributed equivalent is derived from the plan in
+`DistributedRunSealer`). A misconfigured build that timed no test has observed neither the commit
+nor the suites, so every one of steps 1-3 would be a claim it has not earned, and each fails in the
+silent, under-selecting direction: the seal would advance the stored commit past suites that never
+ran, the failed-set update would drop force-run entries without a passing run, and the suite-mapping
+write would read the run's empty observations as wholesale deletion or wholesale
+developer-disabling.
+
+Not sealing puts the DB in the same state a pre-seal crash does - stored commit at the prior value,
+nothing downstream trusting this commit - which the taxonomy below already shows is self-correcting:
+the next run diffs from the older commit and re-does the impacted work. The one write an empty run
+does make is the audit row, which is load-bearing for nothing. See the "Runs that executed no test
+suite" section of the [test-run history chapter](test-run-history.md) for the full table of what is
+skipped and why, and for the line that separates an empty run from the nothing-impacted run that
+legitimately executes no suite.
+
 ### Per-call atomicity inside JdbcDataStore
 
 Each individual persist call is internally atomic:
