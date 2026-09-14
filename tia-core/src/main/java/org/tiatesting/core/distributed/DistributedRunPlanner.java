@@ -227,10 +227,15 @@ public final class DistributedRunPlanner {
         if (collectingCoverage) {
             log.debug("Distributed run grouping: weighting {} suite(s) with {}ms of coverage "
                             + "capture spread across them, and charging {}ms of fixed per-JVM "
-                            + "overhead once to each non-empty group. The fixed part is "
+                            + "overhead once to each non-empty group.{} The fixed part is "
                             + "deliberately kept out of the per-suite weights - it is the same on "
                             + "every group, so it cannot change which suites group together.",
-                    weights.size(), selection.getCaptureOverheadMs(), fixedOverheadMs);
+                    weights.size(), selection.getCaptureOverheadMs(), fixedOverheadMs,
+                    fixedOverheadMs == 0L
+                            ? " No build has reported a per-group split yet, so the fixed part is"
+                                    + " still zero and the whole overhead sits in the per-suite"
+                                    + " figure; this run will supply the measurement when it seals."
+                            : "");
         } else {
             log.debug("Distributed run grouping: weighting {} suite(s) by test time alone. This "
                             + "run does not collect coverage, so it pays neither the {}ms of "
