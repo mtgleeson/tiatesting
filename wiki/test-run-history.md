@@ -40,20 +40,33 @@ Note that a bare `-DtiaRunSource=...` on the Maven command line sets the propert
 
 A build whose test framework is not wired up correctly - a missing or mismatched JUnit dependency being the usual cause - finishes in milliseconds having executed nothing, and reports itself as a pass, because no suite ran so no suite failed. Left alone, Tia recorded that as a legitimate measurement: one run, one success, and on a run that ignored nothing its ~150ms duration became the new `all_tests_run_time`, the full-suite baseline every later savings figure is measured against. One misconfigured build could therefore collapse the baseline and silently deflate the reported savings of every run after it.
 
-So a run that executed **none of the suites Tia expected it to** contributes nothing to the stats: it is counted as neither a run nor a success, its duration is folded into neither average, it does not establish or move the full-suite baseline, and its history row is credited no savings. It still writes its seal and still gets a history row - a `num_suites_ran = 0` row is how the empty run stays visible rather than vanishing - and it logs a WARN naming what Tia expected to run and pointing at the test configuration, since nothing else in the build output makes an empty run look wrong.
+So a run that executed **none of the suites Tia expected it to** persists nothing but its history row. Nothing it could write is a claim it has earned: it observed neither the commit nor the suites.
+
+| Write | Why an empty run is kept away from it |
+| --- | --- |
+| The Tia-level stats | It timed no test, so it is neither a run nor a success, and its duration belongs in neither average - least of all the full-suite baseline |
+| The seal, and with it the stored commit value | Advancing the commit leaves the next run diffing past the suites this run never covered, so the tests that should have run do not. Skipping the seal leaves the stored commit at the prior value, which is exactly the state a crash before the seal leaves behind and which Tia already self-corrects |
+| The tracked libraries' mapping baselines (part of the seal) | Same reason, one level down: the libraries were not re-covered, so their next change must stay visible to the diff |
+| The `unsealed` flags (part of the seal) | The flag force-selects suites whose coverage is not yet trusted; an empty run recaptured none of it |
+| The failed-suite set | It is maintained by removing the run's selection and adding back what failed. Nothing ran, so nothing failed - applying that would drop previously-failed suites from the force-run set without a passing run |
+| The suite mapping metadata | It re-derives which suites were deleted from the repository and which are disabled in source. With no `tiaTestClassesDirs` configured the empty run's observed set is empty, which reads as "every tracked suite has been deleted" and would delete the project's whole mapping; with one configured, every selected-but-unexecuted suite reads as developer-disabled and would be flagged in a single build |
+
+The history row is the exception, because it claims nothing about the code: a `num_suites_ran = 0` row is how the empty run stays visible rather than leaving an unexplained gap. It is credited **no savings** - the build finished early because it ran nothing, not because Tia deselected anything - and records `updated_db_mapping` as **false**, which is the truth for a run that sealed nothing whatever it was configured to do. A WARN naming what Tia expected to run is logged as well, since nothing else in the build output makes an empty run look wrong.
 
 **"Expected" is what makes the guard safe.** A run where Tia ignored every suite because nothing was impacted also executes nothing, and that is Tia working exactly as intended - its savings are the largest Tia ever reports, and they must keep being recorded. `TestRunResult.ranNoExpectedSuites()` separates the two from the selector's own decision:
 
 | Ignored | Selected | Ran | Reading |
 | --- | --- | --- | --- |
-| 0 | (any) | 0 | Every suite was expected to run and none did - **empty run**, no stats |
-| > 0 | non-empty | 0 | The selected suites were expected to run and none did - **empty run**, no stats |
-| > 0 | empty | 0 | Nothing was impacted, so there was nothing to run - normal, stats and savings recorded |
+| 0 | (any) | 0 | Every suite was expected to run and none did - **empty run**, nothing persisted but the row |
+| > 0 | non-empty | 0 | The selected suites were expected to run and none did - **empty run**, nothing persisted but the row |
+| > 0 | empty | 0 | Nothing was impacted, so there was nothing to run - normal: stats, savings and seal all recorded |
 | (any) | (any) | > 0 | A run that executed suites - normal |
 
 The executed-suite count is the per-attempt figure (`suitesRanThisAttempt`), so the question is asked of the attempt being persisted. A Surefire retry runs the suites holding the failed tests, so it does not read as an empty run; a retry contributes no run stats regardless.
 
-Two adjacent hazards of the same misconfiguration are **not** covered by this guard, and are worth knowing about: the run still advances the stored commit value (so the next run diffs from it, exactly as though the empty run had genuinely covered the code), and on a setup with no `tiaTestClassesDirs` configured the empty run's observed-suite set is empty, which `removeDeletedTestSuites` reads as "every tracked suite has been deleted".
+**A distributed build asks the same question at seal time.** No runner can answer it - "expected" is a property of the plan, and a runner only sees its own group - so `DistributedRunSealer` derives it from the two halves it already has: `DistributedRunTotals.getSuitesRan() == 0` (a counter that accumulates across retries, so reading zero from it is safe in a way reading non-zero would not be) and an expectation taken from the plan, which is the run row's seed-run flag or any group having been assigned a suite. An empty build seals nothing, records no stats and is credited no savings, exactly as the single-host empty run; the run is still retired and still writes its one row, because a build that left its barrier state behind would block the next one.
+
+Note which distributed shape can reach the sealer at all: the completion guard reads each group's **observed** suites, not its executed ones, so a runner that saw every assigned suite get skipped completes its group and the build seals normally with `suites_ran = 0` - that is the shape the guard catches. A runner that observed nothing at all never closes its group, so the barrier simply holds and the next build's plan write clears the open run.
 
 ### Why timestamps are stored as UTC epoch ms
 
