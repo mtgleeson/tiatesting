@@ -217,6 +217,13 @@ public class TestSelector {
      * nothing to read, and the fall-back is exactly the previous behaviour - the whole overhead
      * amortised per suite, with no fixed part - so an estimate is never worse than it was.
      *
+     * <p><b>Neither debug line names distributed runs</b>, deliberately. This runs on every
+     * selection, and the overwhelming majority of them are ordinary single-host builds for which the
+     * fixed part is irrelevant - it only changes an estimate once a build is split across JVMs.
+     * Explaining a mode the build is not in reads as a missing feature rather than as normal
+     * operation. {@code DistributedRunPlanner} says where the fixed part comes from, and what it
+     * means when it is still zero, at the one point where that actually matters.
+     *
      * <p>The fall-back returns nothing at all when there is no baseline, no tracked suites, or a
      * baseline below the per-suite sum. That last case means the build ran its suites in parallel
      * (wall clock under the serial sum); this only models sequential builds, so it clamps rather
@@ -229,11 +236,9 @@ public class TestSelector {
     static OverheadModel overheadModel(final Map<String, TestSuiteTracker> tracked,
                                        final TestStats tiaStats){
         if (tiaStats.getNumOverheadMeasurements() > 0){
-            log.debug("Overhead model: measured - {}ms fixed per JVM and {}ms of coverage capture "
-                            + "per suite, averaged over {} distributed build(s). A distributed run "
-                            + "pays the fixed part once per group, so it is charged per group "
-                            + "rather than divided across them.", tiaStats.getFixedOverheadMs(),
-                    tiaStats.getCaptureOverheadPerSuiteMs(),
+            log.debug("Overhead model: {}ms of coverage capture per suite and {}ms fixed per test "
+                            + "JVM, measured over {} build(s) that reported a per-group split.",
+                    tiaStats.getCaptureOverheadPerSuiteMs(), tiaStats.getFixedOverheadMs(),
                     tiaStats.getNumOverheadMeasurements());
             return new OverheadModel(tiaStats.getFixedOverheadMs(),
                     tiaStats.getCaptureOverheadPerSuiteMs());
@@ -261,10 +266,8 @@ public class TestSelector {
             return new OverheadModel(0L, 0L);
         }
         long capturePerSuiteMs = overhead / tracked.size();
-        log.debug("Overhead model: estimated - no distributed build has measured the split yet, so "
-                        + "the whole {}ms of overhead ({}ms baseline less {}ms of tracked suite "
-                        + "averages) is amortised across {} tracked suite(s) at {}ms each, with no "
-                        + "fixed per-JVM part. The first distributed run will measure the split.",
+        log.debug("Overhead model: {}ms of overhead ({}ms all-tests baseline less {}ms of tracked "
+                        + "suite averages) amortised across {} tracked suite(s) at {}ms each.",
                 overhead, allTestsRunTimeMs, sumAvg, tracked.size(), capturePerSuiteMs);
         return new OverheadModel(0L, capturePerSuiteMs);
     }
