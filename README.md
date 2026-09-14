@@ -828,8 +828,8 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
 |tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
-|tiaBranch|branch|<string>|The branch this build is running against, overriding the branch Tia would otherwise read from the VCS. The branch selects the datastore schema, so it has to be known before any database connection is opened and cannot be read back out of the database. Set it on a build with **no VCS access** - a distributed test run's runner job holding nothing but a checked-out tree - and Tia never opens a repository to resolve it. See [Runners do not need VCS access](#runners-do-not-need-vcs-access).| read from the VCS |false|
-|tiaCommitValue|commitValue|<string>|The commit this build is running against, overriding the head commit Tia would otherwise read from the VCS. On a distributed runner this is what the claim compares against the commit the plan was built by diffing, so it must be the commit **the pipeline actually checked out** - not the plan's own reported commit fed back in, which would compare a value with itself. See [Runners do not need VCS access](#runners-do-not-need-vcs-access).| read from the VCS |false|
+|tiaBranch|branch|<string>|The branch this build is running against, overriding the branch Tia would otherwise read from the VCS. The branch selects the datastore schema, so it has to be known before any database connection is opened and cannot be read back out of the database. Set it on a build with **no VCS access** - a distributed test run's runner job holding nothing but a checked-out tree - and Tia never opens a repository to resolve it. On a runner, take it from the `branch` field of `tia-run-plan.json`, which matches the plan's schema by construction. See [Where each value should come from](#where-each-value-should-come-from).| read from the VCS |false|
+|tiaCommitValue|commitValue|<string>|The commit this build is running against, overriding the head commit Tia would otherwise read from the VCS. On a distributed runner this is what the claim compares against the commit the plan was built by diffing, so it should be the commit **the pipeline actually checked out** (`$GITHUB_SHA` and equivalents) - the plan's own `commit` field fed back in compares a value with itself and checks nothing. See [Where each value should come from](#where-each-value-should-come-from).| read from the VCS |false|
 |tiaDistributed|distributed|true, false|When true this build takes part in a [distributed test run](#distributed-test-runs): the selection is split into groups across CI runners that coordinate through a shared database. Requires `tiaDBUrl` / `dbUrl` (a shared datastore - embedded H2 is rejected) and `tiaCheckLocalChanges` / `checkLocalChanges` disabled.| false |false|
 |tiaRunId|runId|<string>|The shared identifier every job in one distributed build must agree on, so each runner finds the same run's rows in the shared database. Must be the **same** for every job in a build and **different** for every build - a CI pipeline/run id is the natural value.| |true (when distributed)|
 |tiaDistributedGroupCount|distributedGroupCount|<integer>|Split the selection into exactly this many groups, minimising the heaviest one. Mutually exclusive with `tiaDistributedTargetRunTime` - exactly one of the two must be set.| |one of the two|
@@ -1126,17 +1126,31 @@ Set both on the runner jobs and no Tia step opens a repository or a Perforce con
 # the planning job needs the repository
 mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedGroupCount=5
 
-# the runner jobs do not
+# the runner jobs do not. $PLAN_BRANCH is the plan file's own branch field; $CI_COMMIT_SHA
+# is your CI system's checkout SHA - see "Where each value should come from" below.
 mvn verify -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID \
-    -DtiaBranch=$CI_BRANCH -DtiaCommitValue=$CI_COMMIT_SHA
+    -DtiaBranch=$PLAN_BRANCH -DtiaCommitValue=$CI_COMMIT_SHA
 mvn tia-junit5-git:dist-complete
 ```
+
+#### Where each value should come from
+
+The two are not symmetric, and the difference decides which source is right for each.
+
+**The branch is a lookup key**, so take it from `tia-run-plan.json`. It only has to name the schema the plan was written to, and the plan file's own `branch` field matches that by construction - where a CI branch variable can disagree with what Tia recorded (a detached-HEAD checkout, a ref name that is not the branch, a release pipeline running against a tag). Your matrix step already parses that file for `groupCount`, so this is one more field out of the same `jq` call, not new plumbing:
+
+```
+echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
+echo "branch=$(jq -r .branch target/tia/tia-run-plan.json)"                >> $GITHUB_OUTPUT
+```
+
+**The commit is an assertion**, so it must come from somewhere that knows what is actually in the runner's tree - your CI's checkout SHA (`$GITHUB_SHA`, `$CI_COMMIT_SHA`). Comparing that against the plan's commit is a real check that the runner holds the code the selection was made for. Feeding the plan's own `commit` field back in compares a value with itself and checks nothing.
+
+That last option is a legitimate choice when nothing in your pipeline independently knows the runner's commit - a container image built out-of-band, say. Everything keeps working; you simply do not get the guard. Make it a decision rather than a default, because of what the guard protects: a runner on different code than the plan was built from runs a selection chosen for code it does not have, and the sealer stamps the mapping with the **plan's** commit regardless - so coverage captured from one tree is stored as describing another. See the [distributed test runs](wiki/distributed-test-runs.md) WIKI chapter.
 
 **`dist-complete` needs neither.** It reads the branch back out of `<tiaBuildDir>/fork.properties`, alongside the run id, runner key and update flags it already took from there - so it uses the branch the claim actually used and cannot land on a different schema. `dist-status` does need `-DtiaBranch` when run from a machine with no repository, since it has no claim to read.
 
 Both settings are optional and independent of distributed runs: leave either unset and Tia reads it from the VCS exactly as before, so no existing configuration changes. Omit them on a machine that has no repository and the build fails naming the one to set, rather than failing on a missing `.git` directory.
-
-**Take the commit from your CI's checkout variable, not from the plan.** `$GITHUB_SHA`, `$CI_COMMIT_SHA` and their equivalents report the commit the checkout step actually used, so comparing it against the plan's commit is a real check that the runner holds the code the selection was made for. Feeding the plan's own `commit` field back in would compare a value with itself and check nothing. That guard is what stands between a runner on stale source and a green build whose mapping is stamped with a commit it never ran - see the [distributed test runs](wiki/distributed-test-runs.md) WIKI chapter.
 
 One caveat worth stating plainly: with the VCS gone the guard verifies what your **pipeline believes** it checked out rather than what is in the tree. It still catches a runner on the wrong branch, a stale pinned SHA and a mismatched job re-run; it cannot catch a pipeline that reports one commit and checks out another.
 
@@ -1145,8 +1159,8 @@ One caveat worth stating plainly: with the VCS gone the guard verifies what your
 ```groovy
 tia {
     // ...existing Tia configuration...
-    branch = System.getenv("CI_BRANCH")
-    commitValue = System.getenv("CI_COMMIT_SHA")
+    branch = System.getenv("PLAN_BRANCH")        // the plan file's branch field
+    commitValue = System.getenv("CI_COMMIT_SHA") // your CI's checkout SHA
 }
 ```
 
@@ -1159,6 +1173,7 @@ plan:
   runs-on: ubuntu-latest
   outputs:
     groups: ${{ steps.plan.outputs.groups }}
+    branch: ${{ steps.plan.outputs.branch }}
   steps:
     - run: >
         mvn tia-junit5-git:dist-plan
@@ -1167,7 +1182,9 @@ plan:
         -DtiaDistributedTargetRunTime=1500000
         -DtiaDistributedMaxGroups=10
     - id: plan
-      run: echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
+      run: |
+        echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
+        echo "branch=$(jq -r .branch target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
 
 test:
   needs: plan
@@ -1182,7 +1199,7 @@ test:
         -DtiaDistributed=true
         -DtiaRunId=${{ github.run_id }}
         -DtiaDistributedRunnerKey=${{ matrix.group }}
-        -DtiaBranch=${{ github.ref_name }}
+        -DtiaBranch=${{ needs.plan.outputs.branch }}
         -DtiaCommitValue=${{ github.sha }}
 
     - name: Complete this runner's group
