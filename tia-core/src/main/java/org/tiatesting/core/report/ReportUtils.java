@@ -121,18 +121,22 @@ public class ReportUtils {
     /**
      * Compute the time Tia saved on a single run versus running the full suite: the full-suite
      * baseline minus the run's actual duration, clamped at zero. An all-tests run saved nothing,
-     * and with no baseline yet there is nothing to compare against, so both yield {@code 0}.
+     * and with no baseline yet there is nothing to compare against, so both yield {@code 0}. A run
+     * that executed none of the suites it was expected to is handed {@code savedNothing} for the
+     * same reason: it finished early because it ran nothing, not because Tia deselected anything.
      *
      * <p>This is computed once at persist time and frozen onto the history row (the baseline is a
      * rolling average that changes over time, so it can't be re-derived later).
      *
      * @param allTestsRunTimeMs the full-suite baseline current at the time of the run (ms)
      * @param durationMs the run's actual wall-clock duration (ms)
-     * @param allTestsRun {@code true} when this run executed the full suite (saved nothing)
+     * @param savedNothing {@code true} when this run cannot have saved anything - it executed the
+     *                     full suite, or it executed none of the suites it was expected to, which is
+     *                     a broken build finishing early rather than a Tia win
      * @return the time saved on this run (ms), never negative
      */
-    public static long runSavingsMs(long allTestsRunTimeMs, long durationMs, boolean allTestsRun){
-        if (allTestsRun || allTestsRunTimeMs <= 0){
+    public static long runSavingsMs(long allTestsRunTimeMs, long durationMs, boolean savedNothing){
+        if (savedNothing || allTestsRunTimeMs <= 0){
             return 0L;
         }
         return Math.max(0L, allTestsRunTimeMs - durationMs);
