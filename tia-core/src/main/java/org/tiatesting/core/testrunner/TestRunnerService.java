@@ -49,6 +49,13 @@ public class TestRunnerService {
      * "Persist flow and crash safety" chapter in {@code WIKI.md} for the failure-mode
      * taxonomy and the per-call atomicity guarantees that the H2 backend provides.
      *
+     * <p><b>Empty runs.</b> A run that executed none of the suites Tia expected it to -
+     * {@link TestRunResult#ranNoExpectedSuites()} - contributes no stats, does not establish the
+     * full-suite baseline, is counted as neither a run nor a success and is credited no savings. It
+     * still writes its mapping rows (there are none), its seal and a {@code ran=0} history row, so
+     * the run stays visible; what it does not do is let a misconfigured build that timed no test at
+     * all pass itself off as a measurement.
+     *
      * @param updateDBMapping          should the test-suite to source-code mapping be updated,
      *                                 and with it the run stats. The two are one decision: the run
      *                                 that owns the mapping is the run whose timings are the
@@ -99,10 +106,22 @@ public class TestRunnerService {
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
                 testRunResult.getSelectedTests(), updateDBMapping);
 
+        // A run that executed nothing while the selection expected suites to run measured nothing,
+        // so it contributes no stats, does not establish the full-suite baseline and is not counted
+        // as a successful run. See TestRunResult#ranNoExpectedSuites for what separates it from the
+        // nothing-impacted run that legitimately executes no suite.
+        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites();
+        if (ranNoExpectedSuites){
+            logEmptyRun(testRunResult);
+        }
+
         // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
         // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites,
-        // so this stays a plain == 0 check.
-        boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0;
+        // so this stays a plain == 0 check. A run that executed no suite is excluded whatever its
+        // ignored count: folding its duration into the full-suite baseline would collapse that
+        // baseline, and advancing every tracked library's mapping baseline as though the suites had
+        // just been re-covered would under-select on the next build.
+        boolean allTestsRun = testRunResult.getIgnoredTestSuiteCount() == 0 && !ranNoExpectedSuites;
 
         if (updateDBMapping){
             // 2. The failed set is incremental and safe to be ahead of the commit; over-inclusion
@@ -112,7 +131,8 @@ public class TestRunnerService {
 
         // 3. The seal bundle: catalogue, library drain cleanup and the commit value, written in
         //    one transaction so none of them can end up ahead of the others.
-        sealRun(tiaData, commitValue, branch, updateDBMapping, testRunResult, allTestsRun);
+        sealRun(tiaData, commitValue, branch, updateDBMapping, testRunResult, allTestsRun,
+                ranNoExpectedSuites);
 
         // 4. History row is audit-only and has no select-tests consistency implications;
         //    written after the seal so history rows only exist for fully-sealed runs.
@@ -122,7 +142,7 @@ public class TestRunnerService {
             // all-tests run the savings are 0 regardless.
             long allTestsRunTimeMs = tiaData.getTestStats().getAllTestsRunTime();
             persistTestRunHistory(updateDBMapping, commitValue, branch, runStartTimestampMs,
-                    durationMs, testRunResult, allTestsRunTimeMs);
+                    durationMs, testRunResult, allTestsRunTimeMs, ranNoExpectedSuites);
         }
     }
 
@@ -357,10 +377,13 @@ public class TestRunnerService {
      * @param updateDBMapping whether this run owns mapping-DB updates, and with them the run stats
      * @param testRunResult the collected results of the test run
      * @param allTestsRun {@code true} when Tia ignored zero suites this run
+     * @param ranNoExpectedSuites {@code true} when the run executed no suite although the selection
+     *                            expected at least one, in which case the seal still stamps the
+     *                            commit and rebuilds the catalogue but carries no stats
      */
     private void sealRun(final TiaData tiaData, final String commitValue, final String branch,
                          final boolean updateDBMapping, final TestRunResult testRunResult,
-                         final boolean allTestsRun){
+                         final boolean allTestsRun, final boolean ranNoExpectedSuites){
         if (!updateDBMapping) {
             // Nothing to seal and nothing to write. The commit value and the branch belong to
             // whichever build owns the mapping, and writing the whole core row back would stamp the
@@ -375,11 +398,43 @@ public class TestRunnerService {
 
         // The stats go to the seal as a delta rather than merged onto tiaData here: the store
         // accumulates them against the row's value at write time, so an increment from a build that
-        // committed during this run's persist is not overwritten. See CoreStatsIncrement.
+        // committed during this run's persist is not overwritten. See CoreStatsIncrement. A run that
+        // executed none of the suites it was expected to contributes no delta at all - it timed no
+        // test, so it is neither a run nor a success, and its duration is Tia's own overhead.
+        CoreStatsIncrement statsIncrement = ranNoExpectedSuites
+                ? CoreStatsIncrement.none()
+                : CoreStatsIncrement.of(testRunResult.getTestStats(), allTestsRun);
+
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 testRunResult.getMethodTrackersFromTestRun(),
                 testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
-                CoreStatsIncrement.of(testRunResult.getTestStats(), allTestsRun)));
+                statsIncrement));
+    }
+
+    /**
+     * Warn that the run executed no test suite although Tia's selection expected it to, and say what
+     * Tia is doing about it. Logged at WARN because the run itself looks successful - no suite ran,
+     * so no suite failed - and the build tool reports it as a pass; without this line the only
+     * symptom is a suspiciously fast build and, on a run that ignored nothing, a full-suite baseline
+     * that has quietly collapsed.
+     *
+     * @param testRunResult the run being persisted, read for the selection figures that make the
+     *                      warning actionable
+     */
+    private void logEmptyRun(final TestRunResult testRunResult){
+        boolean everySuiteExpected = testRunResult.getIgnoredTestSuiteCount() == 0;
+        String expected = everySuiteExpected
+                ? "every test suite"
+                : testRunResult.getSelectedTests().size() + " selected test suite(s)";
+
+        log.warn("This test run executed no test suites, though Tia selected {} to run. It is "
+                        + "treated as an empty run: no test was timed, so it contributes no run "
+                        + "stats, is counted as neither a run nor a success, does not move the {} "
+                        + "average and is credited no savings. A test framework that is not wired up "
+                        + "correctly - a missing or mismatched test dependency being the usual "
+                        + "cause - produces exactly this shape of run, so check the project's test "
+                        + "configuration.",
+                expected, everySuiteExpected ? "all-tests-run" : "selected-run");
     }
 
     /**
@@ -408,19 +463,27 @@ public class TestRunnerService {
      * @param allTestsRunTimeMs     the all-tests-run baseline (ms) to freeze this run's savings
      *                              against; partial runs don't move it, so it is the established
      *                              full-suite time
+     * @param ranNoExpectedSuites   {@code true} when the run executed no suite although the selection
+     *                              expected at least one; the row is still written (a {@code ran=0}
+     *                              row is how the empty run stays visible) but it is credited no
+     *                              savings, since skipping tests that were meant to run is a broken
+     *                              build rather than a Tia win
      */
     private void persistTestRunHistory(final boolean updateDBMapping, final String commitValue,
                                        final String branch, final long runStartTimestampMs,
                                        final long durationMs, final TestRunResult testRunResult,
-                                       final long allTestsRunTimeMs) {
+                                       final long allTestsRunTimeMs,
+                                       final boolean ranNoExpectedSuites) {
         int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
         int failed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
 
-        // Freeze the savings for this run: 0 for an all-tests run (ignored == 0) or when no
-        // baseline exists, else the baseline minus this run's duration.
-        long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs, durationMs, ignored == 0);
+        // Freeze the savings for this run: 0 for an all-tests run (ignored == 0), for a run that
+        // executed none of the suites it was expected to, or when no baseline exists; else the
+        // baseline minus this run's duration.
+        long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs, durationMs,
+                ignored == 0 || ranNoExpectedSuites);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(

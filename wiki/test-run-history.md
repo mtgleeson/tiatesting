@@ -36,6 +36,25 @@ Note that a bare `-DtiaRunSource=...` on the Maven command line sets the propert
 
 **What the columns do not fix.** The stored `time_savings` on a local row is still computed against `all_tests_run_time`, the baseline CI maintains — so it is (CI's full-suite time) minus (a laptop's partial run time), two different machines. To get a defensible local-machine ROI figure, compute the savings yourself from the local rows: average `duration_ms` where `num_suites_ignored = 0` is that population's full-suite baseline, and the difference from the average partial run is the real saving.
 
+### Runs that executed no test suite
+
+A build whose test framework is not wired up correctly - a missing or mismatched JUnit dependency being the usual cause - finishes in milliseconds having executed nothing, and reports itself as a pass, because no suite ran so no suite failed. Left alone, Tia recorded that as a legitimate measurement: one run, one success, and on a run that ignored nothing its ~150ms duration became the new `all_tests_run_time`, the full-suite baseline every later savings figure is measured against. One misconfigured build could therefore collapse the baseline and silently deflate the reported savings of every run after it.
+
+So a run that executed **none of the suites Tia expected it to** contributes nothing to the stats: it is counted as neither a run nor a success, its duration is folded into neither average, it does not establish or move the full-suite baseline, and its history row is credited no savings. It still writes its seal and still gets a history row - a `num_suites_ran = 0` row is how the empty run stays visible rather than vanishing - and it logs a WARN naming what Tia expected to run and pointing at the test configuration, since nothing else in the build output makes an empty run look wrong.
+
+**"Expected" is what makes the guard safe.** A run where Tia ignored every suite because nothing was impacted also executes nothing, and that is Tia working exactly as intended - its savings are the largest Tia ever reports, and they must keep being recorded. `TestRunResult.ranNoExpectedSuites()` separates the two from the selector's own decision:
+
+| Ignored | Selected | Ran | Reading |
+| --- | --- | --- | --- |
+| 0 | (any) | 0 | Every suite was expected to run and none did - **empty run**, no stats |
+| > 0 | non-empty | 0 | The selected suites were expected to run and none did - **empty run**, no stats |
+| > 0 | empty | 0 | Nothing was impacted, so there was nothing to run - normal, stats and savings recorded |
+| (any) | (any) | > 0 | A run that executed suites - normal |
+
+The executed-suite count is the per-attempt figure (`suitesRanThisAttempt`), so the question is asked of the attempt being persisted. A Surefire retry runs the suites holding the failed tests, so it does not read as an empty run; a retry contributes no run stats regardless.
+
+Two adjacent hazards of the same misconfiguration are **not** covered by this guard, and are worth knowing about: the run still advances the stored commit value (so the next run diffs from it, exactly as though the empty run had genuinely covered the code), and on a setup with no `tiaTestClassesDirs` configured the empty run's observed-suite set is empty, which `removeDeletedTestSuites` reads as "every tracked suite has been deleted".
+
 ### Why timestamps are stored as UTC epoch ms
 
 Tia runs on developer laptops, CI runners, and shared workspaces in potentially different timezones. Storing a timezone-agnostic numeric value avoids any "what does this string mean in this DB" ambiguity. The HTML History page renders each row's timestamp in the viewer's **local** timezone via a small inline script that calls `new Date(ms).toLocaleString(...)` — no millisecond precision and no timezone marker in the displayed text.
