@@ -1,6 +1,5 @@
 package org.tiatesting.core.report.html;
 
-import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +8,7 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -47,12 +47,20 @@ public class HtmlTestSuiteReport {
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
     }
 
+    /**
+     * Write the single test-suites index page: one table row per tracked suite with its run stats
+     * and impacted-method count. Renders through {@link FastTextEscaper#reportConfig()} so text and
+     * attribute escaping use the report's fast, allocation-light escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     */
     private void generateTestSuiteReportData(TiaData tiaData){
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + TIA_TEST_SUITES_HTML;
         log.info("Writing the test suite report to {}", fileName);
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (FileWriter fileWriter = new FileWriter(fileName);
+             BufferedWriter writer = new BufferedWriter(fileWriter)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -96,7 +104,7 @@ public class HtmlTestSuiteReport {
                             HtmlLayout.pageFooter(),
                             HtmlLayout.simpleDatatablesInit("#tiaTable", ASSETS_REL)
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -114,6 +122,14 @@ public class HtmlTestSuiteReport {
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * Write the per-suite drill-down page listing the source methods the given suite impacts.
+     * Renders through {@link FastTextEscaper#reportConfig()} so text and attribute
+     * escaping use the report's fast, allocation-light escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     * @param testSuiteTracker the suite whose impacted-methods page is being written
+     */
     private void writeSourceMethodsHtmlToFile(TiaData tiaData, TestSuiteTracker testSuiteTracker){
         String fileName = reportOutputDir + File.separator + testSuiteTracker.getName() + ".html";
 
@@ -125,7 +141,8 @@ public class HtmlTestSuiteReport {
                 .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
                 .collect(Collectors.toSet());
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (FileWriter fileWriter = new FileWriter(fileName);
+             BufferedWriter writer = new BufferedWriter(fileWriter)) {
             html(
                     HtmlLayout.pageHead("Test Suite — " + testSuiteTracker.getName(), ASSETS_REL),
                     body(
@@ -165,7 +182,7 @@ public class HtmlTestSuiteReport {
                             HtmlLayout.pageFooter(),
                             HtmlLayout.simpleDatatablesInit("#tiaSourceMethodTable", ASSETS_REL)
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

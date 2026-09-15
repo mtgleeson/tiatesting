@@ -3384,107 +3384,122 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Load every test suite (and, optionally, the source-class / source-method coverage map for each)
-     * in a single bulk query.
+     * Load the full suite-to-class-to-method mapping. When {@code loadClassesData} is false only
+     * the suite metadata is read; otherwise the classes and their method edges are loaded too.
      *
-     * <p>Earlier versions ran one {@code SELECT * FROM tia_test_suite} followed by N per-suite
-     * {@code SELECT … JOIN tia_source_class_method WHERE tia_test_suite_id = ?} queries, parallelised
-     * via {@code parallelStream}. On a 1k-suite / 5.6M-edge DB that was 86%+ of total CPU because
-     * 1000 random-access B-tree walks all serialised on the same MVStore file. A single bulk join
-     * amortises the per-row cost over one cursor.
+     * <p>The mapping is read with three separate scans rather than one three-way join. A single
+     * join repeats the ~180-char {@code tia_source_class.source_filename} varchar on every method
+     * edge, so H2 deserialises that string once per edge (~5.6M times on the reference DB) even
+     * though there are far fewer class rows (~948K). Reading the class rows on their own scan
+     * deserialises each filename once, and the method-edge scan selects only the two integer ids,
+     * so no varchar is materialised for the multi-million-row edge table. This is the dominant
+     * cost of the full load, as measured by the {@code profileHtmlReport} harness.
      *
-     * <p>The query intentionally does <strong>not</strong> use {@code ORDER BY}: at 5.6M rows H2
-     * could not fold the sort into the index and instead spilled the result set to a temp file
-     * (visible as {@code MVSortedTempResult} in profiling - ~56% of post-fix CPU). The reducer
-     * therefore tolerates rows arriving in any order: it keeps id-keyed maps for both the suite
-     * and the class layer, so an arbitrary row updates the right tracker via two hash lookups.
-     * After the loop, every {@link MethodIdSet} is finalised once.
-     *
-     * <p>{@code LEFT JOIN}s preserve the existing behaviour: a test suite with no classes still
-     * appears in the returned map (with an empty {@code classesImpacted} list); a class row with
-     * no matching method edge is dropped (matches the previous {@code INNER JOIN} between
-     * {@code tia_source_class} and {@code tia_source_class_method}).
+     * @param connection the open DB connection to read from
+     * @param loadClassesData whether to load the class and method-edge mapping, not just suites
+     * @return the tracked test suites keyed by suite name
+     * @throws SQLException if any of the reads fail
      */
     private Map<String, TestSuiteTracker> getTestSuitesData(Connection connection, boolean loadClassesData) throws SQLException {
         if (!loadClassesData) {
             return loadTestSuitesMetadataOnly(connection);
         }
 
-        // Aliased columns let us pull the suite + class + method data out of one cursor without
-        // ambiguous-column errors on the shared "id" / "source_filename" names.
-        String sql = "SELECT ts." + COL_ID + " AS suite_id, ts." + COL_NAME + " AS suite_name, " +
-                "ts." + COL_NUM_RUNS + " AS suite_num_runs, ts." + COL_AVG_RUN_TIME + " AS suite_avg_run_time, " +
-                "ts." + COL_NUM_SUCCESS_RUNS + " AS suite_num_success_runs, ts." + COL_NUM_FAIL_RUNS + " AS suite_num_fail_runs, " +
-                "ts." + COL_DEVELOPER_DISABLED + " AS suite_developer_disabled, " +
-                "ts." + COL_UNSEALED + " AS suite_unsealed, " +
-                "sc." + COL_ID + " AS class_id, sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
-                "scm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id " +
-                "FROM " + TABLE_TIA_TEST_SUITE + " ts " +
-                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS + " sc ON sc." + COL_TIA_TEST_SUITE_ID + " = ts." + COL_ID + " " +
-                "LEFT JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID;
+        // Suite metadata (one row per suite), read and mapped in exactly one place. Every suite
+        // starts with an empty (mutable) classesImpacted list; the class scan below fills it.
+        Map<String, TestSuiteTracker> testSuites = loadTestSuitesMetadataOnly(connection);
+        Map<Long, TestSuiteTracker> suitesById = new HashMap<>(testSuites.size() * 2);
+        for (TestSuiteTracker suite : testSuites.values()) {
+            suite.setClassesImpacted(new ArrayList<>());
+            suitesById.put(suite.getId(), suite);
+        }
 
-        // Suite trackers keyed by both id (for fast lookup during the unordered scan) and name
-        // (the public return-shape); the two maps share the same TestSuiteTracker instances.
-        Map<Long, TestSuiteTracker> suitesById = new HashMap<>();
-        Map<String, TestSuiteTracker> testSuites = new HashMap<>();
-        // ClassImpactTrackers keyed by their tia_source_class.id while we're still building.
-        // Cleared after the loop - only TestSuiteTracker references survive.
-        Map<Long, ClassImpactTracker> classesById = new HashMap<>();
+        // Class rows (filename read once per class), then the method edges (int ids only).
+        Map<Long, ClassImpactTracker> classesById = loadClassTrackers(connection, suitesById);
+        appendClassMethodEdges(connection, classesById);
 
-        try (Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery(sql)) {
-
-            while (rs.next()) {
-                long suiteId = rs.getLong("suite_id");
-                TestSuiteTracker suite = suitesById.get(suiteId);
-                if (suite == null) {
-                    suite = new TestSuiteTracker();
-                    suite.setId(suiteId);
-                    suite.setName(rs.getString("suite_name"));
-                    suite.getTestStats().setNumRuns(rs.getLong("suite_num_runs"));
-                    suite.getTestStats().setAvgRunTime(rs.getLong("suite_avg_run_time"));
-                    suite.getTestStats().setNumSuccessRuns(rs.getLong("suite_num_success_runs"));
-                    suite.getTestStats().setNumFailRuns(rs.getLong("suite_num_fail_runs"));
-                    suite.setDeveloperDisabled(rs.getBoolean("suite_developer_disabled"));
-                    suite.setUnsealed(rs.getBoolean("suite_unsealed"));
-                    suite.setClassesImpacted(new ArrayList<>());
-                    suitesById.put(suiteId, suite);
-                    testSuites.put(suite.getName(), suite);
+        // Drop classes with no method edges - matching the previous inner-join semantics between
+        // tia_source_class and tia_source_class_method - and finalise the method-id set of the
+        // rest so subsequent contains/equals/iteration is correct.
+        for (TestSuiteTracker suite : testSuites.values()) {
+            Iterator<ClassImpactTracker> it = suite.getClassesImpacted().iterator();
+            while (it.hasNext()) {
+                ClassImpactTracker classTracker = it.next();
+                if (classTracker.getMethodsImpacted().isEmpty()) {
+                    it.remove();
+                } else {
+                    classTracker.getMethodsImpacted().finishBulkBuild();
                 }
-
-                // LEFT JOINs may yield (suite, NULL class) rows for suites with no classes,
-                // and (suite, class, NULL method) rows for classes with no methods. Skip both -
-                // matches the previous behaviour where the INNER JOIN between tia_source_class
-                // and tia_source_class_method dropped classes with no method edges.
-                long classIdValue = rs.getLong("class_id");
-                if (rs.wasNull()) {
-                    continue;
-                }
-                int methodId = rs.getInt("method_id");
-                if (rs.wasNull()) {
-                    continue;
-                }
-
-                ClassImpactTracker classTracker = classesById.get(classIdValue);
-                if (classTracker == null) {
-                    classTracker = new ClassImpactTracker(rs.getString("class_source_filename"), new MethodIdSet());
-                    classesById.put(classIdValue, classTracker);
-                    suite.getClassesImpacted().add(classTracker);
-                }
-
-                // appendForBulkBuild avoids the per-row Integer.valueOf allocation and the
-                // O(n) shift that add(int) does to keep the array sorted. finishBulkBuild
-                // (called once per class below) sorts + dedupes the underlying int[].
-                classTracker.getMethodsImpacted().appendForBulkBuild(methodId);
             }
         }
 
-        // Finalise every class's method-id set so subsequent contains/equals/iteration is correct.
-        for (ClassImpactTracker classTracker : classesById.values()) {
-            classTracker.getMethodsImpacted().finishBulkBuild();
-        }
-
         return testSuites;
+    }
+
+    /**
+     * Scan {@code tia_source_class} once, building one {@link ClassImpactTracker} per class row and
+     * attaching it to its owning suite's {@code classesImpacted} list. Reading the class rows on
+     * their own scan means the {@code source_filename} varchar is deserialised once per class
+     * rather than once per method edge. Classes whose suite is not present are skipped, mirroring
+     * the previous join which only emitted class rows joined to an existing suite.
+     *
+     * @param connection the open DB connection to read from
+     * @param suitesById the already-loaded suites keyed by suite id, whose lists are appended to
+     * @return the class trackers keyed by their {@code tia_source_class.id}, for the edge scan
+     * @throws SQLException if the read fails
+     */
+    private Map<Long, ClassImpactTracker> loadClassTrackers(Connection connection,
+                                                            Map<Long, TestSuiteTracker> suitesById) throws SQLException {
+        String sql = "SELECT " + COL_ID + " AS class_id, " + COL_TIA_TEST_SUITE_ID + " AS suite_id, " +
+                COL_SOURCE_FILENAME + " AS class_source_filename FROM " + TABLE_TIA_SOURCE_CLASS;
+
+        Map<Long, ClassImpactTracker> classesById = new HashMap<>();
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(sql)) {
+            while (rs.next()) {
+                long classId = rs.getLong("class_id");
+                long suiteId = rs.getLong("suite_id");
+                TestSuiteTracker suite = suitesById.get(suiteId);
+                if (suite == null) {
+                    continue;
+                }
+                ClassImpactTracker classTracker =
+                        new ClassImpactTracker(rs.getString("class_source_filename"), new MethodIdSet());
+                classesById.put(classId, classTracker);
+                suite.getClassesImpacted().add(classTracker);
+            }
+        }
+        return classesById;
+    }
+
+    /**
+     * Scan {@code tia_source_class_method} once, appending each edge's method id to its class's
+     * method-id set. Only the two integer id columns are selected, so no varchar is materialised
+     * for the multi-million-row edge table. Uses {@code appendForBulkBuild} to avoid the per-row
+     * {@code Integer.valueOf} allocation and the sorted-insert shift; the caller finalises each
+     * set with {@code finishBulkBuild} afterwards. Edges referencing a class not present in
+     * {@code classesById} are skipped (they cannot occur under referential integrity).
+     *
+     * @param connection the open DB connection to read from
+     * @param classesById the class trackers keyed by {@code tia_source_class.id} to append into
+     * @throws SQLException if the read fails
+     */
+    private void appendClassMethodEdges(Connection connection,
+                                        Map<Long, ClassImpactTracker> classesById) throws SQLException {
+        String sql = "SELECT " + COL_TIA_SOURCE_CLASS_ID + " AS class_id, " +
+                COL_TIA_SOURCE_METHOD_ID + " AS method_id FROM " + TABLE_TIA_SOURCE_CLASS_METHOD;
+
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(sql)) {
+            while (rs.next()) {
+                long classId = rs.getLong("class_id");
+                ClassImpactTracker classTracker = classesById.get(classId);
+                if (classTracker == null) {
+                    continue;
+                }
+                classTracker.getMethodsImpacted().appendForBulkBuild(rs.getInt("method_id"));
+            }
+        }
     }
 
     /**
@@ -3561,9 +3576,10 @@ public class JdbcDataStore implements DataStore {
                 COL_TIA_TEST_SUITE_ID + " BIGINT, " +
                 COL_SOURCE_FILENAME + " VARCHAR(500))";
 
-        // Index on tia_source_class.tia_test_suite_id is essential: without it, the bulk join in
-        // getTestSuitesData becomes a nested-loop scan of all tia_source_class rows for every
-        // suite - observed at ~30% of select-tests CPU on a 940K-row tia_source_class table.
+        // Index on tia_source_class.tia_test_suite_id is essential for the suite-scoped
+        // "DELETE FROM tia_source_class WHERE tia_test_suite_id = ?" run on every suite persist:
+        // without it, each delete is a full scan of all tia_source_class rows - observed at ~30%
+        // of CPU on a 940K-row tia_source_class table.
         String createSourceClassTestSuiteIndexSql = buildCreateSourceClassTestSuiteIndexSql();
 
         String createSourceClassMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS_METHOD +
@@ -3839,8 +3855,9 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Migration: ensure the {@code tia_source_class.tia_test_suite_id} index exists on
-     * an already-populated DB. Without this index, the bulk join in {@code getTestSuitesData}
-     * degrades to a nested-loop scan of {@code tia_source_class}.
+     * an already-populated DB. Without this index, the suite-scoped
+     * {@code DELETE FROM tia_source_class WHERE tia_test_suite_id = ?} degrades to a full scan of
+     * {@code tia_source_class}.
      */
     private void ensureSourceClassTestSuiteIndexExists(Connection connection) throws SQLException {
         Statement statement = connection.createStatement();

@@ -1,6 +1,5 @@
 package org.tiatesting.core.report.html;
 
-import j2html.Config;
 import j2html.rendering.FlatHtml;
 import j2html.tags.DomContent;
 import org.slf4j.Logger;
@@ -43,6 +42,12 @@ public class HtmlSummaryReport {
         generateSummaryReportData(tiaData);
     }
 
+    /**
+     * Write the summary index page. Renders through {@link FastTextEscaper#reportConfig()} so
+     * text and attribute escaping use the report's fast, allocation-light escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     */
     private void generateSummaryReportData(TiaData tiaData){
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + INDEX_HTML;
@@ -114,7 +119,7 @@ public class HtmlSummaryReport {
                             ),
                             HtmlLayout.pageFooter()
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
