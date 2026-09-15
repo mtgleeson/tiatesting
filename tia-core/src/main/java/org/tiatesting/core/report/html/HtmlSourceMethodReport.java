@@ -97,12 +97,20 @@ public class HtmlSourceMethodReport {
                                                     th("Line end").attr(numberDataType)
                                             )),
                                             tbody()
-                                    )
+                                    ),
+                                    // Shown while the data option is imported into simple-datatables
+                                    // (a synchronous, multi-second step on a large project); hidden by
+                                    // the init script once the table has been built.
+                                    div(attrs("#tiaSourceMethodsLoading.tia-table-loading"),
+                                            span(attrs(".tia-spinner")).attr("aria-hidden", "true"),
+                                            span("Loading methods…")
+                                    ).attr("role", "status").attr("aria-live", "polite")
                             ),
                             HtmlLayout.pageFooter(),
                             HtmlLayout.simpleDatatablesInitWithData("#tiaSourceMethodsTable", ASSETS_REL,
                                     SOURCE_METHODS_COLUMNS_JSON,
-                                    buildSourceMethodsRowsJson(tiaData, methodToTestSuites))
+                                    buildSourceMethodsRowsJson(tiaData, methodToTestSuites),
+                                    "tiaSourceMethodsLoading")
                     )
             ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {

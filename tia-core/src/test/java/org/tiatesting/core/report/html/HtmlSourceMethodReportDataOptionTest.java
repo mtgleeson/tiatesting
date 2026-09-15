@@ -72,6 +72,44 @@ class HtmlSourceMethodReportDataOptionTest {
     }
 
     /**
+     * Generate the Source Methods report and assert it emits a loading indicator and that the init
+     * script defers the (synchronous, main-thread-blocking) {@code DataTable} construction by a
+     * frame so the indicator paints first, then hides it once the table is built.
+     */
+    @Test
+    void showsLoadingIndicatorAndDefersConstruction(@TempDir Path tempDir) throws IOException {
+        // given
+        TiaData tiaData = buildTiaDataWithOneConstructorMethod();
+
+        // when
+        new HtmlSourceMethodReport("branch", tempDir.toFile()).generateSourceMethodReport(tiaData);
+
+        // then
+        File methodsList = new File(tempDir.toFile(), "html/branch/methods/tia-source-methods.html");
+        String html = read(methodsList);
+
+        // the indicator element is present with its spinner and status semantics
+        assertTrue(html.contains("id=\"tiaSourceMethodsLoading\""), "loading element id missing");
+        assertTrue(html.contains("tia-table-loading"), "loading element class missing");
+        assertTrue(html.contains("tia-spinner"), "spinner element missing");
+        assertTrue(html.contains("Loading methods"), "loading text missing");
+        assertTrue(html.contains("role=\"status\""), "loading element should be a status region");
+
+        // construction is deferred a frame, then the indicator is hidden
+        assertTrue(html.contains("getElementById(\"tiaSourceMethodsLoading\")"),
+                "init should look up the loading element");
+        assertTrue(html.contains("requestAnimationFrame("),
+                "construction should be deferred so the indicator paints first");
+        assertTrue(html.contains("loading.style.display = \"none\""),
+                "the indicator should be hidden after the table is built");
+
+        // the spinner style ships in the bundled stylesheet
+        String css = readResource("/report/assets/css/tia.css");
+        assertTrue(css.contains(".tia-spinner"), "spinner CSS should be bundled in tia.css");
+        assertTrue(css.contains("@keyframes tia-spin"), "spinner keyframes should be bundled");
+    }
+
+    /**
      * Verify {@link HtmlSourceMethodReport#appendJsonString(StringBuilder, String)} produces a
      * double-quoted JSON string with the standard escapes and, additionally, unicode-escapes
      * {@code < > &} so the value is safe to inline inside a {@code <script>} element.
@@ -122,5 +160,20 @@ class HtmlSourceMethodReportDataOptionTest {
 
     private static String read(File f) throws IOException {
         return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+    }
+
+    private String readResource(String path) throws IOException {
+        try (java.io.InputStream in = getClass().getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IOException("resource not found on classpath: " + path);
+            }
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 }

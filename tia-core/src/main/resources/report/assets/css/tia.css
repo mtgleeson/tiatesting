@@ -132,6 +132,39 @@ footer.tia-footer {
     font-size: 0.85rem;
 }
 
+/* Loading indicator for the Source Methods table. That table's rows are imported into
+   simple-datatables via the constructor's data option; on a large project the constructor
+   runs synchronously and blocks the main thread for several seconds. This block is shown
+   under the (empty) table until construction finishes, then hidden from script. */
+.tia-table-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1.5rem 0;
+    color: var(--pico-muted-color);
+}
+
+.tia-spinner {
+    display: inline-block;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: 2px solid var(--pico-muted-border-color);
+    border-top-color: var(--pico-primary);
+    border-radius: 50%;
+    animation: tia-spin 0.7s linear infinite;
+}
+
+@keyframes tia-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Respect a reduced-motion preference: keep the indicator, drop the spin. */
+@media (prefers-reduced-motion: reduce) {
+    .tia-spinner {
+        animation: none;
+    }
+}
+
 /* Left-align table column headers. simple-datatables wraps the header label in a <button>;
    Pico's classless rules style every <button> with text-align: center and a horizontal
    padding (~2rem), which both centres and inset the header text away from the column's
