@@ -279,6 +279,47 @@ final class HtmlLayout {
         );
     }
 
+    /**
+     * Inline init for simple-datatables that feeds the row data through the constructor's
+     * {@code data} option instead of letting the library read it from the DOM {@code <tbody>}.
+     *
+     * <p>For a very large table (the Source Methods index can hold tens of thousands of rows) the
+     * DOM path is the client-side bottleneck: the browser first lays out every emitted
+     * {@code <tr>}, then simple-datatables walks every row and cell node to build its internal
+     * model, before finally hiding all but the first page. Both costs scale with the total row
+     * count and run before the page is interactive. Supplying the rows as a pre-built JavaScript
+     * array skips both: the page is emitted with an empty {@code <tbody>} (nothing to lay out) and
+     * the library imports the array directly, rendering only the current page. Column headings are
+     * still read from the retained {@code <thead>}.
+     *
+     * <p>{@code columnsJson} is the {@code columns} option (a JSON array of per-column settings such
+     * as {@code type} and initial {@code sort}); {@code rowsJson} is the {@code data.data} value (a
+     * JSON array of row arrays). Both are emitted verbatim into the script, so the caller is
+     * responsible for producing script-safe JSON - in particular escaping {@code < > &} inside any
+     * string so the content cannot terminate the {@code <script>} element.
+     *
+     * @param tableSelector CSS selector identifying the {@code <table>} element to wire up
+     * @param assetsRel relative path from the page to the bundled-assets directory
+     * @param columnsJson the {@code columns} option as a script-safe JSON array literal
+     * @param rowsJson the row data as a script-safe JSON array-of-arrays literal
+     * @return script tags that load simple-datatables and instantiate it from the supplied data
+     */
+    static DomContent simpleDatatablesInitWithData(String tableSelector, String assetsRel,
+                                                   String columnsJson, String rowsJson) {
+        return joinScripts(
+                script().withSrc(assetsRel + "/js/simple-datatables.min.js"),
+                script(rawHtml("const dataTable = new simpleDatatables.DataTable(\"" + tableSelector + "\", {\n" +
+                        "\tcolumns: " + columnsJson + ",\n" +
+                        "\tdata: { data: " + rowsJson + " },\n" +
+                        "\tsearchable: true,\n" +
+                        "\tfixedHeight: true,\n" +
+                        "\tpaging: true,\n" +
+                        "\tperPage: 20,\n" +
+                        "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
+                        "})"))
+        );
+    }
+
     private static DomContent joinScripts(DomContent... scripts) {
         return each(Arrays.asList(scripts), s -> s);
     }
