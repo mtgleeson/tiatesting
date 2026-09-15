@@ -5,10 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.*;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.text.DecimalFormat;
 import java.util.*;
 
@@ -57,8 +56,7 @@ public class HtmlSourceMethodReport {
         String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS_HTML;
         log.info("Writing the source methods report to {}", fileName);
 
-        try (FileWriter fileWriter = new FileWriter(fileName);
-             BufferedWriter writer = new BufferedWriter(fileWriter)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -134,12 +132,11 @@ public class HtmlSourceMethodReport {
         int secondLastDot = lastDot > 0 ? shortName.lastIndexOf('.', lastDot - 1) : -1;
         String classAndMethod = secondLastDot >= 0 ? shortName.substring(secondLastDot + 1) : shortName;
 
-        try (FileWriter fileWriter = new FileWriter(fileName);
-             BufferedWriter writer = new BufferedWriter(fileWriter)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
-                    HtmlLayout.pageHead("Source Method — " + methodImpactTracker.getNameForDisplay(), ASSETS_REL),
+                    HtmlLayout.pageHead("Source Method - " + methodImpactTracker.getNameForDisplay(), ASSETS_REL),
                     body(
                             HtmlLayout.topNav(HtmlLayout.NavKey.SOURCE_CODE, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
                             main(
