@@ -8,10 +8,9 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.text.DecimalFormat;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -59,8 +58,7 @@ public class HtmlTestSuiteReport {
         String fileName = reportOutputDir + File.separator + TIA_TEST_SUITES_HTML;
         log.info("Writing the test suite report to {}", fileName);
 
-        try (FileWriter fileWriter = new FileWriter(fileName);
-             BufferedWriter writer = new BufferedWriter(fileWriter)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -141,10 +139,9 @@ public class HtmlTestSuiteReport {
                 .flatMap(classImpactTracker -> classImpactTracker.getMethodsImpacted().stream())
                 .collect(Collectors.toSet());
 
-        try (FileWriter fileWriter = new FileWriter(fileName);
-             BufferedWriter writer = new BufferedWriter(fileWriter)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             html(
-                    HtmlLayout.pageHead("Test Suite — " + testSuiteTracker.getName(), ASSETS_REL),
+                    HtmlLayout.pageHead("Test Suite - " + testSuiteTracker.getName(), ASSETS_REL),
                     body(
                             HtmlLayout.topNav(HtmlLayout.NavKey.TEST_SUITES, ASSETS_REL, ROOT_REL, pendingCount(tiaData)),
                             main(

@@ -10,8 +10,8 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.text.DecimalFormat;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -60,7 +60,7 @@ public class HtmlSummaryReport {
         int pendingCount = tiaData.getPendingLibraryImpactedMethods() != null
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             int numTestSuites = tiaData.getTestSuitesTracked().size();
             int numSourceMethods = tiaData.getMethodsTracked().size();
             TestStats stats = tiaData.getTestStats();
