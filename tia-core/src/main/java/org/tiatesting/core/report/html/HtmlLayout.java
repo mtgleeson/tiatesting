@@ -298,25 +298,50 @@ final class HtmlLayout {
      * responsible for producing script-safe JSON - in particular escaping {@code < > &} inside any
      * string so the content cannot terminate the {@code <script>} element.
      *
+     * <p>Importing a large data set is synchronous and blocks the main thread for several seconds,
+     * during which the page would otherwise show only an empty table. When {@code loadingElementId}
+     * is non-null the init defers the {@code DataTable} construction by one animation frame (a
+     * {@code requestAnimationFrame} followed by a {@code setTimeout}) so the browser first paints
+     * the caller's loading indicator, then hides that element once construction returns. Pass
+     * {@code null} to build immediately with no indicator.
+     *
      * @param tableSelector CSS selector identifying the {@code <table>} element to wire up
      * @param assetsRel relative path from the page to the bundled-assets directory
      * @param columnsJson the {@code columns} option as a script-safe JSON array literal
      * @param rowsJson the row data as a script-safe JSON array-of-arrays literal
+     * @param loadingElementId id of an element to hide once the table is built, or {@code null}
      * @return script tags that load simple-datatables and instantiate it from the supplied data
      */
     static DomContent simpleDatatablesInitWithData(String tableSelector, String assetsRel,
-                                                   String columnsJson, String rowsJson) {
+                                                   String columnsJson, String rowsJson,
+                                                   String loadingElementId) {
+        String loadingLookup = loadingElementId == null
+                ? "null"
+                : "document.getElementById(\"" + loadingElementId + "\")";
         return joinScripts(
                 script().withSrc(assetsRel + "/js/simple-datatables.min.js"),
-                script(rawHtml("const dataTable = new simpleDatatables.DataTable(\"" + tableSelector + "\", {\n" +
-                        "\tcolumns: " + columnsJson + ",\n" +
-                        "\tdata: { data: " + rowsJson + " },\n" +
-                        "\tsearchable: true,\n" +
-                        "\tfixedHeight: true,\n" +
-                        "\tpaging: true,\n" +
-                        "\tperPage: 20,\n" +
-                        "\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
-                        "})"))
+                script(rawHtml("(function () {\n" +
+                        "\tvar loading = " + loadingLookup + ";\n" +
+                        "\tfunction build() {\n" +
+                        "\t\tconst dataTable = new simpleDatatables.DataTable(\"" + tableSelector + "\", {\n" +
+                        "\t\t\tcolumns: " + columnsJson + ",\n" +
+                        "\t\t\tdata: { data: " + rowsJson + " },\n" +
+                        "\t\t\tsearchable: true,\n" +
+                        "\t\t\tfixedHeight: true,\n" +
+                        "\t\t\tpaging: true,\n" +
+                        "\t\t\tperPage: 20,\n" +
+                        "\t\t\tperPageSelect: [10, 20, 50, [\"All\", -1]]\n" +
+                        "\t\t});\n" +
+                        "\t\tif (loading) { loading.style.display = \"none\"; }\n" +
+                        "\t}\n" +
+                        "\t// Paint the loading indicator before the synchronous DataTable\n" +
+                        "\t// constructor blocks the main thread on a large data set.\n" +
+                        "\tif (loading) {\n" +
+                        "\t\trequestAnimationFrame(function () { setTimeout(build, 0); });\n" +
+                        "\t} else {\n" +
+                        "\t\tbuild();\n" +
+                        "\t}\n" +
+                        "})();"))
         );
     }
 
