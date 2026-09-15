@@ -188,6 +188,14 @@ public final class DistributedRunSealer {
         // every later savings figure, towards nothing.
         boolean allTestsRun = totals.getSuitesRan() > 0 && ignoredSuiteCount == 0;
 
+        // The same question a single-host run asks of itself (TestRunResult#ranNoExpectedSuites),
+        // asked of the build: did it execute none of the suites its plan expected? Only the plan can
+        // answer the "expected" half for a split build, which is why it is derived here.
+        boolean ranNoExpectedSuites = ranNoExpectedSuites(run, assignedSuitesByGroup, totals);
+        if (ranNoExpectedSuites) {
+            logEmptyBuild(run, assignedSuitesByGroup, updateDBMapping);
+        }
+
         // Logged unconditionally, and with both inputs, because a wrong answer here is silent and
         // expensive: a false "all tests run" folds a partial build into the full-suite baseline and
         // advances every tracked library's mapping baseline, under-selecting on later builds with
@@ -207,7 +215,7 @@ public final class DistributedRunSealer {
         // delta rather than an in-memory merge so the store accumulates against the row's value at
         // write time; see CoreStatsIncrement.
         CoreStatsIncrement statsIncrement = CoreStatsIncrement.none();
-        if (updateDBMapping) {
+        if (updateDBMapping && !ranNoExpectedSuites) {
             statsIncrement = CoreStatsIncrement.of(buildRunStats(totals), allTestsRun);
             DistributedRunOverheadModel model =
                     solveOverheadModel(tiaData, run, groups, assignedSuitesByGroup);
@@ -217,15 +225,22 @@ public final class DistributedRunSealer {
             }
         }
 
-        seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement);
+        if (!ranNoExpectedSuites) {
+            seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement);
+        }
 
         if (updateDBTestRunHistory) {
             // The baseline this build's savings are frozen against, read from the same core data
             // the seal has just updated, exactly as the single-host persist reads it after its own
             // seal. An all-tests build saves nothing by definition, so the ordering only matters
             // for a partial build, and a partial build does not move the baseline.
-            persistBuildHistory(commitValue, branch, updateDBMapping, totals, ignoredSuiteCount,
-                    allTestsRun, tiaData.getTestStats().getAllTestsRunTime(), run.getCreatedAtMs());
+            //
+            // An empty build's row reports no mapping update whatever the build was configured to
+            // do, because the seal above did not run - the same shape the single-host empty run's
+            // row takes.
+            persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
+                    ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
+                    run.getCreatedAtMs(), ranNoExpectedSuites);
         }
     }
 
@@ -306,13 +321,18 @@ public final class DistributedRunSealer {
      * @param runTimestampMs UTC epoch millis when the run's plan was written, read from the same
      *                       run row {@link #recordBuild} already read the commit and branch from,
      *                       so the row is read once per seal rather than once per figure
+     * @param ranNoExpectedSuites whether the build executed none of the suites its plan expected; such
+     *                            a build still gets its row - a {@code ran=0} row is how it stays
+     *                            visible - but is credited no savings, having finished early because
+     *                            it ran nothing rather than because Tia deselected anything
      */
     private void persistBuildHistory(final String commitValue, final String branch,
                                      final boolean updateDBMapping, final DistributedRunTotals totals,
                                      final int ignoredSuiteCount, final boolean allTestsRun,
-                                     final long allTestsRunTimeMs, final long runTimestampMs) {
+                                     final long allTestsRunTimeMs, final long runTimestampMs,
+                                     final boolean ranNoExpectedSuites) {
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
-                totals.getSerialDurationMs(), allTestsRun);
+                totals.getSerialDurationMs(), allTestsRun || ranNoExpectedSuites);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(branch, commitValue,
@@ -328,6 +348,98 @@ public final class DistributedRunSealer {
                 context.getRunId(), entry.getId(), totals.getGroupCount(), totals.getSuitesRan(),
                 ignoredSuiteCount, totals.getSuitesFailed(), totals.getSerialDurationMs(),
                 totals.getWallClockMs(), totals.getFixedOverheadMs(), timeSavingsMs);
+    }
+
+    /**
+     * Whether the build executed none of the suites its plan expected it to - the distributed shape of
+     * the empty run a misconfigured project produces, and the reason such a build seals nothing and
+     * records no stats.
+     *
+     * <p>The execution half is {@code DistributedRunTotals.getSuitesRan() == 0}, and reading zero from
+     * that counter is safe in a way reading a non-zero value would not be: it accumulates across every
+     * test plan in every runner's JVM, so Surefire retries can only inflate it, never turn a genuine
+     * zero into something else. If it is zero, no group ran a suite on any attempt.
+     *
+     * <p>The expectation half comes from the plan, never from the counter, and turns on the same
+     * distinction {@link #ignoredSuiteCount} has to make between the two opposite builds that plan an
+     * empty assignment. A <em>seed run</em> expected to run everything, so executing nothing makes it
+     * empty. A <em>nothing-impacted</em> build - a real selection that chose no suites - expected to
+     * run nothing, so executing nothing is Tia working as intended and its stats and savings are
+     * recorded as usual. Any build with suites assigned to a group expected those suites.
+     *
+     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param assignedSuitesByGroup the suite names the plan assigned each group
+     * @param totals the figures the build's groups add up to
+     * @return true when no group ran a suite though the plan expected at least one to
+     */
+    private boolean ranNoExpectedSuites(final DistributedRun run,
+                                        final Map<Integer, Set<String>> assignedSuitesByGroup,
+                                        final DistributedRunTotals totals) {
+        if (totals.getSuitesRan() > 0) {
+            return false;
+        }
+
+        return run.isSeedRun() || assignedAnySuite(assignedSuitesByGroup);
+    }
+
+    /**
+     * Whether the plan assigned any suite to any group, which is what separates a build that expected
+     * to run named suites from one that was assigned nothing at all.
+     *
+     * @param assignedSuitesByGroup the suite names the plan assigned each group
+     * @return true when at least one group was assigned at least one suite
+     */
+    private boolean assignedAnySuite(final Map<Integer, Set<String>> assignedSuitesByGroup) {
+        for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
+            if (!groupSuites.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Warn that the build executed none of the suites its plan expected, and say what the seal is
+     * doing about it. At WARN for the reason the single-host path warns: no suite ran, so no suite
+     * failed, and every runner's build reports itself as a pass - the only other symptom is a
+     * suspiciously fast build.
+     *
+     * <p>Says only what applies, in both directions. A build that was not updating the mapping had no
+     * seal, stats or commit stamp to withhold in the first place, so it is told what it is missing
+     * rather than what was taken away. And no single cause is named: a broken test framework is the
+     * reported one, but a filter that excluded every runner's share, or an assignment whose suites are
+     * all disabled in source, produce the same shape and are not distinguishable from here.
+     *
+     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param assignedSuitesByGroup the suite names the plan assigned each group, counted for the
+     *                              warning so it names what was expected
+     * @param updateDBMapping whether this build owned mapping-DB updates
+     */
+    private void logEmptyBuild(final DistributedRun run,
+                               final Map<Integer, Set<String>> assignedSuitesByGroup,
+                               final boolean updateDBMapping) {
+        Set<String> assignedSuites = new HashSet<>();
+        for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
+            assignedSuites.addAll(groupSuites);
+        }
+        String expected = run.isSeedRun() && assignedSuites.isEmpty()
+                ? "every test suite"
+                : assignedSuites.size() + " selected test suite(s)";
+
+        String consequence = updateDBMapping
+                ? "The build is treated as an empty run: nothing is sealed, so it contributes no run "
+                        + "stats, moves no run-time average, is credited no savings and does not "
+                        + "advance the stored commit value - the next build will diff against the "
+                        + "previous commit and re-select this build's tests."
+                : "This build was not updating the mapping DB, so it had no seal or stats to record "
+                        + "either way; only its history row is written, credited no savings.";
+
+        log.warn("Distributed run '{}': no group executed a single test suite, though the plan "
+                        + "assigned {} to run across {} group(s). {} Common causes: a test framework "
+                        + "that is not wired up correctly (a missing or mismatched test dependency), "
+                        + "a build-tool filter that excluded the runners' shares, or every assigned "
+                        + "suite being disabled in source.",
+                context.getRunId(), expected, assignedSuitesByGroup.size(), consequence);
     }
 
     /**

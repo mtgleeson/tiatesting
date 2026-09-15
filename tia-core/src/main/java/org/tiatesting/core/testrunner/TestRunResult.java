@@ -130,6 +130,44 @@ public class TestRunResult {
     }
 
     /**
+     * Whether this run finished having executed no test suite at all, when Tia's selection expected
+     * at least one to run - the shape a misconfigured build takes, and the reason such a run must be
+     * kept out of the stats.
+     *
+     * <p>A project whose test framework is not wired up correctly (a missing or mismatched test
+     * dependency being the common one) finishes in milliseconds having executed nothing, and reports
+     * itself successful because no suite failed. Folding that into the Tia-level stats is wrong
+     * twice over: the duration is Tia's own overhead rather than test-execution time, and on a run
+     * that ignored nothing it lands in {@code allTestsRunTime} - the full-suite baseline every later
+     * savings figure is measured against - collapsing it towards nothing in a single build.
+     *
+     * <p><b>Expected</b> is the qualifier that carries the weight. A run where Tia ignored every
+     * suite because nothing was impacted also executes nothing, and that is Tia working as intended
+     * rather than a misconfiguration, so it keeps contributing its stats and its savings exactly as
+     * before. The two are told apart by what the selector asked for: zero ignored suites means the
+     * run was meant to execute everything, a non-empty selection means it was meant to execute those
+     * suites, and an empty selection alongside ignored suites means there was nothing to run in the
+     * first place.
+     *
+     * <p>Read from {@link #getSuitesRanThisAttempt()} rather than the cumulative tracker map, so the
+     * question is asked of the attempt being persisted. A Surefire retry attempt executes the suites
+     * holding the failed tests, so it does not read as an empty run; a retry contributes no run stats
+     * regardless (see {@code CoreStatsIncrement.getNumRuns}).
+     *
+     * @return true when no test suite executed in this attempt though the selection expected at
+     *         least one to
+     */
+    public boolean ranNoExpectedSuites() {
+        if (suitesRanThisAttempt > 0) {
+            return false;
+        }
+
+        boolean everySuiteExpected = ignoredTestSuiteCount == 0;
+        boolean suitesWereSelected = selectedTests != null && !selectedTests.isEmpty();
+        return everySuiteExpected || suitesWereSelected;
+    }
+
+    /**
      * @return the count of test suites that finished in this listener attempt only. On Surefire
      *         retry the {@link #getTestSuiteTrackers()} map carries forward earlier attempts'
      *         entries (intentionally - the mapping path needs the cumulative coverage), so its

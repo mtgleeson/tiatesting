@@ -61,7 +61,12 @@ class TestRunnerServiceAllTestsRunTriggerTest {
 
     /**
      * Build a {@link TestRunResult} carrying a single run of the given duration and the given
-     * selector ignore count. No suites need to have run for the Tia-level stats path.
+     * selector ignore count, reporting suites as having executed.
+     *
+     * <p>The executed-suite count is load-bearing: a run that executed no suite when the selection
+     * expected one is an empty (misconfigured) run and records no stats at all, which is what
+     * {@code TestRunnerServiceEmptyRunStatsGuardTest} covers. Here the interest is in which average a
+     * genuine run's duration lands in, so the run reports suites having executed.
      */
     private TestRunResult runResult(long durationMs, int ignoredTestSuiteCount){
         TestStats runStats = new TestStats();
@@ -72,7 +77,7 @@ class TestRunnerServiceAllTestsRunTriggerTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
-                ignoredTestSuiteCount, 0);
+                ignoredTestSuiteCount, 2);
     }
 
     /**
