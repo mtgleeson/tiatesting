@@ -59,6 +59,24 @@ tasks.register('profileSelectTests', JavaExec) {
     }
 }
 
+// Times the tia-html-report render path (getTiaData full load + each HTML sub-report) against
+// an existing H2 DB. Pair with async-profiler / JFR via -PjvmArgs="..." (see
+// ProfileHtmlReport.java javadoc for examples).
+tasks.register('profileHtmlReport', JavaExec) {
+    group = 'verification'
+    description = 'Times the tia-html-report render path against a Tia DB. Tunable via -P properties.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.tiatesting.core.perf.ProfileHtmlReport'
+
+    def passthrough = ['outDb', 'branch', 'iterations', 'url', 'user', 'password', 'outDir']
+    args = passthrough.findAll { project.hasProperty(it) }
+            .collect { (it == 'outDb' ? 'out' : it) + '=' + project.property(it) }
+
+    if (project.hasProperty('jvmArgs')) {
+        jvmArgs = project.property('jvmArgs').split(/\s+/) as List
+    }
+}
+
 // Times the tia_source_method clear-and-repopulate cost inside persistSourceMethods (the
 // DELETE FROM clear-out that replaced TRUNCATE TABLE on H2 - see ProfileMethodCatalogueClear.java
 // javadoc and the "Persist flow and crash safety" WIKI chapter for why).

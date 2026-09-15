@@ -1,6 +1,5 @@
 package org.tiatesting.core.report.html;
 
-import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,12 +44,21 @@ public class HtmlSourceMethodReport {
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
     }
 
+    /**
+     * Write the single source-methods index page: one table row per tracked method with its
+     * covering-suite count and line range. Renders through {@link FastTextEscaper#reportConfig()}
+     * so text and attribute escaping use the report's fast escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     * @param methodToTestSuites the method-id to covering-suites index built once by the caller
+     */
     private void generateSourceMethodsReportFile(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + TIA_SOURCE_METHODS_HTML;
         log.info("Writing the source methods report to {}", fileName);
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (FileWriter fileWriter = new FileWriter(fileName);
+             BufferedWriter writer = new BufferedWriter(fileWriter)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -87,7 +95,7 @@ public class HtmlSourceMethodReport {
                             HtmlLayout.pageFooter(),
                             HtmlLayout.simpleDatatablesInit("#tiaSourceMethodsTable", ASSETS_REL)
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -105,10 +113,20 @@ public class HtmlSourceMethodReport {
         log.info("Time to write the report (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * Write the per-method drill-down page listing the test suites that cover the given method.
+     * Renders through {@link FastTextEscaper#reportConfig()} and derives the output file name
+     * via {@link #stripAngleBrackets(String)} (no regex) so this scales across the tens of
+     * thousands of per-method files.
+     *
+     * @param tiaData the Tia data from the DB
+     * @param methodTrackedHashCode the tracked method's id, used as the file name and title
+     * @param classTestSuite the covering test suites for this method
+     */
     private void writeTestSuitesReportFiles(TiaData tiaData, Integer methodTrackedHashCode, ClassTestSuite classTestSuite){
         MethodImpactTracker methodImpactTracker = tiaData.getMethodsTracked().get(methodTrackedHashCode);
         String fileName = reportOutputDir + File.separator + methodTrackedHashCode + ".html";
-        fileName = fileName.replaceAll("<", "").replaceAll(">", "");
+        fileName = stripAngleBrackets(fileName);
 
         // Drop the package from the heading: keep only the trailing "ClassName.methodName".
         String shortName = methodImpactTracker.getShortNameForDisplay();
@@ -171,7 +189,7 @@ public class HtmlSourceMethodReport {
                             HtmlLayout.pageFooter(),
                             HtmlLayout.simpleDatatablesInit("#tiaSourceMethodTable", ASSETS_REL)
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -197,6 +215,31 @@ public class HtmlSourceMethodReport {
         if (!reportOutputDir.exists() && !reportOutputDir.mkdirs()) {
             log.warn("Failed to create report output directory: {}", reportOutputDir.getAbsolutePath());
         }
+    }
+
+    /**
+     * Remove every {@code '<'} and {@code '>'} character from the given file name. This is a
+     * single-pass, allocation-free-when-clean replacement for the previous
+     * {@code replaceAll("<", "").replaceAll(">", "")}, which compiled two regex patterns for every
+     * one of the (up to tens of thousands of) per-method report files. The result is byte-identical
+     * to the previous behaviour; the common case (a name derived from a numeric method id, which
+     * contains no angle brackets) returns the same string instance without copying.
+     *
+     * @param fileName the file name to sanitise
+     * @return the file name with all angle brackets removed
+     */
+    static String stripAngleBrackets(String fileName) {
+        if (fileName.indexOf('<') < 0 && fileName.indexOf('>') < 0) {
+            return fileName;
+        }
+        StringBuilder sb = new StringBuilder(fileName.length());
+        for (int i = 0; i < fileName.length(); i++) {
+            char c = fileName.charAt(i);
+            if (c != '<' && c != '>') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /**
