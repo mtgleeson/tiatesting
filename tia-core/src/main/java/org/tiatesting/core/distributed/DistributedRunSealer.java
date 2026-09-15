@@ -193,7 +193,7 @@ public final class DistributedRunSealer {
         // answer the "expected" half for a split build, which is why it is derived here.
         boolean ranNoExpectedSuites = ranNoExpectedSuites(run, assignedSuitesByGroup, totals);
         if (ranNoExpectedSuites) {
-            logEmptyBuild(run, assignedSuitesByGroup);
+            logEmptyBuild(run, assignedSuitesByGroup, updateDBMapping);
         }
 
         // Logged unconditionally, and with both inputs, because a wrong answer here is silent and
@@ -404,12 +404,20 @@ public final class DistributedRunSealer {
      * failed, and every runner's build reports itself as a pass - the only other symptom is a
      * suspiciously fast build.
      *
+     * <p>Says only what applies, in both directions. A build that was not updating the mapping had no
+     * seal, stats or commit stamp to withhold in the first place, so it is told what it is missing
+     * rather than what was taken away. And no single cause is named: a broken test framework is the
+     * reported one, but a filter that excluded every runner's share, or an assignment whose suites are
+     * all disabled in source, produce the same shape and are not distinguishable from here.
+     *
      * @param run the run row this seal already read, carrying the planner's seed-run flag
      * @param assignedSuitesByGroup the suite names the plan assigned each group, counted for the
      *                              warning so it names what was expected
+     * @param updateDBMapping whether this build owned mapping-DB updates
      */
     private void logEmptyBuild(final DistributedRun run,
-                               final Map<Integer, Set<String>> assignedSuitesByGroup) {
+                               final Map<Integer, Set<String>> assignedSuitesByGroup,
+                               final boolean updateDBMapping) {
         Set<String> assignedSuites = new HashSet<>();
         for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
             assignedSuites.addAll(groupSuites);
@@ -418,15 +426,20 @@ public final class DistributedRunSealer {
                 ? "every test suite"
                 : assignedSuites.size() + " selected test suite(s)";
 
+        String consequence = updateDBMapping
+                ? "The build is treated as an empty run: nothing is sealed, so it contributes no run "
+                        + "stats, moves no run-time average, is credited no savings and does not "
+                        + "advance the stored commit value - the next build will diff against the "
+                        + "previous commit and re-select this build's tests."
+                : "This build was not updating the mapping DB, so it had no seal or stats to record "
+                        + "either way; only its history row is written, credited no savings.";
+
         log.warn("Distributed run '{}': no group executed a single test suite, though the plan "
-                        + "assigned {} to run across {} group(s). The build is treated as an empty "
-                        + "run: nothing is sealed, so it contributes no run stats, moves no average, "
-                        + "is credited no savings and does not advance the stored commit value - the "
-                        + "next build will diff against the previous commit and re-select this "
-                        + "build's tests. A test framework that is not wired up correctly - a missing "
-                        + "or mismatched test dependency being the usual cause - produces exactly "
-                        + "this shape of build, so check the project's test configuration.",
-                context.getRunId(), expected, assignedSuitesByGroup.size());
+                        + "assigned {} to run across {} group(s). {} Common causes: a test framework "
+                        + "that is not wired up correctly (a missing or mismatched test dependency), "
+                        + "a build-tool filter that excluded the runners' shares, or every assigned "
+                        + "suite being disabled in source.",
+                context.getRunId(), expected, assignedSuitesByGroup.size(), consequence);
     }
 
     /**

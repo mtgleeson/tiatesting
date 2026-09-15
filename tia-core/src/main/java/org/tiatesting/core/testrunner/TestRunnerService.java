@@ -96,8 +96,8 @@ public class TestRunnerService {
         // A run that executed none of the suites Tia expected it to run knows nothing about this
         // commit, so it persists nothing that would claim otherwise - see persistEmptyRun.
         if (testRunResult.ranNoExpectedSuites()){
-            persistEmptyRun(updateDBTestRunHistory, commitValue, branch, runStartTimestampMs,
-                    durationMs, testRunResult);
+            persistEmptyRun(updateDBMapping, updateDBTestRunHistory, commitValue, branch,
+                    runStartTimestampMs, durationMs, testRunResult);
             return;
         }
 
@@ -226,14 +226,36 @@ public class TestRunnerService {
         // if the merge ever starts writing back through the incoming map.
         long suitesDurationMs = sumMeasuredSuiteRunTimes(testRunResult.getTestSuiteTrackers());
 
+        // A runner that executed none of the suites it was given writes no mapping either, for the
+        // reasons persistEmptyRun gives - and one of them bites harder here than on a single host.
+        // This runner's runnerTestSuites is its own JVM's observations when no test-classes directory
+        // list is configured, so on an empty run it is empty, and step 1 would read that as "every
+        // tracked suite has been deleted" and delete the whole project's mapping; with a directory
+        // list configured it would instead flag every suite this runner was given as
+        // developer-disabled, which feeds the sealer's ignored-suite count and can flip a later
+        // build's all-tests-run decision. The build-level guard in DistributedRunSealer cannot undo
+        // either write, and in the shape that causes them it never even runs: a runner that observed
+        // nothing never satisfies the completeness guard, so its group never completes and no sealer
+        // is elected. The gate therefore has to be here as well as there.
+        //
+        // Progress is still reported below: the group's counters and duration are facts about this
+        // runner regardless, and reporting them is what lets the barrier release and the build reach
+        // the sealer, which is where an empty *build* is recognised.
+        boolean ranNoExpectedSuites = testRunResult.ranNoExpectedSuites();
+        if (ranNoExpectedSuites){
+            logEmptyRun(testRunResult, updateDBMapping, false);
+        }
+
         TiaData tiaData = dataStore.getTiaCore();
 
-        // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
-        //    coordinates, so they are safe to be ahead of the commit the sealer will store.
-        updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
-                testRunResult.getSelectedTests(), updateDBMapping);
+        if (!ranNoExpectedSuites){
+            // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
+            //    coordinates, so they are safe to be ahead of the commit the sealer will store.
+            updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
+                    testRunResult.getSelectedTests(), updateDBMapping);
+        }
 
-        if (updateDBMapping){
+        if (updateDBMapping && !ranNoExpectedSuites){
             // 2. The failed set is incremental, so several runners updating it concurrently is
             //    exactly what it was built for.
             updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
@@ -435,6 +457,9 @@ public class TestRunnerService {
      * and the build tool reports it as a pass; without the line the only symptom is a suspiciously
      * fast build.
      *
+     * @param updateDBMapping whether this run owned mapping-DB updates, which decides how much of
+     *                        the warning applies - a run that was never updating the mapping had no
+     *                        stats, seal or commit stamp to withhold in the first place
      * @param updateDBTestRunHistory whether this run writes a history row at all
      * @param commitValue the VCS commit / changelist the run was against, recorded on the row but
      *                    deliberately not stamped as the stored commit
@@ -443,24 +468,11 @@ public class TestRunnerService {
      * @param durationMs the run's duration in ms, captured by the caller
      * @param testRunResult the collected results of the test run
      */
-    private void persistEmptyRun(final boolean updateDBTestRunHistory, final String commitValue,
-                                 final String branch, final long runStartTimestampMs,
-                                 final long durationMs, final TestRunResult testRunResult){
-        boolean everySuiteExpected = testRunResult.getIgnoredTestSuiteCount() == 0;
-        String expected = everySuiteExpected
-                ? "every test suite"
-                : testRunResult.getSelectedTests().size() + " selected test suite(s)";
-
-        log.warn("This test run executed no test suites, though Tia selected {} to run. It is "
-                        + "treated as an empty run and nothing is persisted for it but a history "
-                        + "row: no test was timed, so it contributes no run stats, is counted as "
-                        + "neither a run nor a success, does not move the {} average, is credited no "
-                        + "savings, and does not advance the stored commit value - the next run will "
-                        + "diff against the previous commit and re-select this run's tests. A test "
-                        + "framework that is not wired up correctly - a missing or mismatched test "
-                        + "dependency being the usual cause - produces exactly this shape of run, so "
-                        + "check the project's test configuration.",
-                expected, everySuiteExpected ? "all-tests-run" : "selected-run");
+    private void persistEmptyRun(final boolean updateDBMapping, final boolean updateDBTestRunHistory,
+                                 final String commitValue, final String branch,
+                                 final long runStartTimestampMs, final long durationMs,
+                                 final TestRunResult testRunResult){
+        logEmptyRun(testRunResult, updateDBMapping, true);
 
         if (updateDBTestRunHistory) {
             // No baseline is read: an empty run's savings are zero against any baseline, so the core
@@ -468,6 +480,57 @@ public class TestRunnerService {
             persistTestRunHistory(false, commitValue, branch, runStartTimestampMs, durationMs,
                     testRunResult, 0L, true);
         }
+    }
+
+    /**
+     * Warn that the run executed no test suite although Tia's selection expected it to, and say what
+     * that means for what Tia records. At WARN because the run itself looks successful - no suite ran,
+     * so no suite failed, and the build tool reports a pass - so without this line the only symptom is
+     * a suspiciously fast build.
+     *
+     * <p>Deliberately does not name a single cause. A broken test framework (a missing or mismatched
+     * test dependency) is the reported one, but a build-tool filter that excluded the whole selection
+     * and a selection whose every suite is disabled in source produce the same shape, and Tia cannot
+     * tell them apart from here. Nor does it claim consequences that do not apply: a run that was not
+     * updating the mapping had no stats, no seal and no commit stamp to withhold, and one runner of a
+     * distributed build never had a commit to advance - whether that build counts is the sealer's
+     * decision, not this fork's.
+     *
+     * @param testRunResult the run being persisted, read for the selection figures that make the
+     *                      warning actionable
+     * @param updateDBMapping whether this run owned mapping-DB updates
+     * @param singleHostPersist true for an ordinary single-host run, which withholds its own seal;
+     *                          false for one runner of a distributed build, which has no seal of its
+     *                          own to withhold
+     */
+    private void logEmptyRun(final TestRunResult testRunResult, final boolean updateDBMapping,
+                             final boolean singleHostPersist){
+        boolean everySuiteExpected = testRunResult.getIgnoredTestSuiteCount() == 0;
+        String expected = everySuiteExpected
+                ? "every test suite"
+                : testRunResult.getSelectedTests().size() + " selected test suite(s)";
+
+        String consequence;
+        if (!updateDBMapping) {
+            consequence = "This run was not updating the mapping DB, so it had no stats or seal to "
+                    + "record either way; only its history row is written, credited no savings.";
+        } else if (singleHostPersist) {
+            consequence = "Nothing is persisted for it but a history row: no test was timed, so it "
+                    + "contributes no run stats, is counted as neither a run nor a success, moves no "
+                    + "run-time average, is credited no savings, and does not advance the stored "
+                    + "commit value - the next run will diff against the previous commit and "
+                    + "re-select this run's tests.";
+        } else {
+            consequence = "This runner persists no mapping, no failed-set update and no staged "
+                    + "method trackers for it; whether the build as a whole is treated as an empty "
+                    + "run is decided once, by whichever runner seals it.";
+        }
+
+        log.warn("This test run executed no test suites, though Tia selected {} to run. {} Common "
+                        + "causes: a test framework that is not wired up correctly (a missing or "
+                        + "mismatched test dependency), a build-tool filter that excluded the whole "
+                        + "selection, or every selected suite being disabled in source.",
+                expected, consequence);
     }
 
     /**
