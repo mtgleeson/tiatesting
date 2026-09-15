@@ -500,6 +500,139 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * <b>A runner that executed none of its assigned suites writes no mapping for them.</b> The
+     * damage this prevents is worse here than on a single host: with no test-classes directory list
+     * configured, {@code runnerTestSuites} is this JVM's own observations, so on an empty run it is
+     * empty - and {@code removeDeletedTestSuites} reads an empty runner set as "every tracked suite
+     * has been deleted from the repository" and deletes the project's whole stored mapping.
+     *
+     * <p>The build-level guard in {@code DistributedRunSealer} cannot cover this: it runs after the
+     * barrier, by which point the deletion has happened, and in this very shape it never runs at all -
+     * a runner that observed nothing never satisfies the completeness guard, so its group never
+     * completes and no sealer is elected.
+     */
+    @Test
+    void aRunnerThatRanNoneOfItsAssignedSuitesDoesNotDeleteTheTrackedMapping() {
+        // given - two tracked suites, both assigned to this runner's group, and a runner that ran
+        // neither and observed neither (the no-directory-list shape)
+        seedTrackedSuites("com.example.SomeTest", "com.example.FailedTest");
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), emptyRunnerResult(new HashSet<String>()), context);
+
+        // then
+        Map<String, TestSuiteTracker> tracked = dataStore.getTestSuitesTracked();
+        assertTrue(tracked.containsKey("com.example.SomeTest"));
+        assertTrue(tracked.containsKey("com.example.FailedTest"),
+                "an empty runner proves nothing about deletion, so the mapping must survive");
+    }
+
+    /**
+     * The other half of the same write. With a directory list configured the runner does know the
+     * suites still exist, so nothing is deleted - but every suite it was given now looks
+     * "selected, discovered, did not execute", which is the shape that marks a suite disabled in
+     * source. Flagging them all off one misconfigured build would feed the sealer's ignored-suite
+     * count and can flip a later build's all-tests-run decision.
+     */
+    @Test
+    void aRunnerThatRanNoneOfItsAssignedSuitesDoesNotFlagThemDeveloperDisabled() {
+        // given - the same two suites, discovered on disk this time, and executed by nobody
+        seedTrackedSuites("com.example.SomeTest", "com.example.FailedTest");
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        Set<String> discovered = new HashSet<>(Arrays.asList("com.example.SomeTest",
+                "com.example.FailedTest"));
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), emptyRunnerResult(discovered), context);
+
+        // then
+        Map<String, TestSuiteTracker> tracked = dataStore.getTestSuitesTracked();
+        assertEquals(false, tracked.get("com.example.SomeTest").isDeveloperDisabled());
+        assertEquals(false, tracked.get("com.example.FailedTest").isDeveloperDisabled());
+    }
+
+    /**
+     * A previously-failed suite stays in the force-run set, for the same reason it does on the
+     * single-host path: the failed set is maintained by removing this runner's selection and adding
+     * back what failed, and an empty runner failed nothing only because it ran nothing.
+     */
+    @Test
+    void aRunnerThatRanNoneOfItsAssignedSuitesLeavesTheFailedSetAlone() {
+        // given - a suite that failed on an earlier build and is in this runner's selection again
+        seedTrackedSuites("com.example.SomeTest", "com.example.FailedTest");
+        dataStore.persistTestSuitesFailed(new HashSet<>(Arrays.asList("com.example.FailedTest")));
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), emptyRunnerResult(new HashSet<String>()), context);
+
+        // then
+        assertTrue(dataStore.getTestSuitesFailed().contains("com.example.FailedTest"),
+                "a suite that failed earlier must stay force-run until a run actually passes it");
+    }
+
+    /**
+     * Progress is still reported. The group's counters and duration are facts about this runner
+     * whatever it managed to run, and reporting them is what lets the barrier release so the build can
+     * reach the sealer - which is the only place an empty <em>build</em> can be recognised. Withholding
+     * the report instead would hang the build on a group that never closes.
+     */
+    @Test
+    void aRunnerThatRanNoneOfItsAssignedSuitesStillReportsItsGroupProgress() {
+        // given
+        seedTrackedSuites("com.example.SomeTest", "com.example.FailedTest");
+        persistPlan(RUN_ID, 1);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), emptyRunnerResult(new HashSet<String>()), context);
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(0, group.getSuitesRan());
+        assertNotNull(group.getActualDurationMs(), "the runner's duration is still its own to report");
+        assertEquals(1, Collections.frequency(dataStore.callOrder, "reportGroupProgress"));
+    }
+
+    /**
+     * Build the result a runner produces when it executed none of the suites it was given: no
+     * trackers, no failures, a non-empty selection, and nothing observed.
+     *
+     * @param runnerTestSuites the suites the runner still considers to exist - empty when no
+     *                         test-classes directory list is configured, the discovered set when one is
+     * @return the empty runner's result
+     */
+    private TestRunResult emptyRunnerResult(final Set<String> runnerTestSuites) {
+        Set<String> selected = new HashSet<>(Arrays.asList("com.example.SomeTest",
+                "com.example.FailedTest"));
+        return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
+                runnerTestSuites, new HashSet<String>(), selected,
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0);
+    }
+
+    /**
+     * Store the given suite names as tracked, so a deletion or a flag change made by the persist is
+     * visible when they are read back.
+     *
+     * @param suiteNames the suite names to track
+     */
+    private void seedTrackedSuites(final String... suiteNames) {
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        for (String suiteName : suiteNames) {
+            tracked.put(suiteName, new TestSuiteTracker(suiteName));
+        }
+        dataStore.persistTestSuites(tracked);
+    }
+
+    /**
      * Build and persist a distributed run plan, which also clears any previously planned run - the
      * supersession a straggler runner has to survive. Group 0 - the one every single-runner test in
      * this file claims - is assigned exactly the two suite names {@link #makeResult()} reports as

@@ -212,13 +212,17 @@ class TestRunnerServiceDrainCleanupTest {
      * Run the post-test-run persist with the given drain result and ignored-suite count
      * (0 makes it an all-tests run).
      *
+     * <p>The run reports suites as having executed. That is what a real run of either shape does, and
+     * it matters here: a run that executed no suite at all is treated as an empty (misconfigured) run
+     * and advances no library baseline - see {@code TestRunResult#ranNoExpectedSuites}.
+     *
      * @param drainResult the drain result to apply, or null.
      * @param ignoredCount the number of ignored suites for the run.
      */
     private void persistWithDrainResult(LibraryImpactDrainResult drainResult, int ignoredCount) {
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, ignoredCount, 0);
+                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, ignoredCount, 2);
         // history logging is off in this test to keep the focus on drain cleanup
         service.persistTestRunData(true, false, "newcommit", "main", System.currentTimeMillis(), testRunResult, null);
     }
