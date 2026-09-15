@@ -1,6 +1,5 @@
 package org.tiatesting.core.report.html;
 
-import j2html.Config;
 import j2html.rendering.FlatHtml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +26,13 @@ public class HtmlSourceCodeLandingReport {
                 + File.separator + filenameExt);
     }
 
+    /**
+     * Generate the source-code landing page. Renders through
+     * {@link FastTextEscaper#reportConfig()} so text and attribute escaping use the
+     * report's fast, allocation-light escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     */
     public void generateReport(TiaData tiaData) {
         long startTime = System.currentTimeMillis();
         if (!reportOutputDir.exists()) {
@@ -79,7 +85,7 @@ public class HtmlSourceCodeLandingReport {
                             ),
                             HtmlLayout.pageFooter()
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

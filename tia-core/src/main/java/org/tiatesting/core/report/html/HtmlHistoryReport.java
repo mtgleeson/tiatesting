@@ -1,6 +1,5 @@
 package org.tiatesting.core.report.html;
 
-import j2html.Config;
 import j2html.rendering.FlatHtml;
 import j2html.tags.DomContent;
 import org.slf4j.Logger;
@@ -81,6 +80,12 @@ public class HtmlHistoryReport {
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
     }
 
+    /**
+     * Write the run-history page. Renders through {@link FastTextEscaper#reportConfig()} so
+     * text and attribute escaping use the report's fast, allocation-light escaper.
+     *
+     * @param tiaData the Tia data from the DB
+     */
     private void writeHistoryHtmlToFile(TiaData tiaData) {
         long startTime = System.currentTimeMillis();
         String fileName = reportOutputDir + File.separator + TIA_HISTORY_HTML;
@@ -120,7 +125,7 @@ public class HtmlHistoryReport {
                             HtmlLayout.localTimeRenderingScript(),
                             HtmlLayout.simpleDatatablesInit("#tiaTable", ASSETS_REL, 0, "desc")
                     )
-            ).render(FlatHtml.into(writer, Config.defaults().withEmptyTagsClosed(true))).flush();
+            ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

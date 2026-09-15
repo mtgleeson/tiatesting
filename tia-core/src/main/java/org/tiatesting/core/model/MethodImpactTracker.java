@@ -34,8 +34,18 @@ public class MethodImpactTracker implements Serializable {
         return lineNumberEnd;
     }
 
+    /**
+     * The full method name rendered for display, with the internal {@code /} package separators
+     * turned into {@code .}. Uses {@link String#replace(char, char)} (a single-pass char scan)
+     * rather than {@code replaceAll}, which compiled a regex {@link java.util.regex.Pattern} on
+     * every call - this method is invoked per cell across the millions of HTML report table cells,
+     * so the regex compilation dominated the render, as measured by the {@code profileHtmlReport}
+     * harness. The output is byte-identical to the previous {@code replaceAll("/", ".")}.
+     *
+     * @return the method name with {@code /} replaced by {@code .}
+     */
     public String getNameForDisplay() {
-        return methodName.replaceAll("/", ".");
+        return methodName.replace('/', '.');
     }
 
     /**
