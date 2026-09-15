@@ -46,24 +46,46 @@ public class HtmlReportGenerator implements ReportGenerator {
         return null;
     }
 
-    private void generateSourceCodeLandingReport(TiaData tiaData) {
+    /**
+     * Generate the source-code landing page that links the per-source-file drill-downs.
+     * Exposed (rather than private) so profiling harnesses can time this step of
+     * {@link #generateReports(TiaData)} in isolation on a real generator instance.
+     *
+     * @param tiaData the Tia data from the DB
+     */
+    public void generateSourceCodeLandingReport(TiaData tiaData) {
         new HtmlSourceCodeLandingReport(filenameExt, reportOutputDir).generateReport(tiaData);
     }
 
-    private void generateLibraryReport(TiaData tiaData) {
+    /**
+     * Generate the third-party library impact report. Exposed (rather than private) so profiling
+     * harnesses can time this step of {@link #generateReports(TiaData)} in isolation on a real
+     * generator instance.
+     *
+     * @param tiaData the Tia data from the DB
+     */
+    public void generateLibraryReport(TiaData tiaData) {
         new HtmlLibraryReport(filenameExt, reportOutputDir).generateReport(tiaData);
     }
 
-    private void generateHistoryReport(TiaData tiaData) {
+    /**
+     * Generate the run-history report (per-run timings and selection savings over time). Exposed
+     * (rather than private) so profiling harnesses can time this step of
+     * {@link #generateReports(TiaData)} in isolation on a real generator instance.
+     *
+     * @param tiaData the Tia data from the DB
+     */
+    public void generateHistoryReport(TiaData tiaData) {
         new HtmlHistoryReport(filenameExt, reportOutputDir).generateReport(tiaData);
     }
 
     /**
      * Extract bundled CSS / JS / images from the {@code tia-core} JAR into
      * {@code <reportOutputDir>/html/<branch>/assets/} so every page can reference them
-     * via relative URLs.
+     * via relative URLs. Exposed (rather than private) so profiling harnesses can time this
+     * step of {@link #generateReports(TiaData)} in isolation on a real generator instance.
      */
-    private void copyStaticAssets() {
+    public void copyStaticAssets() {
         File branchDir = new File(reportOutputDir.getAbsoluteFile()
                 + File.separator + "html" + File.separator + filenameExt);
         if (!branchDir.exists() && !branchDir.mkdirs()) {
