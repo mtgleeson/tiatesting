@@ -10,8 +10,8 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -100,7 +100,7 @@ public class HtmlHistoryReport {
         // existed renders neither rather than dashing both on every row.
         final boolean showHost = anyHost(history);
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             html(
                     HtmlLayout.pageHead("History", ASSETS_REL),
                     body(

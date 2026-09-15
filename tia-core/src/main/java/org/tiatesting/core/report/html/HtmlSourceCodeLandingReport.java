@@ -6,8 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 
 import static j2html.TagCreator.*;
 
@@ -48,7 +48,7 @@ public class HtmlSourceCodeLandingReport {
         int pendingCount = tiaData.getPendingLibraryImpactedMethods() != null
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             html(
                     HtmlLayout.pageHead("Source Code", assetsRel),
                     body(

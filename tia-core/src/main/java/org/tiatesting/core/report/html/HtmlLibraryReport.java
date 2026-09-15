@@ -10,8 +10,8 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -70,7 +70,7 @@ public class HtmlLibraryReport {
         List<PendingLibraryForcedSelection> pendingForced = tiaData.getPendingLibraryForcedSelections() != null
                 ? tiaData.getPendingLibraryForcedSelections() : new java.util.ArrayList<>();
 
-        try (FileWriter writer = new FileWriter(fileName)) {
+        try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
 
             html(
@@ -99,7 +99,7 @@ public class HtmlLibraryReport {
                                                                     td(lib.getGroupArtifact()),
                                                                     td(emptyDash(lib.getProjectDir())),
                                                                     td(lib.getLastAppliedSeq() != null
-                                                                            ? String.valueOf(lib.getLastAppliedSeq()) : "—"),
+                                                                            ? String.valueOf(lib.getLastAppliedSeq()) : "-"),
                                                                     td(String.valueOf(pendingPerLib.getOrDefault(lib.getGroupArtifact(), 0))),
                                                                     td(emptyDash(lib.getSourceDirsCsv()))
                                                             )
@@ -125,7 +125,7 @@ public class HtmlLibraryReport {
                                                                     td(publish.getPublishedVersion()),
                                                                     publish.getJarHash() != null
                                                                             ? td(truncate(publish.getJarHash())).attr("title", publish.getJarHash())
-                                                                            : td("—"),
+                                                                            : td("-"),
                                                                     td(emptyDash(truncate(publish.getCommitValue()))),
                                                                     td(Instant.ofEpochMilli(publish.getPublishedAt()).toString()),
                                                                     td(String.valueOf(pendingMethodsBySeq.getOrDefault(
@@ -233,7 +233,14 @@ public class HtmlLibraryReport {
         return value.length() > 12 ? value.substring(0, 12) + "…" : value;
     }
 
+    /**
+     * Return a plain ASCII hyphen placeholder for a missing or empty cell value, otherwise the
+     * value unchanged. Used as the not-available marker throughout the library tables.
+     *
+     * @param s the cell value, possibly null or empty
+     * @return {@code "-"} when {@code s} is null or empty, otherwise {@code s}
+     */
     private static String emptyDash(String s) {
-        return s == null || s.isEmpty() ? "—" : s;
+        return s == null || s.isEmpty() ? "-" : s;
     }
 }

@@ -4,6 +4,12 @@ import j2html.tags.DomContent;
 import j2html.tags.specialized.H2Tag;
 import j2html.tags.specialized.H3Tag;
 
+import java.io.BufferedWriter;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -40,6 +46,23 @@ final class HtmlLayout {
     private HtmlLayout() {}
 
     /**
+     * Open a buffered writer for a report file that always encodes text as UTF-8, independent of
+     * the JVM's platform default charset. Every report page declares {@code <meta charset="UTF-8">}
+     * (see {@link #pageHead(String, String)}), so the bytes on disk must be UTF-8 for browsers to
+     * decode non-ASCII content (library names, file paths, method names, punctuation) correctly;
+     * a plain {@code FileWriter} would encode using {@code file.encoding}, which corrupts those
+     * characters on any JVM or daemon whose default is not UTF-8. All HTML report writers route
+     * through here so charset and buffering stay uniform.
+     *
+     * @param fileName the absolute path of the report file to create or overwrite
+     * @return a buffered, UTF-8-encoded writer for that file; the caller owns and must close it
+     * @throws IOException if the file cannot be opened for writing
+     */
+    static Writer newReportWriter(String fileName) throws IOException {
+        return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(fileName), StandardCharsets.UTF_8));
+    }
+
+    /**
      * Build the {@code <head>} block: page title, Pico classless CSS, simple-datatables CSS,
      * the bespoke {@code tia.css}, and favicon link.
      */
@@ -47,7 +70,7 @@ final class HtmlLayout {
         return head(
                 meta().withCharset("UTF-8"),
                 meta().withName("viewport").withContent("width=device-width, initial-scale=1"),
-                title("Tia — " + pageTitle),
+                title("Tia - " + pageTitle),
                 link().withRel("icon").withType("image/x-icon")
                         .withHref(assetsRel + "/images/tia_favicon.ico"),
                 link().withRel("stylesheet").withType("text/css")
