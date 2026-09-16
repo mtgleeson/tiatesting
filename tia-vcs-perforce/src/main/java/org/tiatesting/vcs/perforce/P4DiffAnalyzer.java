@@ -235,20 +235,172 @@ public class P4DiffAnalyzer {
 
     /**
      * Find the P4 file spec for each source and test file directory. This gives us both the depot path and local path.
+     * <p>{@code p4 where} returns one entry per client-view line that touches each queried path.
+     * A path covered by overlapping view lines (a broad mapping re-sourced by a later, more
+     * specific line) comes back with the overridden line flagged as unmapped - a leading {@code -}
+     * in the CLI - which p4java represents with a {@code null} depot path. Layered client views
+     * therefore routinely return a null-depot entry alongside the real winning mapping, so those
+     * null entries must be filtered out before the downstream depot-path matching in
+     * {@code isFileInSourceOrTestDir} and {@code convertDepotPathToTiaPath} dereferences them.
+     *
+     * <p>The entries are grouped by their resolved client-side path so the filtering can classify
+     * each queried directory into one of three buckets:
+     * <ul>
+     *   <li>it has a valid winning mapping and is present in this workspace - keep it (silently
+     *       dropping any override entries);</li>
+     *   <li>it resolved to no valid mapping at all (not in the client view) - skip it and log a
+     *       WARN, because this usually indicates a client-view or configuration problem worth
+     *       fixing;</li>
+     *   <li>it is mapped in the client view but not present in this workspace - skip it and log a
+     *       WARN, because its content can't be read to diff. This happens either because the
+     *       directory isn't synced (for example a restricted library the machine has lost access
+     *       to) or because the configured sub-directory doesn't exist for that project (for
+     *       example a DB project whose sources live under {@code src/main/resources} and which has
+     *       no {@code src/main/java}).</li>
+     * </ul>
+     * Each skipped bucket is logged once naming every affected directory, rather than once per
+     * directory, to keep the output readable when many libraries are unavailable.
+     *
+     * <p>Trailing path separators are trimmed from each queried directory before it is handed to
+     * {@code p4 where}. A trailing {@code /} or {@code \} makes p4java's path parsing fail with a
+     * "Null directory (//) not allowed" error, turning an otherwise resolvable directory into an
+     * error spec (and emitting p4java's own error line). The tracked-library directories in
+     * particular arrive with a trailing slash from their configured coordinates.
      *
      * @param p4Connection the Perforce connection being used for the analysis.
      * @param sourceAndTestFiles the list of source and test directories for the source project being analysed
-     * @return list of p4 file specs representing the source and test directories
+     * @return list of p4 file specs representing the source and test directories, each with a non-null depot path
      */
     private List<IFileSpec> getSourceAndTestFilesSpecs(final P4Connection p4Connection, final List<String> sourceAndTestFiles){
+        List<String> sanitizedPaths = new ArrayList<>();
+        for (String path : sourceAndTestFiles){
+            if (path == null){
+                continue;
+            }
+            String trimmed = path.trim();
+            while (trimmed.length() > 1 && (trimmed.endsWith("/") || trimmed.endsWith("\\"))){
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+            if (!trimmed.isEmpty()){
+                sanitizedPaths.add(trimmed);
+            }
+        }
+
         List<IFileSpec> fileSpecs;
         try {
-            fileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sourceAndTestFiles));
+            fileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(sanitizedPaths));
         } catch (ConnectionException | AccessException e) {
             throw new VCSAnalyzerException(e);
         }
 
-        return fileSpecs;
+        // Group by the resolved client-side path so overlapping-view override entries (null depot)
+        // are collapsed with their winning mapping for the same directory. preserve iteration order.
+        Map<String, List<IFileSpec>> specsByPath = fileSpecs.stream()
+                .collect(Collectors.groupingBy(P4DiffAnalyzer::whereResultKey, LinkedHashMap::new, Collectors.toList()));
+
+        List<IFileSpec> mappedSpecs = new ArrayList<>();
+        List<String> notMappedDirs = new ArrayList<>();
+        List<String> notSyncedDirs = new ArrayList<>();
+
+        for (Map.Entry<String, List<IFileSpec>> entry : specsByPath.entrySet()){
+            List<IFileSpec> validSpecs = entry.getValue().stream()
+                    .filter(fileSpec -> fileSpec.getDepotPathString() != null)
+                    .collect(Collectors.toList());
+
+            if (validSpecs.isEmpty()){
+                // No client-view line maps this directory to a depot path - it's not in the client view.
+                notMappedDirs.add(entry.getKey());
+            } else if (!isMappedDirSyncedLocally(validSpecs)){
+                // Mapped in the client view but absent from the local workspace (not synced). Its
+                // content can't be read to diff, so drop it rather than fail downstream.
+                notSyncedDirs.add(entry.getKey());
+            } else {
+                mappedSpecs.addAll(validSpecs);
+            }
+        }
+
+        if (!notMappedDirs.isEmpty()){
+            log.warn("Skipping {} configured source/test/library director(y/ies) not mapped in the P4 client " +
+                    "view so their changes won't be tracked by Tia: {}", notMappedDirs.size(), notMappedDirs);
+        }
+        if (!notSyncedDirs.isEmpty()){
+            // These directories ARE mapped in the client view but aren't present in the local
+            // workspace, so their content can't be read to diff and they're skipped. This happens
+            // when a directory isn't synced (e.g. a restricted library the machine has lost access
+            // to - worth surfacing on a build machine) or when the configured sub-directory simply
+            // doesn't exist for that project (e.g. a DB project whose sources are SQL under
+            // src/main/resources and which has no src/main/java - a likely config issue). Both are
+            // worth a warning; it's grouped into a single line to avoid one message per directory.
+            log.warn("Skipping {} configured source/test/library director(y/ies) mapped in the P4 client view " +
+                    "but not present in the local workspace (not synced, or the configured directory doesn't " +
+                    "exist) so their changes won't be tracked by Tia: {}", notSyncedDirs.size(), notSyncedDirs);
+        }
+
+        return mappedSpecs;
+    }
+
+    /**
+     * Decide whether a directory that has a valid client-view mapping is actually synced into the
+     * local workspace, so that mapped-but-unavailable directories (for example restricted
+     * libraries the user has no access to on this machine) can be skipped instead of failing when
+     * their content is later read for diffing.
+     *
+     * <p>{@code p4 where} reports the workspace local path from the client view regardless of sync
+     * state, so the on-disk presence of that local path is used as the signal. If a valid spec
+     * reports a local path that exists on disk the directory is treated as synced. If local paths
+     * are reported but none exist the directory is treated as not synced. If no local path is
+     * reported at all the sync state can't be determined, so it is kept (treated as synced) to
+     * avoid dropping a directory on incomplete information.
+     *
+     * @param validSpecs the {@code p4 where} specs for a directory that all have a non-null depot path
+     * @return true if the directory is synced locally (or its sync state can't be determined), false if it is mapped but not synced
+     */
+    private static boolean isMappedDirSyncedLocally(final List<IFileSpec> validSpecs){
+        boolean anyLocalPath = false;
+        for (IFileSpec spec : validSpecs){
+            String localPath = spec.getLocalPathString();
+            if (localPath != null){
+                anyLocalPath = true;
+                if (new File(localPath).exists()){
+                    return true;
+                }
+            }
+        }
+        return !anyLocalPath;
+    }
+
+    /**
+     * Derive a stable grouping key for a {@code p4 where} result so all entries resolving to the
+     * same workspace directory (the winning mapping plus any overridden/unmapped entries) are
+     * grouped together, and so the WARN for a fully-unmapped directory names the directory.
+     *
+     * <p>Prefers the local path, then the client path, then the original queried path, then the
+     * depot path. When {@code p4 where} can't resolve a directory at all (not under the client
+     * root, or not in the client view) p4java returns an error/info spec with every path field
+     * null but a descriptive {@link IFileSpec#getStatusMessage() status message} that names the
+     * offending path - so that is used as the final fallback before {@code <unknown>}. Never
+     * returns null so it is safe as a grouping classifier.
+     *
+     * @param fileSpec the {@code p4 where} result spec
+     * @return a non-null key identifying the queried directory the spec resolves to
+     */
+    static String whereResultKey(IFileSpec fileSpec){
+        if (fileSpec.getLocalPathString() != null){
+            return fileSpec.getLocalPathString();
+        }
+        if (fileSpec.getClientPathString() != null){
+            return fileSpec.getClientPathString();
+        }
+        if (fileSpec.getOriginalPathString() != null){
+            return fileSpec.getOriginalPathString();
+        }
+        if (fileSpec.getDepotPathString() != null){
+            return fileSpec.getDepotPathString();
+        }
+        if (fileSpec.getStatusMessage() != null && !fileSpec.getStatusMessage().trim().isEmpty()){
+            return fileSpec.getStatusMessage().trim();
+        }
+        return "<unknown>";
     }
 
     /**
