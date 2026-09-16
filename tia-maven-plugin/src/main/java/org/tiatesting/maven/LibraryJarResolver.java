@@ -245,17 +245,48 @@ class LibraryJarResolver implements LibraryMetadataReader {
             return result;
         }
 
-        List<String> compileRoots = libraryProject.getCompileSourceRoots();
-        if (compileRoots != null) {
-            for (String root : compileRoots) {
-                if (root != null && !root.trim().isEmpty()) {
-                    String absolute = Paths.get(root).toAbsolutePath().normalize().toString();
-                    result.add(absolute);
-                    log.debug("Found source directory " + absolute + " for library " + libraryProject.getId());
-                }
-            }
-        }
+        result.addAll(filterExistingSourceRoots(libraryProject.getCompileSourceRoots(),
+                libraryProject.getId(), log));
 
+        return result;
+    }
+
+    /**
+     * Filter a library's declared compile source roots down to those that actually exist on disk,
+     * returning each as an absolute, normalised path.
+     *
+     * <p>Maven always adds the conventional {@code src/main/java} compile source root to a
+     * project's model even when that directory doesn't exist - for example a database library
+     * whose sources are SQL under {@code src/main/resources} and which has no Java at all.
+     * Recording such a phantom root would make Tia hand it to the VCS (e.g. {@code p4 where}),
+     * which then reports it as mapped-but-not-present and warns about it on every run. Skipping
+     * roots that don't exist on disk keeps those phantom directories out of the tracked set
+     * entirely, so they never generate that noise. A DB library's SQL is covered by static
+     * test-selection rules rather than by java source-root method tracking, so nothing is lost.
+     *
+     * @param compileRoots the library's declared compile source roots (may be null)
+     * @param libraryId the library's Maven id, used only for debug logging
+     * @param log the Maven log used to report skipped/kept roots at debug level
+     * @return the absolute, normalised paths of the compile source roots that exist on disk
+     */
+    static List<String> filterExistingSourceRoots(List<String> compileRoots, String libraryId, Log log) {
+        List<String> result = new ArrayList<>();
+        if (compileRoots == null) {
+            return result;
+        }
+        for (String root : compileRoots) {
+            if (root == null || root.trim().isEmpty()) {
+                continue;
+            }
+            String absolute = Paths.get(root).toAbsolutePath().normalize().toString();
+            if (!new File(absolute).isDirectory()) {
+                log.debug("Skipping declared source directory " + absolute + " for library " + libraryId
+                        + " - it doesn't exist on disk (e.g. a DB project's default src/main/java with no java).");
+                continue;
+            }
+            result.add(absolute);
+            log.debug("Found source directory " + absolute + " for library " + libraryId);
+        }
         return result;
     }
 
