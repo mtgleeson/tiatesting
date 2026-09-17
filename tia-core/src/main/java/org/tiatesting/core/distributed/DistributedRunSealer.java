@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -146,6 +147,13 @@ public final class DistributedRunSealer {
      * race a caller can sensibly recover from, so it is reported as such rather than silently
      * substituting a fallback value.
      *
+     * <p>When the history row is written, the selection breakdown the plan staged for this run id
+     * is read here too, via {@link DataStore#readDistributedRunSelectionDetails}, and handed to
+     * {@link #persistBuildHistory} to stamp onto that row and write as trigger rows - the
+     * distributed build's counterpart of what a single-host run's {@code TestRunnerService} does
+     * for its own row. A seed run, or any run predating this feature, staged nothing and reads
+     * back {@link TestRunSelectionDetails#empty()} rather than null.
+     *
      * @param updateDBMapping whether this build owns mapping-DB updates
      * @param updateDBTestRunHistory whether the build should write its history row
      * @throws IllegalStateException if the run row is gone immediately after this runner won the
@@ -238,9 +246,17 @@ public final class DistributedRunSealer {
             // An empty build's row reports no mapping update whatever the build was configured to
             // do, because the seal above did not run - the same shape the single-host empty run's
             // row takes.
+            // Read once here, where the run id is already in scope from the election this method
+            // opened with, rather than inside persistBuildHistory: every other value that method
+            // writes onto the row is already a parameter, and this keeps that method a pure
+            // "assemble and persist" step with no datastore reads of its own. Never null - see
+            // DataStore#readDistributedRunSelectionDetails - so a seed or pre-feature run reads
+            // back TestRunSelectionDetails.empty() rather than forcing a null check here.
+            TestRunSelectionDetails selectionDetails =
+                    dataStore.readDistributedRunSelectionDetails(context.getRunId());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
-                    run.getCreatedAtMs(), ranNoExpectedSuites);
+                    run.getCreatedAtMs(), ranNoExpectedSuites, selectionDetails);
         }
     }
 
@@ -310,6 +326,16 @@ public final class DistributedRunSealer {
      * actually took is carried in its own column alongside. The row is stamped with the time the run was planned rather than with any runner's
      * own start time, since that is the one timestamp every runner in the build shares.
      *
+     * <p>The row also carries the build's selection breakdown, copied from what the plan staged
+     * for this run id: {@code selectionDetails}'s five scalar counters are folded into the entry
+     * via {@link TestRunHistoryEntry#createForDistributedRun}, and its per-method/per-rule
+     * triggers are persisted separately via {@link DataStore#persistTestRunTriggers} keyed on the
+     * entry's id - the same split a single-host run's {@code TestRunnerService} makes for its own
+     * row. {@code selectionDetails} is never null - {@link
+     * DataStore#readDistributedRunSelectionDetails} returns {@link TestRunSelectionDetails#empty()}
+     * at worst - so a seed run or a run predating this feature writes zero counters and no
+     * trigger rows rather than nulls.
+     *
      * @param commitValue the commit the build ran against
      * @param branch the branch the build ran against
      * @param updateDBMapping whether the build persisted mapping updates, stamped on the row
@@ -325,12 +351,15 @@ public final class DistributedRunSealer {
      *                            a build still gets its row - a {@code ran=0} row is how it stays
      *                            visible - but is credited no savings, having finished early because
      *                            it ran nothing rather than because Tia deselected anything
+     * @param selectionDetails the build-level selection breakdown staged at plan time, copied onto
+     *                         the row's counters and trigger rows; never null
      */
     private void persistBuildHistory(final String commitValue, final String branch,
                                      final boolean updateDBMapping, final DistributedRunTotals totals,
                                      final int ignoredSuiteCount, final boolean allTestsRun,
                                      final long allTestsRunTimeMs, final long runTimestampMs,
-                                     final boolean ranNoExpectedSuites) {
+                                     final boolean ranNoExpectedSuites,
+                                     final TestRunSelectionDetails selectionDetails) {
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
                 totals.getSerialDurationMs(), allTestsRun || ranNoExpectedSuites);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
@@ -339,8 +368,9 @@ public final class DistributedRunSealer {
                 context.getRunId(), runTimestampMs, totals.getSuitesRan(), ignoredSuiteCount,
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
                 timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount(),
-                RunEnvironment.distributedRunOrigin(), null);
+                RunEnvironment.distributedRunOrigin(), selectionDetails);
         dataStore.persistTestRunHistoryEntry(entry);
+        dataStore.persistTestRunTriggers(entry.getId(), selectionDetails.getTriggers());
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
                         + "ignored={}, failed={}, serialMs={}, wallClockMs={}, "
