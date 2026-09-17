@@ -11,7 +11,12 @@ cluster (see the [distributed test runs](distributed-test-runs.md) chapter), and
 not to store mapping or audit data.
 
 The distributed-run cluster is the only one whose rows are transient: they describe one in-flight
-build, and the next plan write for the branch clears them.
+build, and the next plan write for the branch clears them. Two of its tables -
+`tia_distributed_run_selection` and `tia_distributed_run_trigger` - along with
+`tia_test_run_history_trigger` on the audit side, carry the per-run selection breakdown described
+in the [Run history details](run-history-details.md) chapter; `tia_test_run_history_trigger` is
+the one exception to "transient": it is cascade-deleted with its parent history row, not cleared
+by a plan write.
 
 ```mermaid
 erDiagram
@@ -25,6 +30,9 @@ erDiagram
     tia_distributed_run ||--o{ tia_distributed_run_group : "by run id"
     tia_distributed_run_group ||--o{ tia_distributed_run_group_suite : "by run id + group"
     tia_distributed_run ||--o{ tia_distributed_run_method_stage : "by run id"
+    tia_distributed_run ||--o{ tia_distributed_run_selection : "by run id"
+    tia_distributed_run ||--o{ tia_distributed_run_trigger : "by run id"
+    tia_test_run_history ||--o{ tia_test_run_history_trigger : "FK (cascade)"
 
     tia_core {
         VARCHAR commit_value PK
@@ -87,6 +95,18 @@ erDiagram
         BOOLEAN updated_db_mapping
         BIGINT time_savings
         INT savings_percent
+        INT num_modified_test_files
+        INT num_new_test_files
+        INT num_previously_failed
+        INT num_unsealed_mapping
+        INT num_pending_library
+    }
+
+    tia_test_run_history_trigger {
+        VARCHAR history_id FK
+        VARCHAR trigger_type
+        VARCHAR trigger_name
+        INT test_count
     }
 
     tia_library {
@@ -161,13 +181,32 @@ erDiagram
         INT line_number_start
         INT line_number_end
     }
+
+    tia_distributed_run_selection {
+        VARCHAR run_id PK
+        INT num_modified_test_files
+        INT num_new_test_files
+        INT num_previously_failed
+        INT num_unsealed_mapping
+        INT num_pending_library
+    }
+
+    tia_distributed_run_trigger {
+        VARCHAR run_id
+        VARCHAR trigger_type
+        VARCHAR trigger_name
+        INT test_count
+    }
 ```
 
 (`tia_core`, `tia_test_suites_failed`, `tia_test_run_history` and `tia_id_block` carry no foreign
 keys - they are linked only logically, by commit / branch / suite name, or - for `tia_id_block` -
-not linked to other rows at all; it is consulted, not joined against. The four
+not linked to other rows at all; it is consulted, not joined against. The six
 `tia_distributed_run*` tables carry no declared foreign keys either - they are linked by `run_id`,
-and the plan write clears all four as a set before inserting, rather than relying on cascades.)
+and the plan write clears all six as a set before inserting, rather than relying on cascades.
+`tia_test_run_history_trigger` is the exception on the audit side: it does carry a declared FK back
+to `tia_test_run_history.id`, `ON DELETE CASCADE`, so a history row's triggers are removed with it
+rather than needing their own cleanup.)
 
 ### Table purposes
 
@@ -195,6 +234,15 @@ and the plan write clears all four as a set before inserting, rather than relyin
   selection ("Running previously failed tests").
 - **tia_test_run_history** - audit log: one row per run (timestamp, branch, commit, ran/ignored/
   failed counts, duration, frozen per-run savings). Drives the `history` task and HTML History tab.
+  Also carries five nullable selection-source counters (`num_modified_test_files`,
+  `num_new_test_files`, `num_previously_failed`, `num_unsealed_mapping`, `num_pending_library`) -
+  null means "not recorded" rather than zero. See the
+  [Run history details](run-history-details.md) chapter.
+- **tia_test_run_history_trigger** - the per-changed-method and per-static-rule selection triggers
+  behind one history row's counters, each with a suite count; FK to `tia_test_run_history.id`,
+  `ON DELETE CASCADE`. Loaded only on demand - by the per-run detail page and the history-details
+  CLI command - never by the hot `readTestRunHistory()` path. See the
+  [Run history details](run-history-details.md) chapter.
 - **tia_library** - tracked in-repo libraries for library-impact analysis: declared coordinates and
   source dirs (config-owned), the `mapping_baseline_commit` the publish stamper diffs from, and the
   `last_applied_seq` high-water mark used for downgrade warnings and reporting.
@@ -231,6 +279,14 @@ and the plan write clears all four as a set before inserting, rather than relyin
 - **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the
   sealer rebuilds `tia_source_method` from them. Staged rather than written directly because no
   single runner sees the whole build's methods.
+- **tia_distributed_run_selection** - one row per distributed run, staging the same five
+  selection-source counters `tia_test_run_history` stores. Written at plan time; the sealer copies
+  it onto the build's single history row. See the
+  [Run history details](run-history-details.md) chapter.
+- **tia_distributed_run_trigger** - the per-changed-method and per-static-rule triggers staged for
+  a distributed run, mirroring `tia_test_run_history_trigger`'s shape but keyed by `run_id` rather
+  than `history_id`, with no foreign key. Copied onto `tia_test_run_history_trigger` at seal time.
+  See the [Run history details](run-history-details.md) chapter.
 
 The mapping read path runs this chain in reverse: a code change resolves changed files to
 `tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the

@@ -51,4 +51,4 @@ This keeps the inclusion decision off the `selectTestsToIgnore` write-flag, whic
 
 ---
 
-Prev: [Test-run history log](test-run-history.md) | [Back to the Wiki index](../WIKI.md) | Next: [Database schema (tables and relationships)](database-schema.md)
+Prev: [Run history details](run-history-details.md) | [Back to the Wiki index](../WIKI.md) | Next: [Database schema (tables and relationships)](database-schema.md)
