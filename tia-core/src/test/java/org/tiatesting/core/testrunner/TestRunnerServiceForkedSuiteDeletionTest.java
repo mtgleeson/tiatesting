@@ -3,6 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -198,7 +199,7 @@ class TestRunnerServiceForkedSuiteDeletionTest {
 
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
                 runnerTestSuites, executedSuites, new HashMap<>(), new TestStats(), null, 1,
-                executedSuites.size());
+                executedSuites.size(), TestRunSelectionDetails.empty());
         new TestRunnerService(dataStore).persistTestRunData(true, false, "commit-1", "main",
                 System.currentTimeMillis(), result, null);
     }

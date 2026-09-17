@@ -12,6 +12,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -132,7 +133,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         }
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length,
+                TestRunSelectionDetails.empty());
     }
 
     /**

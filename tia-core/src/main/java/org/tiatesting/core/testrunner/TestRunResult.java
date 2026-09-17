@@ -2,6 +2,7 @@ package org.tiatesting.core.testrunner;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TestStats;
 
@@ -19,6 +20,7 @@ public class TestRunResult {
     final LibraryImpactDrainResult libraryImpactDrainResult;
     final int ignoredTestSuiteCount;
     final int suitesRanThisAttempt;
+    final TestRunSelectionDetails selectionDetails;
 
     /**
      * Construct the collected result of a Tia-instrumented test run.
@@ -56,6 +58,11 @@ public class TestRunResult {
      *                                   not the cumulative count across Surefire retries. Persisted to
      *                                   {@code tia_test_run_history.num_suites_ran} so each retry row reports
      *                                   what that retry actually ran.
+     * @param selectionDetails           the per-run breakdown of what drove test selection (the per-method
+     *                                   and per-rule triggers plus the scalar source counts), or {@code null}
+     *                                   when the caller has not populated it yet - {@link #getSelectionDetails()}
+     *                                   substitutes {@link TestRunSelectionDetails#empty()} in that case so
+     *                                   callers never see null
      */
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
@@ -66,7 +73,8 @@ public class TestRunResult {
                          TestStats testStats,
                          LibraryImpactDrainResult libraryImpactDrainResult,
                          int ignoredTestSuiteCount,
-                         int suitesRanThisAttempt) {
+                         int suitesRanThisAttempt,
+                         TestRunSelectionDetails selectionDetails) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
@@ -77,6 +85,7 @@ public class TestRunResult {
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.ignoredTestSuiteCount = ignoredTestSuiteCount;
         this.suitesRanThisAttempt = suitesRanThisAttempt;
+        this.selectionDetails = selectionDetails;
     }
 
     public Map<String, TestSuiteTracker> getTestSuiteTrackers() {
@@ -176,5 +185,15 @@ public class TestRunResult {
      */
     public int getSuitesRanThisAttempt() {
         return suitesRanThisAttempt;
+    }
+
+    /**
+     * @return the per-run breakdown of what drove test selection - the per-method and per-rule
+     *         triggers plus the scalar source counts. Never null: substitutes
+     *         {@link TestRunSelectionDetails#empty()} when the constructor was given a null
+     *         {@code selectionDetails}, so callers do not need their own null check.
+     */
+    public TestRunSelectionDetails getSelectionDetails() {
+        return selectionDetails == null ? TestRunSelectionDetails.empty() : selectionDetails;
     }
 }

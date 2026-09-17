@@ -13,6 +13,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -312,7 +313,8 @@ class TestRunnerServiceSealOrderTest {
         trackers.put("com.example.SomeTest", tracker);
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -328,7 +330,8 @@ class TestRunnerServiceSealOrderTest {
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1,
+                TestRunSelectionDetails.empty());
     }
 
     /**
