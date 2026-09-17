@@ -10,6 +10,7 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
@@ -202,7 +203,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // per-attempt count - there's no separate counter to thread through.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size());
+                ignoredTestSuiteCount, testSuiteTrackers.size(), TestRunSelectionDetails.empty());
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

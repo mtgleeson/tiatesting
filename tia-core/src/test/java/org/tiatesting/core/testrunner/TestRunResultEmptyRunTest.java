@@ -1,6 +1,7 @@
 package org.tiatesting.core.testrunner;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 
@@ -33,7 +34,8 @@ class TestRunResultEmptyRunTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
-                new TestStats(), null, ignoredTestSuiteCount, suitesRanThisAttempt);
+                new TestStats(), null, ignoredTestSuiteCount, suitesRanThisAttempt,
+                TestRunSelectionDetails.empty());
     }
 
     /**

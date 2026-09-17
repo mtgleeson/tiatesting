@@ -3,6 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -272,7 +273,8 @@ class TestRunnerServiceConcurrentStatsTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), runStats, null, ignoredTestSuiteCount, 1);
+                new HashSet<>(), new HashMap<>(), runStats, null, ignoredTestSuiteCount, 1,
+                TestRunSelectionDetails.empty());
     }
 
     /**

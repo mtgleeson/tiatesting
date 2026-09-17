@@ -53,8 +53,9 @@ public final class TestRunHistoryEntry implements Serializable {
      * material in the distributed test runs chapter of {@code WIKI.md}.
      *
      * <p>The five trailing counters are null when not recorded - a row written before this
-     * feature, or an all-tests run - rather than defaulting to zero, so callers can distinguish
-     * "not recorded" from "recorded as zero". See the "Run history details" chapter in
+     * feature, or a distributed row before the seal populates it - rather than defaulting to zero,
+     * so callers can distinguish "not recorded" from "recorded as zero". A single-host run always
+     * records the counts (zero included). See the "Run history details" chapter in
      * {@code WIKI.md}.
      *
      * @param id deterministic entry id
@@ -332,31 +333,36 @@ public final class TestRunHistoryEntry implements Serializable {
 
     /**
      * @return count of modified test files that were selected; null when not recorded (a row
-     *         written before this feature, or an all-tests run)
+     *         written before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
      */
     public Integer getNumModifiedTestFiles() { return numModifiedTestFiles; }
 
     /**
      * @return count of new test files that were selected; null when not recorded (a row written
-     *         before this feature, or an all-tests run)
+     *         before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
      */
     public Integer getNumNewTestFiles() { return numNewTestFiles; }
 
     /**
      * @return count of previously-failed suites re-run; null when not recorded (a row written
-     *         before this feature, or an all-tests run)
+     *         before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
      */
     public Integer getNumPreviouslyFailed() { return numPreviouslyFailed; }
 
     /**
      * @return count of suites re-run from unsealed mapping rows; null when not recorded (a row
-     *         written before this feature, or an all-tests run)
+     *         written before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
      */
     public Integer getNumUnsealedMapping() { return numUnsealedMapping; }
 
     /**
      * @return count of suites selected from pending library changes; null when not recorded (a
-     *         row written before this feature, or an all-tests run)
+     *         row written before this feature, or a distributed row before the seal populates it).
+     *         A single-host run records the actual count, zero included
      */
     public Integer getNumPendingLibrary() { return numPendingLibrary; }
 

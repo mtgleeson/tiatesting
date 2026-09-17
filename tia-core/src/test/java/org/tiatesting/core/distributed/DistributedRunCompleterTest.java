@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -346,7 +347,7 @@ class DistributedRunCompleterTest {
         observed.addAll(failed);
 
         return new TestRunResult(trackers, failed, observed, observed, new HashSet<>(observed),
-                methodTrackers, new TestStats(), null, 1, suitesRan);
+                methodTrackers, new TestStats(), null, 1, suitesRan, TestRunSelectionDetails.empty());
     }
 
     /**

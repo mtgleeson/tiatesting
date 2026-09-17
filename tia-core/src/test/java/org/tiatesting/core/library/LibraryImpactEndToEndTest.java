@@ -276,7 +276,8 @@ class LibraryImpactEndToEndTest {
         TestRunnerService service = new TestRunnerService(dataStore);
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 1, 0);
+                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, 1, 0,
+                TestRunSelectionDetails.empty());
         // history logging is off in this end-to-end test to keep the focus on library drain cleanup
         service.persistTestRunData(true, false, commitValue, "main", System.currentTimeMillis(), testRunResult, null);
     }
