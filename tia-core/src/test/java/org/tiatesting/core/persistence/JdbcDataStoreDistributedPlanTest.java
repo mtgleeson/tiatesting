@@ -8,6 +8,8 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
@@ -607,5 +609,127 @@ class JdbcDataStoreDistributedPlanTest {
         assertEquals("run-1", dataStore.readDistributedRun("run-1").getRunId());
         assertEquals(2, dataStore.readDistributedRunGroups("run-1").size());
         assertEquals(1L, countRows("tia_distributed_run"));
+    }
+
+    /**
+     * Build a breakdown with two triggers (deliberately inserted lowest-count first, so the
+     * round-trip assertions also cover the descending-order read) and non-zero counters across
+     * all five scalar sources.
+     *
+     * @return a populated breakdown, unsaved
+     */
+    private static TestRunSelectionDetails sampleSelectionDetails() {
+        List<TestRunTrigger> triggers = Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.A.foo()V", 5),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "always-run-smoke", 9));
+        return new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5);
+    }
+
+    /**
+     * Verify that a staged breakdown round-trips exactly: the five counters and both triggers,
+     * with the triggers read back ordered by suite count descending regardless of insertion order.
+     */
+    @Test
+    void shouldRoundTripAStagedSelectionBreakdown() {
+        // given
+        TestRunSelectionDetails details = sampleSelectionDetails();
+
+        // when
+        dataStore.persistDistributedRunSelectionDetails("run-1", details);
+        TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("run-1");
+
+        // then
+        assertEquals(1, read.getNumModifiedTestFiles());
+        assertEquals(2, read.getNumNewTestFiles());
+        assertEquals(3, read.getNumPreviouslyFailed());
+        assertEquals(4, read.getNumUnsealedMapping());
+        assertEquals(5, read.getNumPendingLibrary());
+        assertEquals(2, read.getTriggers().size());
+        assertEquals("always-run-smoke", read.getTriggers().get(0).getName());
+        assertEquals(9, read.getTriggers().get(0).getTestCount());
+        assertEquals("com.example.A.foo()V", read.getTriggers().get(1).getName());
+        assertEquals(5, read.getTriggers().get(1).getTestCount());
+    }
+
+    /**
+     * Verify that persisting the same breakdown for the same run id twice is idempotent: exactly
+     * one counters row and the same number of trigger rows, not accumulated duplicates.
+     *
+     * @throws Exception if a row-count query fails
+     */
+    @Test
+    void shouldStagingTheSameBreakdownTwiceBeIdempotent() throws Exception {
+        // given
+        TestRunSelectionDetails details = sampleSelectionDetails();
+        dataStore.persistDistributedRunSelectionDetails("run-1", details);
+
+        // when
+        dataStore.persistDistributedRunSelectionDetails("run-1", details);
+
+        // then
+        assertEquals(1L, countRows("tia_distributed_run_selection"));
+        assertEquals(2L, countRows("tia_distributed_run_trigger"));
+        assertEquals(2, dataStore.readDistributedRunSelectionDetails("run-1").getTriggers().size());
+    }
+
+    /**
+     * Verify that reading the breakdown for a run id nothing was ever staged under returns
+     * {@link TestRunSelectionDetails#empty()} rather than null or throwing.
+     */
+    @Test
+    void shouldReturnEmptyBreakdownForAnUnstagedRunId() {
+        // given
+        // no persistDistributedRunSelectionDetails call was made for this run id
+
+        // when
+        TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("no-such-run");
+
+        // then
+        assertTrue(read.getTriggers().isEmpty());
+        assertEquals(0, read.getNumModifiedTestFiles());
+        assertEquals(0, read.getNumNewTestFiles());
+        assertEquals(0, read.getNumPreviouslyFailed());
+        assertEquals(0, read.getNumUnsealedMapping());
+        assertEquals(0, read.getNumPendingLibrary());
+    }
+
+    /**
+     * Verify that staging a null breakdown is treated as {@link TestRunSelectionDetails#empty()}:
+     * a zero-counters row is written (so the row exists) and no triggers are inserted.
+     */
+    @Test
+    void shouldTreatANullBreakdownAsEmptyWhenStaging() {
+        // given
+        // no prior breakdown staged for this run id
+
+        // when
+        dataStore.persistDistributedRunSelectionDetails("run-null", null);
+        TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("run-null");
+
+        // then
+        assertTrue(read.getTriggers().isEmpty());
+        assertEquals(0, read.getNumModifiedTestFiles());
+    }
+
+    /**
+     * Verify that a new plan write clears a previously staged breakdown for a different run id.
+     * {@code persistDistributedRunPlan} itself does not write a breakdown - the planner does that
+     * in a separate call - but its {@code tablesToClear} step must still sweep both
+     * run-id-keyed selection tables, exactly as it sweeps the four plan tables, so a replanned
+     * build never risks reading a previous run's stale breakdown.
+     */
+    @Test
+    void shouldClearAStagedBreakdownWhenANewPlanIsWritten() {
+        // given
+        dataStore.persistDistributedRunPlan(samplePlan("run-1", null));
+        dataStore.persistDistributedRunSelectionDetails("run-1", sampleSelectionDetails());
+
+        // when
+        dataStore.persistDistributedRunPlan(samplePlan("run-2", null));
+
+        // then
+        TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("run-1");
+        assertTrue(read.getTriggers().isEmpty());
+        assertEquals(0, read.getNumModifiedTestFiles());
     }
 }
