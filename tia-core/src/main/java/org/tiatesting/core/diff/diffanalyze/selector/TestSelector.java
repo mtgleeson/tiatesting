@@ -821,7 +821,7 @@ public class TestSelector {
         resolver.warnOnEmptyRules(testSuitesTracked);
 
         Set<String> changedPaths = vcsReader.getChangedFilePaths(storedCommitValue, checkLocalChanges);
-        Set<String> forced = resolver.resolve(changedPaths, testSuitesTracked);
+        Set<String> forced = resolver.resolve(changedPaths, testSuitesTracked).getForcedSuites();
         // Always log the static selection outcome when rules are configured - an empty result
         // is as informative as a hit, and this matches the unconditional logging of the other
         // "Selected tests to run from ..." selection sources above.
