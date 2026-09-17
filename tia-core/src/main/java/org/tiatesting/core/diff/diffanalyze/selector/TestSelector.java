@@ -9,6 +9,8 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -16,6 +18,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
+import org.tiatesting.core.staticselection.StaticTestSelectionResult;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -93,21 +96,23 @@ public class TestSelector {
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap(),
-                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, 0L, true);
+                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, 0L, true,
+                    TestRunSelectionDetails.empty());
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
         // the ignore list and the run-time estimate.
         Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
 
-        Set<String> testsToRun = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames, checkLocalChanges,
-                tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
+        SelectTestsToRunResult runResult = selectTestsToRun(vcsReader, sourceFilesDirNames, testFilesDirNames,
+                checkLocalChanges, tiaCore.getCommitValue(), testSuitesTracked, libraryConfig);
+        Set<String> testsToRun = runResult.getTestsToRun();
 
-        LibraryImpactDrainResult drainResult = drainPendingLibraryMethodsIfConfigured(
+        PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
                 libraryConfig, testsToRun, testSuitesTracked);
 
-        applyStaticTestSelection(vcsReader, staticMappingConfig, tiaCore.getCommitValue(), testSuitesTracked,
-                testsToRun, checkLocalChanges);
+        List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
+                tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);
@@ -116,12 +121,20 @@ public class TestSelector {
 
         RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
                 tiaCore.getTestStats());
-        return new TestSelectorResult(testsToRun, testsToIgnore, drainResult,
+
+        List<TestRunTrigger> triggers = new ArrayList<>(runResult.getSourceMethodTriggers());
+        triggers.addAll(staticRuleTriggers);
+        TestRunSelectionDetails selectionDetails = new TestRunSelectionDetails(triggers,
+                runResult.getNumModifiedTestFiles(), runResult.getNumNewTestFiles(),
+                runResult.getNumPreviouslyFailed(), runResult.getNumUnsealedMapping(),
+                librarySelection.getNumPendingLibrary());
+
+        return new TestSelectorResult(testsToRun, testsToIgnore, librarySelection.getDrainResult(),
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
                 estimate.getMedianRunTimeMsAppliedToMissing(),
                 estimate.getSelectedTestRunTimesMs(),
                 tiaCore.getTestStats().getAllTestsRunTime(), estimate.getCaptureOverheadMs(),
-                estimate.getFixedOverheadMs(), false);
+                estimate.getFixedOverheadMs(), false, selectionDetails);
     }
 
     /**
@@ -430,9 +443,11 @@ public class TestSelector {
      * @param storedCommitValue the commit the stored mapping was built at (diff baseline)
      * @param testSuitesTracked the tracked test suites (names + stats) keyed by suite name
      * @param libraryConfig the library impact analysis config, or {@code null} if not configured
-     * @return the test suites that should be executed for the current changes
+     * @return the test suites that should be executed for the current changes, together with the
+     *         source-method triggers and the scalar counts for each dynamic selection source, for
+     *         the run-history selection breakdown
      */
-    private Set<String> selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
+    private SelectTestsToRunResult selectTestsToRun(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                          final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                          final String storedCommitValue,
                                          final Map<String, TestSuiteTracker> testSuitesTracked,
@@ -481,22 +496,79 @@ public class TestSelector {
 
         // Find all test suites that execute the source code methods that have changed
         Set<Integer> impactedMethods = findMethodsImpacted(sourceProjectDiffs, methodsTrackedByFile, sourceFilesDirs);
-        Set<String> testsToRun = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
+        SourceMethodTriggerResult methodResult = findTestSuitesForImpactedMethods(impactedMethods, methodsTrackedByFile);
+        Set<String> testsToRun = methodResult.getTestsToRun();
 
         // If any test suite files were modified, always re-run these. So add them to the run list.
-        addModifiedTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), testSuitesTracked, testsToRun, testFilesDirs);
+        int numModifiedTestFiles = addModifiedTestFilesToRunList(
+                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_MODIFIED), testSuitesTracked, testsToRun, testFilesDirs);
 
         // Add newly added test files to the run list.
-        addNewTestFilesToRunList(groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs);
+        int numNewTestFiles = addNewTestFilesToRunList(
+                groupedImpactedFiles.get(FileImpactAnalyzer.TEST_FILE_ADDED), testsToRun, testFilesDirs);
 
         // Re-run tests that failed since the last successful full test run.
-        addPreviouslyFailedTests(testsToRun);
+        int numPreviouslyFailed = addPreviouslyFailedTests(testsToRun);
 
         // Re-run suites whose mapping rows were written by a run that never sealed - those rows
         // describe a later commit than the stored one.
-        addUnsealedTests(testSuitesTracked, testsToRun);
+        int numUnsealedMapping = addUnsealedTests(testSuitesTracked, testsToRun);
 
-        return testsToRun;
+        return new SelectTestsToRunResult(testsToRun, methodResult.getTriggers(), numModifiedTestFiles,
+                numNewTestFiles, numPreviouslyFailed, numUnsealedMapping);
+    }
+
+    /**
+     * Holder for the result of {@link #selectTestsToRun}: the run set together with the
+     * source-method triggers and the scalar counts for each dynamic selection source that feed
+     * the run-history {@link TestRunSelectionDetails} breakdown. Package-private, like
+     * {@link RunTimeEstimate}, so tests can assert on the breakdown inputs without going through
+     * the full {@code selectTestsToIgnore} entry point.
+     */
+    static class SelectTestsToRunResult {
+        private final Set<String> testsToRun;
+        private final List<TestRunTrigger> sourceMethodTriggers;
+        private final int numModifiedTestFiles;
+        private final int numNewTestFiles;
+        private final int numPreviouslyFailed;
+        private final int numUnsealedMapping;
+
+        /**
+         * @param testsToRun the test suites selected to run from the dynamic sources
+         * @param sourceMethodTriggers one trigger per impacted method, carrying its covering-suite count
+         * @param numModifiedTestFiles count of modified test files added to the run set
+         * @param numNewTestFiles count of newly-added test files added to the run set
+         * @param numPreviouslyFailed count of previously-failed suites re-added to the run set
+         * @param numUnsealedMapping count of suites re-added from unsealed mapping rows
+         */
+        SelectTestsToRunResult(Set<String> testsToRun, List<TestRunTrigger> sourceMethodTriggers,
+                               int numModifiedTestFiles, int numNewTestFiles, int numPreviouslyFailed,
+                               int numUnsealedMapping) {
+            this.testsToRun = testsToRun;
+            this.sourceMethodTriggers = sourceMethodTriggers;
+            this.numModifiedTestFiles = numModifiedTestFiles;
+            this.numNewTestFiles = numNewTestFiles;
+            this.numPreviouslyFailed = numPreviouslyFailed;
+            this.numUnsealedMapping = numUnsealedMapping;
+        }
+
+        /** @return the test suites selected to run from the dynamic sources */
+        Set<String> getTestsToRun() { return testsToRun; }
+
+        /** @return one trigger per impacted method, carrying its covering-suite count */
+        List<TestRunTrigger> getSourceMethodTriggers() { return sourceMethodTriggers; }
+
+        /** @return count of modified test files added to the run set */
+        int getNumModifiedTestFiles() { return numModifiedTestFiles; }
+
+        /** @return count of newly-added test files added to the run set */
+        int getNumNewTestFiles() { return numNewTestFiles; }
+
+        /** @return count of previously-failed suites re-added to the run set */
+        int getNumPreviouslyFailed() { return numPreviouslyFailed; }
+
+        /** @return count of suites re-added from unsealed mapping rows */
+        int getNumUnsealedMapping() { return numUnsealedMapping; }
     }
 
     /**
@@ -509,8 +581,9 @@ public class TestSelector {
      *
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the run set to add the unsealed suites to
+     * @return the number of unsealed suites added to {@code testsToRun}
      */
-    private void addUnsealedTests(final Map<String, TestSuiteTracker> testSuitesTracked,
+    private int addUnsealedTests(final Map<String, TestSuiteTracker> testSuitesTracked,
                                   final Set<String> testsToRun){
         Set<String> unsealed = new HashSet<>();
         for (Map.Entry<String, TestSuiteTracker> entry : testSuitesTracked.entrySet()){
@@ -523,6 +596,8 @@ public class TestSelector {
             log.info("Selected tests to run from unsealed mapping rows (a previous run did not complete): {}", unsealed);
             testsToRun.addAll(unsealed);
         }
+
+        return unsealed.size();
     }
 
     /**
@@ -626,8 +701,9 @@ public class TestSelector {
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the run set to add the modified suites to
      * @param testFilesDirs the configured test file directories
+     * @return the number of modified test suites added to {@code testsToRun}
      */
-    private void addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
+    private int addModifiedTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
                                                Map<String, TestSuiteTracker> testSuitesTracked,
                                                Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesModified = new HashSet<>();
@@ -641,6 +717,7 @@ public class TestSelector {
 
         log.info("Selected tests to run from VCS test file changes: {}", testSuitesModified);
         testsToRun.addAll(testSuitesModified);
+        return testSuitesModified.size();
     }
 
     /**
@@ -650,8 +727,9 @@ public class TestSelector {
      * @param sourceFileDiffContexts the added test-file diff contexts
      * @param testsToRun the run set to add the new suites to
      * @param testFilesDirs the configured test file directories
+     * @return the number of new test suites added to {@code testsToRun}
      */
-    private void addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
+    private int addNewTestFilesToRunList(List<SourceFileDiffContext> sourceFileDiffContexts,
                                           Set<String> testsToRun, List<String> testFilesDirs){
         Set<String> testSuitesAdded = new HashSet<>();
         for (SourceFileDiffContext sourceFileDiffContext : sourceFileDiffContexts){
@@ -661,6 +739,7 @@ public class TestSelector {
 
         log.info("Selected tests to run from new test files: {}", testSuitesAdded);
         testsToRun.addAll(testSuitesAdded);
+        return testSuitesAdded.size();
     }
 
     /**
@@ -713,23 +792,55 @@ public class TestSelector {
      *
      * @param methodsImpacted the set of method ids that the diff implicates
      * @param methodsTrackedByFile the changed-files-to-tracked-methods result, used to resolve method names for debug logging
-     * @return the tests that should be executed based on the methods changed in the source code.
+     * @return the tests that should be executed based on the methods changed in the source code,
+     *         together with one {@link TestRunTrigger} per impacted method carrying its
+     *         covering-suite count, for the run-history selection breakdown
      */
-    private Set<String> findTestSuitesForImpactedMethods(Set<Integer> methodsImpacted,
+    private SourceMethodTriggerResult findTestSuitesForImpactedMethods(Set<Integer> methodsImpacted,
                                                          Map<String, Map<Integer, MethodImpactTracker>> methodsTrackedByFile){
         Map<Integer, Set<String>> methodTestSuites = dataStore.getTestSuitesForMethods(methodsImpacted);
 
         Set<String> testsToRun = new HashSet<>();
+        List<TestRunTrigger> triggers = new ArrayList<>();
         for (Map.Entry<Integer, Set<String>> entry : methodTestSuites.entrySet()){
             if (log.isDebugEnabled()){
                 log.debug("Tests to run ({}) for method {}: {}", entry.getValue().size(),
                         methodNameForId(entry.getKey(), methodsTrackedByFile), entry.getValue());
             }
             testsToRun.addAll(entry.getValue());
+            triggers.add(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
+                    methodNameForId(entry.getKey(), methodsTrackedByFile), entry.getValue().size()));
         }
 
         log.info("Selected tests to run from VCS source changes: {}", testsToRun);
-        return testsToRun;
+        return new SourceMethodTriggerResult(testsToRun, triggers);
+    }
+
+    /**
+     * Holder for the result of {@link #findTestSuitesForImpactedMethods}: the run set together
+     * with one {@link TestRunTrigger} per impacted method, for the run-history
+     * {@link TestRunSelectionDetails} breakdown. Package-private, like {@link RunTimeEstimate},
+     * so tests can assert on the triggers without going through the full
+     * {@code selectTestsToIgnore} entry point.
+     */
+    static class SourceMethodTriggerResult {
+        private final Set<String> testsToRun;
+        private final List<TestRunTrigger> triggers;
+
+        /**
+         * @param testsToRun the test suites selected to run from the impacted methods
+         * @param triggers one trigger per impacted method, carrying its covering-suite count
+         */
+        SourceMethodTriggerResult(Set<String> testsToRun, List<TestRunTrigger> triggers) {
+            this.testsToRun = testsToRun;
+            this.triggers = triggers;
+        }
+
+        /** @return the test suites selected to run from the impacted methods */
+        Set<String> getTestsToRun() { return testsToRun; }
+
+        /** @return one trigger per impacted method, carrying its covering-suite count */
+        List<TestRunTrigger> getTriggers() { return triggers; }
     }
 
     /**
@@ -757,11 +868,13 @@ public class TestSelector {
      * not part of the up-front metadata load).
      *
      * @param testsToRun the run set to add the previously failed tests to
+     * @return the number of previously-failed suites added to {@code testsToRun}
      */
-    private void addPreviouslyFailedTests(Set<String> testsToRun){
+    private int addPreviouslyFailedTests(Set<String> testsToRun){
         Set<String> testSuitesFailed = dataStore.getTestSuitesFailed();
         testsToRun.addAll(testSuitesFailed);
         log.info("Running previously failed tests: {}", testSuitesFailed);
+        return testSuitesFailed.size();
     }
 
     /**
@@ -806,27 +919,31 @@ public class TestSelector {
      *                          used to resolve each rule's forced suite set.
      * @param testsToRun the dynamic run set; forced suites are added in place.
      * @param checkLocalChanges whether to query the local workspace instead of the commit range.
+     * @return one {@link TestRunTrigger} per fired rule, for the run-history selection breakdown;
+     *         empty when no rule fired or {@code staticMappingConfig} is null/disabled.
      */
-    private void applyStaticTestSelection(final VCSReader vcsReader,
+    private List<TestRunTrigger> applyStaticTestSelection(final VCSReader vcsReader,
                                           final StaticTestSelectionConfig staticMappingConfig,
                                           final String storedCommitValue,
                                           final Map<String, TestSuiteTracker> testSuitesTracked,
                                           final Set<String> testsToRun,
                                           final boolean checkLocalChanges) {
         if (staticMappingConfig == null || !staticMappingConfig.isEnabled()) {
-            return;
+            return Collections.emptyList();
         }
 
         StaticTestSelectionResolver resolver = new StaticTestSelectionResolver(staticMappingConfig);
         resolver.warnOnEmptyRules(testSuitesTracked);
 
         Set<String> changedPaths = vcsReader.getChangedFilePaths(storedCommitValue, checkLocalChanges);
-        Set<String> forced = resolver.resolve(changedPaths, testSuitesTracked).getForcedSuites();
+        StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked);
+        Set<String> forced = staticResult.getForcedSuites();
         // Always log the static selection outcome when rules are configured - an empty result
         // is as informative as a hit, and this matches the unconditional logging of the other
         // "Selected tests to run from ..." selection sources above.
         log.info("Selected tests to run from static test selection rules: {}", forced);
         testsToRun.addAll(forced);
+        return staticResult.getRuleTriggers();
     }
 
     /**
@@ -979,14 +1096,16 @@ public class TestSelector {
      *                          drainer so drained forced-selection batches resolve
      *                          {@code RUN_ALL} / {@code SUITE_NAMES} against this project's own
      *                          suite set rather than the library's.
-     * @return the drain result for post-run cleanup, or null when draining was skipped
+     * @return the drain result for post-run cleanup (null when draining was skipped) together
+     *         with the count of suites selected from pending library changes, for the
+     *         run-history selection breakdown
      */
-    private LibraryImpactDrainResult drainPendingLibraryMethodsIfConfigured(
+    private PendingLibrarySelection drainPendingLibraryMethodsIfConfigured(
             LibraryImpactAnalysisConfig libraryConfig, Set<String> testsToRun,
             Map<String, TestSuiteTracker> testSuitesTracked) {
 
         if (libraryConfig == null || !libraryConfig.isEnabled()) {
-            return null;
+            return new PendingLibrarySelection(null, 0);
         }
 
         PendingLibraryImpactedMethodsDrainer drainer = new PendingLibraryImpactedMethodsDrainer();
@@ -998,6 +1117,33 @@ public class TestSelector {
             testsToRun.addAll(outcome.getTestsToAdd());
         }
 
-        return outcome.getDrainResult();
+        return new PendingLibrarySelection(outcome.getDrainResult(), outcome.getTestsToAdd().size());
+    }
+
+    /**
+     * Holder for the result of {@link #drainPendingLibraryMethodsIfConfigured}: the drain result
+     * for post-run cleanup together with the count of suites selected from pending library
+     * changes, for the run-history {@link TestRunSelectionDetails} breakdown. Package-private,
+     * like {@link RunTimeEstimate}, so tests can assert on the count without going through the
+     * full {@code selectTestsToIgnore} entry point.
+     */
+    static class PendingLibrarySelection {
+        private final LibraryImpactDrainResult drainResult;
+        private final int numPendingLibrary;
+
+        /**
+         * @param drainResult the drain result for post-run cleanup, or null when draining was skipped
+         * @param numPendingLibrary the number of suites selected from pending library changes
+         */
+        PendingLibrarySelection(LibraryImpactDrainResult drainResult, int numPendingLibrary) {
+            this.drainResult = drainResult;
+            this.numPendingLibrary = numPendingLibrary;
+        }
+
+        /** @return the drain result for post-run cleanup, or null when draining was skipped */
+        LibraryImpactDrainResult getDrainResult() { return drainResult; }
+
+        /** @return the number of suites selected from pending library changes */
+        int getNumPendingLibrary() { return numPendingLibrary; }
     }
 }
