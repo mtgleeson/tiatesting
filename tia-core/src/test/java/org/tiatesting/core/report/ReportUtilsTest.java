@@ -23,7 +23,7 @@ class ReportUtilsTest {
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
         return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0,
-                null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
     }
 
     /**
@@ -108,7 +108,8 @@ class ReportUtilsTest {
      */
     private static TestRunHistoryEntry distributedEntry(long wallClockMs){
         return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, 0L, 0,
-                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
     }
 
     /**

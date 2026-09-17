@@ -432,9 +432,10 @@ class PostgresCompletionTest {
         TestRunHistoryEntry distributed = new TestRunHistoryEntry(
                 "pg-dist-id", 1_700_000_000_000L, BRANCH, "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80,
-                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
         TestRunHistoryEntry singleHost = TestRunHistoryEntry.create(
-                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         postgresStore.persistTestRunHistoryEntry(distributed);

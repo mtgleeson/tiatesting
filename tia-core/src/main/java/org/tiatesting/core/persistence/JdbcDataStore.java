@@ -1449,7 +1449,9 @@ public class JdbcDataStore implements DataStore {
                         getNullableLong(resultSet, COL_WALL_CLOCK_MS),
                         getNullableInt(resultSet, COL_GROUP_COUNT),
                         RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
-                                resultSet.getString(COL_HOST_NAME))));
+                                resultSet.getString(COL_HOST_NAME)),
+                        // selection counters read in a later change
+                        null, null, null, null, null));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
