@@ -59,7 +59,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -93,7 +93,8 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = new TestRunHistoryEntry(
                 "dist-id", 1_700_000_000_000L, "main", "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80,
-                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -118,7 +119,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -147,9 +148,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void multipleEntriesReturnedMostRecentFirst() {
         // given three runs at distinct timestamps, inserted out of order
-        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
-        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
-        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(middle);
@@ -167,9 +168,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void persistSameLogicalRunTwiceIsIdempotent() {
         // given two persists of the same (branch, commit, timestamp) triple
-        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
         TestRunHistoryEntry secondWithDifferentCounts = TestRunHistoryEntry.create(
-                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(first);
@@ -185,7 +186,7 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void tiaDataLoadIncludesTestRunHistory() {
         // given a persisted entry
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
         dataStore.persistTestRunHistoryEntry(entry);
 
         // when
@@ -207,7 +208,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
                 10, 2, 1, 5_000L, false, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"));
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -230,7 +231,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                10, 2, 1, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -251,7 +252,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(
                 "main", "abc123", "ci-run-42", 1_700_000_000_000L,
                 10, 2, 1, 5_000L, true, 4_000L, 80, 1_800L, 4,
-                RunOrigin.of(RunOrigin.SOURCE_CI, null));
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -276,7 +277,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // against the same file.
         dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3")));
+                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null));
 
         try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());

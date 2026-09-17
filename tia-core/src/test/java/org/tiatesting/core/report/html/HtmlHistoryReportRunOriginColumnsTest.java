@@ -134,7 +134,7 @@ class HtmlHistoryReportRunOriginColumnsTest {
     private TestRunHistoryEntry entry(final String id, final long timestampMs,
                                       final RunOrigin origin) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 8, 2, 0, 20_000L,
-                true, 4000L, 80, null, null, null, origin);
+                true, 4000L, 80, null, null, null, origin, null, null, null, null, null);
     }
 
     /**

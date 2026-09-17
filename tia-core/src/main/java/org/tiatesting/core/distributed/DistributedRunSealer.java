@@ -339,7 +339,7 @@ public final class DistributedRunSealer {
                 context.getRunId(), runTimestampMs, totals.getSuitesRan(), ignoredSuiteCount,
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
                 timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount(),
-                RunEnvironment.distributedRunOrigin());
+                RunEnvironment.distributedRunOrigin(), null);
         dataStore.persistTestRunHistoryEntry(entry);
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "

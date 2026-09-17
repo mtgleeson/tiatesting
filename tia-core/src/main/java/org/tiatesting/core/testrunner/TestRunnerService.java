@@ -584,7 +584,8 @@ public class TestRunnerService {
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
-                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin());
+                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
+                null);
         dataStore.persistTestRunHistoryEntry(entry);
         log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
                 entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
