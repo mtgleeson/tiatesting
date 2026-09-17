@@ -9,6 +9,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -439,6 +440,34 @@ public interface DataStore extends AutoCloseable {
      * @return the runs currently planned, most recently created first, empty if there are none
      */
     List<DistributedRun> readAllDistributedRuns();
+
+    /**
+     * Stage the selection breakdown for a distributed run, keyed by run id, so the sealer can
+     * later copy it onto the build's single {@code tia_test_run_history} row. This is separate
+     * from {@link #persistDistributedRunPlan} because the breakdown is a property of the {@code
+     * TestSelectorResult} the planner selected from, not of the {@link DistributedRunPlan} the
+     * plan tables carry - keeping the two models unchanged avoids threading the breakdown through
+     * the ~95 call sites that already construct a plan or a run.
+     *
+     * <p>Idempotent per {@code runId}: deletes whatever was previously staged for that run, then
+     * writes the given breakdown, so a retried plan write leaves exactly one staged breakdown
+     * rather than accumulating duplicates. {@code details} is never treated as absent - a null
+     * argument stages {@link TestRunSelectionDetails#empty()} - so a read always gets a definite
+     * answer rather than having to distinguish "not staged" from "staged as empty".
+     *
+     * @param runId the distributed run these triggers belong to
+     * @param details the breakdown to stage; null is treated as {@link TestRunSelectionDetails#empty()}
+     */
+    void persistDistributedRunSelectionDetails(final String runId, final TestRunSelectionDetails details);
+
+    /**
+     * Read the selection breakdown staged for a distributed run.
+     *
+     * @param runId the distributed run to read the staged breakdown for
+     * @return the staged breakdown, or {@link TestRunSelectionDetails#empty()} if nothing was
+     *         staged for that run id
+     */
+    TestRunSelectionDetails readDistributedRunSelectionDetails(final String runId);
 
     /**
      * Claim exactly one {@code PENDING} group of a distributed run for the calling runner, so no

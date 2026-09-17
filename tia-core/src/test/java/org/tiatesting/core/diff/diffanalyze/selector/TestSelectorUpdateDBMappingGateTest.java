@@ -19,6 +19,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -526,6 +527,30 @@ class TestSelectorUpdateDBMappingGateTest {
          */
         @Override
         public List<DistributedRun> readAllDistributedRuns() {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param details ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistDistributedRunSelectionDetails(String runId, TestRunSelectionDetails details) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public TestRunSelectionDetails readDistributedRunSelectionDetails(String runId) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

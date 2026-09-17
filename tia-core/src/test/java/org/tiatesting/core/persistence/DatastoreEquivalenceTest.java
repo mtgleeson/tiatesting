@@ -415,6 +415,66 @@ class DatastoreEquivalenceTest {
     }
 
     /**
+     * Proves the distributed-run selection-breakdown round trip - {@link
+     * DataStore#persistDistributedRunSelectionDetails} writing the counters row and the trigger
+     * rows keyed by run id, and {@link DataStore#readDistributedRunSelectionDetails} reading both
+     * back - against a fresh temp-directory H2 database, and, when a local Postgres instance is
+     * reachable, against it too. Like {@link #forcedSelectionRoundTripAndDelete()} this does not
+     * use {@link #assumePg()}: the H2 leg always runs (and is reported as passing) even when
+     * Postgres is unavailable.
+     *
+     * @throws Exception if seeding the H2 temp database or cleaning Postgres fails
+     */
+    @Test
+    void distributedRunSelectionDetailsRoundTrip() throws Exception {
+        // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
+        h2TempDir = Files.createTempDirectory("tia-h2-distributed-selection-details");
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
+        h2Store.getTiaData(true);
+
+        // when / then - the H2 leg always runs, regardless of Postgres availability
+        assertDistributedRunSelectionDetailsRoundTrip(h2Store);
+
+        // when / then - the Postgres leg runs only when a local Postgres instance is reachable;
+        // when it is not, the H2 assertions above still stand as the test's result.
+        if (isPostgresReachable()) {
+            cleanPostgres();
+            postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                    null, BRANCH, null);
+            postgresStore.getTiaData(true);
+            assertDistributedRunSelectionDetailsRoundTrip(postgresStore);
+        }
+    }
+
+    /**
+     * Run the distributed-run selection-breakdown round trip against a single store: stage a
+     * breakdown under one run id, then assert the five counters and the triggers (ordered by
+     * suite count descending) both read back correctly.
+     *
+     * @param store the datastore to exercise; already schema-bootstrapped.
+     */
+    private static void assertDistributedRunSelectionDetailsRoundTrip(DataStore store) {
+        // given
+        TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                1, 2, 3, 4, 5);
+
+        // when
+        store.persistDistributedRunSelectionDetails("run-equiv-1", details);
+        TestRunSelectionDetails read = store.readDistributedRunSelectionDetails("run-equiv-1");
+
+        // then
+        assertEquals(1, read.getNumModifiedTestFiles());
+        assertEquals(2, read.getNumNewTestFiles());
+        assertEquals(3, read.getNumPreviouslyFailed());
+        assertEquals(4, read.getNumUnsealedMapping());
+        assertEquals(5, read.getNumPendingLibrary());
+        assertEquals(2, read.getTriggers().size());
+        assertEquals("MDP", read.getTriggers().get(0).getName(), "1009 first (ORDER BY test_count DESC)");
+    }
+
+    /**
      * Find a run history entry by id in a list read back from a store.
      *
      * @param list the entries to search.

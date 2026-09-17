@@ -19,6 +19,7 @@ import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -110,6 +111,8 @@ public class JdbcDataStore implements DataStore {
     private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP = TABLE_TIA_DISTRIBUTED_RUN + "_group";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE = TABLE_TIA_DISTRIBUTED_RUN_GROUP + "_suite";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE = TABLE_TIA_DISTRIBUTED_RUN + "_method_stage";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_SELECTION = TABLE_TIA_DISTRIBUTED_RUN + "_selection";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_TRIGGER = TABLE_TIA_DISTRIBUTED_RUN + "_trigger";
     private static final String COL_RUN_ID = "run_id";
     private static final String COL_STATUS = "status";
     private static final String COL_GROUP_COUNT = "group_count";
@@ -1600,10 +1603,13 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Clears all four distributed tables before inserting, so the plan tables hold exactly one
-     * run. Tia isolates each branch in its own schema, so every row cleared belongs to this
-     * branch's previous build - sealed or abandoned - and this is the only retention mechanism
-     * the distributed tables have.
+     * <p>Clears the four plan tables plus the two run-id-keyed selection-breakdown tables before
+     * inserting, so the plan tables hold exactly one run and a replanned run never keeps a
+     * previous run's staged breakdown. Tia isolates each branch in its own schema, so every row
+     * cleared belongs to this branch's previous build - sealed or abandoned - and this is the only
+     * retention mechanism the distributed tables have. This method itself does not write a new
+     * breakdown - {@link #persistDistributedRunSelectionDetails} does that in a separate call once
+     * this one returns.
      *
      * <p>All of it runs under one transaction. The rollback catches {@link Exception} rather than
      * {@link SQLException} deliberately: an unchecked exception that escaped without rolling back
@@ -1646,7 +1652,9 @@ public class JdbcDataStore implements DataStore {
                         TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
                         TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
                         TABLE_TIA_DISTRIBUTED_RUN_GROUP,
-                        TABLE_TIA_DISTRIBUTED_RUN
+                        TABLE_TIA_DISTRIBUTED_RUN,
+                        TABLE_TIA_DISTRIBUTED_RUN_SELECTION,
+                        TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
                 };
                 try (Statement clearStatement = connection.createStatement()) {
                     for (String table : tablesToClear) {
@@ -2028,6 +2036,149 @@ public class JdbcDataStore implements DataStore {
             throw new TiaPersistenceException(e);
         }
         return runs;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Idempotent per {@code runId}: deletes whatever was previously staged in both the
+     * counters table and the trigger table, then writes {@code details} (or {@link
+     * TestRunSelectionDetails#empty()} if {@code details} is null) - a counters row is always
+     * written, so a read always finds a definite row rather than having to distinguish "not
+     * staged" from "staged as empty". Mirrors {@link #persistTestRunTriggers}'s
+     * delete-then-batch-insert shape, keyed by run id instead of history id.
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} first, since this can be the first call any
+     * caller makes on a freshly created per-branch schema.
+     *
+     * @param runId the distributed run these triggers belong to
+     * @param details the breakdown to stage; null is treated as {@link TestRunSelectionDetails#empty()}
+     */
+    @Override
+    public void persistDistributedRunSelectionDetails(final String runId, final TestRunSelectionDetails details) {
+        TestRunSelectionDetails toPersist = details == null ? TestRunSelectionDetails.empty() : details;
+        Connection connection = getConnection();
+        try {
+            ensureSchema(connection);
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " WHERE " + COL_RUN_ID + " = ?")) {
+                delete.setString(1, runId);
+                delete.executeUpdate();
+            }
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE " + COL_RUN_ID + " = ?")) {
+                delete.setString(1, runId);
+                delete.executeUpdate();
+            }
+            String insertCounters = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " ("
+                    + COL_RUN_ID + ", " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES + ", "
+                    + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
+                    + COL_NUM_PENDING_LIBRARY + ") VALUES (?, ?, ?, ?, ?, ?)";
+            try (PreparedStatement ps = connection.prepareStatement(insertCounters)) {
+                ps.setString(1, runId);
+                ps.setInt(2, toPersist.getNumModifiedTestFiles());
+                ps.setInt(3, toPersist.getNumNewTestFiles());
+                ps.setInt(4, toPersist.getNumPreviouslyFailed());
+                ps.setInt(5, toPersist.getNumUnsealedMapping());
+                ps.setInt(6, toPersist.getNumPendingLibrary());
+                ps.executeUpdate();
+            }
+            List<TestRunTrigger> triggers = toPersist.getTriggers();
+            if (!triggers.isEmpty()) {
+                String insertTrigger = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
+                        + COL_RUN_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
+                        + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?)";
+                try (PreparedStatement ps = connection.prepareStatement(insertTrigger)) {
+                    for (TestRunTrigger t : triggers) {
+                        ps.setString(1, runId);
+                        ps.setString(2, t.getType().name());
+                        ps.setString(3, t.getName());
+                        ps.setInt(4, t.getTestCount());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Calls {@link #ensureSchema(Connection)} first, since this can be the first call any
+     * caller makes on a freshly created per-branch schema.
+     *
+     * @param runId the distributed run to read the staged breakdown for
+     * @return the staged breakdown, or {@link TestRunSelectionDetails#empty()} if nothing was
+     *         staged for that run id
+     */
+    @Override
+    public TestRunSelectionDetails readDistributedRunSelectionDetails(final String runId) {
+        Connection connection = getConnection();
+        try {
+            ensureSchema(connection);
+            boolean countersFound = false;
+            int numModifiedTestFiles = 0;
+            int numNewTestFiles = 0;
+            int numPreviouslyFailed = 0;
+            int numUnsealedMapping = 0;
+            int numPendingLibrary = 0;
+            String countersSql = "SELECT " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES
+                    + ", " + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
+                    + COL_NUM_PENDING_LIBRARY + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION
+                    + " WHERE " + COL_RUN_ID + " = ?";
+            try (PreparedStatement ps = connection.prepareStatement(countersSql)) {
+                ps.setString(1, runId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        countersFound = true;
+                        numModifiedTestFiles = rs.getInt(COL_NUM_MODIFIED_TEST_FILES);
+                        numNewTestFiles = rs.getInt(COL_NUM_NEW_TEST_FILES);
+                        numPreviouslyFailed = rs.getInt(COL_NUM_PREVIOUSLY_FAILED);
+                        numUnsealedMapping = rs.getInt(COL_NUM_UNSEALED_MAPPING);
+                        numPendingLibrary = rs.getInt(COL_NUM_PENDING_LIBRARY);
+                    }
+                }
+            }
+
+            List<TestRunTrigger> triggers = new ArrayList<>();
+            String triggerSql = "SELECT " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
+                    + COL_TEST_COUNT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
+                    + COL_RUN_ID + " = ? ORDER BY " + COL_TEST_COUNT + " DESC";
+            try (PreparedStatement ps = connection.prepareStatement(triggerSql)) {
+                ps.setString(1, runId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        triggers.add(new TestRunTrigger(
+                                TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
+                                rs.getString(COL_TRIGGER_NAME),
+                                rs.getInt(COL_TEST_COUNT)));
+                    }
+                }
+            }
+
+            if (!countersFound && triggers.isEmpty()) {
+                return TestRunSelectionDetails.empty();
+            }
+            return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
+                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary);
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
     }
 
     /**
@@ -4265,6 +4416,10 @@ public class JdbcDataStore implements DataStore {
      * or Postgres connection this collapses what would otherwise be six wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
+     * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
+     * #ensureDistributedRunSelectionTablesExist}, since they belong to the same distributed-run
+     * schema even though {@link #persistDistributedRunPlan} does not write them itself.
+     *
      * @param connection the connection to issue the DDL on
      * @throws SQLException if any DDL statement fails
      */
@@ -4276,6 +4431,59 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSeedRunColumnSql());
+            statement.executeBatch();
+        }
+        ensureDistributedRunSelectionTablesExist(connection);
+    }
+
+    /**
+     * Build the DDL for the {@code tia_distributed_run_selection} table: one row per distributed
+     * run holding the same five scalar selection-source counters {@code
+     * tia_test_run_history} stores, staged here by the planner so the sealer can later copy them
+     * onto the build's single history row - see the "Run history details" chapter in {@code
+     * WIKI.md}.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-counters table
+     */
+    private String buildCreateDistributedRunSelectionTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
+                + COL_NUM_MODIFIED_TEST_FILES + " INT, "
+                + COL_NUM_NEW_TEST_FILES + " INT, "
+                + COL_NUM_PREVIOUSLY_FAILED + " INT, "
+                + COL_NUM_UNSEALED_MAPPING + " INT, "
+                + COL_NUM_PENDING_LIBRARY + " INT)";
+    }
+
+    /**
+     * Build the DDL for the {@code tia_distributed_run_trigger} table: one row per selection
+     * trigger staged for a distributed run, mirroring {@code tia_test_run_history_trigger}'s shape
+     * but keyed by run id rather than history id, and with no foreign key - the run-id-keyed
+     * tables are cleared explicitly by {@link #persistDistributedRunSelectionDetails} and by
+     * {@link #persistDistributedRunPlan}'s {@code tablesToClear}, not by a cascade.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-trigger table
+     */
+    private String buildCreateDistributedRunTriggerTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
+                + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
+                + COL_TEST_COUNT + " INT NOT NULL)";
+    }
+
+    /**
+     * Ensure the two run-id-keyed selection-breakdown tables exist: {@code
+     * tia_distributed_run_selection} (the counters row) and {@code tia_distributed_run_trigger}
+     * (the per-trigger rows). Idempotent via {@code CREATE TABLE IF NOT EXISTS}.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if either DDL statement fails
+     */
+    private void ensureDistributedRunSelectionTablesExist(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.addBatch(buildCreateDistributedRunSelectionTableSql());
+            statement.addBatch(buildCreateDistributedRunTriggerTableSql());
             statement.executeBatch();
         }
     }

@@ -13,6 +13,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -515,6 +516,34 @@ public class SerializedDataStore implements DataStore {
      */
     @Override
     public List<DistributedRun> readAllDistributedRuns() {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param details ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void persistDistributedRunSelectionDetails(String runId, TestRunSelectionDetails details) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public TestRunSelectionDetails readDistributedRunSelectionDetails(String runId) {
         throw new UnsupportedOperationException(
                 "Distributed test runs require a shared database (server-mode H2 or Postgres)");
     }
