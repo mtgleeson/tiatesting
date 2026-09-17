@@ -26,6 +26,7 @@ public class Agent {
         setSelectedTestsSystemProperty(agentOptions.getSelectedTestsFile());
         setLibraryJarsSystemProperty(agentOptions.getLibraryJarsFile());
         setDrainResultFileSystemProperty(agentOptions.getDrainResultFile());
+        setSelectionDetailsFileSystemProperty(agentOptions.getSelectionDetailsFile());
     }
 
     /**
@@ -99,6 +100,23 @@ public class Agent {
         }
         log.trace("Setting system property for tiaDrainResultFile: {}", drainResultFile);
         System.setProperty("tiaDrainResultFile", drainResultFile);
+    }
+
+    /**
+     * Set the run-selection-details sidecar file path as a system property so the test listener
+     * can deserialize the selection breakdown and attach it to the history row. The agent itself
+     * does not parse the file - it stays dependency-light and leaves parsing to the listener, which
+     * already depends on {@code tia-core}. Skips silently when the option is unset.
+     *
+     * @param selectionDetailsFile path to the run-selection-details sidecar file written by the
+     *                             build plugin, or empty when no selection breakdown was written
+     */
+    private static void setSelectionDetailsFileSystemProperty(String selectionDetailsFile) {
+        if (selectionDetailsFile == null || selectionDetailsFile.isEmpty()) {
+            return;
+        }
+        log.trace("Setting system property for tiaRunSelectionDetailsFile: {}", selectionDetailsFile);
+        System.setProperty("tiaRunSelectionDetailsFile", selectionDetailsFile);
     }
 
     /**
