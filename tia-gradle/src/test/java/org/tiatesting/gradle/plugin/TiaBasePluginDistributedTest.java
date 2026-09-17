@@ -5,6 +5,7 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.ByteArrayOutputStream;
@@ -63,7 +64,8 @@ class TiaBasePluginDistributedTest {
         runTimes.put("com.example.BTest", 2000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                5000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 500L, 0L, false);
+                5000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 500L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -75,7 +77,8 @@ class TiaBasePluginDistributedTest {
      */
     private static TestSelectorResult seedSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(), null,
-                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, 0L, true);
+                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, 0L, true,
+                TestRunSelectionDetails.empty());
     }
 
     /**

@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -92,7 +93,8 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -112,7 +114,7 @@ class DistributedRunPlannerTest {
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
                 60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, fixedOverheadMs,
-                false);
+                false, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -130,7 +132,8 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -141,7 +144,8 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -154,7 +158,8 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult runAllTestsSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true,
+                TestRunSelectionDetails.empty());
     }
 
     /**

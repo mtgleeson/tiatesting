@@ -1,6 +1,7 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +40,8 @@ public class TestSelectorResult {
     private final long fixedOverheadMs;
 
     private final boolean runAllTests;
+
+    private final TestRunSelectionDetails selectionDetails;
 
     /**
      * Construct a {@link TestSelectorResult}.
@@ -80,6 +83,10 @@ public class TestSelectorResult {
      *                    this flag exists - an empty {@code testsToRun} means "nothing impacted"
      *                    only when this is {@code false}; when it is {@code true} it means the
      *                    opposite, "everything must run"
+     * @param selectionDetails the per-run selection breakdown - the method and rule triggers and
+     *                         the scalar source counters - used to populate the run-history
+     *                         detail. Must not be {@code null} (use
+     *                         {@link TestRunSelectionDetails#empty()} instead)
      */
     public TestSelectorResult(Set<String> testsToRun, Set<String> testsToIgnore,
                                LibraryImpactDrainResult libraryImpactDrainResult,
@@ -88,7 +95,8 @@ public class TestSelectorResult {
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
                                long allTestsRunTimeMs, long captureOverheadMs,
-                               long fixedOverheadMs, boolean runAllTests) {
+                               long fixedOverheadMs, boolean runAllTests,
+                               TestRunSelectionDetails selectionDetails) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
@@ -100,6 +108,7 @@ public class TestSelectorResult {
         this.captureOverheadMs = captureOverheadMs;
         this.fixedOverheadMs = fixedOverheadMs;
         this.runAllTests = runAllTests;
+        this.selectionDetails = selectionDetails;
     }
 
     /**
@@ -199,6 +208,15 @@ public class TestSelectorResult {
      */
     public boolean isRunAllTests() {
         return runAllTests;
+    }
+
+    /**
+     * @return the per-run selection breakdown - the method and rule triggers and the scalar
+     *         source counters - used to populate the run-history detail. Never null; an all-tests
+     *         run carries {@link TestRunSelectionDetails#empty()}.
+     */
+    public TestRunSelectionDetails getSelectionDetails() {
+        return selectionDetails;
     }
 
     /**

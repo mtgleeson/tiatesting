@@ -1,6 +1,7 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -41,7 +42,8 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L, 0L, false);
+                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L, 0L, false,
+                TestRunSelectionDetails.empty());
 
         // then
         assertSame(testsToRun, result.getTestsToRun());
@@ -67,7 +69,8 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true);
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true,
+                TestRunSelectionDetails.empty());
 
         // then
         assertEquals(true, result.isRunAllTests());
@@ -84,11 +87,13 @@ class TestSelectorResultTest {
     void equals_distinguishesASeedRunFromANothingImpactedSelection(){
         // given
         TestSelectorResult seedRun = new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
-                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true);
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true,
+                TestRunSelectionDetails.empty());
 
         // when
         TestSelectorResult nothingImpacted = new TestSelectorResult(new HashSet<>(), new HashSet<>(),
-                null, 0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, false);
+                null, 0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, false,
+                TestRunSelectionDetails.empty());
 
         // then
         assertNotEquals(seedRun, nothingImpacted,
@@ -110,10 +115,10 @@ class TestSelectorResultTest {
         // when
         TestSelectorResult first = new TestSelectorResult(new HashSet<>(testsToRun),
                 new HashSet<>(testsToIgnore), null, 100L, Collections.emptySet(), 0L,
-                Collections.emptyMap(), 0L, 0L, 0L, false);
+                Collections.emptyMap(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
         TestSelectorResult second = new TestSelectorResult(new HashSet<>(testsToRun),
                 new HashSet<>(testsToIgnore), null, 999L, Collections.emptySet(), 0L,
-                Collections.emptyMap(), 0L, 0L, 0L, false);
+                Collections.emptyMap(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
 
         // then
         assertEquals(first, second, "the estimate fields are not part of the selection decision");

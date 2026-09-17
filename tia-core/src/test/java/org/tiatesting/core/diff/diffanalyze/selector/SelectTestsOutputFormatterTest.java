@@ -1,6 +1,7 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -496,7 +497,7 @@ class SelectTestsOutputFormatterTest {
                                                   long captureOverheadMs, long fixedOverheadMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
                 estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs,
-                captureOverheadMs, fixedOverheadMs, false);
+                captureOverheadMs, fixedOverheadMs, false, TestRunSelectionDetails.empty());
     }
 
     /**
