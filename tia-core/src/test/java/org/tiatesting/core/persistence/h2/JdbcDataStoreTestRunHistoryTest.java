@@ -10,12 +10,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -300,5 +304,59 @@ class JdbcDataStoreTestRunHistoryTest {
         RunOrigin round = result.get(0).getRunOrigin();
         assertNull(round.getRunSource(), "a pre-migration row must not be retro-labelled");
         assertNull(round.getHostName(), "a pre-migration row must not be retro-labelled");
+    }
+
+    /**
+     * The selection-breakdown counters and the per-trigger rows both round-trip: the five
+     * {@code TestRunHistoryEntry} counters read back what was persisted, and the triggers persisted
+     * separately via {@link JdbcDataStore#persistTestRunTriggers} come back ordered by suite count
+     * descending.
+     */
+    @Test
+    void roundTripsCountersAndTriggers() {
+        // given
+        TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                1, 2, 3, 4, 5);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
+                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        dataStore.persistTestRunTriggers(entry.getId(), details.getTriggers());
+        TestRunHistoryEntry read = dataStore.readTestRunHistory().get(0);
+        List<TestRunTrigger> triggers = dataStore.readTestRunTriggers(entry.getId());
+
+        // then
+        assertEquals(Integer.valueOf(1), read.getNumModifiedTestFiles());
+        assertEquals(Integer.valueOf(2), read.getNumNewTestFiles());
+        assertEquals(Integer.valueOf(3), read.getNumPreviouslyFailed());
+        assertEquals(Integer.valueOf(4), read.getNumUnsealedMapping());
+        assertEquals(Integer.valueOf(5), read.getNumPendingLibrary());
+        assertEquals(2, triggers.size());
+        assertEquals("MDP", triggers.get(0).getName(), "1009 first (ORDER BY test_count DESC)");
+    }
+
+    /**
+     * Re-persisting the same triggers for a history row is idempotent: the delete-then-insert
+     * leaves exactly one row per trigger rather than accumulating duplicates on each call.
+     */
+    @Test
+    void rePersistTriggersIsIdempotent() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
+                1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"),
+                TestRunSelectionDetails.empty());
+        dataStore.persistTestRunHistoryEntry(entry);
+        List<TestRunTrigger> triggers = Collections.singletonList(
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 7));
+
+        // when
+        dataStore.persistTestRunTriggers(entry.getId(), triggers);
+        dataStore.persistTestRunTriggers(entry.getId(), triggers);
+
+        // then
+        assertEquals(1, dataStore.readTestRunTriggers(entry.getId()).size());
     }
 }

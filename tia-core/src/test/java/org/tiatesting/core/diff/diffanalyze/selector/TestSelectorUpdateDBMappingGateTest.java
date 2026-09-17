@@ -19,6 +19,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -35,6 +36,7 @@ import org.tiatesting.core.vcs.VCSReader;
 import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -435,6 +437,21 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override
         public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) {
             delegate.persistTestRunHistoryEntry(entry);
+        }
+
+        @Override
+        public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {
+            delegate.persistTestRunTriggers(historyId, triggers);
+        }
+
+        @Override
+        public List<TestRunTrigger> readTestRunTriggers(String historyId) {
+            return delegate.readTestRunTriggers(historyId);
+        }
+
+        @Override
+        public Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(Collection<String> historyIds) {
+            return delegate.readTestRunTriggersByHistoryId(historyIds);
         }
 
         @Override
