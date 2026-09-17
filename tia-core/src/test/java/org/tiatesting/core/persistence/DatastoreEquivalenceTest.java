@@ -10,6 +10,10 @@ import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
+import org.tiatesting.core.model.RunOrigin;
+import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
@@ -142,7 +146,8 @@ class DatastoreEquivalenceTest {
             statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
                     + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
                     + "tia_pending_library_impacted_method, tia_pending_library_forced_selection, "
-                    + "tia_library_publish, tia_library, tia_test_run_history CASCADE");
+                    + "tia_library_publish, tia_library, tia_test_run_history_trigger, "
+                    + "tia_test_run_history CASCADE");
         }
     }
 
@@ -343,6 +348,81 @@ class DatastoreEquivalenceTest {
 
         // then
         assertTrue(store.readAllPendingLibraryForcedSelections().isEmpty());
+    }
+
+    /**
+     * Proves the run-history selection-counters and trigger round trip - {@link
+     * DataStore#persistTestRunHistoryEntry} writing the five nullable counter columns and {@link
+     * DataStore#persistTestRunTriggers} writing the per-trigger child rows - against a fresh
+     * temp-directory H2 database, and, when a local Postgres instance is reachable, against it too.
+     * Like {@link #forcedSelectionRoundTripAndDelete()} this does not use {@link #assumePg()}: the
+     * H2 leg always runs (and is reported as passing) even when Postgres is unavailable.
+     *
+     * @throws Exception if seeding the H2 temp database or cleaning Postgres fails
+     */
+    @Test
+    void testRunHistoryCountersAndTriggersRoundTrip() throws Exception {
+        // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
+        h2TempDir = Files.createTempDirectory("tia-h2-run-history-details");
+        h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
+        h2Store.getTiaData(true);
+
+        // when / then - the H2 leg always runs, regardless of Postgres availability
+        assertRunHistoryCountersAndTriggersRoundTrip(h2Store);
+
+        // when / then - the Postgres leg runs only when a local Postgres instance is reachable;
+        // when it is not, the H2 assertions above still stand as the test's result.
+        if (isPostgresReachable()) {
+            cleanPostgres();
+            postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                    null, BRANCH, null);
+            postgresStore.getTiaData(true);
+            assertRunHistoryCountersAndTriggersRoundTrip(postgresStore);
+        }
+    }
+
+    /**
+     * Run the run-history counters-and-triggers round trip against a single store: persist an
+     * entry carrying a {@link TestRunSelectionDetails} breakdown, persist its triggers, then assert
+     * the five counters and the triggers (ordered by suite count descending) both read back
+     * correctly.
+     *
+     * @param store the datastore to exercise; already schema-bootstrapped.
+     */
+    private static void assertRunHistoryCountersAndTriggersRoundTrip(DataStore store) {
+        // given
+        TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                1, 2, 3, 4, 5);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "equiv-c1", 1000L,
+                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details);
+
+        // when
+        store.persistTestRunHistoryEntry(entry);
+        store.persistTestRunTriggers(entry.getId(), details.getTriggers());
+        TestRunHistoryEntry read = findById(store.readTestRunHistory(), entry.getId());
+        List<TestRunTrigger> triggers = store.readTestRunTriggers(entry.getId());
+
+        // then
+        assertEquals(Integer.valueOf(1), read.getNumModifiedTestFiles());
+        assertEquals(Integer.valueOf(2), read.getNumNewTestFiles());
+        assertEquals(Integer.valueOf(3), read.getNumPreviouslyFailed());
+        assertEquals(Integer.valueOf(4), read.getNumUnsealedMapping());
+        assertEquals(Integer.valueOf(5), read.getNumPendingLibrary());
+        assertEquals(2, triggers.size());
+        assertEquals("MDP", triggers.get(0).getName(), "1009 first (ORDER BY test_count DESC)");
+    }
+
+    /**
+     * Find a run history entry by id in a list read back from a store.
+     *
+     * @param list the entries to search.
+     * @param id the entry id to match.
+     * @return the matching entry.
+     */
+    private static TestRunHistoryEntry findById(List<TestRunHistoryEntry> list, String id) {
+        return list.stream().filter(e -> id.equals(e.getId())).findFirst().orElseThrow(AssertionError::new);
     }
 
     /**

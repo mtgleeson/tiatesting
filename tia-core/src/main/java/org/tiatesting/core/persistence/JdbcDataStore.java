@@ -19,6 +19,7 @@ import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -91,6 +92,16 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
     private static final String COL_RUN_SOURCE = "run_source";
     private static final String COL_HOST_NAME = "host_name";
+    private static final String COL_NUM_MODIFIED_TEST_FILES = "num_modified_test_files";
+    private static final String COL_NUM_NEW_TEST_FILES = "num_new_test_files";
+    private static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
+    private static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
+    private static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
+    private static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
+    private static final String COL_HISTORY_ID = "history_id";
+    private static final String COL_TRIGGER_TYPE = "trigger_type";
+    private static final String COL_TRIGGER_NAME = "trigger_name";
+    private static final String COL_TEST_COUNT = "test_count";
     private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
     private static final String COL_BLOCK_NAME = "block_name";
     private static final String COL_NEXT_VALUE = "next_value";
@@ -1380,7 +1391,9 @@ public class JdbcDataStore implements DataStore {
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
                             COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
                             COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT,
-                            COL_RUN_SOURCE, COL_HOST_NAME),
+                            COL_RUN_SOURCE, COL_HOST_NAME, COL_NUM_MODIFIED_TEST_FILES,
+                            COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
+                            COL_NUM_PENDING_LIBRARY),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1404,6 +1417,13 @@ public class JdbcDataStore implements DataStore {
             // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
             setNullableString(ps, 15, entry.getRunOrigin().getRunSource());
             setNullableString(ps, 16, entry.getRunOrigin().getHostName());
+            // Nullable for the same reason: a row written before this feature, or an all-tests run
+            // with nothing to attribute, stores SQL NULL rather than a made-up zero.
+            setNullableInt(ps, 17, entry.getNumModifiedTestFiles());
+            setNullableInt(ps, 18, entry.getNumNewTestFiles());
+            setNullableInt(ps, 19, entry.getNumPreviouslyFailed());
+            setNullableInt(ps, 20, entry.getNumUnsealedMapping());
+            setNullableInt(ps, 21, entry.getNumPendingLibrary());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1450,8 +1470,11 @@ public class JdbcDataStore implements DataStore {
                         getNullableInt(resultSet, COL_GROUP_COUNT),
                         RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
                                 resultSet.getString(COL_HOST_NAME)),
-                        // selection counters read in a later change
-                        null, null, null, null, null));
+                        getNullableInt(resultSet, COL_NUM_MODIFIED_TEST_FILES),
+                        getNullableInt(resultSet, COL_NUM_NEW_TEST_FILES),
+                        getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
+                        getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
+                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1464,6 +1487,114 @@ public class JdbcDataStore implements DataStore {
         }
 
         return history;
+    }
+
+    /**
+     * Persist one run history row's selection triggers, replacing whatever was previously stored
+     * for that row. Delete-then-batch-insert makes the operation idempotent - re-persisting the
+     * same list (a retried fork, a re-run of the same seal) leaves exactly one row per trigger
+     * rather than accumulating duplicates.
+     *
+     * @param historyId the {@code tia_test_run_history} row these triggers belong to
+     * @param triggers the triggers to store; null or empty leaves the row with no triggers
+     */
+    @Override
+    public void persistTestRunTriggers(final String historyId, final List<TestRunTrigger> triggers) {
+        Connection connection = getConnection();
+        try {
+            ensureTestRunHistoryTableExists(connection); // also ensures the trigger table
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER
+                            + " WHERE " + COL_HISTORY_ID + " = ?")) {
+                delete.setString(1, historyId);
+                delete.executeUpdate();
+            }
+            if (triggers != null && !triggers.isEmpty()) {
+                String insert = "INSERT INTO " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " ("
+                        + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
+                        + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?)";
+                try (PreparedStatement ps = connection.prepareStatement(insert)) {
+                    for (TestRunTrigger t : triggers) {
+                        ps.setString(1, historyId);
+                        ps.setString(2, t.getType().name());
+                        ps.setString(3, t.getName());
+                        ps.setInt(4, t.getTestCount());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+    }
+
+    /**
+     * Read the selection triggers for one run history row, highest suite count first.
+     *
+     * @param historyId the {@code tia_test_run_history} row to read triggers for
+     * @return the row's triggers ordered by suite count descending; empty if none were recorded
+     */
+    @Override
+    public List<TestRunTrigger> readTestRunTriggers(final String historyId) {
+        return readTestRunTriggersByHistoryId(Collections.singletonList(historyId))
+                .getOrDefault(historyId, Collections.emptyList());
+    }
+
+    /**
+     * Bulk-read the selection triggers for several run history rows in one query, for report
+     * generation over a page of history rows rather than one query per row.
+     *
+     * @param historyIds the {@code tia_test_run_history} row ids to read triggers for
+     * @return map of history id to its triggers, each ordered by suite count descending; empty when
+     *         {@code historyIds} is null or empty, and a history id with no triggers is simply
+     *         absent from the map
+     */
+    @Override
+    public Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(final Collection<String> historyIds) {
+        Map<String, List<TestRunTrigger>> byId = new LinkedHashMap<>();
+        if (historyIds == null || historyIds.isEmpty()) {
+            return byId;
+        }
+        Connection connection = getConnection();
+        try {
+            ensureTestRunHistoryTableExists(connection);
+            String placeholders = String.join(",", Collections.nCopies(historyIds.size(), "?"));
+            String sql = "SELECT " + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", "
+                    + COL_TRIGGER_NAME + ", " + COL_TEST_COUNT + " FROM "
+                    + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " WHERE " + COL_HISTORY_ID
+                    + " IN (" + placeholders + ") ORDER BY " + COL_TEST_COUNT + " DESC";
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                int i = 1;
+                for (String id : historyIds) {
+                    ps.setString(i++, id);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        byId.computeIfAbsent(rs.getString(COL_HISTORY_ID), k -> new ArrayList<>())
+                                .add(new TestRunTrigger(
+                                        TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
+                                        rs.getString(COL_TRIGGER_NAME),
+                                        rs.getInt(COL_TEST_COUNT)));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+        return byId;
     }
 
     /**
@@ -3795,7 +3926,15 @@ public class JdbcDataStore implements DataStore {
                 // what a row written before these columns existed, a run whose hostname would not
                 // resolve, and a distributed build (no single host ran it) all genuinely are.
                 + COL_RUN_SOURCE + " VARCHAR(32), "
-                + COL_HOST_NAME + " VARCHAR(255))";
+                + COL_HOST_NAME + " VARCHAR(255), "
+                // The selection-breakdown counters. Nullable with no DEFAULT: a row written before
+                // this feature, or an all-tests run, reads back null - "not recorded" - rather than
+                // a made-up zero.
+                + COL_NUM_MODIFIED_TEST_FILES + " INT, "
+                + COL_NUM_NEW_TEST_FILES + " INT, "
+                + COL_NUM_PREVIOUSLY_FAILED + " INT, "
+                + COL_NUM_UNSEALED_MAPPING + " INT, "
+                + COL_NUM_PENDING_LIBRARY + " INT)";
     }
 
     /**
@@ -3843,6 +3982,48 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_SOURCE + " VARCHAR(32)");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_HOST_NAME + " VARCHAR(255)");
+        // Migration: add the selection-breakdown counters to DBs created before this feature. No
+        // DEFAULT, so old rows read back null - "not recorded" - rather than a made-up zero.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_NUM_MODIFIED_TEST_FILES + " INT");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_NUM_NEW_TEST_FILES + " INT");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_NUM_PREVIOUSLY_FAILED + " INT");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_NUM_UNSEALED_MAPPING + " INT");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_NUM_PENDING_LIBRARY + " INT");
+        ensureTestRunHistoryTriggerTableExists(connection);
+    }
+
+    /**
+     * Create the run-history trigger child table if it does not exist. One row per changed method
+     * and per fired static rule, keyed by the history row it belongs to, cascade-deleted with it.
+     *
+     * @param connection the open connection to create the table on
+     * @throws SQLException if the DDL fails
+     */
+    private void ensureTestRunHistoryTriggerTableExists(Connection connection) throws SQLException {
+        Statement statement = connection.createStatement();
+        statement.executeUpdate(buildCreateTestRunHistoryTriggerTableSql());
+    }
+
+    /**
+     * Build the DDL for the {@code tia_test_run_history_trigger} table: one row per selection
+     * trigger (a changed source method or a fired static rule) attributed to a history row,
+     * foreign-keyed to it so the trigger rows are cascade-deleted with their parent.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the trigger table
+     */
+    private String buildCreateTestRunHistoryTriggerTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " ("
+                + COL_HISTORY_ID + " VARCHAR(64) NOT NULL, "
+                + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
+                + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
+                + COL_TEST_COUNT + " INT NOT NULL, "
+                + "FOREIGN KEY (" + COL_HISTORY_ID + ") REFERENCES " + TABLE_TIA_TEST_RUN_HISTORY
+                + "(" + COL_ID + ") ON DELETE CASCADE)";
     }
 
     /**
