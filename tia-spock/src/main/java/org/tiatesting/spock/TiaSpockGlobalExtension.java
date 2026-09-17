@@ -11,6 +11,7 @@ import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.persistence.DataStore;
@@ -117,6 +118,12 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
             Set<String> testsToRun;
             LibraryImpactDrainResult drainResult;
+            // The per-run selection breakdown (per-method and per-rule triggers, plus the scalar
+            // source counts) that TestRunResult carries through to the history row. Left empty()
+            // for a distributed runner - the build-level breakdown for that case is written by the
+            // sealer in a later stage, and this fork's own share of the selection is not the
+            // figure the history row should show.
+            TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
 
             if (distributedRunnerContext != null){
                 // A distributed runner derives its suites from the group the daemon already
@@ -164,6 +171,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                     ignoredTests = testSelectorResult.getTestsToIgnore();
                     testsToRun = testSelectorResult.getTestsToRun();
                     drainResult = testSelectorResult.getLibraryImpactDrainResult();
+                    selectionDetails = testSelectorResult.getSelectionDetails();
                 } finally {
                     vcsReader.close();
                 }
@@ -177,7 +185,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                         dataStore, testsToRun,
                         ignoredTestSuiteCount,
                         tiaUpdateDBMapping, tiaUpdateDBTestRunHistory,
-                        drainResult, distributedRunnerContext);
+                        drainResult, selectionDetails, distributedRunnerContext);
             } else {
                 // not updating the DB, no need to use the Spock listener
                 this.tiaTestingSpockRunListener = null;
