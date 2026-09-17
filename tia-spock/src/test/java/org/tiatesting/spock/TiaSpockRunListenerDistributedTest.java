@@ -18,6 +18,7 @@ import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -156,7 +157,7 @@ class TiaSpockRunListenerDistributedTest {
     private TiaSpockRunListener listenerFor(final DistributedRunnerContext distributedRunnerContext) {
         return new TiaSpockRunListener(BRANCH, PLAN_COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                distributedRunnerContext);
+                TestRunSelectionDetails.empty(), distributedRunnerContext);
     }
 
     /**
