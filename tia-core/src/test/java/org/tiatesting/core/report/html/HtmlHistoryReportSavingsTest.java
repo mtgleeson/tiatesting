@@ -9,6 +9,7 @@ import org.tiatesting.core.model.TiaData;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -40,5 +41,34 @@ class HtmlHistoryReportSavingsTest {
         assertTrue(html.contains("Savings %"), "history table should have a Savings % header. Output:\n" + html);
         assertTrue(html.contains("4s"), "partial run should show its savings duration. Output:\n" + html);
         assertTrue(html.contains("80%"), "partial run should show its savings percent. Output:\n" + html);
+    }
+
+    /**
+     * Verifies the Id column's cell is a link to the row's detail page - a sibling file in the
+     * same {@code history/} folder named after the entry's full id - rather than plain text, and
+     * that the full id is still available as the anchor's hover title.
+     *
+     * @param tempDir a JUnit-managed temp directory the report is written into
+     */
+    @Test
+    void historyPage_idCellLinksToItsDetailPage(@TempDir File tempDir) throws Exception {
+        // given a single history entry with a full id longer than the 8-char display truncation
+        TiaData tiaData = new TiaData();
+        tiaData.setTestRunHistory(Collections.singletonList(
+                new TestRunHistoryEntry("a-full-history-id-1234", 1_700_000_000_000L, "main", "abc", 8, 2, 0,
+                        1000L, true, 4000L, 80, null, null, null,
+                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
+
+        // when
+        new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
+        File page = new File(tempDir, "html" + File.separator + "html" + File.separator
+                + "history" + File.separator + "tia-history.html");
+        String html = new String(Files.readAllBytes(page.toPath()));
+
+        // then the anchor href is the full id, not the truncated display text
+        assertTrue(html.contains("href=\"a-full-history-id-1234.html\""),
+                "Id cell should link to the sibling detail page by the entry's full id. Output:\n" + html);
+        assertTrue(html.contains("title=\"a-full-history-id-1234\""),
+                "Id cell should keep the full id as the hover title. Output:\n" + html);
     }
 }

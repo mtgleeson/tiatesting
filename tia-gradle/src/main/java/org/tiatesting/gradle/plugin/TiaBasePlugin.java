@@ -237,7 +237,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     // One report tree per schema, scoped by the same folder mechanism that already
                     // scopes them per branch - a project with no suffix keeps its existing folder.
                     ReportGenerator reportGenerator = new HtmlReportGenerator(
-                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir);
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir, dataStore);
                     reportGenerator.generateReports(tiaData);
                     System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
                 }
