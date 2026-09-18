@@ -64,6 +64,31 @@ class RunSelectionDetailsCodecTest {
     }
 
     /**
+     * Verify that a newline embedded in a trigger name (reachable via a user-authored static rule
+     * name) is neutralised to a space on write, so it cannot split one trigger record into two and
+     * corrupt the parse. The name reads back with the newline replaced by a space, and exactly one
+     * trigger survives the round trip.
+     */
+    @Test
+    void neutralizesNewlineInTriggerNameOnWrite() {
+        // given
+        TestRunTrigger triggerWithNewline = new TestRunTrigger(
+                TestRunTrigger.Type.STATIC_RULE, "line-one\nline-two", 4);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(
+                Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0);
+        File file = tempDir.resolve("selection-details-newline.txt").toFile();
+
+        // when
+        RunSelectionDetailsCodec.write(details, file);
+        TestRunSelectionDetails result = RunSelectionDetailsCodec.read(file);
+
+        // then
+        assertEquals(1, result.getTriggers().size());
+        assertEquals("line-one line-two", result.getTriggers().get(0).getName());
+        assertEquals(4, result.getTriggers().get(0).getTestCount());
+    }
+
+    /**
      * Verify that reading a sidecar file that does not exist returns {@link
      * TestRunSelectionDetails#empty()} - no triggers, all counters zero - rather than throwing.
      * This is the case where selection produced no breakdown to carry, such as an all-tests run

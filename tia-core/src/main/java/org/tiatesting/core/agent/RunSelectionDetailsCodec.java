@@ -28,8 +28,9 @@ import java.util.List;
  * trigger&lt;TAB&gt;STATIC_RULE&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;name&gt;
  * </pre>
  * The trigger name is always the last field on its line, so it may contain any character except a
- * newline or a tab; a tab embedded in a name is replaced with a single space on write since it
- * would otherwise be indistinguishable from the field delimiter.
+ * newline or a tab; a tab (the field delimiter) or a newline (the record delimiter) embedded in a
+ * name is replaced with a single space on write, since either would otherwise corrupt the record
+ * on read.
  */
 public final class RunSelectionDetailsCodec {
 
@@ -63,7 +64,8 @@ public final class RunSelectionDetailsCodec {
                 .append(details.getNumPendingLibrary()).append('\n');
 
         for (TestRunTrigger trigger : details.getTriggers()) {
-            String safeName = trigger.getName() == null ? "" : trigger.getName().replace('\t', ' ');
+            String safeName = trigger.getName() == null ? ""
+                    : trigger.getName().replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
             sb.append(TRIGGER_PREFIX).append('\t')
                     .append(trigger.getType().name()).append('\t')
                     .append(trigger.getTestCount()).append('\t')
