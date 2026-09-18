@@ -12,6 +12,8 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -26,6 +28,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -130,7 +133,8 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         }
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -185,6 +189,9 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         @Override public void deletePendingLibraryForcedSelections(String groupArtifact, long publishSeq) { delegate.deletePendingLibraryForcedSelections(groupArtifact, publishSeq); }
         @Override public void persistTestRunHistoryEntry(TestRunHistoryEntry entry) { delegate.persistTestRunHistoryEntry(entry); }
         @Override public List<TestRunHistoryEntry> readTestRunHistory() { return delegate.readTestRunHistory(); }
+        @Override public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) { delegate.persistTestRunTriggers(historyId, triggers); }
+        @Override public List<TestRunTrigger> readTestRunTriggers(String historyId) { return delegate.readTestRunTriggers(historyId); }
+        @Override public Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(Collection<String> historyIds) { return delegate.readTestRunTriggersByHistoryId(historyIds); }
 
         /**
          * Unsupported on this fake: this test suite never exercises distributed run plans, so a
@@ -253,6 +260,30 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
          */
         @Override
         public List<DistributedRun> readAllDistributedRuns() {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @param details ignored
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public void persistDistributedRunSelectionDetails(String runId, TestRunSelectionDetails details) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Unsupported on this fake, for the same reason as {@link #persistDistributedRunPlan}.
+         *
+         * @param runId ignored
+         * @return never returns
+         * @throws UnsupportedOperationException always
+         */
+        @Override
+        public TestRunSelectionDetails readDistributedRunSelectionDetails(String runId) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

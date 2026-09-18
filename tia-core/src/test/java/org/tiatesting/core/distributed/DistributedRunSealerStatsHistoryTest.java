@@ -9,6 +9,8 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -990,7 +992,7 @@ class DistributedRunSealerStatsHistoryTest {
         stats.setNumRuns(1);
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
-                null, 1, 1);
+                null, 1, 1, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -1012,5 +1014,76 @@ class DistributedRunSealerStatsHistoryTest {
         assertNull(entry.getRunId(), "a single-host row names no distributed run");
         assertNull(entry.getWallClockMs(), "a single-host row has no separate wall clock");
         assertNull(entry.getGroupCount(), "a single-host row has no groups");
+    }
+
+    /**
+     * The sealer must copy the breakdown the plan staged for this run id onto the single history
+     * row it writes: the five scalar counters folded into the entry, and the per-method/per-rule
+     * triggers persisted separately and keyed on the entry's derived id - the distributed build's
+     * counterpart of what {@code TestRunnerService} does for a single-host run's own row.
+     */
+    @Test
+    void theSealCopiesTheStagedSelectionBreakdownOntoTheHistoryRow() {
+        // given - a plan staged with a breakdown carrying two triggers and all five counters
+        seedTrackedSuites(2, 0);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
+        List<TestRunTrigger> triggers = Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
+                        "com.example.Source0.method()V", 2),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "force-rule", 1));
+        dataStore.persistDistributedRunSelectionDetails(RUN_ID,
+                new TestRunSelectionDetails(triggers, 3, 1, 2, 0, 1));
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then - the row carries the staged counters
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(Integer.valueOf(3), entry.getNumModifiedTestFiles(),
+                "the modified-test-files counter must be copied from the staged breakdown");
+        assertEquals(Integer.valueOf(1), entry.getNumNewTestFiles(),
+                "the new-test-files counter must be copied from the staged breakdown");
+        assertEquals(Integer.valueOf(2), entry.getNumPreviouslyFailed(),
+                "the previously-failed counter must be copied from the staged breakdown");
+        assertEquals(Integer.valueOf(0), entry.getNumUnsealedMapping(),
+                "the unsealed-mapping counter must be copied from the staged breakdown");
+        assertEquals(Integer.valueOf(1), entry.getNumPendingLibrary(),
+                "the pending-library counter must be copied from the staged breakdown");
+
+        // and the trigger rows are written keyed on the history row's derived id
+        List<TestRunTrigger> readBack = dataStore.readTestRunTriggers(entry.getId());
+        assertEquals(2, readBack.size(), "both staged triggers must be written for the history row");
+        assertTrue(readBack.contains(triggers.get(0)), "the source-method trigger must be present");
+        assertTrue(readBack.contains(triggers.get(1)), "the static-rule trigger must be present");
+    }
+
+    /**
+     * A build whose plan staged no selection breakdown - a seed run, or any run predating this
+     * feature - still gets its history row, with zero counters and no trigger rows rather than an
+     * error or a null propagating through: {@code readDistributedRunSelectionDetails} reads back
+     * {@link TestRunSelectionDetails#empty()} for an unstaged run id, never null.
+     */
+    @Test
+    void aSealWithNoStagedBreakdownStillWritesTheRowWithZeroCountersAndNoTriggers() {
+        // given - a plan with nothing staged for its run id
+        seedTrackedSuites(2, 0);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(Integer.valueOf(0), entry.getNumModifiedTestFiles(),
+                "an unstaged breakdown must read back as empty(), so the counter is zero rather "
+                        + "than null");
+        assertEquals(Integer.valueOf(0), entry.getNumNewTestFiles(), "and every other counter too");
+        assertEquals(Integer.valueOf(0), entry.getNumPreviouslyFailed(), "and every other counter too");
+        assertEquals(Integer.valueOf(0), entry.getNumUnsealedMapping(), "and every other counter too");
+        assertEquals(Integer.valueOf(0), entry.getNumPendingLibrary(), "and every other counter too");
+        assertTrue(dataStore.readTestRunTriggers(entry.getId()).isEmpty(),
+                "no triggers were staged, so none must be written for the row");
     }
 }

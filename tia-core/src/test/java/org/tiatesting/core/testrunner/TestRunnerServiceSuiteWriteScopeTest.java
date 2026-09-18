@@ -3,6 +3,7 @@ package org.tiatesting.core.testrunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -221,7 +222,8 @@ class TestRunnerServiceSuiteWriteScopeTest {
         runStats.setNumSuccessRuns(1);
 
         TestRunResult result = new TestRunResult(executed, new HashSet<>(), runnerTestSuites,
-                runnerTestSuites, selectedTests, new HashMap<>(), runStats, null, 1, executed.size());
+                runnerTestSuites, selectedTests, new HashMap<>(), runStats, null, 1, executed.size(),
+                TestRunSelectionDetails.empty());
         new TestRunnerService(dataStore).persistTestRunData(true, false,
                 "commit-" + durationMs, "main", System.currentTimeMillis(), result, null);
     }

@@ -6,6 +6,7 @@ import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -536,6 +537,13 @@ public class TestRunnerService {
     /**
      * Build and persist a {@link TestRunHistoryEntry} for this run.
      *
+     * <p>The selection breakdown carried on {@link TestRunResult#getSelectionDetails()} is written
+     * alongside the entry: its five scalar counters are folded into the entry via
+     * {@link TestRunHistoryEntry#create} and its per-method/per-rule triggers are persisted
+     * separately via {@link DataStore#persistTestRunTriggers} keyed on the entry's id, so both the
+     * history row and its trigger breakdown are written for every single-host run. Only this
+     * single-host path does so - the distributed build's breakdown is written by the sealer.
+     *
      * <p>Counts: {@code ran} is the per-attempt count of suites that finished in this listener
      * attempt only, taken from {@link TestRunResult#getSuitesRanThisAttempt()}. This avoids
      * inflating retry-row counts with prior-attempt entries that the shared
@@ -582,10 +590,13 @@ public class TestRunnerService {
                 ignored == 0 || ranNoExpectedSuites);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
 
+        TestRunSelectionDetails details = testRunResult.getSelectionDetails();
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
-                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin());
+                updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
+                details);
         dataStore.persistTestRunHistoryEntry(entry);
+        dataStore.persistTestRunTriggers(entry.getId(), details.getTriggers());
         log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
                 entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
     }

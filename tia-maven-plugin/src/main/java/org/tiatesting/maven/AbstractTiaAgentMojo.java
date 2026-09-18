@@ -9,6 +9,8 @@ import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.agent.RunSelectionDetailsCodec;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
@@ -46,6 +48,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
     private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
     private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
+    private static final String SELECTION_DETAILS_FILENAME = "run-selection-details.txt";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -123,30 +126,37 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         Set<String> testsToIgnore;
         Set<String> testsToRun;
         LibraryImpactDrainResult drainResult;
+        TestRunSelectionDetails selectionDetails;
         DistributedRunnerAssignment assignment = null;
 
         if (isTiaDistributed()){
             // A distributed runner claims its share of an existing plan instead of selecting. The
             // plan already ran the diff and the library-impact drain once; repeating the drain
             // per-runner would race, and its cleanup belongs to the run's sealer, so no drain
-            // result is written here.
+            // result is written here. Likewise there is no per-runner selection breakdown to
+            // report - the build-level detail is a separate concern handled where the plan itself
+            // is recorded - so the forked JVM gets an empty breakdown rather than none at all.
             assignment = claimDistributedRunGroup(workspaceIdentity);
             testsToIgnore = assignment.getTestsToIgnore();
             testsToRun = assignment.getTestsToRun();
             drainResult = null;
+            selectionDetails = TestRunSelectionDetails.empty();
         } else {
             TestSelectorResult testSelectorResult = getTestSelectorResult(workspaceIdentity);
             testsToIgnore = testSelectorResult.getTestsToIgnore();
             testsToRun = testSelectorResult.getTestsToRun();
             drainResult = testSelectorResult.getLibraryImpactDrainResult();
+            selectionDetails = testSelectorResult.getSelectionDetails();
         }
 
         String forkPropertiesFile = writeForkPropertiesFile(assignment, workspaceIdentity);
         writeIgnoredTestsToFile(testsToIgnore);
         writeSelectedTestsToFile(testsToRun);
         String drainResultFile = writeDrainResultFile(drainResult);
+        String selectionDetailsFile = writeSelectionDetailsFile(selectionDetails);
 
-        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile, forkPropertiesFile);
+        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile, forkPropertiesFile,
+                selectionDetailsFile);
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
@@ -471,7 +481,19 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         return filename;
     }
 
-    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile, String forkPropertiesFile){
+    /**
+     * Assemble the {@link AgentOptions} passed to the Tia javaagent on the forked test JVM's
+     * command line, one option per sidecar file the build plugin wrote for it.
+     *
+     * @param libraryJarsFile the library JARs sidecar file path, or null if none was written
+     * @param drainResultFile the library-impact drain result sidecar file path, or null if no
+     *                        drain occurred
+     * @param forkPropertiesFile the fork properties sidecar file path, or null if none was written
+     * @param selectionDetailsFile the run-selection-details sidecar file path
+     * @return the assembled agent options, ready for {@link AgentOptions#toCommandLineOptionsString()}
+     */
+    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile, String forkPropertiesFile,
+                                               String selectionDetailsFile){
         AgentOptions agentOptions = new AgentOptions();
         agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
         agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
@@ -484,6 +506,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
         if (forkPropertiesFile != null){
             agentOptions.setForkPropertiesFile(forkPropertiesFile);
         }
+        agentOptions.setSelectionDetailsFile(selectionDetailsFile);
         return agentOptions;
     }
 
@@ -628,6 +651,26 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
 
     private String getDrainResultFilename(){
         return getTiaBuildDir() + "/" + DRAIN_RESULT_FILENAME;
+    }
+
+    /**
+     * Serialize the {@link TestRunSelectionDetails} breakdown to a sidecar file so the test
+     * listener in the forked JVM can deserialize it via {@link RunSelectionDetailsCodec#read(File)}
+     * and attach it to the history row - the same file+agent-option+sysprop mechanism the drain
+     * result already uses. Unlike the drain result this is always written, even when empty, since
+     * the forked JVM needs a valid file to read regardless of whether this build ran selection.
+     *
+     * @param selectionDetails the breakdown to serialize; must not be null
+     * @return the absolute path of the file written
+     */
+    private String writeSelectionDetailsFile(TestRunSelectionDetails selectionDetails) {
+        String filename = getSelectionDetailsFilename();
+        RunSelectionDetailsCodec.write(selectionDetails, new File(filename));
+        return filename;
+    }
+
+    private String getSelectionDetailsFilename(){
+        return getTiaBuildDir() + "/" + SELECTION_DETAILS_FILENAME;
     }
 
     /**

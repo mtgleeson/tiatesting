@@ -222,7 +222,8 @@ class TestRunnerServiceDrainCleanupTest {
     private void persistWithDrainResult(LibraryImpactDrainResult drainResult, int ignoredCount) {
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, ignoredCount, 2);
+                new HashSet<>(), new HashMap<>(), new TestStats(), drainResult, ignoredCount, 2,
+                TestRunSelectionDetails.empty());
         // history logging is off in this test to keep the focus on drain cleanup
         service.persistTestRunData(true, false, "newcommit", "main", System.currentTimeMillis(), testRunResult, null);
     }

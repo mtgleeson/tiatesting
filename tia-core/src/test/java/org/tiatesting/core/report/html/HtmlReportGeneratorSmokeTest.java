@@ -3,9 +3,17 @@ package org.tiatesting.core.report.html;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
+import org.tiatesting.core.model.RunOrigin;
+import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
+import org.tiatesting.core.persistence.BranchSchema;
+import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
+import org.tiatesting.core.persistence.dialect.H2Dialect;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
 import java.io.IOException;
@@ -36,7 +44,7 @@ class HtmlReportGeneratorSmokeTest {
         TiaData tiaData = buildSampleTiaData();
 
         File reportRoot = tempDir.toFile();
-        new HtmlReportGenerator("smoke-branch", reportRoot).generateReports(tiaData);
+        new HtmlReportGenerator("smoke-branch", reportRoot, null).generateReports(tiaData);
 
         File branchDir = new File(reportRoot, "html/smoke-branch");
         File assetsDir = new File(branchDir, "assets");
@@ -96,6 +104,22 @@ class HtmlReportGeneratorSmokeTest {
         assertTrue(methodsHtml.contains("../source-code.html"),
                 "methods breadcrumb should link to Source Code landing");
 
+        // History table and its per-run detail page - generated with no DataStore (null was
+        // passed to the generator), so the row link must still resolve to a real file with an
+        // empty selection breakdown.
+        String historyEntryId = tiaData.getTestRunHistory().get(0).getId();
+        File historyTable = new File(branchDir, "history/tia-history.html");
+        File historyDetail = new File(branchDir, "history/" + historyEntryId + ".html");
+        assertTrue(historyTable.isFile(), "history table page missing");
+        assertTrue(historyDetail.isFile(),
+                "history detail page must be generated even with no DataStore (empty triggers)");
+        String historyTableHtml = read(historyTable);
+        assertTrue(historyTableHtml.contains("href=\"" + historyEntryId + ".html\""),
+                "history table Id cell should link to the sibling detail page");
+        String historyDetailHtml = read(historyDetail);
+        assertTrue(historyDetailHtml.contains("No selection breakdown was recorded for this run."),
+                "detail page rendered with a null DataStore should show the empty-breakdown message");
+
         // No leftover CDN URLs from the old pre-bundled implementation.
         for (File f : new File[]{index, sourceCode, testSuites, methodsList, libraries}) {
             String html = read(f);
@@ -115,12 +139,51 @@ class HtmlReportGeneratorSmokeTest {
         empty.setPendingLibraryImpactedMethods(Collections.emptyList());
 
         // Should generate every page without NPE on empty collections.
-        new HtmlReportGenerator("empty-branch", tempDir.toFile()).generateReports(empty);
+        new HtmlReportGenerator("empty-branch", tempDir.toFile(), null).generateReports(empty);
 
         File branchDir = new File(tempDir.toFile(), "html/empty-branch");
         assertTrue(new File(branchDir, "index.html").isFile());
         assertTrue(new File(branchDir, "source-code.html").isFile());
         assertTrue(new File(branchDir, "libraries/tia-libraries.html").isFile());
+    }
+
+    /**
+     * With a real DataStore that has a history entry and persisted selection triggers, verifies
+     * generateReports bulk-loads those triggers and writes them into the entry's detail page -
+     * the end-to-end path a live Maven/Gradle report run takes, as opposed to the null-DataStore
+     * case covered by the other tests here.
+     *
+     * @param tempDir a JUnit-managed temp directory used for both the H2 database file and the
+     *                report output tree
+     */
+    @Test
+    void historyDetailPageIncludesTriggersLoadedFromADataStore(@TempDir Path tempDir) throws IOException {
+        // given a DataStore with one history entry and one persisted trigger for it
+        File dbDir = new File(tempDir.toFile(), "db");
+        dbDir.mkdirs();
+        H2ConnectionSettings settings = H2ConnectionSettings.embedded(dbDir.getAbsolutePath());
+        JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
+                BranchSchema.schemaName("trigger-branch", null));
+        TiaData tiaData = dataStore.getTiaData(true);
+        tiaData.setPendingLibraryImpactedMethods(Collections.emptyList());
+
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        dataStore.persistTestRunHistoryEntry(entry);
+        dataStore.persistTestRunTriggers(entry.getId(),
+                Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 3)));
+        TiaData reloaded = dataStore.getTiaData(true);
+
+        // when the report is generated with the DataStore wired through
+        File reportRoot = new File(tempDir.toFile(), "report");
+        new HtmlReportGenerator("trigger-branch", reportRoot, dataStore).generateReports(reloaded);
+        dataStore.close();
+
+        // then the detail page for the entry exists and names the trigger
+        File historyDetail = new File(reportRoot, "html/trigger-branch/history/" + entry.getId() + ".html");
+        assertTrue(historyDetail.isFile(), "history detail page should be generated for the DataStore-backed entry");
+        String detailHtml = read(historyDetail);
+        assertTrue(detailHtml.contains("Foo.save"), "detail page should include the persisted trigger's name");
     }
 
     private TiaData buildSampleTiaData() {
@@ -170,6 +233,10 @@ class HtmlReportGeneratorSmokeTest {
         List<PendingLibraryImpactedMethod> pendingList = new ArrayList<>();
         pendingList.add(pending);
         tiaData.setPendingLibraryImpactedMethods(pendingList);
+
+        TestRunHistoryEntry historyEntry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        tiaData.setTestRunHistory(Collections.singletonList(historyEntry));
 
         return tiaData;
     }

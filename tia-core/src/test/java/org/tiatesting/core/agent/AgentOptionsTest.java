@@ -33,4 +33,40 @@ class AgentOptionsTest {
         // when / then
         assertEquals("", options.getForkPropertiesFile());
     }
+
+    /**
+     * Verifies {@code selectionDetailsFile} round-trips through the command-line serialize/parse
+     * cycle the same way {@code forkPropertiesFile} does above, since the mojo writes it to the
+     * command line and the agent parses it back out in the forked JVM.
+     */
+    @Test
+    void selectionDetailsFileSurvivesCommandLineRoundTrip() {
+        // given
+        AgentOptions options = new AgentOptions();
+        options.setSelectionDetailsFile("/build/tia/run-selection-details.txt");
+        options.setSelectedTestsFile("/build/tia/selected-tests.txt");
+
+        // when
+        AgentOptions parsed = new AgentOptions(options.toCommandLineOptionsString());
+
+        // then
+        assertEquals("/build/tia/run-selection-details.txt", parsed.getSelectionDetailsFile());
+        assertEquals("/build/tia/selected-tests.txt", parsed.getSelectedTestsFile());
+    }
+
+    /**
+     * Verifies {@code getSelectionDetailsFile()} defaults to the empty string when the option was
+     * never set, matching how the other optional sidecar-file options default.
+     */
+    @Test
+    void selectionDetailsFileDefaultsToEmptyWhenUnset() {
+        // given
+        AgentOptions options = new AgentOptions();
+
+        // when
+        String selectionDetailsFile = options.getSelectionDetailsFile();
+
+        // then
+        assertEquals("", selectionDetailsFile);
+    }
 }

@@ -35,17 +35,28 @@ public final class TestRunHistoryEntry implements Serializable {
     private final Long wallClockMs;
     private final Integer groupCount;
     private final RunOrigin runOrigin;
+    private final Integer numModifiedTestFiles;
+    private final Integer numNewTestFiles;
+    private final Integer numPreviouslyFailed;
+    private final Integer numUnsealedMapping;
+    private final Integer numPendingLibrary;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
      * stored on disk is round-tripped exactly. New entries should normally be created via
      * {@link #create} which derives the id.
      *
-     * <p>The last three parameters describe a distributed build and are null for a single-host
-     * run. {@code durationMs} keeps the same meaning in both modes - the serial-equivalent
-     * test-execution time, which for a distributed build is the sum of every group's time - so
-     * savings stay comparable across the two. See the "Stats and history" material in the
-     * distributed test runs chapter of {@code WIKI.md}.
+     * <p>The three parameters after {@code savingsPercent} describe a distributed build and are
+     * null for a single-host run. {@code durationMs} keeps the same meaning in both modes - the
+     * serial-equivalent test-execution time, which for a distributed build is the sum of every
+     * group's time - so savings stay comparable across the two. See the "Stats and history"
+     * material in the distributed test runs chapter of {@code WIKI.md}.
+     *
+     * <p>The five trailing counters are null when not recorded - a row written before this
+     * feature, or a distributed row before the seal populates it - rather than defaulting to zero,
+     * so callers can distinguish "not recorded" from "recorded as zero". A single-host run always
+     * records the counts (zero included). See the "Run history details" chapter in
+     * {@code WIKI.md}.
      *
      * @param id deterministic entry id
      * @param runTimestampMs UTC epoch millis when the run started
@@ -72,13 +83,23 @@ public final class TestRunHistoryEntry implements Serializable {
      *                   single-host run
      * @param runOrigin where the run came from and which machine executed it; never null, though
      *                  its host may be
+     * @param numModifiedTestFiles count of modified test files that were selected, or null when
+     *                             not recorded
+     * @param numNewTestFiles count of new test files that were selected, or null when not recorded
+     * @param numPreviouslyFailed count of previously-failed suites re-run, or null when not recorded
+     * @param numUnsealedMapping count of suites re-run from unsealed mapping rows, or null when not
+     *                           recorded
+     * @param numPendingLibrary count of suites selected from pending library changes, or null when
+     *                          not recorded
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
                                long durationMs, boolean updatedDbMapping,
                                long timeSavingsMs, int savingsPercent,
                                String runId, Long wallClockMs, Integer groupCount,
-                               RunOrigin runOrigin) {
+                               RunOrigin runOrigin, Integer numModifiedTestFiles,
+                               Integer numNewTestFiles, Integer numPreviouslyFailed,
+                               Integer numUnsealedMapping, Integer numPendingLibrary) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -94,6 +115,11 @@ public final class TestRunHistoryEntry implements Serializable {
         this.wallClockMs = wallClockMs;
         this.groupCount = groupCount;
         this.runOrigin = Objects.requireNonNull(runOrigin, "runOrigin");
+        this.numModifiedTestFiles = numModifiedTestFiles;
+        this.numNewTestFiles = numNewTestFiles;
+        this.numPreviouslyFailed = numPreviouslyFailed;
+        this.numUnsealedMapping = numUnsealedMapping;
+        this.numPendingLibrary = numPendingLibrary;
     }
 
     /**
@@ -114,17 +140,26 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param timeSavingsMs     time Tia saved this run versus running the full suite (ms)
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
      * @param runOrigin         where the run came from and which machine executed it
+     * @param selectionDetails  the per-run breakdown of what drove test selection, used to
+     *                          populate the five selection-counter fields; null leaves all five
+     *                          null (not recorded) rather than defaulting to zero
      * @return a new entry with a deterministic id and no distributed-run fields
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
                                              int numSuitesRan, int numSuitesIgnored,
                                              int numSuitesFailed, long durationMs,
                                              boolean updatedDbMapping, long timeSavingsMs,
-                                             int savingsPercent, RunOrigin runOrigin) {
+                                             int savingsPercent, RunOrigin runOrigin,
+                                             TestRunSelectionDetails selectionDetails) {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, null, null, null, runOrigin);
+                savingsPercent, null, null, null, runOrigin,
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary));
     }
 
     /**
@@ -154,6 +189,9 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param groupCount        the number of groups the build was split across
      * @param runOrigin         where the build came from. Its host is expected to be null: the build
      *                          ran across several machines, so no single one executed it
+     * @param selectionDetails  the build-level breakdown of what drove test selection, used to
+     *                          populate the five selection-counter fields; null leaves all five
+     *                          null (not recorded) rather than defaulting to zero
      * @return a new entry carrying the build-level figures and the three distributed fields
      */
     public static TestRunHistoryEntry createForDistributedRun(String branch, String commit,
@@ -164,7 +202,8 @@ public final class TestRunHistoryEntry implements Serializable {
                                                               boolean updatedDbMapping,
                                                               long timeSavingsMs, int savingsPercent,
                                                               long wallClockMs, int groupCount,
-                                                              RunOrigin runOrigin) {
+                                                              RunOrigin runOrigin,
+                                                              TestRunSelectionDetails selectionDetails) {
         // The run id joins the seed so two builds planned in the same millisecond against the same
         // branch and commit - a CI system replanning a retried build - cannot collide onto one row.
         String id = uuidFrom(nullSafe(branch) + "|" + nullSafe(commit) + "|" + runTimestampMs
@@ -172,7 +211,27 @@ public final class TestRunHistoryEntry implements Serializable {
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, serialDurationMs, updatedDbMapping, timeSavingsMs,
                 savingsPercent, runId, Long.valueOf(wallClockMs), Integer.valueOf(groupCount),
-                runOrigin);
+                runOrigin,
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary));
+    }
+
+    /**
+     * Derive one selection-counter value from a {@link TestRunSelectionDetails}, applying the
+     * given extractor, or return null when no details were recorded. Centralises the
+     * null-safety so {@link #create} and {@link #createForDistributedRun} do not repeat a null
+     * check per counter.
+     *
+     * @param d the selection details to read, or null when none were recorded
+     * @param f the extractor to apply to {@code d} to obtain one counter's value
+     * @return the extracted counter boxed as an {@code Integer}, or null when {@code d} is null
+     */
+    private static Integer counterOrNull(TestRunSelectionDetails d,
+                                         java.util.function.ToIntFunction<TestRunSelectionDetails> f) {
+        return d == null ? null : Integer.valueOf(f.applyAsInt(d));
     }
 
     /**
@@ -271,6 +330,41 @@ public final class TestRunHistoryEntry implements Serializable {
      *         may be - see {@link RunOrigin}
      */
     public RunOrigin getRunOrigin() { return runOrigin; }
+
+    /**
+     * @return count of modified test files that were selected; null when not recorded (a row
+     *         written before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
+     */
+    public Integer getNumModifiedTestFiles() { return numModifiedTestFiles; }
+
+    /**
+     * @return count of new test files that were selected; null when not recorded (a row written
+     *         before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
+     */
+    public Integer getNumNewTestFiles() { return numNewTestFiles; }
+
+    /**
+     * @return count of previously-failed suites re-run; null when not recorded (a row written
+     *         before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
+     */
+    public Integer getNumPreviouslyFailed() { return numPreviouslyFailed; }
+
+    /**
+     * @return count of suites re-run from unsealed mapping rows; null when not recorded (a row
+     *         written before this feature, or a distributed row before the seal populates it). A
+     *         single-host run records the actual count, zero included
+     */
+    public Integer getNumUnsealedMapping() { return numUnsealedMapping; }
+
+    /**
+     * @return count of suites selected from pending library changes; null when not recorded (a
+     *         row written before this feature, or a distributed row before the seal populates it).
+     *         A single-host run records the actual count, zero included
+     */
+    public Integer getNumPendingLibrary() { return numPendingLibrary; }
 
     @Override
     public boolean equals(Object o) {

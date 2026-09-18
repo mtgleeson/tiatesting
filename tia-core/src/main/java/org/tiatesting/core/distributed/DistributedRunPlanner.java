@@ -64,14 +64,22 @@ public final class DistributedRunPlanner {
      * "planning did not meet its target" would claim a plan was created when nothing was; (5)
      * projects the result onto the persisted {@link DistributedRunPlan} types, carrying the
      * selection's library-impact drain result onto the run row; (6) persists the plan, which clears
-     * the previous run's rows in the same transaction; and (7) returns a summary of what was
-     * persisted.
+     * the previous run's rows in the same transaction; (7) stages {@code selection}'s selection
+     * breakdown under this run's id via {@link DataStore#persistDistributedRunSelectionDetails},
+     * so the sealer can later copy it onto the build's single {@code tia_test_run_history} row;
+     * and (8) returns a summary of what was persisted.
      *
      * <p>Step (5) is why the drain result matters here: {@code selection} was produced by a real
      * {@code TestSelector.selectTestsToIgnore} call, which has already drained the pending library
      * impact - deleting pending rows and advancing sequences - before this method is entered. That
      * drain cannot be repeated, and repeating it per-runner would race, so the plan row is the only
      * place its outstanding cleanup can survive this process exiting.
+     *
+     * <p>Step (7) deliberately keeps {@link DistributedRun} and {@link DistributedRunPlan}
+     * unchanged rather than adding the breakdown as a constructor argument: those two types are
+     * constructed at roughly 95 call sites across the codebase, and a run-id-keyed table staged by
+     * a separate write reaches the same place - the sealer, keyed by run id - without touching any
+     * of them.
      *
      * @param selection the test selection to split across runners; its {@code testsToRun} is what
      *                  the persisted plan's suite count is checked against, and its library-impact
@@ -118,6 +126,12 @@ public final class DistributedRunPlanner {
         }
 
         dataStore.persistDistributedRunPlan(runPlan);
+        // Stages the selection breakdown under this run's id so the sealer can later copy it onto
+        // the build's single tia_test_run_history row. Kept as a separate write rather than a new
+        // field on DistributedRun / DistributedRunPlan, whose constructors are threaded through
+        // roughly 95 call sites across the codebase; a seed run's selection carries
+        // TestRunSelectionDetails.empty(), which is staged as-is.
+        dataStore.persistDistributedRunSelectionDetails(config.getRunId(), selection.getSelectionDetails());
 
         // The one line that says what the pipeline must now do. The console summary and
         // tia-run-plan.json carry the same facts, but only for the plan step's own

@@ -30,7 +30,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/migrations/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT"), forced);
@@ -44,7 +44,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/java/com/acme/Order.java");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertTrue(forced.isEmpty());
@@ -58,7 +58,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/migrations/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertTrue(forced.isEmpty());
@@ -76,7 +76,7 @@ class StaticTestSelectionResolverTest {
                 "src/main/resources/application.properties");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then - the same two suites, not duplicated by each rule firing
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT"), forced);
@@ -92,7 +92,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT"), forced);
@@ -105,7 +105,7 @@ class StaticTestSelectionResolverTest {
         StaticTestSelectionConfig config = configWith(runAllRule("sql-migrations", ".*\\.sql$"));
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(Collections.emptySet(), tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(Collections.emptySet(), tracked).getForcedSuites();
 
         // then
         assertTrue(forced.isEmpty());
@@ -118,7 +118,7 @@ class StaticTestSelectionResolverTest {
         StaticTestSelectionConfig config = configWith(runAllRule("sql-migrations", ".*\\.sql$"));
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(null, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(null, tracked).getForcedSuites();
 
         // then
         assertTrue(forced.isEmpty());
@@ -132,7 +132,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/migrations/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT"), forced);
@@ -147,7 +147,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT"), forced);
@@ -162,7 +162,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then - both suites share simple name "OrderServiceIT" but only com.acme.* matches the FQN
         assertEquals(setOf("com.acme.OrderServiceIT"), forced);
@@ -177,7 +177,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then - both FQNs sharing the simple name are matched
         assertEquals(setOf("com.acme.OrderServiceIT", "com.other.OrderServiceIT"), forced);
@@ -193,7 +193,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceSpec"), forced);
@@ -209,7 +209,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then - the simple-name match still picks up the suite
         assertEquals(setOf("com.acme.OrderServiceIT"), forced);
@@ -225,7 +225,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceSpec"), forced);
@@ -243,7 +243,7 @@ class StaticTestSelectionResolverTest {
                 "src/main/resources/application.properties");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then - RUN_ALL picks both; SUITE_NAMES picks one; union is the RUN_ALL set
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceSpec"), forced);
@@ -258,7 +258,7 @@ class StaticTestSelectionResolverTest {
         Set<String> changedPaths = setOf("src/main/resources/db/V001.sql");
 
         // when
-        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        Set<String> forced = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked).getForcedSuites();
 
         // then
         assertTrue(forced.isEmpty());

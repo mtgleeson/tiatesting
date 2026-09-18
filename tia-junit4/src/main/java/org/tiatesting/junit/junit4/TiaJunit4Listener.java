@@ -14,6 +14,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
@@ -21,7 +22,9 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
+import org.tiatesting.core.agent.RunSelectionDetailsCodec;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +68,13 @@ public class TiaJunit4Listener extends RunListener {
     Persisted as `tia_test_run_history.num_suites_ignored`.
      */
     private int ignoredTestSuiteCount;
+    /*
+    The breakdown of why the tests in this run were selected. Sourced by parsing the sidecar file
+    named by the `tiaRunSelectionDetailsFile` system property set by the agent at premain time.
+    Defaults to empty so a run with no breakdown - selection did not run in this JVM's build, or
+    the property was unset - still constructs a valid TestRunResult.
+     */
+    private TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
     /*
     Per-attempt set of suite names that finished between testRunStarted and testRunFinished.
     JUnit4 reuses the same listener instance across Surefire retries, so we clear this set
@@ -133,6 +143,22 @@ public class TiaJunit4Listener extends RunListener {
                 ? DistributedForkProperties.contextFromSystemProperties() : null;
         setSelectedTests();
         setIgnoredTestSuiteCount();
+        setSelectionDetails();
+    }
+
+    /**
+     * Read the run-selection-details sidecar file path from the {@code tiaRunSelectionDetailsFile}
+     * system property set by the agent at premain time, and parse it via {@link
+     * RunSelectionDetailsCodec#read(File)} into {@link #selectionDetails}. Leaves {@link
+     * #selectionDetails} at {@link TestRunSelectionDetails#empty()} when the property is unset or
+     * blank, matching how the codec itself treats a missing file.
+     */
+    private void setSelectionDetails(){
+        String path = System.getProperty("tiaRunSelectionDetailsFile");
+        if (path != null && !path.trim().isEmpty()){
+            this.selectionDetails = RunSelectionDetailsCodec.read(new File(path));
+        }
+        log.trace("Reading system property tiaRunSelectionDetailsFile: {}", path);
     }
 
     /**
@@ -382,7 +408,7 @@ public class TiaJunit4Listener extends RunListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
-                ignoredTestSuiteCount, suitesFinishedThisAttempt.size());
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

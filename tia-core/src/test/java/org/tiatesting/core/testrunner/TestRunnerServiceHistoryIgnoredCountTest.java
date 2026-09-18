@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -82,7 +83,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4,
+                TestRunSelectionDetails.empty());
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
@@ -119,7 +121,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4,
+                TestRunSelectionDetails.empty());
 
         // when
         service.persistTestRunData(false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
@@ -142,7 +145,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0,
+                TestRunSelectionDetails.empty());
 
         // when
         service.persistTestRunData(false, true, "first-run-commit", "main",
@@ -176,7 +180,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2,
+                TestRunSelectionDetails.empty());
 
         // when
         service.persistTestRunData(false, true, "retry-commit", "main",
@@ -204,7 +209,8 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         }
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5,
+                TestRunSelectionDetails.empty());
 
         // when
         service.persistTestRunData(false, true, "first-attempt-commit", "main",
