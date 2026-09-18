@@ -596,9 +596,30 @@ public class TestRunnerService {
                 updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
                 details);
         dataStore.persistTestRunHistoryEntry(entry);
-        dataStore.persistTestRunTriggers(entry.getId(), details.getTriggers());
+        persistSelectionTriggersBestEffort(entry.getId(), details);
         log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
                 entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
+    }
+
+    /**
+     * Persist the run's selection-trigger breakdown as a best-effort side write. The history row and
+     * its scalar counters are already saved by the time this runs, and the per-trigger rows are
+     * diagnostic detail only - so a failure here (for example a trigger name that overflows its
+     * column) is logged and swallowed rather than propagated, which would otherwise fail a build
+     * whose test result and mapping are already recorded.
+     *
+     * @param historyId the id of the just-persisted history entry the triggers belong to
+     * @param details the selection breakdown whose triggers are written; never null
+     */
+    private void persistSelectionTriggersBestEffort(final String historyId,
+                                                    final TestRunSelectionDetails details) {
+        try {
+            dataStore.persistTestRunTriggers(historyId, details.getTriggers());
+        } catch (RuntimeException e) {
+            log.warn("Failed to persist the selection-trigger breakdown for history entry {}; the "
+                    + "history row and its counters were saved, only the per-trigger detail is "
+                    + "missing. This does not affect the test run.", historyId, e);
+        }
     }
 
     /**

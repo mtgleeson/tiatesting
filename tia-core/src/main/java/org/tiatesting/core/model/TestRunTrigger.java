@@ -1,6 +1,9 @@
 package org.tiatesting.core.model;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -58,4 +61,28 @@ public final class TestRunTrigger implements Serializable {
 
     @Override
     public int hashCode() { return Objects.hash(type, name, testCount); }
+
+    /**
+     * Filter a trigger list to a single type and return the matches ordered by suite count, largest
+     * first. Shared by every reader that ranks one type of trigger - the model's typed getters, the
+     * HTML detail page and the console detail formatter - so the filter-and-sort rule lives in one
+     * place.
+     *
+     * @param triggers the triggers to filter; null is tolerated and treated as empty
+     * @param type the trigger type to keep
+     * @return a new list of the matching triggers, highest suite count first
+     */
+    public static List<TestRunTrigger> filterByTypeSortedByCountDesc(List<TestRunTrigger> triggers,
+                                                                     Type type) {
+        List<TestRunTrigger> filtered = new ArrayList<>();
+        if (triggers != null) {
+            for (TestRunTrigger t : triggers) {
+                if (t.getType() == type) {
+                    filtered.add(t);
+                }
+            }
+        }
+        filtered.sort(Comparator.comparingInt(TestRunTrigger::getTestCount).reversed());
+        return filtered;
+    }
 }

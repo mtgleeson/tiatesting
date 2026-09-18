@@ -12,6 +12,7 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
+import org.tiatesting.core.persistence.TiaPersistenceException;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -111,6 +113,57 @@ class TestRunnerServiceHistoryDetailTest {
         assertEquals(2, persistedTriggers.size());
         assertEquals(triggers.get(0), persistedTriggers.get(0));
         assertEquals(triggers.get(1), persistedTriggers.get(1));
+    }
+
+    /**
+     * The per-trigger breakdown is a diagnostic side write: if it fails (here simulated by a
+     * datastore that always throws from {@code persistTestRunTriggers}), the run must not fail -
+     * the history row and its scalar counters are already saved, so the failure is swallowed and
+     * the run completes. Verifies the row (with its counters) is still persisted.
+     */
+    @Test
+    void persistTestRunData_triggerWriteFailure_isSwallowedAndTheRowStillPersists() throws Exception {
+        // given - a datastore whose trigger write always throws, over an otherwise-working H2
+        File failDir = File.createTempFile("tia-runner-trigger-fail-", "");
+        failDir.delete();
+        failDir.mkdirs();
+        JdbcDataStore throwingStore = new JdbcDataStore(new H2Dialect(),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(failDir.getAbsolutePath())),
+                BranchSchema.schemaName("test", null)) {
+            @Override
+            public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {
+                throw new TiaPersistenceException(new RuntimeException("trigger write boom"));
+            }
+        };
+        throwingStore.getTiaData(true);
+        TiaData seed = throwingStore.getTiaData(true);
+        seed.setCommitValue("initial");
+        seed.setLastUpdated(Instant.now());
+        throwingStore.persistCoreData(seed);
+        TestRunnerService throwingService = new TestRunnerService(throwingStore);
+
+        Map<String, TestSuiteTracker> trackers = new HashMap<>();
+        trackers.put("com.example.ATest", new TestSuiteTracker("com.example.ATest"));
+        Set<String> runnerTestSuites = new HashSet<>(Arrays.asList("com.example.ATest"));
+        List<TestRunTrigger> triggers = Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 1));
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0);
+        TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
+                runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, details);
+
+        // when - the internal trigger write throws
+        assertDoesNotThrow(() -> throwingService.persistTestRunData(false, true, "boom-commit",
+                "main", System.currentTimeMillis(), result, null));
+
+        // then - the history row and its counters were still written despite the trigger failure
+        List<TestRunHistoryEntry> history = throwingStore.readTestRunHistory();
+        assertEquals(1, history.size());
+        assertEquals(Integer.valueOf(7), history.get(0).getNumModifiedTestFiles());
+
+        for (File f : failDir.listFiles()) {
+            f.delete();
+        }
+        failDir.delete();
     }
 
     /**

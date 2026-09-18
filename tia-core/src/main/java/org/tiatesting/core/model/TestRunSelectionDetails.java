@@ -3,7 +3,6 @@ package org.tiatesting.core.model;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -59,29 +58,12 @@ public final class TestRunSelectionDetails implements Serializable {
 
     /** @return the source-method triggers, sorted by suite count descending */
     public List<TestRunTrigger> getSourceMethodTriggers() {
-        return sortedByCountDesc(TestRunTrigger.Type.SOURCE_METHOD);
+        return TestRunTrigger.filterByTypeSortedByCountDesc(triggers, TestRunTrigger.Type.SOURCE_METHOD);
     }
 
     /** @return the static-rule triggers, sorted by suite count descending */
     public List<TestRunTrigger> getStaticRuleTriggers() {
-        return sortedByCountDesc(TestRunTrigger.Type.STATIC_RULE);
-    }
-
-    /**
-     * Filter the triggers to one type and sort them by suite count, largest first.
-     *
-     * @param type the trigger type to keep
-     * @return the matching triggers, highest count first
-     */
-    private List<TestRunTrigger> sortedByCountDesc(TestRunTrigger.Type type) {
-        List<TestRunTrigger> filtered = new ArrayList<>();
-        for (TestRunTrigger t : triggers) {
-            if (t.getType() == type) {
-                filtered.add(t);
-            }
-        }
-        filtered.sort(Comparator.comparingInt(TestRunTrigger::getTestCount).reversed());
-        return filtered;
+        return TestRunTrigger.filterByTypeSortedByCountDesc(triggers, TestRunTrigger.Type.STATIC_RULE);
     }
 
     /** @return count of modified test files that were selected */
