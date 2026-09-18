@@ -370,7 +370,16 @@ public final class DistributedRunSealer {
                 timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount(),
                 RunEnvironment.distributedRunOrigin(), selectionDetails);
         dataStore.persistTestRunHistoryEntry(entry);
-        dataStore.persistTestRunTriggers(entry.getId(), selectionDetails.getTriggers());
+        // Best-effort: the row and its counters are already saved and the per-trigger rows are
+        // diagnostic detail only, so a failure writing them (for example an overlong trigger name)
+        // is logged and swallowed rather than failing a build that has already sealed.
+        try {
+            dataStore.persistTestRunTriggers(entry.getId(), selectionDetails.getTriggers());
+        } catch (RuntimeException e) {
+            log.warn("Distributed run '{}': failed to persist the selection-trigger breakdown for "
+                    + "history row {}; the row and its counters were saved, only the per-trigger "
+                    + "detail is missing.", context.getRunId(), entry.getId(), e);
+        }
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
                         + "ignored={}, failed={}, serialMs={}, wallClockMs={}, "

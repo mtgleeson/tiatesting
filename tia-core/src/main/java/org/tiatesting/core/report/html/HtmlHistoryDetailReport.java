@@ -14,7 +14,6 @@ import java.io.Writer;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 import static j2html.TagCreator.attrs;
@@ -100,8 +99,10 @@ public class HtmlHistoryDetailReport {
         String fileName = reportOutputDir + File.separator + entry.getId() + ".html";
         log.info("Writing the run detail report to {}", fileName);
 
-        List<TestRunTrigger> sourceMethodTriggers = sortedByCountDesc(triggers, TestRunTrigger.Type.SOURCE_METHOD);
-        List<TestRunTrigger> staticRuleTriggers = sortedByCountDesc(triggers, TestRunTrigger.Type.STATIC_RULE);
+        List<TestRunTrigger> sourceMethodTriggers = TestRunTrigger.filterByTypeSortedByCountDesc(
+                triggers, TestRunTrigger.Type.SOURCE_METHOD);
+        List<TestRunTrigger> staticRuleTriggers = TestRunTrigger.filterByTypeSortedByCountDesc(
+                triggers, TestRunTrigger.Type.STATIC_RULE);
         boolean noBreakdownRecorded = (triggers == null || triggers.isEmpty())
                 && entry.getNumModifiedTestFiles() == null
                 && entry.getNumNewTestFiles() == null
@@ -254,28 +255,6 @@ public class HtmlHistoryDetailReport {
         scripts.add(HtmlLayout.simpleDatatablesInit("#sourceMethodTriggers", ASSETS_REL, 1, "desc"));
         scripts.add(HtmlLayout.simpleDatatablesInit("#staticRuleTriggers", ASSETS_REL, 1, "desc"));
         return each(scripts, s -> s);
-    }
-
-    /**
-     * Filter the triggers to one type and sort them by suite count, largest first - mirroring
-     * {@code TestRunSelectionDetails.sortedByCountDesc}, duplicated here since this class renders
-     * the {@code triggers} parameter directly rather than an entry's stored breakdown.
-     *
-     * @param triggers the triggers to filter and sort; null is tolerated and treated as empty
-     * @param type the trigger type to keep
-     * @return the matching triggers, highest count first
-     */
-    private List<TestRunTrigger> sortedByCountDesc(List<TestRunTrigger> triggers, TestRunTrigger.Type type) {
-        List<TestRunTrigger> filtered = new ArrayList<>();
-        if (triggers != null) {
-            for (TestRunTrigger t : triggers) {
-                if (t.getType() == type) {
-                    filtered.add(t);
-                }
-            }
-        }
-        filtered.sort(Comparator.comparingInt(TestRunTrigger::getTestCount).reversed());
-        return filtered;
     }
 
     /**
