@@ -16,6 +16,7 @@ import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
+import org.tiatesting.core.library.LibraryJarDirectoryResolver;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.persistence.DataStore;
@@ -165,9 +166,7 @@ public class TiaSpockGitGradlePluginTestExtension {
                     }
 
                     LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
-                    String libraryJarsCsv = resolver.resolveLibraryJarsCsv(
-                            tiaTaskExtension.getSourceLibs(),
-                            tiaTaskExtension.getSourceProjectDir());
+                    String libraryJarsCsv = resolveLibraryJarsCsv(tiaTaskExtension, resolver, LOGGER);
                     if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
                         testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
                     }
@@ -287,6 +286,10 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getSourceProjectDir() == null){
             tiaTaskExt.setSourceProjectDir(tiaProjectExt.getSourceProjectDir());
+        }
+
+        if (tiaTaskExt.getLibraryJarsDirs() == null){
+            tiaTaskExt.setLibraryJarsDirs(tiaProjectExt.getLibraryJarsDirs());
         }
 
         // A distributed run is configured per pipeline, not per test task: the run id and the
@@ -453,6 +456,39 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         }
 
         return enabled;
+    }
+
+    /**
+     * Resolve the {@code sourceLibs} coverage jars to a CSV of absolute paths, choosing the producer
+     * by whether {@link TiaBaseTaskExtension#getLibraryJarsDirs()} is configured: directory filename
+     * matching via the shared {@link LibraryJarDirectoryResolver} when it is (the offline-safe path,
+     * see the "Directory-based library-jar resolution" chapter in {@code WIKI.md}), Gradle
+     * dependency-graph resolution via {@link LibraryJarResolver} otherwise. Both feed the same
+     * {@code tiaLibraryJars} system property.
+     *
+     * @param tiaTaskExtension the resolved task extension carrying {@code sourceLibs},
+     *                         {@code libraryJarsDirs} and {@code sourceProjectDir}
+     * @param resolver the dependency-graph resolver used when directory mode is not selected
+     * @param logger the plugin logger, used as the directory matcher's warn/debug sinks
+     * @return the CSV of resolved absolute jar paths, or null when nothing resolved
+     */
+    static String resolveLibraryJarsCsv(TiaBaseTaskExtension tiaTaskExtension,
+                                        LibraryJarResolver resolver, Logger logger) {
+        String jarsDirsCsv = tiaTaskExtension.getLibraryJarsDirs();
+        if (jarsDirsCsv != null && !jarsDirsCsv.trim().isEmpty()) {
+            List<String> directories = new ArrayList<>();
+            for (String dir : jarsDirsCsv.split(",")) {
+                if (!dir.trim().isEmpty()) {
+                    directories.add(dir.trim());
+                }
+            }
+            List<String> jars = LibraryJarDirectoryResolver.resolveLibraryJars(
+                    tiaTaskExtension.getSourceLibs(), directories, logger::warn, logger::debug);
+            return jars.isEmpty() ? null : String.join(",", jars);
+        }
+
+        return resolver.resolveLibraryJarsCsv(
+                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir());
     }
 
     /**
