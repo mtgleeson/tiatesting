@@ -15,6 +15,7 @@ public class TiaBaseTaskExtension {
     private String sourceFilesDirs;
     private String sourceLibs;
     private String sourceProjectDir;
+    private String libraryJarsDirs;
     private String testFilesDirs;
     private String dbFilePath;
     private String dbUrl;
@@ -86,6 +87,31 @@ public class TiaBaseTaskExtension {
 
     public void setSourceProjectDir(String sourceProjectDir) {
         this.sourceProjectDir = sourceProjectDir;
+    }
+
+    /**
+     * Optional CSV of directory paths that contain built library jars (e.g. a deployment
+     * {@code lib/} directory with version-stamped filenames like {@code <artifactId>-<version>.jar}).
+     * When set, Tia resolves each {@link #getSourceLibs()} coordinate to its jar by filename
+     * matching inside these directories instead of resolving through the source project's Gradle
+     * dependency graph - the offline-safe path that needs no complete local repository. See the
+     * "Directory-based library-jar resolution" chapter in {@code WIKI.md}.
+     *
+     * @return the configured directories CSV, or null/blank when directory-based resolution is not
+     *         in use
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getLibraryJarsDirs() {
+        return libraryJarsDirs;
+    }
+
+    /**
+     * @param libraryJarsDirs the CSV of directories to resolve {@link #getSourceLibs()} jars from
+     *                        by filename, or null to use dependency-graph resolution
+     */
+    public void setLibraryJarsDirs(String libraryJarsDirs) {
+        this.libraryJarsDirs = libraryJarsDirs;
     }
 
     @Input
