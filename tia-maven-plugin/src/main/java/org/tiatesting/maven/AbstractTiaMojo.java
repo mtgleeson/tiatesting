@@ -167,6 +167,17 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     String tiaClassFilesDirs;
 
     /**
+     * Optional CSV of directory paths that contain built library jars (e.g. a deployment
+     * {@code lib/} directory with version-stamped filenames like {@code <artifactId>-<version>.jar}).
+     * When set, Tia resolves each {@link #tiaSourceLibs} coordinate to its jar by filename matching
+     * inside these directories instead of resolving through the source project's pom - the
+     * offline-safe path that needs no complete local Maven repository. See the "Directory-based
+     * library-jar resolution" chapter in {@code WIKI.md}.
+     */
+    @Parameter(property = "tiaLibraryJarsDirs")
+    String tiaLibraryJarsDirs;
+
+    /**
      * Is TIA enabled?
      */
     @Parameter(property = "tiaEnabled")
@@ -671,6 +682,14 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaClassFilesDirs() {
         return tiaClassFilesDirs;
+    }
+
+    /**
+     * @return the configured CSV of directories to resolve {@link #tiaSourceLibs} jars from by
+     *         filename, or null/blank when directory-based resolution is not in use.
+     */
+    public String getTiaLibraryJarsDirs() {
+        return tiaLibraryJarsDirs;
     }
 
     public boolean isTiaEnabled() {
