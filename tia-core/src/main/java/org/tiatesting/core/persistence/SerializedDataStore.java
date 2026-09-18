@@ -13,6 +13,8 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -401,6 +403,41 @@ public class SerializedDataStore implements DataStore {
     }
 
     /**
+     * No-op: run-history selection triggers are only supported by the JDBC-backed data stores.
+     *
+     * @param historyId ignored
+     * @param triggers ignored
+     */
+    @Override
+    public void persistTestRunTriggers(String historyId, List<TestRunTrigger> triggers) {
+        // test run history triggers are only supported in the H2 data store
+    }
+
+    /**
+     * Unsupported here: run-history selection triggers are only supported by the JDBC-backed
+     * data stores.
+     *
+     * @param historyId ignored
+     * @return an empty list, always
+     */
+    @Override
+    public List<TestRunTrigger> readTestRunTriggers(String historyId) {
+        return new ArrayList<>();
+    }
+
+    /**
+     * Unsupported here: run-history selection triggers are only supported by the JDBC-backed
+     * data stores.
+     *
+     * @param historyIds ignored
+     * @return an empty map, always
+     */
+    @Override
+    public Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(Collection<String> historyIds) {
+        return new HashMap<>();
+    }
+
+    /**
      * Unsupported: distributed runs coordinate through a shared database, which the serialized
      * file-backed store is not.
      *
@@ -479,6 +516,34 @@ public class SerializedDataStore implements DataStore {
      */
     @Override
     public List<DistributedRun> readAllDistributedRuns() {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @param details ignored
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public void persistDistributedRunSelectionDetails(String runId, TestRunSelectionDetails details) {
+        throw new UnsupportedOperationException(
+                "Distributed test runs require a shared database (server-mode H2 or Postgres)");
+    }
+
+    /**
+     * Unsupported: distributed runs coordinate through a shared database, which the serialized
+     * file-backed store is not.
+     *
+     * @param runId ignored
+     * @return never returns
+     * @throws UnsupportedOperationException always
+     */
+    @Override
+    public TestRunSelectionDetails readDistributedRunSelectionDetails(String runId) {
         throw new UnsupportedOperationException(
                 "Distributed test runs require a shared database (server-mode H2 or Postgres)");
     }

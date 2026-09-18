@@ -9,6 +9,8 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -92,7 +94,8 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -112,7 +115,7 @@ class DistributedRunPlannerTest {
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
                 60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, fixedOverheadMs,
-                false);
+                false, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -130,7 +133,27 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                TestRunSelectionDetails.empty());
+    }
+
+    /**
+     * Build the same three-suite selection as {@link #threeSuiteSelection()} but carrying the
+     * given selection breakdown, so tests can assert what {@link DistributedRunPlanner#plan}
+     * stages under the run id rather than a call that always carries {@link
+     * TestRunSelectionDetails#empty()}.
+     *
+     * @param details the breakdown the selection carries
+     * @return a selection with three suites and the supplied breakdown attached
+     */
+    private static TestSelectorResult threeSuiteSelectionWithSelectionDetails(TestRunSelectionDetails details) {
+        Map<String, Long> runTimes = new HashMap<>();
+        runTimes.put("com.example.ATest", 30000L);
+        runTimes.put("com.example.BTest", 20000L);
+        runTimes.put("com.example.CTest", 10000L);
+        Set<String> testsToRun = new HashSet<>(runTimes.keySet());
+        return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false, details);
     }
 
     /**
@@ -141,7 +164,8 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -154,7 +178,8 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult runAllTestsSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true);
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -237,6 +262,39 @@ class DistributedRunPlannerTest {
 
         // then
         assertNull(dataStore.readDistributedRunDrainResult("run-nodrain"));
+    }
+
+    /**
+     * Verify that {@link DistributedRunPlanner#plan} stages the selection's breakdown under the
+     * run id via {@link DataStore#persistDistributedRunSelectionDetails}, so the sealer can later
+     * copy it onto the build's single {@code tia_test_run_history} row. This is the design
+     * deviation from the original plan brief: rather than threading the breakdown through the
+     * {@link org.tiatesting.core.model.DistributedRun} / {@link
+     * org.tiatesting.core.model.DistributedRunPlan} constructors (roughly 95 call sites across the
+     * codebase), the breakdown is staged in a separate, run-id-keyed write.
+     */
+    @Test
+    void shouldStageTheSelectionBreakdownUnderTheRunId() {
+        // given
+        TestRunSelectionDetails details = new TestRunSelectionDetails(
+                Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
+                        "com.example.Foo.bar()V", 2)),
+                1, 2, 3, 4, 5);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelectionWithSelectionDetails(details), "main", "commit-1", false, 1L);
+
+        // then
+        TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("run-selection-details");
+        assertEquals(1, read.getNumModifiedTestFiles());
+        assertEquals(2, read.getNumNewTestFiles());
+        assertEquals(3, read.getNumPreviouslyFailed());
+        assertEquals(4, read.getNumUnsealedMapping());
+        assertEquals(5, read.getNumPendingLibrary());
+        assertEquals(1, read.getTriggers().size());
+        assertEquals("com.example.Foo.bar()V", read.getTriggers().get(0).getName());
     }
 
     /**

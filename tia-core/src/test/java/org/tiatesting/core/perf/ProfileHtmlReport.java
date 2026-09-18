@@ -124,7 +124,7 @@ public final class ProfileHtmlReport {
         // on one generator is equivalent to HtmlReportGenerator.generateReports, so their sum is
         // the whole-render number and each step is attributable on its own.
         File reportOutputDir = new File(args.outDir);
-        HtmlReportGenerator generator = new HtmlReportGenerator(args.branch, reportOutputDir);
+        HtmlReportGenerator generator = new HtmlReportGenerator(args.branch, reportOutputDir, dataStore);
 
         long renderTotalMs = 0;
         renderTotalMs += timeStep(timings, "Phase B1 - copyStaticAssets", generator::copyStaticAssets);

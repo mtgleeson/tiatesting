@@ -12,6 +12,7 @@ import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -324,7 +325,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, 1);
+                null, 1, 1, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -349,7 +350,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 1, 2);
+                null, 1, 2, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -547,7 +548,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)),
                 new HashSet<>(Collections.singletonList(SUITE_A)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), methodTrackers, new TestStats(),
-                null, 0, 1);
+                null, 0, 1, TestRunSelectionDetails.empty());
 
         // when - the one test plan this JVM manages persists its partial share, and the build tool
         //        then makes its explicit completion
@@ -611,7 +612,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 0, 2);
+                null, 0, 2, TestRunSelectionDetails.empty());
 
         // when - the one test plan persists, and the build tool completes the group once no more
         //        retries arrive - the retry that would have run again never got the chance to persist

@@ -58,8 +58,19 @@ public class AgentOptions {
 
     private static final String DEFAULT_FORK_PROPERTIES_FILE = "";
 
+    /**
+     * Specifies the path for the file containing the serialized {@code TestRunSelectionDetails}
+     * breakdown from test selection. The agent sets a system property so the test listener can
+     * deserialize the breakdown and pass it to {@code TestRunResult} so the history row records
+     * why the tests it ran were selected. Optional - empty when no selection breakdown was written
+     * (for example a distributed runner that did not itself run selection).
+     */
+    public static final String SELECTION_DETAILS_FILE = "selectionDetailsFile";
+
+    private static final String DEFAULT_SELECTION_DETAILS_FILE = "";
+
     private static final Collection<String> VALID_OPTIONS = Arrays.asList(IGNORE_TESTS_FILE, SELECTED_TESTS_FILE,
-            LIBRARY_JARS_FILE, DRAIN_RESULT_FILE, FORK_PROPERTIES_FILE);
+            LIBRARY_JARS_FILE, DRAIN_RESULT_FILE, FORK_PROPERTIES_FILE, SELECTION_DETAILS_FILE);
 
     private static final Pattern OPTION_SPLIT = Pattern.compile(",(?=[a-zA-Z0-9_\\-]+=)");
 
@@ -172,5 +183,23 @@ public class AgentOptions {
 
     public void setForkPropertiesFile(String forkPropertiesFile) {
         setOption(FORK_PROPERTIES_FILE, forkPropertiesFile);
+    }
+
+    /**
+     * Get the configured path for the run-selection-details sidecar file.
+     *
+     * @return the configured path, or the empty string if unset
+     */
+    public String getSelectionDetailsFile() {
+        return getOption(SELECTION_DETAILS_FILE, DEFAULT_SELECTION_DETAILS_FILE);
+    }
+
+    /**
+     * Set the path for the run-selection-details sidecar file the forked test JVM should read.
+     *
+     * @param selectionDetailsFile the path to the sidecar file written by the build plugin
+     */
+    public void setSelectionDetailsFile(String selectionDetailsFile) {
+        setOption(SELECTION_DETAILS_FILE, selectionDetailsFile);
     }
 }

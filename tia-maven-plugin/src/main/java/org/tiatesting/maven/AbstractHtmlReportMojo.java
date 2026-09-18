@@ -15,7 +15,7 @@ public abstract class AbstractHtmlReportMojo extends AbstractReportMojo {
         try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
              DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             TiaData tiaData = dataStore.getTiaData(true);
-            ReportGenerator reportGenerator = new HtmlReportGenerator(workspaceIdentity.getBranch(), getTiaReportOutputDir());
+            ReportGenerator reportGenerator = new HtmlReportGenerator(workspaceIdentity.getBranch(), getTiaReportOutputDir(), dataStore);
             reportGenerator.generateReports(tiaData);
         }
     }

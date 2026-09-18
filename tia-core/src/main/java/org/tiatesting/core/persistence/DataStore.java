@@ -9,10 +9,13 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -343,6 +346,36 @@ public interface DataStore extends AutoCloseable {
     List<TestRunHistoryEntry> readTestRunHistory();
 
     /**
+     * Persist one run history row's selection triggers, replacing whatever was previously stored
+     * for that row. Deletes the row's existing triggers then batch-inserts the given list, so
+     * re-persisting the same list (a retried fork, a re-run of the same seal) is idempotent -
+     * exactly one row per trigger, never duplicates.
+     *
+     * @param historyId the {@code tia_test_run_history} row these triggers belong to
+     * @param triggers the triggers to store; null or empty leaves the row with no triggers
+     */
+    void persistTestRunTriggers(final String historyId, final List<TestRunTrigger> triggers);
+
+    /**
+     * Read the selection triggers for one run history row, highest suite count first.
+     *
+     * @param historyId the {@code tia_test_run_history} row to read triggers for
+     * @return the row's triggers ordered by suite count descending; empty if none were recorded
+     */
+    List<TestRunTrigger> readTestRunTriggers(final String historyId);
+
+    /**
+     * Bulk-read the selection triggers for several run history rows in one query, for report
+     * generation over a page of history rows rather than one query per row.
+     *
+     * @param historyIds the {@code tia_test_run_history} row ids to read triggers for
+     * @return map of history id to its triggers, each ordered by suite count descending; empty when
+     *         {@code historyIds} is null or empty, and a history id with no triggers is simply
+     *         absent from the map
+     */
+    Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(final Collection<String> historyIds);
+
+    /**
      * Write a complete distributed run plan - the run row, its group rows and its suite
      * assignment - in a single transaction, so a runner reading the plan never observes it
      * partially written.
@@ -407,6 +440,34 @@ public interface DataStore extends AutoCloseable {
      * @return the runs currently planned, most recently created first, empty if there are none
      */
     List<DistributedRun> readAllDistributedRuns();
+
+    /**
+     * Stage the selection breakdown for a distributed run, keyed by run id, so the sealer can
+     * later copy it onto the build's single {@code tia_test_run_history} row. This is separate
+     * from {@link #persistDistributedRunPlan} because the breakdown is a property of the {@code
+     * TestSelectorResult} the planner selected from, not of the {@link DistributedRunPlan} the
+     * plan tables carry - keeping the two models unchanged avoids threading the breakdown through
+     * the ~95 call sites that already construct a plan or a run.
+     *
+     * <p>Idempotent per {@code runId}: deletes whatever was previously staged for that run, then
+     * writes the given breakdown, so a retried plan write leaves exactly one staged breakdown
+     * rather than accumulating duplicates. {@code details} is never treated as absent - a null
+     * argument stages {@link TestRunSelectionDetails#empty()} - so a read always gets a definite
+     * answer rather than having to distinguish "not staged" from "staged as empty".
+     *
+     * @param runId the distributed run these triggers belong to
+     * @param details the breakdown to stage; null is treated as {@link TestRunSelectionDetails#empty()}
+     */
+    void persistDistributedRunSelectionDetails(final String runId, final TestRunSelectionDetails details);
+
+    /**
+     * Read the selection breakdown staged for a distributed run.
+     *
+     * @param runId the distributed run to read the staged breakdown for
+     * @return the staged breakdown, or {@link TestRunSelectionDetails#empty()} if nothing was
+     *         staged for that run id
+     */
+    TestRunSelectionDetails readDistributedRunSelectionDetails(final String runId);
 
     /**
      * Claim exactly one {@code PENDING} group of a distributed run for the calling runner, so no

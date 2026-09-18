@@ -12,6 +12,7 @@ import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
@@ -496,7 +497,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2);
+                new TestStats(), null, 0, 2, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -615,7 +616,8 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerTestSuites, new HashSet<String>(), selected,
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0);
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -734,7 +736,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
 
         return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
-                methodTrackers, new TestStats(), null, 3, 2);
+                methodTrackers, new TestStats(), null, 3, 2, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -758,7 +760,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), suiteNames, suiteNames, suiteNames,
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0,
-                suiteRunTimesMs.length);
+                suiteRunTimesMs.length, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -769,7 +771,8 @@ class TestRunnerServiceDistributedPersistTest {
     private TestRunResult makeEmptyResult() {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0);
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0,
+                TestRunSelectionDetails.empty());
     }
 
     /**
@@ -789,7 +792,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2);
+                new TestStats(), null, 0, 2, TestRunSelectionDetails.empty());
     }
 
     /**

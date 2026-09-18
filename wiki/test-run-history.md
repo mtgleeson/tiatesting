@@ -14,6 +14,8 @@ Every Tia-enabled test run logs one row to a `tia_test_run_history` table in the
 
 The table is append-mostly; an index on `run_timestamp` backs the report's default "most-recent first" sort. There's currently no retention policy — the rows are tiny and the table grows slowly enough not to need pruning in practice.
 
+Each row also carries five nullable counters, and can have per-trigger rows in a child table, describing *why* the run selected the tests it did - not shown here since it's a per-run breakdown rather than an audit-log column. See the [Run history details](run-history-details.md) chapter.
+
 ### Run origin (`run_source`, `host_name`)
 
 These two columns exist to answer "how much is Tia actually saving, and for whom" without guessing. Before them the only available discriminator was `updated_db_mapping`, which is a proxy rather than a fact about the run: a CI job configured with mapping updates off is indistinguishable from a developer's laptop. There was also nothing to group runs by machine, so a per-machine average silently mixed a maxed-out laptop with a workstation.
@@ -135,4 +137,4 @@ Column widths are computed dynamically from the data so the table stays compact 
 
 ---
 
-Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [The select-tests run-time estimate and its overhead model](select-tests-run-time-estimate.md)
+Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [Run history details](run-history-details.md)

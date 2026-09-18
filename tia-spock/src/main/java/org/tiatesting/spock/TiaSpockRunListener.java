@@ -10,6 +10,7 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
@@ -54,6 +55,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final boolean updateDBTestRunHistory;
     private final SpecificationUtil specificationUtil;
     private final LibraryImpactDrainResult libraryImpactDrainResult;
+    private final TestRunSelectionDetails selectionDetails;
     private final DistributedRunnerContext distributedRunnerContext;
     private boolean stopStepRan;
 
@@ -75,6 +77,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
      *                                stats - the two are one decision
      * @param updateDBTestRunHistory  log a row to {@code tia_test_run_history}
      * @param libraryImpactDrainResult drain result from selection (may be {@code null})
+     * @param selectionDetails         the per-run selection breakdown - the per-method and per-rule
+     *                                 triggers plus the scalar source counts - produced by this
+     *                                 build's own selection, or {@link TestRunSelectionDetails#empty()}
+     *                                 for a distributed runner, whose build-level breakdown is
+     *                                 written by the sealer rather than by any one runner
      * @param distributedRunnerContext the run id, runner identity and claimed group when this build
      *                                 is one runner of a distributed run, or {@code null} for an
      *                                 ordinary single-host build
@@ -85,6 +92,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
                                final boolean updateDBMapping,
                                final boolean updateDBTestRunHistory,
                                final LibraryImpactDrainResult libraryImpactDrainResult,
+                               final TestRunSelectionDetails selectionDetails,
                                final DistributedRunnerContext distributedRunnerContext){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
@@ -100,6 +108,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.updateDBMapping = updateDBMapping;
         this.updateDBTestRunHistory = updateDBTestRunHistory;
         this.libraryImpactDrainResult = libraryImpactDrainResult;
+        this.selectionDetails = selectionDetails;
         this.distributedRunnerContext = distributedRunnerContext;
         this.headCommit = headCommit;
         this.branch = branch;
@@ -202,7 +211,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // per-attempt count - there's no separate counter to thread through.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size());
+                ignoredTestSuiteCount, testSuiteTrackers.size(), selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

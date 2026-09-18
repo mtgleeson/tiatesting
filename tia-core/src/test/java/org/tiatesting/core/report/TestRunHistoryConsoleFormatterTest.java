@@ -245,7 +245,8 @@ class TestRunHistoryConsoleFormatterTest {
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -264,9 +265,11 @@ class TestRunHistoryConsoleFormatterTest {
     void savingsColumns_renderDurationPercentAndDashForZero() {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
-                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -289,7 +292,8 @@ class TestRunHistoryConsoleFormatterTest {
     void singleHostOnlyHistory_omitsTheDistributedColumns() {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -312,7 +316,7 @@ class TestRunHistoryConsoleFormatterTest {
         // given - a build whose groups summed to 20s but which took 8s of wall clock across 3 groups
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -337,9 +341,10 @@ class TestRunHistoryConsoleFormatterTest {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
         TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
-                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -496,7 +501,7 @@ class TestRunHistoryConsoleFormatterTest {
      */
     private static TestRunHistoryEntry entryWithOrigin(RunOrigin origin) {
         return new TestRunHistoryEntry("id-1", 1_700_000_000_000L, "main", "abc123",
-                42, 3, 1, 83_000L, true, 0L, 0, null, null, null, origin);
+                42, 3, 1, 83_000L, true, 0L, 0, null, null, null, origin, null, null, null, null, null);
     }
 
     private static TestRunHistoryEntry entry(int year, int month, int day, int hour, int minute,
@@ -506,7 +511,8 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null));
+                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -514,7 +520,8 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null)));
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                    null, null, null, null, null));
         }
         return entries;
     }

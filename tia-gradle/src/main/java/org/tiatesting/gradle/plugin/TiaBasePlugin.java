@@ -71,6 +71,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createHtmlReportTask();
         createSelectTestsTask();
         createHistoryTask();
+        createHistoryDetailsTask();
         createLibraryPublishesTask();
         createLibraryPendingMethodsTask();
         createDistPlanTask();
@@ -237,7 +238,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                     // One report tree per schema, scoped by the same folder mechanism that already
                     // scopes them per branch - a project with no suffix keeps its existing folder.
                     ReportGenerator reportGenerator = new HtmlReportGenerator(
-                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir);
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir, dataStore);
                     reportGenerator.generateReports(tiaData);
                     System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
                 }
@@ -393,6 +394,20 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      */
     public void createHistoryTask() {
         project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
+            task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
+        });
+    }
+
+    /**
+     * Task to print one recorded test run's full selection breakdown to stdout, looked up by the
+     * {@code --id} option. Mirrors {@link #createHistoryTask()} in shape but registers a
+     * {@link TiaHistoryDetailsTask} subclass instead of an inline {@code doLast} closure so the
+     * {@code --id} CLI flag can be wired in via Gradle's {@code @Option} machinery.
+     */
+    public void createHistoryDetailsTask() {
+        project.getTasks().register("tia-history-details", TiaHistoryDetailsTask.class, task -> {
             task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
             task.setDataStoreFactory(this::buildDataStore);
             task.setSchemaSuffixes(this::reportingSchemaSuffixes);

@@ -2,6 +2,7 @@ package org.tiatesting.core.staticselection;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
 
 import java.util.ArrayList;
@@ -16,9 +17,9 @@ import java.util.regex.Pattern;
  * Evaluates {@link StaticTestSelectionRule}s against the set of changed file paths and the
  * tracked test suites, returning the set of tracked suites that should be force-run.
  *
- * <p>Static rules are additive only: the {@link #resolve(Set, Map)} output is intended to
- * be unioned into the existing dynamic test selection by the caller. A rule can cause
- * additional tests to run; it can never cause a test to be skipped.
+ * <p>Static rules are additive only: the forced suites in the {@link #resolve(Set, Map)} output
+ * are intended to be unioned into the existing dynamic test selection by the caller. A rule can
+ * cause additional tests to run; it can never cause a test to be skipped.
  *
  * <p>Modes {@link StaticTestSelectionRuleMode#RUN_ALL} and
  * {@link StaticTestSelectionRuleMode#SUITE_NAMES} are implemented. The constructor of
@@ -72,13 +73,15 @@ public class StaticTestSelectionResolver {
      *                     changed in the current commit range / local workspace.
      * @param testSuitesTracked the tracked test suites keyed by suite name; used to resolve
      *                          forced suite sets.
-     * @return the union of forced suite names; never {@code null}, may be empty.
+     * @return the union of forced suite names plus one {@link TestRunTrigger} per fired rule;
+     *         never {@code null}, both may be empty.
      */
-    public Set<String> resolve(final Set<String> changedPaths,
+    public StaticTestSelectionResult resolve(final Set<String> changedPaths,
                                final Map<String, TestSuiteTracker> testSuitesTracked) {
         Set<String> forced = new HashSet<>();
+        List<TestRunTrigger> ruleTriggers = new ArrayList<>();
         if (changedPaths == null || changedPaths.isEmpty()) {
-            return forced;
+            return new StaticTestSelectionResult(forced, ruleTriggers);
         }
 
         boolean debugEnabled = log.isDebugEnabled();
@@ -96,8 +99,9 @@ public class StaticTestSelectionResolver {
                 log.debug("Static test selection rule '{}' matched changed file(s): {}", rule.getName(), matchedPaths);
             }
             forced.addAll(ruleForced);
+            ruleTriggers.add(new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, rule.getName(), ruleForced.size()));
         }
-        return forced;
+        return new StaticTestSelectionResult(forced, ruleTriggers);
     }
 
     /**
