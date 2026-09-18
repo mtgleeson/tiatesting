@@ -16,6 +16,7 @@ import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryJarDirectoryResolver;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
@@ -452,33 +453,79 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     }
 
     /**
-     * Resolve the configured {@code tiaSourceLibs} coordinates to absolute JAR paths using the
-     * source project's pom and write them (one per line) to {@code ${tiaBuildDir}/library-jars.txt}.
-     * The TIA javaagent reads this file at {@code premain} time in the forked test JVM and
-     * publishes the contents as the {@code tiaLibraryJars} system property for {@code JacocoClient}.
+     * Resolve the configured {@code tiaSourceLibs} coordinates to absolute JAR paths and write them
+     * (one per line) to {@code ${tiaBuildDir}/library-jars.txt}. The TIA javaagent reads this file
+     * at {@code premain} time in the forked test JVM and publishes the contents as the
+     * {@code tiaLibraryJars} system property for {@code JacocoClient}.
+     *
+     * <p>When {@link #getTiaLibraryJarsDirs()} is set, jars are resolved by filename matching inside
+     * those directories (the offline-safe path, see the "Directory-based library-jar resolution"
+     * chapter in {@code WIKI.md}); otherwise they are resolved through the source project's pom via
+     * {@link LibraryJarResolver}. Both paths feed the same file-writing and {@code AgentOptions}
+     * wiring.
      *
      * @return absolute path of the file written, or {@code null} when {@code tiaSourceLibs} is
      *         unset or no JARs resolved.
      */
-    private String writeLibraryJarsFile(){
+    String writeLibraryJarsFile(){
         String libraries = getTiaSourceLibs();
         if (libraries == null || libraries.trim().isEmpty()){
             return null;
         }
 
-        LibraryJarResolver resolver = new LibraryJarResolver(
-                projectBuilder, session.getProjectBuildingRequest(), getLog());
-        String jarsCsv = resolver.resolveLibraryJarsCsv(libraries, getTiaSourceProjectDir());
-
-        if (jarsCsv == null || jarsCsv.isEmpty()){
+        List<String> jarPaths = resolveLibraryJarPaths(libraries);
+        if (jarPaths.isEmpty()){
             return null;
         }
 
-        getLog().debug("tiaLibraryJars resolved to: " + jarsCsv);
-        Set<String> jars = new LinkedHashSet<>(Arrays.asList(jarsCsv.split(",")));
+        getLog().debug("tiaLibraryJars resolved to: " + String.join(",", jarPaths));
+        Set<String> jars = new LinkedHashSet<>(jarPaths);
         String filename = getLibraryJarsFilename();
         writeTestsToFile(filename, jars);
         return filename;
+    }
+
+    /**
+     * Resolve the {@code tiaSourceLibs} coordinates to absolute jar paths, choosing the producer by
+     * whether {@link #getTiaLibraryJarsDirs()} is configured: directory filename matching when it is
+     * (offline-safe), pom-based resolution otherwise.
+     *
+     * @param libraries the {@code tiaSourceLibs} CSV (already known non-blank).
+     * @return the resolved jar paths in order, de-duplicated; empty when nothing resolved.
+     */
+    List<String> resolveLibraryJarPaths(String libraries){
+        String jarsDirsCsv = getTiaLibraryJarsDirs();
+        if (jarsDirsCsv != null && !jarsDirsCsv.trim().isEmpty()){
+            List<String> directories = new ArrayList<>();
+            for (String dir : jarsDirsCsv.split(",")){
+                if (!dir.trim().isEmpty()){
+                    directories.add(dir.trim());
+                }
+            }
+            return LibraryJarDirectoryResolver.resolveLibraryJars(libraries, directories,
+                    getLog()::warn, getLog()::debug);
+        }
+
+        return resolvePomLibraryJarPaths(libraries);
+    }
+
+    /**
+     * Resolve the {@code tiaSourceLibs} coordinates to absolute jar paths through the source
+     * project's pom via {@link LibraryJarResolver}. Isolated as a seam so the directory-vs-pom
+     * producer selection in {@link #resolveLibraryJarPaths(String)} can be unit tested without
+     * constructing a real Maven {@code session}.
+     *
+     * @param libraries the {@code tiaSourceLibs} CSV (already known non-blank).
+     * @return the resolved jar paths in order, de-duplicated; empty when nothing resolved.
+     */
+    List<String> resolvePomLibraryJarPaths(String libraries){
+        LibraryJarResolver resolver = new LibraryJarResolver(
+                projectBuilder, session.getProjectBuildingRequest(), getLog());
+        String jarsCsv = resolver.resolveLibraryJarsCsv(libraries, getTiaSourceProjectDir());
+        if (jarsCsv == null || jarsCsv.isEmpty()){
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(new LinkedHashSet<>(Arrays.asList(jarsCsv.split(","))));
     }
 
     /**
