@@ -9,6 +9,9 @@ wiki can also be read front to back.
 - [Library publish-time stamping](wiki/library-publish-time-stamping.md) - how Tia tracks in-repo
   libraries: the publish ledger and sequence, the stamp/drain lifecycle, the mapping baseline,
   the local dev flow and the library reporting tasks.
+- [Directory-based library-jar resolution](wiki/library-jars-directory-resolution.md) - the
+  offline-safe `tiaLibraryJarsDirs` mode that resolves `tiaSourceLibs` coverage jars by filename
+  inside a deployment `lib/` directory instead of through the source project's dependency graph.
 - [How Tia exchanges data with the test runner (Gradle vs Maven)](wiki/test-runner-data-exchange.md) -
   why Maven hands state to the forked test JVM via files while Gradle/Spock uses system
   properties, and when each plugin can compute what.
