@@ -6,8 +6,6 @@ import org.tiatesting.core.model.TestRunTrigger;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -101,12 +99,14 @@ public final class TestRunHistoryDetailConsoleFormatter {
         appendSelectionSources(sb, entry, lineSep);
         sb.append(lineSep);
 
-        List<TestRunTrigger> methods = filteredAndSorted(triggers, TestRunTrigger.Type.SOURCE_METHOD);
+        List<TestRunTrigger> methods = TestRunTrigger.filterByTypeSortedByCountDesc(
+                triggers, TestRunTrigger.Type.SOURCE_METHOD);
         sb.append("Source method changes:").append(lineSep);
         appendTriggerLines(sb, methods, lineSep);
         sb.append(lineSep);
 
-        List<TestRunTrigger> rules = filteredAndSorted(triggers, TestRunTrigger.Type.STATIC_RULE);
+        List<TestRunTrigger> rules = TestRunTrigger.filterByTypeSortedByCountDesc(
+                triggers, TestRunTrigger.Type.STATIC_RULE);
         sb.append("Static rules:").append(lineSep);
         appendTriggerLines(sb, rules, lineSep);
 
@@ -141,28 +141,6 @@ public final class TestRunHistoryDetailConsoleFormatter {
         sb.append("  Previously-failed:    ").append(orDash(entry.getNumPreviouslyFailed())).append(lineSep);
         sb.append("  Unsealed-mapping:     ").append(orDash(entry.getNumUnsealedMapping())).append(lineSep);
         sb.append("  Pending library:      ").append(orDash(entry.getNumPendingLibrary())).append(lineSep);
-    }
-
-    /**
-     * Filter a trigger list to one type and sort it by suite count, largest first. Applied
-     * defensively regardless of the order the caller supplied, since {@link #format} does not
-     * trust its input to already be sorted or grouped by type.
-     *
-     * @param triggers the triggers to filter; null is tolerated and treated as empty
-     * @param type     the trigger type to keep
-     * @return a new list of the matching triggers, highest {@link TestRunTrigger#getTestCount()} first
-     */
-    private static List<TestRunTrigger> filteredAndSorted(List<TestRunTrigger> triggers, TestRunTrigger.Type type) {
-        List<TestRunTrigger> filtered = new ArrayList<>();
-        if (triggers != null) {
-            for (TestRunTrigger t : triggers) {
-                if (t.getType() == type) {
-                    filtered.add(t);
-                }
-            }
-        }
-        filtered.sort(Comparator.comparingInt(TestRunTrigger::getTestCount).reversed());
-        return filtered;
     }
 
     /**
