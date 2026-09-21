@@ -213,8 +213,12 @@ public class HtmlHistoryReport {
 
     /**
      * Build a single table row for one history entry. The Date / time cell carries the UTC
-     * epoch ms in {@code data-epoch-ms} and {@code data-sort} so the inline localization
-     * script and simple-datatables both have what they need.
+     * epoch ms in {@code data-epoch-ms} and {@code data-order} so the inline localization
+     * script and simple-datatables both have what they need. Numeric columns whose displayed
+     * text is not itself a plain number (durations, and the savings columns that dash to "-")
+     * carry their sort value in {@code data-order}: simple-datatables reads a cell's custom sort
+     * value from that attribute, and a number column with none falls back to parsing the cell
+     * text, which yields {@code NaN} for a "-" cell and breaks the column's sort.
      *
      * <p>A single-host row rendered in a mixed history dashes the two distributed cells rather than
      * showing zeros, which would read as a build that took no time and used no groups.
@@ -237,7 +241,7 @@ public class HtmlHistoryReport {
                 .toString();
         List<DomContent> cells = new ArrayList<>();
         cells.add(td(rawHtml("<time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>"))
-                .attr("data-sort", String.valueOf(ms)));
+                .attr("data-order", String.valueOf(ms)));
         cells.add(td(text(entry.getBranch() == null ? "" : entry.getBranch())));
         // title on a span inside the td so the tooltip survives simple-datatables
         // re-rendering the row chrome on sort/page changes.
@@ -247,20 +251,20 @@ public class HtmlHistoryReport {
         cells.add(td(String.valueOf(entry.getNumSuitesIgnored())));
         cells.add(td(String.valueOf(entry.getNumSuitesFailed())));
         cells.add(td(ReportUtils.prettyDuration(entry.getDurationMs(), true))
-                .attr("data-sort", String.valueOf(entry.getDurationMs())));
+                .attr("data-order", String.valueOf(entry.getDurationMs())));
         if (showDistributed) {
             long wallClockMs = entry.getWallClockMs() == null ? 0L : entry.getWallClockMs().longValue();
             cells.add(td(entry.getWallClockMs() == null
                     ? "-" : ReportUtils.prettyDuration(wallClockMs, true))
-                    .attr("data-sort", String.valueOf(wallClockMs)));
+                    .attr("data-order", String.valueOf(wallClockMs)));
             cells.add(td(entry.getGroupCount() == null ? "-" : entry.getGroupCount().toString())
-                    .attr("data-sort", entry.getGroupCount() == null
+                    .attr("data-order", entry.getGroupCount() == null
                             ? "0" : entry.getGroupCount().toString()));
         }
         cells.add(td(entry.getTimeSavingsMs() > 0 ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-")
-                .attr("data-sort", String.valueOf(entry.getTimeSavingsMs())));
+                .attr("data-order", String.valueOf(entry.getTimeSavingsMs())));
         cells.add(td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
-                .attr("data-sort", String.valueOf(entry.getSavingsPercent())));
+                .attr("data-order", String.valueOf(entry.getSavingsPercent())));
         RunOrigin origin = entry.getRunOrigin();
         cells.add(td(origin.getRunSource()));
         if (showHost) {
