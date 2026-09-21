@@ -113,6 +113,7 @@ public class HtmlHistoryReport {
                                             HtmlLayout.Crumb.current("History")
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_HISTORY, "Test Run History"),
+                                    HtmlHistoryTimeline.render(history),
                                     table(attrs("#tiaTable"),
                                             thead(buildHeaderRow(numberDataType, showDistributed, showHost)),
                                             tbody(each(history, entry -> buildRow(entry, showDistributed, showHost)))

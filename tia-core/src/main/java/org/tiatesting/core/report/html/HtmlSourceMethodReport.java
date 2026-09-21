@@ -126,7 +126,7 @@ public class HtmlSourceMethodReport {
      * method link column carries the same {@code <a href="{id}.html" title="{fullName}">{shortName}</a>}
      * markup the DOM table previously emitted; the display text and title are HTML-escaped through
      * {@link FastTextEscaper} (byte-identical to the j2html rendering it replaces) and the whole
-     * anchor string is then JSON/script-escaped by {@link #appendJsonString(StringBuilder, String)}.
+     * anchor string is then JSON/script-escaped by {@link ScriptSafeJson#appendString(StringBuilder, String)}.
      * Assembled directly into a {@link StringBuilder} rather than via j2html tags so it scales to
      * tens of thousands of methods without allocating a tag object per cell.
      *
@@ -150,7 +150,7 @@ public class HtmlSourceMethodReport {
                     + FastTextEscaper.INSTANCE.escape(method.getShortNameForDisplay()) + "</a>";
 
             sb.append('[');
-            appendJsonString(sb, anchor);
+            ScriptSafeJson.appendString(sb, anchor);
             sb.append(',').append(entry.getValue().getTestSuites().size())
                     .append(',').append(method.getLineNumberStart())
                     .append(',').append(method.getLineNumberEnd())
@@ -158,41 +158,6 @@ public class HtmlSourceMethodReport {
         }
         sb.append(']');
         return sb.toString();
-    }
-
-    /**
-     * Append {@code value} to {@code sb} as a double-quoted JSON string that is also safe to embed
-     * inside an inline {@code <script>}. Beyond the standard JSON escapes (backslash, quote,
-     * control characters) this unicode-escapes {@code <}, {@code >} and {@code &} so the emitted
-     * text can never contain a literal {@code </script>} or {@code <!--} sequence that would
-     * terminate the script element - the browser decodes {@code \\u003c} back to {@code <} when
-     * parsing the JSON, so the anchor markup still reaches simple-datatables intact.
-     *
-     * @param sb the builder to append the quoted, escaped string to
-     * @param value the raw string value to encode (already HTML-escaped anchor markup)
-     */
-    static void appendJsonString(StringBuilder sb, String value){
-        sb.append('"');
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            switch (c) {
-                case '"':  sb.append("\\\""); break;
-                case '\\': sb.append("\\\\"); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
-                case '<':  sb.append("\\u003c"); break;
-                case '>':  sb.append("\\u003e"); break;
-                case '&':  sb.append("\\u0026"); break;
-                default:
-                    if (c < 0x20) {
-                        sb.append("\\u").append(String.format("%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
-            }
-        }
-        sb.append('"');
     }
 
     private void generateMethodReportFiles(TiaData tiaData, Map<Integer, ClassTestSuite> methodToTestSuites){
