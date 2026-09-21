@@ -65,9 +65,14 @@ class TestClassScannerTest {
     @Test
     void scanTopLevelTestSuiteNames_returnsEmptyForNullBlankOrNoDirs() {
         // given no usable directories at all
-        // when / then - null, blank, and an all-absent CSV all yield an empty set, never a throw
-        assertTrue(TestClassScanner.scanTopLevelTestSuiteNames(null).isEmpty());
-        assertTrue(TestClassScanner.scanTopLevelTestSuiteNames("   ").isEmpty());
-        assertTrue(TestClassScanner.scanTopLevelTestSuiteNames("/no/such/dir").isEmpty());
+        // when
+        Set<String> fromNull = TestClassScanner.scanTopLevelTestSuiteNames(null);
+        Set<String> fromBlank = TestClassScanner.scanTopLevelTestSuiteNames("   ");
+        Set<String> fromAbsent = TestClassScanner.scanTopLevelTestSuiteNames("/no/such/dir");
+
+        // then
+        assertTrue(fromNull.isEmpty());
+        assertTrue(fromBlank.isEmpty());
+        assertTrue(fromAbsent.isEmpty());
     }
 }
