@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -126,7 +127,7 @@ public class TiaDistPlanTask extends DefaultTask {
             try {
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(),
-                        updateDBMapping, System.currentTimeMillis());
+                        updateDBMapping, System.currentTimeMillis(), () -> Collections.<String>emptySet());
             } catch (IllegalStateException e) {
                 throw new GradleException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }

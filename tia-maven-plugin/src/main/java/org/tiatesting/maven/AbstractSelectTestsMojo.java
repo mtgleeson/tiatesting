@@ -15,6 +15,7 @@ import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -125,7 +126,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         try {
             return DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
                     getTiaDistributedGroupCount(), getTiaDistributedTargetRunTime(),
-                    getTiaDistributedMaxGroups());
+                    getTiaDistributedMaxGroups(), () -> Collections.<String>emptySet());
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
             return null;

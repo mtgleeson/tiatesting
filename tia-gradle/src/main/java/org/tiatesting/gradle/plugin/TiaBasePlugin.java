@@ -36,6 +36,7 @@ import org.tiatesting.core.report.plaintext.TextReportGenerator;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -348,7 +349,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         }
         try {
             return DistributedRunPlanner.balance(selection, Boolean.TRUE.equals(getUpdateDBMapping()),
-                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups());
+                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups(),
+                    () -> Collections.<String>emptySet());
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
             return null;
