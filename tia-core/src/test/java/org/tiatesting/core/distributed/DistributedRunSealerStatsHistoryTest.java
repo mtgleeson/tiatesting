@@ -652,6 +652,69 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>A split seed run whose assigned suites exactly match what its runners tracked still ignores
+     * nothing.</b> Before the seed run was split across groups, a seed plan's single group carried
+     * no suite names at all, and {@link DistributedRunSealer#ignoredSuiteCount} answered zero via
+     * the seed special case for an empty assignment. A split seed plan carries real suite names per
+     * group instead, so {@code ignoredSuiteCount} takes its general, non-empty-assignment path: it
+     * counts tracked suites absent from the assigned set. This pins that path at zero when the
+     * assigned suites are exactly the suites the seed run's own runners tracked by seal time, so
+     * {@code allTestsRun} still holds and the full-suite savings baseline is still recorded.
+     */
+    @Test
+    void aSplitSeedRunWhoseAssignedSuitesExactlyMatchTrackedSuitesIgnoresNothing() {
+        // given - a seed plan split across two groups, one suite per group, and the seed run's own
+        // runners having tracked exactly those two suites by seal time
+        seedTrackedSuitesNamed("a.T1", "a.T2");
+        persistPlanOfKind(RUN_ID, Arrays.asList(Collections.singletonList("a.T1"),
+                Collections.singletonList("a.T2")), true);
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(0, entry.getNumSuitesIgnored(),
+                "the assigned suites exactly cover what was tracked, so nothing was ignored");
+        assertEquals(1L, dataStore.getTiaCore().getTestStats().getNumAllTestsRuns(),
+                "the split seed run must still count as an all-tests run");
+    }
+
+    /**
+     * <b>The superset direction is safe.</b> A split seed plan whose assigned suites are a strict
+     * superset of what its runners tracked by seal time - one group's suite never made it into the
+     * tracked map - must still resolve to zero ignored suites, because {@link
+     * DistributedRunSealer#ignoredSuiteCount}'s general path only counts tracked suites that are
+     * absent from the assigned set; an assigned suite the tracked map does not (yet) know about
+     * cannot count against it either way. This pins that direction: over-assigning relative to what
+     * got tracked must never be read as ignoring a suite, and {@code allTestsRun} must still hold.
+     */
+    @Test
+    void aSplitSeedRunWhoseAssignedSuitesAreASupersetOfTrackedSuitesStillIgnoresNothing() {
+        // given - a seed plan split across three groups, but only two of the three assigned suites
+        // made it into the tracked map by seal time
+        seedTrackedSuitesNamed("a.T1", "a.T2");
+        persistPlanOfKind(RUN_ID, Arrays.asList(Collections.singletonList("a.T1"),
+                Collections.singletonList("a.T2"), Collections.singletonList("a.T3")), true);
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
+        completeGroup(RUN_ID, 2, "runner-c", 4_000L, 1, 0);
+
+        // when
+        sealerFor("runner-c", 2).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(0, entry.getNumSuitesIgnored(),
+                "the assigned suites are a superset of what was tracked, so nothing must be "
+                        + "counted as ignored");
+        assertEquals(1L, dataStore.getTiaCore().getTestStats().getNumAllTestsRuns(),
+                "the superset direction is safe: the build must still count as an all-tests run");
+    }
+
+    /**
      * Suites the developer disabled in source do not hold the baseline back. They would not run
      * without Tia either, so a build that ran everything else still ran everything Tia could have
      * selected - the same rule the single-host ignored-count applies.
@@ -951,6 +1014,29 @@ class DistributedRunSealerStatsHistoryTest {
         tiaData.getTestStats().setCaptureOverheadPerSuiteMs(captureOverheadPerSuiteMs);
         tiaData.getTestStats().setNumOverheadMeasurements(1);
         dataStore.persistCoreData(tiaData);
+    }
+
+    /**
+     * Store tracked suites under caller-chosen names, standing in for the mapping a split seed
+     * run's own runners write before the sealer reads the tracked map. {@link #seedTrackedSuites}
+     * names its suites generically after their index; this variant lets a split-seed test track the
+     * exact suite names its plan assigns, so the ignored-suite count can be pinned against a known
+     * assigned-versus-tracked relationship.
+     *
+     * @param suiteNames the suite names to track
+     */
+    private void seedTrackedSuitesNamed(final String... suiteNames) {
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        int index = 0;
+        for (String suiteName : suiteNames) {
+            TestSuiteTracker tracker = new TestSuiteTracker(suiteName);
+            tracker.setClassesImpacted(Collections.singletonList(
+                    new ClassImpactTracker("com/example/Source" + index + ".java",
+                            new HashSet<>(Collections.singletonList(Integer.valueOf(100 + index))))));
+            tracked.put(tracker.getName(), tracker);
+            index++;
+        }
+        dataStore.persistTestSuites(tracked);
     }
 
     private void seedTrackedSuites(final int suiteCount, final int developerDisabledCount) {
