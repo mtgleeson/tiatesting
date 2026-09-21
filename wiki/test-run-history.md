@@ -86,6 +86,8 @@ Tia runs on developer laptops, CI runners, and shared workspaces in potentially 
 
 A subtlety worth knowing: the local-time-rendering script must run **before** the `simple-datatables` init, not after. `simple-datatables` captures cell text into its internal model at init time; if the localization runs later via `DOMContentLoaded`, the `<time>` elements have already been replaced by `simple-datatables`' render output and the swap finds nothing.
 
+Above the table the page also renders a bar chart of recent run durations - see the [History timeline chart](history-timeline-chart.md) chapter.
+
 ### Config gate
 
 The log is gated by `tiaUpdateDBTestRunHistory` (default **true**). Unlike `tiaUpdateDBMapping` — which defaults to `false` because it (and the run stats it carries) is a CI-only write — the history log is cheap (one INSERT per run, no mapping mutation) and is only useful when continuously populated, so on-by-default is the sane choice.
@@ -137,4 +139,4 @@ Column widths are computed dynamically from the data so the table stays compact 
 
 ---
 
-Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [Run history details](run-history-details.md)
+Prev: [Profiling select-tests against a synthetic large DB](profiling-select-tests.md) | [Back to the Wiki index](../WIKI.md) | Next: [History timeline chart](history-timeline-chart.md)
