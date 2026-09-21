@@ -5,16 +5,21 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.GroupingResult;
+import org.tiatesting.core.distributed.SuiteGroup;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -270,5 +275,51 @@ class TiaBasePluginDistributedTest {
         assertTrue(printed.contains("Groups: 1"), "expected the single collapsed group, got: " + printed);
         assertFalse(printed.contains("Target:"), "a seed run has no target verdict to print: " + printed);
         assertFalse(printed.contains("skipped"), "no skip notice expected, got: " + printed);
+    }
+
+    /**
+     * Verifies the real disk-scan seed path end to end at the Gradle entry point: a project whose
+     * {@code test} task's {@code testClassesDirs} points at a directory holding two compiled test
+     * classes, with a two-group distributed shape configured, splits a seed selection ({@link
+     * TestSelectorResult#isRunAllTests()} true) into two non-empty groups whose suite names union to
+     * the two classes found on disk - proving {@link TiaBasePlugin#resolveTestClassesDirsCsv()} and
+     * {@link org.tiatesting.core.testrunner.TestClassScanner#scanTopLevelTestSuiteNames(String)} are
+     * wired into {@link TiaBasePlugin#buildDistributedGroupingIfConfigured} in place of the Stage 1
+     * placeholder supplier.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     * @param testClassesDir a temporary directory to hold the two compiled test classes scanned
+     *                       for suite names
+     * @throws IOException if the two placeholder {@code .class} files cannot be written
+     */
+    @Test
+    void buildDistributedGroupingIfConfigured_seedSelectionWithTestClassesOnDisk_splitsIntoTwoGroups(
+            @TempDir File projectDir, @TempDir File testClassesDir) throws IOException {
+        // given a project whose test task's testClassesDirs holds two compiled test classes, with
+        // a two-group distributed shape configured
+        Files.createFile(testClassesDir.toPath().resolve("com.example.ATest.class"));
+        Files.createFile(testClassesDir.toPath().resolve("com.example.BTest.class"));
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
+        org.gradle.api.tasks.testing.Test testTask =
+                project.getTasks().create("test", org.gradle.api.tasks.testing.Test.class);
+        testTask.setTestClassesDirs(project.files(testClassesDir));
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setDistributedGroupCount(2);
+
+        // when
+        String testClassesDirsCsv = plugin.resolveTestClassesDirsCsv();
+        GroupingResult grouping = plugin.buildDistributedGroupingIfConfigured(seedSelection());
+
+        // then
+        assertEquals(testClassesDir.getAbsolutePath(), testClassesDirsCsv);
+        assertEquals(2, grouping.getGroups().size(), "expected two groups: " + grouping.getGroups());
+        Set<String> suiteUnion = new LinkedHashSet<>();
+        for (SuiteGroup group : grouping.getGroups()) {
+            assertFalse(group.getSuiteNames().isEmpty(), "expected every group to be non-empty: "
+                    + grouping.getGroups());
+            suiteUnion.addAll(group.getSuiteNames());
+        }
+        assertEquals(2, suiteUnion.size(), "expected the two suites found on disk: " + suiteUnion);
     }
 }
