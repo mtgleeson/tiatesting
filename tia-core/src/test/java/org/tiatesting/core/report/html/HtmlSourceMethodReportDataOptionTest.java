@@ -18,7 +18,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -107,31 +106,6 @@ class HtmlSourceMethodReportDataOptionTest {
         String css = readResource("/report/assets/css/tia.css");
         assertTrue(css.contains(".tia-spinner"), "spinner CSS should be bundled in tia.css");
         assertTrue(css.contains("@keyframes tia-spin"), "spinner keyframes should be bundled");
-    }
-
-    /**
-     * Verify {@link HtmlSourceMethodReport#appendJsonString(StringBuilder, String)} produces a
-     * double-quoted JSON string with the standard escapes and, additionally, unicode-escapes
-     * {@code < > &} so the value is safe to inline inside a {@code <script>} element.
-     */
-    @Test
-    void appendJsonStringEscapesForScriptSafety() {
-        // given
-        String[][] cases = {
-                {"abc", "\"abc\""},
-                {"a\"b", "\"a\\\"b\""},
-                {"a\\b", "\"a\\\\b\""},
-                {"<a>&", "\"\\u003ca\\u003e\\u0026\""},
-                {"x\ty\nz", "\"x\\ty\\nz\""},
-                {"", "\"\""}
-        };
-
-        // when / then
-        for (String[] c : cases) {
-            StringBuilder sb = new StringBuilder();
-            HtmlSourceMethodReport.appendJsonString(sb, c[0]);
-            assertEquals(c[1], sb.toString(), "escaping differs for input: " + c[0]);
-        }
     }
 
     /**

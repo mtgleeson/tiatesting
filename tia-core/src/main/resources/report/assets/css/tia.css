@@ -165,6 +165,140 @@ footer.tia-footer {
     }
 }
 
+/* History timeline chart (History page). A hand-rolled inline-SVG bar chart shown above the
+   history table: one bar per recent run, height = run duration, colour = pass/fail. The SVG is
+   built client-side by the page's inline script; these rules theme it via Pico's variables plus a
+   pass green / fail red that read acceptably in both the light and dark themes. */
+.tia-timeline {
+    --tia-pass: #2f9e44;
+    --tia-fail: #e03131;
+    --tia-pass-hi: #37b24d;
+    --tia-fail-hi: #f03e3e;
+    margin: 0.5rem 0 2rem;
+}
+
+.tia-timeline-chart {
+    width: 100%;
+}
+
+.tia-timeline-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.tia-tl-grid {
+    stroke: var(--pico-muted-border-color);
+    stroke-width: 1;
+    stroke-dasharray: 3 4;
+    opacity: 0.7;
+}
+
+.tia-tl-axis {
+    stroke: var(--pico-muted-border-color);
+    stroke-width: 1;
+}
+
+.tia-tl-ylabel,
+.tia-tl-xcap {
+    fill: var(--pico-muted-color);
+    font-size: 11px;
+}
+
+.tia-tl-xcap {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+}
+
+.tia-bar {
+    transition: filter 0.12s ease;
+}
+
+.tia-bar.pass { fill: var(--tia-pass); }
+.tia-bar.fail { fill: var(--tia-fail); }
+
+.tia-tl-hit { fill: transparent; }
+
+.tia-tl-band { cursor: pointer; }
+
+.tia-tl-band:hover .tia-bar.pass { fill: var(--tia-pass-hi); }
+.tia-tl-band:hover .tia-bar.fail { fill: var(--tia-fail-hi); }
+.tia-tl-band:hover .tia-bar { filter: brightness(1.05); }
+
+.tia-tl-band:focus-visible { outline: none; }
+.tia-tl-band:focus-visible .tia-bar {
+    stroke: var(--pico-primary);
+    stroke-width: 2;
+}
+
+.tia-timeline-legend {
+    display: flex;
+    gap: 1.1rem;
+    align-items: center;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--pico-muted-color);
+}
+
+.tia-timeline-legend .swatch {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 2px;
+    margin-right: 0.4rem;
+    vertical-align: -1px;
+}
+
+.tia-timeline-legend .swatch.pass { background: var(--tia-pass); }
+.tia-timeline-legend .swatch.fail { background: var(--tia-fail); }
+
+.tia-timeline-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.tia-timeline-caption {
+    color: var(--pico-muted-color);
+    font-size: 0.85rem;
+}
+
+#tiaTimelineMore {
+    width: auto;
+    margin: 0;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.85rem;
+}
+
+.tia-timeline-tooltip {
+    position: fixed;
+    z-index: 20;
+    display: none;
+    pointer-events: none;
+    background: var(--pico-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    padding: 0.5rem 0.7rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    max-width: 16rem;
+}
+
+.tia-timeline-tooltip strong {
+    display: block;
+    margin-bottom: 0.15rem;
+}
+
+.tia-timeline-tooltip .tia-tl-tip-id {
+    color: var(--pico-muted-color);
+    font-family: var(--pico-font-family-monospace, monospace);
+    margin-top: 0.15rem;
+}
+
 /* Left-align table column headers. simple-datatables wraps the header label in a <button>;
    Pico's classless rules style every <button> with text-align: center and a horizontal
    padding (~2rem), which both centres and inset the header text away from the column's
