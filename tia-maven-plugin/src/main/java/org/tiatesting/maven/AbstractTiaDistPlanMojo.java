@@ -20,6 +20,7 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -96,7 +97,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
             try {
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
-                        System.currentTimeMillis());
+                        System.currentTimeMillis(), () -> Collections.<String>emptySet());
             } catch (IllegalStateException e) {
                 throw new MojoExecutionException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }
