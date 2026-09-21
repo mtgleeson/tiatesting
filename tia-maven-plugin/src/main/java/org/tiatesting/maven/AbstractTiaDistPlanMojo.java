@@ -13,6 +13,7 @@ import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.TestClassScanner;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -20,8 +21,9 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Mojo that plans a distributed test run: it runs the same test selection a normal build would,
@@ -95,9 +97,15 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
+                // The seed-suite provider is only invoked when this build is a seed run (no stored
+                // mapping yet); it reads the compiled test classes off disk so the seed can be
+                // split across groups instead of collapsing to one. Maven's test output directory
+                // is the same one the agent mojo forwards to the fork as tiaTestClassesDirs.
+                Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
+                        .scanTopLevelTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
-                        System.currentTimeMillis(), () -> Collections.<String>emptySet());
+                        System.currentTimeMillis(), seedTestSuiteProvider);
             } catch (IllegalStateException e) {
                 throw new MojoExecutionException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }

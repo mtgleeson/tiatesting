@@ -10,14 +10,15 @@ import org.tiatesting.core.distributed.GroupingResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.TestClassScanner;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Mojo used to display the tests selected by Tia based on the changes it will analyse.
@@ -124,9 +125,11 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             return null;
         }
         try {
+            Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
+                    .scanTopLevelTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
             return DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
                     getTiaDistributedGroupCount(), getTiaDistributedTargetRunTime(),
-                    getTiaDistributedMaxGroups(), () -> Collections.<String>emptySet());
+                    getTiaDistributedMaxGroups(), seedTestSuiteProvider);
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
             return null;
