@@ -14,6 +14,7 @@ import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.TestClassScanner;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
@@ -22,9 +23,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Gradle task that plans a distributed test run: it runs the same test selection a normal build
@@ -125,9 +126,14 @@ public class TiaDistPlanTask extends DefaultTask {
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
+                // Seed-only: reads the project's compiled test-class dirs off disk so a seed run
+                // can be split across groups. Resolved on the plugin because the daemon-side task
+                // has no fork to inherit tiaTestClassesDirs from.
+                Supplier<Set<String>> seedTestSuiteProvider =
+                        () -> TestClassScanner.scanTopLevelTestSuiteNames(plugin.resolveTestClassesDirsCsv());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(),
-                        updateDBMapping, System.currentTimeMillis(), () -> Collections.<String>emptySet());
+                        updateDBMapping, System.currentTimeMillis(), seedTestSuiteProvider);
             } catch (IllegalStateException e) {
                 throw new GradleException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }
