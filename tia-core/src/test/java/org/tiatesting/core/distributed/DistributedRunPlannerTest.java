@@ -581,6 +581,55 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verify that a seed run in target-run-time mode with a max-groups ceiling splits the scanned
+     * suites across that ceiling: with no run times a real target cannot be honoured, so the
+     * ceiling is what the seed fans out to.
+     */
+    @Test
+    void plan_seedSelectionTargetModeWithMaxGroups_splitsAcrossMaxGroups() {
+        // given a target-run-time config with a max of 3 groups, a seed selection, and 6 scanned suites
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-max", null, 1000L, 3, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        Supplier<Set<String>> scan = seedSuites("a.T1", "a.T2", "a.T3", "a.T4", "a.T5", "a.T6");
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
+                "commit-seed-target-max", true, 1L, scan);
+
+        // then the seed fans out to the three-group ceiling with the suites split evenly
+        assertEquals(3, summary.getGroupCount());
+        assertTrue(summary.isSeedRun());
+        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target-max");
+        assertEquals(3, groups.size());
+        Set<String> union = new HashSet<>();
+        for (DistributedRunGroup group : groups) {
+            union.addAll(dataStore.readDistributedRunGroupSuites("run-seed-target-max", group.getGroupNumber()));
+        }
+        assertEquals(6, union.size());
+    }
+
+    /**
+     * Verify that a seed run in target-run-time mode with no max-groups ceiling keeps the
+     * single-group seed even when suites are found on disk: with no ceiling and no run times there
+     * is no defensible group count to fan out to, so the seed stays one group.
+     */
+    @Test
+    void plan_seedSelectionTargetModeNoMaxGroups_staysSingleGroupEvenWithScannedSuites() {
+        // given a target-run-time config with no ceiling, a seed selection, and scanned suites
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-nomax", null, 1000L, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        Supplier<Set<String>> scan = seedSuites("a.T1", "a.T2", "a.T3");
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
+                "commit-seed-target-nomax", true, 1L, scan);
+
+        // then it stays a single group
+        assertEquals(1, summary.getGroupCount());
+        assertTrue(summary.isSeedRun());
+    }
+
+    /**
      * Verifies that {@link DistributedRunPlanSummary#isSeedRun()} is false for an ordinary,
      * non-seed plan, so a pipeline reading the summary or {@code tia-run-plan.json} can rely on
      * the flag to distinguish the two cases.
