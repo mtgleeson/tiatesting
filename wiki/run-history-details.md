@@ -118,4 +118,4 @@ when the id does not match any row. The id is typically copied from the Id colum
 
 ---
 
-Prev: [Test-run history log](test-run-history.md) | [Back to the Wiki index](../WIKI.md) | Next: [The select-tests run-time estimate and its overhead model](select-tests-run-time-estimate.md)
+Prev: [History timeline chart](history-timeline-chart.md) | [Back to the Wiki index](../WIKI.md) | Next: [The select-tests run-time estimate and its overhead model](select-tests-run-time-estimate.md)
