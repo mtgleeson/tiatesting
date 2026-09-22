@@ -149,12 +149,21 @@ public final class DistributedRunPlanner {
 
         // The one line that says what the pipeline must now do. The console summary and
         // tia-run-plan.json carry the same facts, but only for the plan step's own
-        // output - this reaches whatever log a CI system actually keeps.
-        log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) split "
-                        + "across {} group(s), estimated {}ms in total with the heaviest group at "
-                        + "{}ms. Start {} runner job(s).", config.getRunId(), branch, commitValue,
-                selectedSuiteCount, result.getGroupCount(), result.getTotalEstimatedMs(),
-                result.getHeaviestGroupMs(), result.getGroupCount());
+        // output - this reaches whatever log a CI system actually keeps. A seed run has no run-time
+        // data at all - see seedGroupingResult - so its ms figures are omitted entirely rather than
+        // printed as zero, which would read as a measured (rather than absent) estimate.
+        if (seedRun) {
+            log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) "
+                            + "split across {} group(s) by even count - no run-time estimate yet "
+                            + "(seed run). Start {} runner job(s).", config.getRunId(), branch,
+                    commitValue, selectedSuiteCount, result.getGroupCount(), result.getGroupCount());
+        } else {
+            log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) split "
+                            + "across {} group(s), estimated {}ms in total with the heaviest group at "
+                            + "{}ms. Start {} runner job(s).", config.getRunId(), branch, commitValue,
+                    selectedSuiteCount, result.getGroupCount(), result.getTotalEstimatedMs(),
+                    result.getHeaviestGroupMs(), result.getGroupCount());
+        }
 
         return new DistributedRunPlanSummary(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), runPlan.getRun().getTargetRunTimeMs(), result.isTargetMet(),
@@ -290,18 +299,20 @@ public final class DistributedRunPlanner {
     /**
      * Build the grouping a seed run plans. When suites are discovered on disk and a group count is
      * available, they are split across that many groups by even count - there is no timing data
-     * yet, so every suite is given a uniform weight and the balancer divides them by quantity. When
-     * nothing is discovered, or no group count applies (target-run-time mode with no {@code
-     * maxGroups}, see Stage 2), the seed collapses to a single empty group whose one runner runs
-     * every test. Shared by {@link #plan} and {@link #balance} so the persisted plan and the {@code
-     * select-tests} preview can never disagree about what a seed run looks like.
+     * yet, so every suite is given a uniform 1ms weight purely so the balancer divides them by
+     * quantity, and every group's {@code estimatedMs} is then rebuilt as zero before this method
+     * returns, since that weight carries no real timing information and must not leak out as if it
+     * were one. When nothing is discovered, or no group count applies (target-run-time mode with no
+     * {@code maxGroups}, see Stage 2), the seed collapses to a single empty group whose one runner
+     * runs every test. Shared by {@link #plan} and {@link #balance} so the persisted plan and the
+     * {@code select-tests} preview can never disagree about what a seed run looks like.
      *
      * @param seedTestSuiteProvider supplies the suite names found on disk; invoked only here, on
      *                              the seed path, so non-seed plans never pay for the scan
      * @param groupCount the configured fixed group count, or null in target-run-time mode
      * @param maxGroups the configured ceiling used in target-run-time mode, or null
-     * @return the seed grouping: an even split when a count and suites are available, otherwise a
-     *         single empty group
+     * @return the seed grouping: an even split with every group's {@code estimatedMs} zero when a
+     *         count and suites are available, otherwise a single empty group
      */
     private static GroupingResult seedGroupingResult(Supplier<Set<String>> seedTestSuiteProvider,
                                                      Integer groupCount, Integer maxGroups) {
@@ -321,7 +332,18 @@ public final class DistributedRunPlanner {
         for (String suite : seedSuites) {
             weights.put(suite, 1L);
         }
-        return TestGroupBalancer.balanceIntoGroups(weights, seedGroupCount, 0L);
+        GroupingResult split = TestGroupBalancer.balanceIntoGroups(weights, seedGroupCount, 0L);
+        // The 1ms weight above exists only to make the balancer divide the suites evenly by count -
+        // it carries no real timing information, so the resulting estimatedMs (and the totals
+        // GroupingResult derives from it) would otherwise leak the suite count out as if it were a
+        // genuine time estimate - see the WIKI "Distributed test runs" chapter. The split itself
+        // (which suite landed in which group) is preserved; only the fabricated time figures are
+        // zeroed.
+        List<SuiteGroup> zeroed = new ArrayList<>(split.getGroups().size());
+        for (SuiteGroup group : split.getGroups()) {
+            zeroed.add(new SuiteGroup(group.getGroupNumber(), group.getSuiteNames(), 0L));
+        }
+        return new GroupingResult(zeroed, true, false, false, false);
     }
 
     /**

@@ -220,7 +220,9 @@ public final class DistributedRunStatusReport {
 
     /**
      * Append the run-level block: what the run is, what it was planned against, how far through it
-     * is, and whether it sealed.
+     * is, and whether it sealed. The "Estimated:" line reports {@code n/a (seed run - no run-time
+     * data yet)} for a seed run rather than its zeroed {@code estimatedTotalMs}, since a seed run has
+     * no run-time data to estimate from at all - see {@link DistributedRun#isSeedRun()}.
      *
      * @param report the buffer to append to
      * @param run the run being reported on
@@ -259,8 +261,17 @@ public final class DistributedRunStatusReport {
                         ? "none (fixed group count)"
                         : duration(run.getTargetRunTimeMs().longValue()))
                 .append(lineSep);
-        report.append("  Estimated:  ").append(duration(run.getEstimatedTotalMs()))
-                .append(" of test time across ").append(groups.size()).append(" group(s)").append(lineSep);
+        // A seed run has no run-time data at all - its plan was split by even suite count, not by
+        // duration - so run.getEstimatedTotalMs() is zeroed at plan time (see DistributedRunPlanner's
+        // seedGroupingResult) and printing that zero here would read as a measured estimate rather
+        // than the absence of one.
+        if (run.isSeedRun()) {
+            report.append("  Estimated:  ").append(NOT_MEANINGFUL)
+                    .append(" (seed run - no run-time data yet)").append(lineSep);
+        } else {
+            report.append("  Estimated:  ").append(duration(run.getEstimatedTotalMs()))
+                    .append(" of test time across ").append(groups.size()).append(" group(s)").append(lineSep);
+        }
         report.append("  Sealed:     ").append(sealedDescription(run, nowMs));
     }
 
@@ -288,7 +299,10 @@ public final class DistributedRunStatusReport {
      * Append the per-group table and the legend that makes its four count columns readable. The
      * columns a group has not reached yet are dashed rather than zeroed: a {@code PENDING} group has
      * reported nothing, and printing zeros for it would be indistinguishable from a runner that took
-     * the group and ran nothing.
+     * the group and ran nothing. Every group's Estimated column is dashed for a seed run too,
+     * regardless of status, since {@code estimatedMs} is zeroed at plan time for a seed run's groups
+     * - see {@link DistributedRun#isSeedRun()} - and printing "0ms" would read as a measured time
+     * rather than the absence of one.
      *
      * @param report the buffer to append to
      * @param run the run being reported on
@@ -318,7 +332,10 @@ public final class DistributedRunStatusReport {
                     observed(fallbackSeedGroup, group, reported),
                     reported ? Integer.toString(group.getSuitesRan()) : NOT_APPLICABLE,
                     reported ? Integer.toString(group.getSuitesFailed()) : NOT_APPLICABLE,
-                    duration(group.getEstimatedMs()),
+                    // A seed run's groups all carry estimatedMs 0 (see DistributedRunPlanner's
+                    // seedGroupingResult) - genuinely zero, not just unreported - so the column is
+                    // dashed rather than printing "0ms", which would read as a measured time.
+                    run.isSeedRun() ? NOT_APPLICABLE : duration(group.getEstimatedMs()),
                     group.getActualDurationMs() == null ? NOT_APPLICABLE
                             : duration(group.getActualDurationMs().longValue()),
                     elapsed(group, nowMs));
@@ -508,8 +525,10 @@ public final class DistributedRunStatusReport {
      * ReportUtils#prettyDuration} returns for it. Blank is right where a duration is one component
      * of a sentence and a zero component is simply omitted, which is what that method is built for;
      * it is wrong in a table cell and in "Estimated: X of test time", where an empty value reads as
-     * missing data rather than as a measured zero. A seed run's estimate is genuinely zero - there is
-     * no stored mapping to estimate from - and saying so is the point.
+     * missing data rather than as a measured zero - for example a nothing-impacted, non-seed run's
+     * genuinely-zero estimate. A seed run's estimate is not routed through this method at all: it
+     * carries no run-time data whatsoever, rather than a measured zero, so it is rendered separately
+     * as {@code n/a} / dashed - see {@link #appendHeader} and {@link #appendGroupTable}.
      *
      * @param durationMs the duration in ms
      * @return the rendered duration, never empty
