@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -37,11 +36,14 @@ import java.util.List;
  * all completed while the run itself is still {@code OPEN}, which means the seal was attempted and
  * failed.
  *
- * <p>A seed run's group is assigned no suite names at all - the plan has no stored mapping to draw
- * them from and its runner executes everything it discovers - so its assigned count renders as
- * {@code all} rather than {@code 0}. Rendering the raw zero would repeat the mistake the seed-run
- * claim log made: reporting the one run that executes the entire suite as though it had nothing to
- * do.
+ * <p>A seed run's group renders its assigned count as {@code all} rather than a literal count only
+ * when that group was actually assigned no suite names - a <b>fallback</b> seed's single group,
+ * which the plan has no stored mapping to draw names from, and whose runner executes everything it
+ * discovers. A <b>split</b> seed's groups carry real suite names - suites discovered on disk and
+ * divided across the groups by even count, since there is no run-time data yet to balance by - and
+ * render exactly like any other group's, with a real assigned count and real progress. Rendering a
+ * fallback group's raw zero would repeat the mistake the seed-run claim log made: reporting the one
+ * run that executes the entire suite as though it had nothing to do.
  *
  * <p>See the "Distributed test runs" chapter in {@code WIKI.md} for the lifecycle this reports on.
  */
@@ -97,7 +99,7 @@ public final class DistributedRunStatusReport {
         List<List<String>> assignedSuites = readAssignedSuites(dataStore, run, groups);
 
         StringBuilder report = new StringBuilder();
-        appendHeader(report, run, groups, nowMs, lineSep);
+        appendHeader(report, run, groups, assignedSuites, nowMs, lineSep);
         report.append(lineSep).append(lineSep);
         appendGroupTable(report, run, groups, assignedSuites, nowMs, lineSep);
         appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
@@ -172,25 +174,48 @@ public final class DistributedRunStatusReport {
 
     /**
      * Read every group's assigned suite names, in group order, so the assigned count in the table
-     * and the optional name listing below it come from a single pass. A seed run is skipped: its
-     * plan carries no suite names by construction, so the queries would return nothing and the
-     * report renders {@code all} for it regardless.
+     * and the optional name listing below it come from a single pass. Read for every group
+     * regardless of whether the run is a seed run: a split seed's groups carry real suite names
+     * discovered on disk and divided across them, so the read returns those names exactly as it
+     * would for an ordinary run. Only a fallback seed's single group - which the plan genuinely
+     * assigned no suite names, having found none to split - comes back empty, the same as it would
+     * for an unrelated nothing-impacted group; callers tell the two apart by combining an empty
+     * result with {@link DistributedRun#isSeedRun()}.
      *
      * @param dataStore the datastore to read from
      * @param run the run being reported on
      * @param groups the run's groups, in group-number order
-     * @return one list of suite names per group, positionally matching {@code groups}; every list is
-     *         empty for a seed run
+     * @return one list of suite names per group, positionally matching {@code groups}; empty for a
+     *         group the plan assigned no suites, whether that is a fallback seed's group or an
+     *         ordinary nothing-impacted group
      */
     private static List<List<String>> readAssignedSuites(final DataStore dataStore,
                                                           final DistributedRun run,
                                                           final List<DistributedRunGroup> groups) {
         List<List<String>> assigned = new ArrayList<>(groups.size());
         for (DistributedRunGroup group : groups) {
-            assigned.add(run.isSeedRun() ? Collections.<String>emptyList()
-                    : dataStore.readDistributedRunGroupSuites(run.getRunId(), group.getGroupNumber()));
+            assigned.add(dataStore.readDistributedRunGroupSuites(run.getRunId(), group.getGroupNumber()));
         }
         return assigned;
+    }
+
+    /**
+     * Decide whether any group of the run was assigned at least one suite name, the run-level
+     * signal for a split seed as opposed to a fallback one: a split seed discovers suites on disk
+     * and divides them across the groups, so at least one group's assigned list is non-empty, while
+     * a fallback seed's single group is assigned none at all.
+     *
+     * @param assignedSuites each group's assigned suite names, positionally matching the run's
+     *                       groups
+     * @return true if at least one group's assigned suite list is non-empty
+     */
+    private static boolean anyGroupHasAssignedSuites(final List<List<String>> assignedSuites) {
+        for (List<String> suites : assignedSuites) {
+            if (!suites.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -200,11 +225,15 @@ public final class DistributedRunStatusReport {
      * @param report the buffer to append to
      * @param run the run being reported on
      * @param groups the run's groups, in group-number order
+     * @param assignedSuites each group's assigned suite names, positionally matching {@code
+     *                       groups}; used only to tell a split seed from a fallback one for the
+     *                       "Seed run:" line
      * @param nowMs the epoch millis to measure "ago" against
      * @param lineSep the line separator to join lines with
      */
     private static void appendHeader(final StringBuilder report, final DistributedRun run,
-                                     final List<DistributedRunGroup> groups, final long nowMs,
+                                     final List<DistributedRunGroup> groups,
+                                     final List<List<String>> assignedSuites, final long nowMs,
                                      final String lineSep) {
         int completed = countWithStatus(groups, DistributedRunGroupStatus.COMPLETED);
 
@@ -216,9 +245,15 @@ public final class DistributedRunStatusReport {
         report.append("  Planned:    ").append(timestamp(run.getCreatedAtMs()))
                 .append(ago(run.getCreatedAtMs(), nowMs)).append(lineSep);
         if (run.isSeedRun()) {
-            report.append("  Seed run:   yes - no stored mapping existed for this branch when the ")
-                    .append("plan was written, so it has one group carrying no suite names whose ")
-                    .append("runner executes every suite it discovers.").append(lineSep);
+            if (anyGroupHasAssignedSuites(assignedSuites)) {
+                report.append("  Seed run:   yes - no stored mapping existed for this branch when ")
+                        .append("the plan was written, so its suites were discovered on disk and ")
+                        .append("split across the groups by even count.").append(lineSep);
+            } else {
+                report.append("  Seed run:   yes - no stored mapping existed for this branch when ")
+                        .append("the plan was written, so it has one group carrying no suite names ")
+                        .append("whose runner executes every suite it discovers.").append(lineSep);
+            }
         }
         report.append("  Target:     ").append(run.getTargetRunTimeMs() == null
                         ? "none (fixed group count)"
@@ -271,12 +306,16 @@ public final class DistributedRunStatusReport {
         for (int i = 0; i < groups.size(); i++) {
             DistributedRunGroup group = groups.get(i);
             boolean reported = group.getStatus() != DistributedRunGroupStatus.PENDING;
+            // A fallback seed's group is the only one that renders "all"/"n/a": it is a seed run
+            // whose group was genuinely assigned no suite names. A split seed's groups carry real
+            // names and fall through to the ordinary rendering below, same as any other group.
+            boolean fallbackSeedGroup = run.isSeedRun() && assignedSuites.get(i).isEmpty();
             table.addRow(
                     Integer.toString(group.getGroupNumber()),
                     group.getStatus().toString(),
                     group.getRunnerKey() == null ? NOT_APPLICABLE : group.getRunnerKey(),
-                    run.isSeedRun() ? ALL_SUITES : Integer.toString(assignedSuites.get(i).size()),
-                    observed(run, group, reported),
+                    fallbackSeedGroup ? ALL_SUITES : Integer.toString(assignedSuites.get(i).size()),
+                    observed(fallbackSeedGroup, group, reported),
                     reported ? Integer.toString(group.getSuitesRan()) : NOT_APPLICABLE,
                     reported ? Integer.toString(group.getSuitesFailed()) : NOT_APPLICABLE,
                     duration(group.getEstimatedMs()),
@@ -297,23 +336,26 @@ public final class DistributedRunStatusReport {
 
     /**
      * Render a group's observed-suite count, which has three cases rather than two. A group that has
-     * reported nothing is dashed. A seed run's group is {@code n/a}: it was assigned no suite names,
-     * so the completion guard it feeds reads {@code 0 >= 0} and is satisfied without the count ever
-     * moving - printing the stored zero next to an assigned count of {@code all} would read as a
-     * runner that observed none of everything, when in fact the number simply carries no information
-     * for a seed run. Everything else shows the count, which is the figure the guard compares.
+     * reported nothing is dashed. A fallback seed's group is {@code n/a}: it was assigned no suite
+     * names, so the completion guard it feeds reads {@code 0 >= 0} and is satisfied without the
+     * count ever moving - printing the stored zero next to an assigned count of {@code all} would
+     * read as a runner that observed none of everything, when in fact the number simply carries no
+     * information for that group. Everything else, including a split seed's groups, shows the
+     * count, which is the figure the completion guard actually compares.
      *
-     * @param run the run being reported on, whose seed flag decides whether the count means anything
+     * @param fallbackSeedGroup whether this group is a fallback seed's group - a seed run whose
+     *                          group was assigned no suite names - as opposed to an ordinary group
+     *                          or a split seed's group, either of which has a count worth reporting
      * @param group the group whose count is being rendered
      * @param reported whether this group has reported any progress at all
      * @return the rendered count, {@code -}, or {@code n/a}
      */
-    private static String observed(final DistributedRun run, final DistributedRunGroup group,
+    private static String observed(final boolean fallbackSeedGroup, final DistributedRunGroup group,
                                     final boolean reported) {
         if (!reported) {
             return NOT_APPLICABLE;
         }
-        return run.isSeedRun() ? NOT_MEANINGFUL : Integer.toString(group.getSuitesObserved());
+        return fallbackSeedGroup ? NOT_MEANINGFUL : Integer.toString(group.getSuitesObserved());
     }
 
     /**
@@ -394,9 +436,11 @@ public final class DistributedRunStatusReport {
                 report.append("CLAIMED by '").append(group.getRunnerKey()).append("'")
                         .append(NOT_APPLICABLE.equals(runningFor) ? ""
                                 : " (running for " + runningFor + ")");
-                if (run.isSeedRun()) {
-                    // A seed run's group was assigned no suite names, so there is no "N of M" to
-                    // report progress against - its runner works through whatever it discovers.
+                if (run.isSeedRun() && assignedSuites.get(i).isEmpty()) {
+                    // A fallback seed's group was assigned no suite names, so there is no "N of M"
+                    // to report progress against - its runner works through whatever it discovers.
+                    // A split seed's group has real assigned suites and falls through to the
+                    // ordinary progress line below, same as any other group.
                     report.append(" - a seed run, so it is working through every suite it "
                             + "discovers; ").append(group.getSuitesRan()).append(" run so far.");
                 } else {
@@ -409,9 +453,10 @@ public final class DistributedRunStatusReport {
 
     /**
      * Append each group's assigned suite names, for the caller that asked for them. A group with no
-     * names says why it has none, since an empty list means two different things: a seed run's
-     * single group deliberately carries none, while an ordinary group with none was given no work by
-     * the balancer.
+     * names says why it has none, since an empty list means two different things: a fallback seed's
+     * single group deliberately carries none, while an ordinary group - or a split seed's group
+     * that happened to be given none - with none was simply given no work by the balancer. A split
+     * seed's group that does carry names falls through to the ordinary name listing below.
      *
      * @param report the buffer to append to
      * @param run the run being reported on
@@ -426,7 +471,7 @@ public final class DistributedRunStatusReport {
         for (int i = 0; i < groups.size(); i++) {
             List<String> suites = assignedSuites.get(i);
             report.append(lineSep).append("  Group ").append(groups.get(i).getGroupNumber());
-            if (run.isSeedRun()) {
+            if (run.isSeedRun() && suites.isEmpty()) {
                 report.append(": no suite names - a seed run's group covers every suite its runner "
                         + "discovers.");
             } else if (suites.isEmpty()) {

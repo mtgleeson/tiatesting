@@ -15,10 +15,13 @@ package org.tiatesting.core.distributed;
  * no target run time to report; it is rendered as JSON {@code null}, never {@code 0}, since zero
  * would read as an (impossible) target of zero rather than the absence of one.
  *
- * <p>{@code seedRun} is true exactly when the plan was collapsed to a single empty group because
- * no stored mapping existed yet for this branch - see {@link DistributedRunPlanner#plan}. A
- * pipeline reading {@code tia-run-plan.json} can use it to explain why it only received one job
- * despite the configured group count.
+ * <p>{@code seedRun} is true exactly when no stored mapping existed yet for this branch - see
+ * {@link DistributedRunPlanner#plan}. That does not fix {@link #getGroupCount()} at one: when
+ * suites are discovered on disk, the plan splits them across the configured group count by even
+ * count and {@code groupCount} is whatever that split produced; only when nothing is found on
+ * disk, or no group count applies, does the plan fall back to a single empty group. A pipeline
+ * reading {@code tia-run-plan.json} can use {@code seedRun} to explain why the mapping was
+ * missing rather than assuming it will always receive exactly one job.
  */
 public final class DistributedRunPlanSummary {
 
@@ -63,8 +66,10 @@ public final class DistributedRunPlanSummary {
      *                        case a pipeline setting a job timeout needs to know about
      * @param selectedSuiteCount the number of test suites selected for this run, across all
      *                           groups
-     * @param seedRun whether this plan was collapsed to a single empty group because no stored
-     *                mapping existed yet for this branch, rather than balanced from the selection
+     * @param seedRun whether no stored mapping existed yet for this branch, so the plan's suites
+     *                were split across the groups by even count rather than balanced from the
+     *                selection - or, when nothing was found on disk, collapsed to a single empty
+     *                group
      */
     public DistributedRunPlanSummary(String runId, String branch, String commit, int groupCount,
                                       Long targetMs, boolean targetMet, boolean clampedToMaxGroups,
@@ -142,10 +147,11 @@ public final class DistributedRunPlanSummary {
     public int getSelectedSuiteCount() { return selectedSuiteCount; }
 
     /**
-     * @return whether this plan was collapsed to a single empty group because no stored mapping
-     *         existed yet for this branch, rather than balanced from the selection; when true,
-     *         {@link #getGroupCount()} is always 1 regardless of the configured group count or
-     *         target run time
+     * @return whether no stored mapping existed yet for this branch, so the plan's suites were
+     *         split by even count rather than balanced from the selection; when true, {@link
+     *         #getGroupCount()} is the configured group count the split suites were divided
+     *         across, or 1 only in the fallback case where nothing was found on disk to split (or
+     *         no group count applied)
      */
     public boolean isSeedRun() { return seedRun; }
 
@@ -233,17 +239,27 @@ public final class DistributedRunPlanSummary {
      *
      * @return a multi-line human-readable summary naming the run, its groups, and whether the
      *         target was met; when {@link #isSeedRun()} is true, names that instead of the target
-     *         verdict, since a seed run has no target to report
+     *         verdict, since a seed run has no target to report - distinguishing a split seed,
+     *         whose suites were discovered on disk and divided across the configured groups, from
+     *         a fallback seed, which collapses to a single group covering the whole suite, by
+     *         whether {@link #getSelectedSuiteCount()} is greater than zero
      */
     public String toConsoleSummary() {
         StringBuilder summary = new StringBuilder();
         summary.append("Distributed run plan for ").append(runId)
                 .append(" (branch ").append(branch).append(", commit ").append(commit).append(")\n");
         if (seedRun) {
-            summary.append("  Seed run: no stored mapping exists yet for this branch, so this ")
-                    .append("plan has one group covering the whole suite - the configured group ")
-                    .append("count and target run time were ignored. Running it will record the ")
-                    .append("mapping; the next build will plan normally.\n");
+            if (selectedSuiteCount > 0) {
+                summary.append("  Seed run: no stored mapping exists yet for this branch, so its ")
+                        .append("suites were discovered on disk and split across the groups by ")
+                        .append("even count (there are no run times yet to balance by). Running ")
+                        .append("it will record the mapping; the next build will plan by run time.\n");
+            } else {
+                summary.append("  Seed run: no stored mapping exists yet for this branch and no ")
+                        .append("test classes were found on disk to split, so this plan has a ")
+                        .append("single group covering the whole suite. Running it will record ")
+                        .append("the mapping; the next build will plan normally.\n");
+            }
         }
         summary.append("  Groups: ").append(groupCount)
                 .append(", average ").append(avgGroupMs).append("ms per group\n");

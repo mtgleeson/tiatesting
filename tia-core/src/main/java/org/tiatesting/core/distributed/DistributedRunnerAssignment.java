@@ -173,13 +173,18 @@ public final class DistributedRunnerAssignment {
 
     /**
      * Report whether the plan recorded this run as a seed run - the first distributed build on a
-     * branch, which has no stored mapping to split, so the plan is one group carrying no suite
-     * names and its runner ignores nothing and executes every test it discovers.
+     * branch, which has no stored mapping to split. A seed run's suites are discovered on disk and
+     * split across the groups, the same as any other run, so a claimed group can carry real suite
+     * names and this runner's {@link #getTestsToRun()} then holds its own slice. Only the fallback
+     * case - nothing found on disk, or no group count applied - collapses to a single group
+     * carrying no suite names, whose runner ignores nothing and executes every test it discovers.
      *
      * <p>Read from the persisted run row rather than inferred from {@link #getTestsToRun()} being
      * empty, because a nothing-impacted build plans empty groups too. Callers need it to describe
-     * what a runner is about to do: on a seed run an empty {@code testsToRun} means "runs
-     * everything", and on any other run it means "runs nothing".
+     * what a runner is about to do: on a fallback seed run an empty {@code testsToRun} means "runs
+     * everything", on a split seed run or any ordinary run an empty {@code testsToRun} means "runs
+     * nothing", and only the persisted flag - together with whether {@code testsToRun} is empty -
+     * tells the two apart.
      *
      * @return true when the plan recorded this run as a seed run
      */
