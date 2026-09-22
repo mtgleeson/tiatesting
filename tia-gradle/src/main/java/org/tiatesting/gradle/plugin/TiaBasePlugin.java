@@ -7,7 +7,9 @@ import org.gradle.api.Task;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
+import org.gradle.api.tasks.testing.Test;
 import org.tiatesting.core.library.LibraryPublishStamper;
+import org.tiatesting.core.testrunner.TestClassScanner;
 import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
@@ -41,6 +43,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Base Gradle plugin for Tia. Creates the new standard tasks for interacting with Tia.
@@ -347,8 +351,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             return null;
         }
         try {
+            Supplier<Set<String>> seedTestSuiteProvider =
+                    () -> TestClassScanner.scanTestSuiteNames(resolveTestClassesDirsCsv());
             return DistributedRunPlanner.balance(selection, Boolean.TRUE.equals(getUpdateDBMapping()),
-                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups());
+                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups(),
+                    seedTestSuiteProvider);
         } catch (IllegalArgumentException e) {
             System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
             return null;
@@ -748,6 +755,25 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     public DataStore buildDistributedDataStore(String branch) {
         return buildDataStore(branch,
                 TiaSchemaResolver.distributedSchemaSuffix(project, tiaTaskExtension));
+    }
+
+    /**
+     * Resolve every {@code Test} task's compiled test-class directories in this project into a
+     * comma-separated absolute-path CSV, for the seed-run disk scan. Reads the same {@code
+     * getTestClassesDirs()} the Spock/JUnit test extension forwards to the fork as {@code
+     * tiaTestClassesDirs}, so the daemon-side plan scans exactly the directories the runners run
+     * from. A build with a single distributed test task yields that task's directories; the scan
+     * over-includes safely, so gathering every {@code Test} task's directories is fine.
+     *
+     * @return the test-class directories as a comma-separated absolute-path string, empty when the
+     *         project has no {@code Test} task or none has a test-class directory
+     */
+    public String resolveTestClassesDirsCsv() {
+        return project.getTasks().withType(Test.class).stream()
+                .flatMap(task -> task.getTestClassesDirs().getFiles().stream())
+                .map(File::getAbsolutePath)
+                .distinct()
+                .collect(Collectors.joining(","));
     }
 
     /**

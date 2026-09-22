@@ -310,4 +310,51 @@ class DistributedRunPreviewFormatterTest {
         assertFalse(preview.contains("Seed run:"),
                 "non-seed preview should not mention a seed run: " + preview);
     }
+
+    /**
+     * Verify a fallback seed's preview - the balancer's single empty group, produced when nothing
+     * was found on disk to split - names the fallback wording exactly: a single group covering the
+     * whole suite, not the split wording a discovered seed gets.
+     */
+    @Test
+    void fallbackSeedPreviewNamesTheFallbackWordingExactly() {
+        // given - the single empty group a seed run collapses to when nothing was found on disk
+        GroupingResult result = new GroupingResult(Collections.singletonList(
+                new SuiteGroup(0, Collections.<String>emptyList(), 0L)), true, false, false, false);
+
+        // when
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+
+        // then
+        assertTrue(preview.contains("Seed run: no stored mapping exists yet for this branch, so a "
+                        + "real distributed run would plan a single group covering the whole "
+                        + "suite and record the mapping for the next build."),
+                "fallback seed preview should use the fallback wording: " + preview);
+    }
+
+    /**
+     * Verify a split seed's preview - suites discovered on disk and divided across the groups -
+     * names the split wording exactly, and does not claim a single group covering the whole suite.
+     */
+    @Test
+    void splitSeedPreviewNamesTheSplitWordingExactly() {
+        // given - two groups, each carrying real suite names found on disk
+        List<SuiteGroup> groups = Arrays.asList(
+                new SuiteGroup(0, Collections.singletonList("com.example.ATest"), 0L),
+                new SuiteGroup(1, Collections.singletonList("com.example.BTest"), 0L));
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
+
+        // when
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+
+        // then
+        assertTrue(preview.contains("Seed run: no stored mapping exists yet for this branch, so a "
+                        + "real distributed run would discover its suites on disk and split them "
+                        + "across the groups by even count (no run times yet to balance by), and "
+                        + "record the mapping for the next build."),
+                "split seed preview should use the split wording: " + preview);
+        assertFalse(preview.contains("plan a single group covering the whole suite"),
+                "split seed preview should not claim a single group covering the whole suite: "
+                        + preview);
+    }
 }

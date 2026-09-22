@@ -36,8 +36,10 @@ public final class DistributedRun implements Serializable {
      * @param createdAtMs UTC epoch millis when the plan was written
      * @param sealedBy runner key of the runner that performed the seal, or null if not sealed
      * @param sealedAtMs UTC epoch millis of the seal, or null if not sealed
-     * @param seedRun whether the planner collapsed this run to a single group with no suite names
-     *                because no stored mapping existed yet for the branch
+     * @param seedRun whether this is a seed run - the first distributed build on a branch with no
+     *                stored mapping yet, whose suites are discovered on disk and split across
+     *                groups by even count, or collapsed to a single group when nothing is found on
+     *                disk or no group count applies
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, Long targetRunTimeMs,
@@ -66,8 +68,10 @@ public final class DistributedRun implements Serializable {
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
-     * @param seedRun whether the planner collapsed this run to a single group with no suite names
-     *                because no stored mapping existed yet for the branch
+     * @param seedRun whether this is a seed run - the first distributed build on a branch with no
+     *                stored mapping yet, whose suites are discovered on disk and split across
+     *                groups by even count, or collapsed to a single group when nothing is found on
+     *                disk or no group count applies
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
@@ -108,13 +112,15 @@ public final class DistributedRun implements Serializable {
     public Long getSealedAtMs() { return sealedAtMs; }
 
     /**
-     * Whether this run is a seed run: the planner found no stored mapping for the branch and
-     * collapsed the plan to a single group carrying no suite names, so its runner ignores nothing
-     * and runs everything. Persisted with the plan rather than worked out again at seal time,
-     * because the shape of a seed run's plan is indistinguishable from a nothing-impacted one - see
+     * Whether this run is a seed run: the planner found no stored mapping for the branch, so its
+     * suites are discovered on disk and split across groups by even count rather than balanced by
+     * duration - or, when nothing is found on disk or no group count applies, collapsed to a
+     * single group carrying no suite names, whose runner ignores nothing and runs everything.
+     * Persisted with the plan rather than worked out again at seal time, because the shape of a
+     * seed run's plan can otherwise be indistinguishable from a nothing-impacted one - see
      * {@code DistributedRunSealer.ignoredSuiteCount}.
      *
-     * @return true if the plan was collapsed to a seed run
+     * @return true if this run is a seed run
      */
     public boolean isSeedRun() { return seedRun; }
 

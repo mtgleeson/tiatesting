@@ -375,13 +375,14 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
-     * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} names the seed run
-     * explicitly and does not print a target verdict, since a seed run's trivially-met target
-     * would otherwise read as if real balancing against the configured target had happened.
+     * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} names a fallback seed run
+     * explicitly, with the fallback wording naming a single group covering the whole suite, and
+     * does not print a target verdict, since a seed run's trivially-met target would otherwise read
+     * as if real balancing against the configured target had happened.
      */
     @Test
-    void toConsoleSummary_seedRun_namesSeedRunAndOmitsTargetVerdict() {
-        // given - a seed run's summary, as if planned against a dynamic-groups config
+    void toConsoleSummary_fallbackSeedRun_namesSeedRunAndOmitsTargetVerdict() {
+        // given - a fallback seed run's summary: no suites found on disk to split, selectedSuiteCount 0
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 1, 1500000L, true, false, false, false, 0L, 0L, 0, true);
 
@@ -389,10 +390,41 @@ class DistributedRunPlanSummaryTest {
         String consoleSummary = summary.toConsoleSummary();
 
         // then
-        assertTrue(consoleSummary.contains("Seed run:"),
-                "console summary should name the seed run explicitly: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Seed run: no stored mapping exists yet for this branch "
+                        + "and no test classes were found on disk to split, so this plan has a "
+                        + "single group covering the whole suite."),
+                "console summary should use the fallback seed wording: " + consoleSummary);
         assertTrue(consoleSummary.contains("Groups: 1"),
                 "console summary should still report the single group: " + consoleSummary);
+        assertFalse(consoleSummary.contains("Target:"),
+                "console summary should not print a target verdict for a seed run: " + consoleSummary);
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} names a split seed run
+     * with wording distinct from the fallback case, naming the disk-discovered suites split across
+     * the groups rather than a single group covering the whole suite, when {@code
+     * selectedSuiteCount} is greater than zero.
+     */
+    @Test
+    void toConsoleSummary_splitSeedRun_namesSplitWording() {
+        // given - a split seed run's summary: suites were found on disk and split across 2 groups
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 2, null, true, false, false, false, 0L, 0L, 5, true);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+
+        // then
+        assertTrue(consoleSummary.contains("Seed run: no stored mapping exists yet for this branch, "
+                        + "so its suites were discovered on disk and split across the groups by "
+                        + "even count"),
+                "console summary should use the split seed wording: " + consoleSummary);
+        assertFalse(consoleSummary.contains("single group covering the whole suite"),
+                "a split seed's console summary should not claim a single group covering the "
+                        + "whole suite: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Groups: 2"),
+                "console summary should still report the real group count: " + consoleSummary);
         assertFalse(consoleSummary.contains("Target:"),
                 "console summary should not print a target verdict for a seed run: " + consoleSummary);
     }

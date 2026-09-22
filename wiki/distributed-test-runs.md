@@ -124,11 +124,36 @@ ascending. Two runners deriving different groupings from the same selection woul
 
 ### The seed run
 
-The first distributed build on a branch has no stored mapping to plan from. `DistributedRunPlanner`
-short-circuits to a single group with **no** suite names, ignoring the configured group count and
-target run time entirely, and logs at INFO why. That runner ignores nothing, runs everything, and
-records the mapping the next build plans from. `tia-run-plan.json` carries `"seedRun": true` so a
-pipeline can explain the single job.
+The first distributed build on a branch has no stored mapping to plan from, so there are no run
+times yet to balance suites by. `DistributedRunPlanner` handles this by scanning the compiled
+test-class directories directly (`TestClassScanner`) for the suite universe, rather than reading it
+off the selection, and splits that universe across groups by even count - every suite gets the same
+weight, since there is nothing to balance by duration.
+
+Which groups it splits across depends on the configured mode:
+
+- **Fixed group count** splits the scanned suites across `tiaDistributedGroupCount`, the same count
+  a normal run uses.
+- **Target run time** cannot honour a real target with no timings to check it against, so it splits
+  across `tiaDistributedMaxGroups` instead when that is configured, and otherwise stays a single
+  group.
+- If the scan finds nothing on disk - or neither of the above applies - the run falls back to a
+  single group with **no** suite names, ignoring the configured group count and target run time
+  entirely. That runner ignores nothing and runs everything.
+
+Either way `DistributedRunPlanner` logs at INFO why the build is a seed run, and records the mapping
+the next build plans from. `tia-run-plan.json` still carries `"seedRun": true`, whether the run
+landed as a single job or several, so a pipeline can explain what it is looking at.
+
+The scan is deliberately a **superset** of the suite names Tia tracks - the test framework's binary
+class names. It includes every compiled class name, so a JUnit5 `@Nested` class's `Outer$Nested`
+name is included rather than dropped. That is what keeps every tracked suite present in some
+group's assignment: over-inclusion is safe - a name the framework never runs just sits unexecuted
+in some group's list - while under-inclusion would leave a real suite assigned to no group and
+running on every runner at once.
+That superset property is what guarantees no suite runs on more than one runner when a seed run is
+split, and it is what lets the seal still record `allTestsRun: true` and full savings for a split
+seed run, the same as it always has for the single-group case.
 
 The grouping shape is still validated on a seed run, so a misconfigured
 `groupCount`/`targetRunTime` pair is reported ahead of the build that will need it corrected rather
@@ -609,9 +634,13 @@ what keeps the baseline moving once a project distributes its tests.
 The ignored half of that comes from what the plan **assigned** the groups, never from the
 accumulating `suites_ran` counter, which a retry within one JVM legitimately inflates. Where the
 assignment is empty it is answered from the run row's `seed_run` flag rather than from the plan's
-shape: a seed run's single group carries no suite names and ignored nothing, a nothing-impacted
-build's groups carry no suite names and ignored every tracked suite, and by seal time the two plans
-are indistinguishable - the seed run's own runners have already populated the tracked suite map.
+shape: a seed run that fell back to a single group carries no suite names and ignored nothing, a
+nothing-impacted build's groups carry no suite names and ignored every tracked suite, and by seal
+time the two plans are indistinguishable - the seed run's own runners have already populated the
+tracked suite map. A split seed run never hits this empty-assignment case at all: its groups carry
+real suite names, so the general (non-empty) path applies, and the disk scan's superset property is
+what keeps its ignored count at zero there too - every tracked suite is guaranteed to be in some
+group's assignment.
 
 ### The two-part overhead model
 
@@ -653,10 +682,13 @@ executions, so a Surefire retry inside a runner's JVM sums into it - and here it
 suite count on exactly the group whose overhead the retry also inflated, corrupting both sides of the
 equation at once. What the plan assigned a group cannot be moved by any number of retries.
 
-**A seed run is excluded.** Its single group is assigned no suite names because it runs everything,
-so reading that assignment as a group that ran nothing would push a full-suite run's entire overhead
-into `fixed`. It is degenerate in any case: one group covering every suite restates the whole-run
-equation rather than adding to it.
+**A seed run is excluded, whether it fell back to a single group or was split.** The `seed_run` flag
+decides this outright, not the shape of the assignment: a single-group seed run is assigned no suite
+names, and reading that as a group that ran nothing would push a full-suite run's entire overhead
+into `fixed`; a split seed run does carry suite names, but they are split by even count rather than
+by measured duration, so its groups say nothing real about how overhead scales with suite count. It
+is degenerate in any case - covering every suite between them restates the whole-run equation rather
+than adding a genuine second one to it.
 
 **Every failure to solve is a skip, never a guess.** A group that ran suites without timing any of
 them (the same disqualification `DistributedRunTotals` applies), a build whose groups average the

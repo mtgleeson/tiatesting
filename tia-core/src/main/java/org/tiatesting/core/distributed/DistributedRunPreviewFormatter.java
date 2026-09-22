@@ -37,10 +37,13 @@ public final class DistributedRunPreviewFormatter {
      * twice, three lines apart.
      *
      * <p>When {@code seedRun} is true - the selection carries no stored mapping for this branch
-     * yet, so {@link DistributedRunPlanner#balance} collapsed {@code result} to a single empty
-     * group - the target verdict is replaced with a line explaining that a real plan would collapse
-     * the same way, since {@code result} always reports a trivially-met target in that case and
-     * printing it as if real balancing happened would be misleading.
+     * yet, so {@link DistributedRunPlanner#balance} either split {@code result} across groups by
+     * suites discovered on disk or, finding none, collapsed it to a single empty group - the target
+     * verdict is replaced with a line explaining what a real plan would do, since {@code result}
+     * always reports a trivially-met target in that case and printing it as if real balancing
+     * happened would be misleading. Which of the two the line describes is decided by summing
+     * {@link SuiteGroup#getSuiteNames()} size across {@link GroupingResult#getGroups()}: greater
+     * than zero means suites were found and split, zero means the fallback single empty group.
      *
      * @param result the balancer's grouping result to describe; nothing about it is persisted by
      *               this method or by the caller previewing it
@@ -63,10 +66,22 @@ public final class DistributedRunPreviewFormatter {
         preview.append(lineSep).append(lineSep);
         preview.append("Distributed run grouping preview (not persisted):").append(lineSep);
         if (seedRun) {
-            preview.append("  Seed run: no stored mapping exists yet for this branch, so a real ")
-                    .append("distributed run would plan one group covering the whole suite, ")
-                    .append("ignoring the configured group count and target run time, and would ")
-                    .append("record the mapping for the next build.").append(lineSep);
+            int assignedSuiteCount = 0;
+            for (SuiteGroup group : result.getGroups()) {
+                assignedSuiteCount += group.getSuiteNames().size();
+            }
+            if (assignedSuiteCount > 0) {
+                preview.append("  Seed run: no stored mapping exists yet for this branch, so a ")
+                        .append("real distributed run would discover its suites on disk and ")
+                        .append("split them across the groups by even count (no run times yet to ")
+                        .append("balance by), and record the mapping for the next build.")
+                        .append(lineSep);
+            } else {
+                preview.append("  Seed run: no stored mapping exists yet for this branch, so a ")
+                        .append("real distributed run would plan a single group covering the ")
+                        .append("whole suite and record the mapping for the next build.")
+                        .append(lineSep);
+            }
         }
         preview.append("  Groups: ").append(result.getGroupCount())
                 .append(", average ").append(avgGroupMs)
