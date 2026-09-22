@@ -649,6 +649,29 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * The seed-suite provider must never be invoked on a non-seed plan: the disk scan is a
+     * seed-only cost and must stay off the ordinary, mapping-backed plan path. Passes a provider
+     * that throws if it is ever called and asserts a normal non-seed plan completes without touching
+     * it, so a future change that eagerly scanned on every plan would fail here.
+     */
+    @Test
+    void plan_nonSeedSelection_neverInvokesTheSeedSuiteProvider() {
+        // given a non-seed selection and a provider that fails the test if it is ever called
+        DistributedRunConfig config = DistributedRunConfig.validated("run-no-scan", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        Supplier<Set<String>> throwingProvider = () -> {
+            throw new AssertionError("the seed-suite provider must not be invoked on a non-seed plan");
+        };
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(threeSuiteSelection(), "main",
+                "commit-no-scan", false, 1L, throwingProvider);
+
+        // then
+        assertFalse(summary.isSeedRun());
+    }
+
+    /**
      * Verifies that {@code seedRun} reaches {@code tia-run-plan.json}: a seed run's summary
      * renders the field as JSON {@code true}, the signal a pipeline needs to explain why it only
      * received one job despite the configured group count.

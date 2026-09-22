@@ -352,7 +352,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         }
         try {
             Supplier<Set<String>> seedTestSuiteProvider =
-                    () -> TestClassScanner.scanTopLevelTestSuiteNames(resolveTestClassesDirsCsv());
+                    () -> TestClassScanner.scanTestSuiteNames(resolveTestClassesDirsCsv());
             return DistributedRunPlanner.balance(selection, Boolean.TRUE.equals(getUpdateDBMapping()),
                     getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups(),
                     seedTestSuiteProvider);

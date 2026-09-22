@@ -14,8 +14,8 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * Scans compiled test-class directories into the top-level test-suite names a distributed seed
- * run splits across its groups.
+ * Scans compiled test-class directories into the test-suite names a distributed seed run splits
+ * across its groups.
  *
  * <p>This exists for the seed run only: the first distributed build on a branch has no stored
  * mapping to enumerate suites from, so the plan reads the suite universe off disk instead. It is
@@ -25,13 +25,13 @@ import java.util.stream.Stream;
  * Here an empty scan means "nothing found to split", and the planner falls back to a single group,
  * so this returns an empty set rather than throwing.
  *
- * <p>The result is a <b>superset</b> of the suites the test framework actually runs: every
- * top-level compiled class is included, whether or not it is a runnable test. Over-inclusion is
- * safe - a name the framework never runs just sits in other runners' ignore lists and is never
- * executed - while under-inclusion would leave a real suite on nobody's ignore list and run it on
- * every runner. Inner classes (names containing {@code $}) are dropped: their enclosing top-level
- * class always compiles to its own {@code .class} file, so dropping them keeps the superset
- * property while stopping the count-based split from being skewed by inner classes.
+ * <p>The result is a <b>superset</b> of the suite names Tia tracks - the test framework's binary
+ * class names, which for a JUnit5 {@code @Nested} class is the enclosing-and-nested form
+ * {@code Outer$Nested}. Every compiled class is included, whether or not it is itself a runnable
+ * test. Over-inclusion is safe - a name that never runs just sits unexecuted in some group's
+ * ignore list - while under-inclusion is dangerous: a tracked suite missing from every group's
+ * assignment would run on every runner at once, and would also make the seal miscount
+ * {@code ignoredSuiteCount} and report a false {@code allTestsRun}.
  */
 public final class TestClassScanner {
 
@@ -40,15 +40,15 @@ public final class TestClassScanner {
     private TestClassScanner() { }
 
     /**
-     * Scan the given compiled test-class directories into top-level FQN suite names.
+     * Scan the given compiled test-class directories into binary-name FQN suite names.
      *
      * @param testClassesDirsCsv comma-separated directories holding the compiled test classes; may
      *                           be null or blank, in which case an empty set is returned
-     * @return the top-level test-class names found across the existing directories, as dotted
-     *         FQNs with inner ({@code $}) classes removed; empty when nothing usable is found,
-     *         never null
+     * @return every compiled class name found across the existing directories, as dotted binary
+     *         FQNs (so a nested class keeps its {@code Outer$Nested} form); empty when nothing
+     *         usable is found, never null
      */
-    public static Set<String> scanTopLevelTestSuiteNames(final String testClassesDirsCsv) {
+    public static Set<String> scanTestSuiteNames(final String testClassesDirsCsv) {
         Set<String> suiteNames = new HashSet<>();
         if (testClassesDirsCsv == null || testClassesDirsCsv.trim().isEmpty()) {
             return suiteNames;
@@ -72,7 +72,6 @@ public final class TestClassScanner {
                         .map(p -> p.replace(testClassesDir, "").replace(classFileExt, ""))
                         .map(p -> p.substring(p.startsWith(File.separator) ? 1 : 0)
                                 .replace(File.separator, "."))
-                        .filter(name -> name.indexOf('$') < 0)
                         .forEach(suiteNames::add);
             } catch (IOException e) {
                 throw new RuntimeException(e);

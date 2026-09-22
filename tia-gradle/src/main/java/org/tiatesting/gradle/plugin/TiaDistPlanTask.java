@@ -130,7 +130,7 @@ public class TiaDistPlanTask extends DefaultTask {
                 // can be split across groups. Resolved on the plugin because the daemon-side task
                 // has no fork to inherit tiaTestClassesDirs from.
                 Supplier<Set<String>> seedTestSuiteProvider =
-                        () -> TestClassScanner.scanTopLevelTestSuiteNames(plugin.resolveTestClassesDirsCsv());
+                        () -> TestClassScanner.scanTestSuiteNames(plugin.resolveTestClassesDirsCsv());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(),
                         updateDBMapping, System.currentTimeMillis(), seedTestSuiteProvider);
