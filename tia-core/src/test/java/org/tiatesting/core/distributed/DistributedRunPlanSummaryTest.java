@@ -378,7 +378,9 @@ class DistributedRunPlanSummaryTest {
      * Verifies that {@link DistributedRunPlanSummary#toConsoleSummary()} names a fallback seed run
      * explicitly, with the fallback wording naming a single group covering the whole suite, and
      * does not print a target verdict, since a seed run's trivially-met target would otherwise read
-     * as if real balancing against the configured target had happened.
+     * as if real balancing against the configured target had happened. Also verifies the "Groups:"
+     * line prints no average-ms figure, since a seed run has no run-time data to average - only the
+     * even-count suite split, not a genuine time estimate.
      */
     @Test
     void toConsoleSummary_fallbackSeedRun_namesSeedRunAndOmitsTargetVerdict() {
@@ -394,8 +396,12 @@ class DistributedRunPlanSummaryTest {
                         + "and no test classes were found on disk to split, so this plan has a "
                         + "single group covering the whole suite."),
                 "console summary should use the fallback seed wording: " + consoleSummary);
-        assertTrue(consoleSummary.contains("Groups: 1"),
-                "console summary should still report the single group: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Groups: 1\n"),
+                "console summary should report the single group with no trailing ms figure: "
+                        + consoleSummary);
+        assertFalse(consoleSummary.contains("ms per group"),
+                "a seed run's console summary should not print a fabricated ms-per-group figure: "
+                        + consoleSummary);
         assertFalse(consoleSummary.contains("Target:"),
                 "console summary should not print a target verdict for a seed run: " + consoleSummary);
     }
@@ -423,8 +429,12 @@ class DistributedRunPlanSummaryTest {
         assertFalse(consoleSummary.contains("single group covering the whole suite"),
                 "a split seed's console summary should not claim a single group covering the "
                         + "whole suite: " + consoleSummary);
-        assertTrue(consoleSummary.contains("Groups: 2"),
-                "console summary should still report the real group count: " + consoleSummary);
+        assertTrue(consoleSummary.contains("Groups: 2\n"),
+                "console summary should report the real group count with no trailing ms figure: "
+                        + consoleSummary);
+        assertFalse(consoleSummary.contains("ms per group"),
+                "a seed run's console summary should not print a fabricated ms-per-group figure: "
+                        + consoleSummary);
         assertFalse(consoleSummary.contains("Target:"),
                 "console summary should not print a target verdict for a seed run: " + consoleSummary);
     }

@@ -228,17 +228,19 @@ class DistributedRunStatusReportTest {
 
     /**
      * Verify a zero duration renders as {@code 0ms} rather than as the empty string {@code
-     * ReportUtils.prettyDuration} returns for it. A seed run's estimate is genuinely zero - there is
-     * no stored mapping to estimate from - and a blank cell reads as missing data rather than as the
-     * measured zero it is. Caught against a real seed run rather than in review.
+     * ReportUtils.prettyDuration} returns for it. A nothing-impacted, non-seed run's estimate is
+     * genuinely zero - the selection found nothing to run - and a blank cell reads as missing data
+     * rather than as the measured zero it is. Uses a non-seed run deliberately: a seed run's
+     * estimate is not a measured zero at all, and is rendered separately as {@code n/a} / dashed -
+     * see {@link #shouldRenderASeedRunsEstimateAsNoRunTimeDataRatherThanZero}.
      */
     @Test
     void shouldRenderAZeroDurationRatherThanLeavingItBlank() {
-        // given - a seed run planned with no estimate at all
+        // given - a non-seed run planned with a genuinely zero estimate (nothing impacted)
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, null, 0L,
-                NOW_MS - 120_000L, true);
+                NOW_MS - 120_000L, false);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -251,11 +253,41 @@ class DistributedRunStatusReportTest {
     }
 
     /**
+     * Verify a seed run's estimate is reported as the explicit absence of run-time data, not as a
+     * measured {@code 0ms}: its plan was split by even suite count, not by duration, so there is no
+     * real timing figure behind the zeroed {@code estimatedTotalMs} - see {@link
+     * DistributedRunPlanner}'s {@code seedGroupingResult}. Printing "0ms" would read as a measured
+     * zero, when in fact no measurement was ever made.
+     */
+    @Test
+    void shouldRenderASeedRunsEstimateAsNoRunTimeDataRatherThanZero() {
+        // given - a seed run planned with no estimate at all
+        List<DistributedRunGroup> groups = Collections.singletonList(
+                DistributedRunGroup.pending("build-1", 0, 0L));
+        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, null, 0L,
+                NOW_MS - 120_000L, true);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
+                singleGroup(Collections.<String>emptyList()), null));
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("Estimated:  n/a (seed run - no run-time data yet)"), report);
+        assertFalse(report.contains("Estimated:  0ms"), report);
+        assertTrue(report.contains("| -         |"),
+                "the estimated column should be dashed, not 0ms, for a seed run: " + report);
+    }
+
+    /**
      * Verify a split seed's groups - suites discovered on disk and divided across the groups, not
      * collapsed to a single empty one - render like any other group's: a real assigned count and
      * real observed progress, never {@code all} or {@code n/a}. This is the behaviour fix: gating
      * the rendering on {@code run.isSeedRun()} globally used to render every group of a split seed
-     * as {@code all}/{@code n/a} too, even though its groups carry real suite names.
+     * as {@code all}/{@code n/a} too, even though its groups carry real suite names. The check is
+     * scoped to the group table specifically, since the run-level "Estimated:" header line
+     * legitimately contains "n/a" for any seed run, split or fallback - see {@link
+     * #shouldRenderASeedRunsEstimateAsNoRunTimeDataRatherThanZero}.
      */
     @Test
     void shouldReportASplitSeedsGroupsWithRealCountsRatherThanAllOrNA() {
@@ -266,6 +298,7 @@ class DistributedRunStatusReportTest {
 
         // when
         String report = DistributedRunStatusReport.format(dataStore, "build-1", true, NOW_MS, LINE_SEP);
+        String groupTable = report.substring(report.indexOf("Groups:"), report.indexOf("Assigned = suites"));
 
         // then - the run-level note uses the split wording, and the claimed group reports its real
         // assigned and observed counts rather than the fallback seed's all/n/a
@@ -275,8 +308,8 @@ class DistributedRunStatusReportTest {
         assertTrue(report.contains("Group 0: CLAIMED by 'runner-b' (running for 30s)"), report);
         assertTrue(report.contains("observed 1 of 2 assigned suite(s)."), report);
         assertFalse(report.contains("working through every suite it discovers"), report);
-        assertFalse(report.contains("| all "), "a split seed's group should not render 'all': " + report);
-        assertFalse(report.contains("n/a"), "a split seed's group should not render 'n/a': " + report);
+        assertFalse(groupTable.contains("| all "), "a split seed's group should not render 'all': " + groupTable);
+        assertFalse(groupTable.contains("n/a"), "a split seed's group should not render 'n/a': " + groupTable);
         assertTrue(report.contains("Group 0 (2):"), report);
         assertTrue(report.contains("com.example.ATest"), report);
         assertTrue(report.contains("Group 1 (1):"), report);

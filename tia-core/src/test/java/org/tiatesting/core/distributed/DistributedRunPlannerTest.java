@@ -470,7 +470,9 @@ class DistributedRunPlannerTest {
      * Verify that a seed run with suites discovered on disk splits them across the configured
      * group count instead of collapsing to one group: every configured group is planned, the
      * suites are divided by even count, their union is exactly the scanned set (so each runs once),
-     * and the run is still recorded as a seed run.
+     * and the run is still recorded as a seed run. Also pins that the 1ms-per-suite weight used only
+     * to drive that even split never leaks out as a time estimate: the summary, the persisted run
+     * row, and every persisted group all carry a zeroed estimate, not the suite count.
      */
     @Test
     void plan_seedSelectionWithScannedSuites_splitsAcrossConfiguredGroups() {
@@ -502,6 +504,15 @@ class DistributedRunPlannerTest {
             union.addAll(groupSuites);
         }
         assertEquals(8, union.size());
+
+        // and the even-count weight used to drive the split is not reported as a real time estimate
+        // anywhere it is persisted or summarised - 8, the suite count, must never appear as ms
+        assertEquals(0L, summary.getTotalEstimatedMs());
+        assertEquals(0L, summary.getHeaviestGroupMs());
+        assertEquals(0L, readRun.getEstimatedTotalMs());
+        for (DistributedRunGroup group : groups) {
+            assertEquals(0L, group.getEstimatedMs());
+        }
     }
 
     /**
@@ -739,6 +750,34 @@ class DistributedRunPlannerTest {
         assertTrue(result.getGroups().get(0).getSuiteNames().isEmpty());
         assertTrue(result.isTargetMet());
         assertEquals(0L, result.getTotalEstimatedMs());
+    }
+
+    /**
+     * Verifies that {@link DistributedRunPlanner#balance} zeroes a split seed's per-group estimate
+     * too, not only the fallback single-empty-group case: the 1ms-per-suite weight that drives the
+     * even split is an internal balancing device, not a time measurement, so it must not surface as
+     * {@code getTotalEstimatedMs()} / {@code getHeaviestGroupMs()} on the {@code select-tests}
+     * preview's own entry point either - not only on the persisted {@link
+     * DistributedRunPlanner#plan}.
+     */
+    @Test
+    void balance_seedSelectionWithScannedSuites_zeroesTheSplitsEstimate() {
+        // given a selection with no stored mapping yet and suites the disk scan finds
+        TestSelectorResult selection = runAllTestsSelection();
+        Supplier<Set<String>> scan = seedSuites("com.example.T1", "com.example.T2", "com.example.T3",
+                "com.example.T4");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, true, 2, null, null, scan);
+
+        // then the suites are split across two groups, but no group and no total carries the
+        // suite-count-as-ms figure the uniform balancing weight would otherwise leak
+        assertEquals(2, result.getGroupCount());
+        assertEquals(0L, result.getTotalEstimatedMs());
+        assertEquals(0L, result.getHeaviestGroupMs());
+        for (SuiteGroup group : result.getGroups()) {
+            assertEquals(0L, group.getEstimatedMs());
+        }
     }
 
     /**
