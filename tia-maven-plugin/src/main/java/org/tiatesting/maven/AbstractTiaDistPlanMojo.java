@@ -102,7 +102,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                 // split across groups instead of collapsing to one. Maven's test output directory
                 // is the same one the agent mojo forwards to the fork as tiaTestClassesDirs.
                 Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
-                        .scanTopLevelTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
+                        .scanTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
                         System.currentTimeMillis(), seedTestSuiteProvider);

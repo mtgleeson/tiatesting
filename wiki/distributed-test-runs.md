@@ -145,11 +145,12 @@ Either way `DistributedRunPlanner` logs at INFO why the build is a seed run, and
 the next build plans from. `tia-run-plan.json` still carries `"seedRun": true`, whether the run
 landed as a single job or several, so a pipeline can explain what it is looking at.
 
-The scan is deliberately a **superset** of what the test framework actually runs: every top-level
-compiled class is included, and only inner classes (names containing `$`) are dropped.
-Over-inclusion is safe - a name the framework never runs just sits unexecuted in some group's list -
-while under-inclusion would leave a real suite assigned to no group and running on every runner at
-once.
+The scan is deliberately a **superset** of the suite names Tia tracks - the test framework's binary
+class names. It includes every compiled class name, so a JUnit5 `@Nested` class's `Outer$Nested`
+name is included rather than dropped. That is what keeps every tracked suite present in some
+group's assignment: over-inclusion is safe - a name the framework never runs just sits unexecuted
+in some group's list - while under-inclusion would leave a real suite assigned to no group and
+running on every runner at once.
 That superset property is what guarantees no suite runs on more than one runner when a seed run is
 split, and it is what lets the seal still record `allTestsRun: true` and full savings for a split
 seed run, the same as it always has for the single-group case.

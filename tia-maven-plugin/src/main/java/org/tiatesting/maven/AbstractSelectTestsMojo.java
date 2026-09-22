@@ -126,7 +126,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
         }
         try {
             Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
-                    .scanTopLevelTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
+                    .scanTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
             return DistributedRunPlanner.balance(selection, isTiaUpdateDBMapping(),
                     getTiaDistributedGroupCount(), getTiaDistributedTargetRunTime(),
                     getTiaDistributedMaxGroups(), seedTestSuiteProvider);

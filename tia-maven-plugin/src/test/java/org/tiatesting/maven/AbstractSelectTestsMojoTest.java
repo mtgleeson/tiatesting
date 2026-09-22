@@ -4,6 +4,7 @@ import org.apache.maven.model.Build;
 import org.apache.maven.model.Model;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.distributed.GroupingResult;
 import org.tiatesting.core.distributed.SuiteGroup;
@@ -228,17 +229,17 @@ class AbstractSelectTestsMojoTest {
      * #printDistributedRunPreview_seedSelection_printsSeedRunPreview()} covers when nothing is found
      * on disk.
      *
-     * @throws IOException if the temporary test-output directory or its staged class files cannot
-     *                      be created
+     * @param testOutputDir a temporary directory, cleaned up by JUnit after the test, to stage the
+     *                      two compiled test classes under
+     * @throws IOException if the staged class files cannot be created
      */
     @Test
-    void buildDistributedGroupingIfConfigured_seedSelectionWithClassesOnDisk_splitsAcrossConfiguredGroups()
-            throws IOException {
+    void buildDistributedGroupingIfConfigured_seedSelectionWithClassesOnDisk_splitsAcrossConfiguredGroups(
+            @TempDir Path testOutputDir) throws IOException {
         // given a mojo configured for two groups, previewing a seed selection with two compiled
         // test classes staged under the project's test output directory
         TestMojo mojo = new TestMojo();
         mojo.tiaDistributedGroupCount = 2;
-        Path testOutputDir = Files.createTempDirectory("tia-seed-preview-test");
         Files.createFile(testOutputDir.resolve("ATest.class"));
         Files.createFile(testOutputDir.resolve("BTest.class"));
         mojo.testOutputDirectory = testOutputDir.toString();

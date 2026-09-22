@@ -283,7 +283,7 @@ class TiaBasePluginDistributedTest {
      * classes, with a two-group distributed shape configured, splits a seed selection ({@link
      * TestSelectorResult#isRunAllTests()} true) into two non-empty groups whose suite names union to
      * the two classes found on disk - proving {@link TiaBasePlugin#resolveTestClassesDirsCsv()} and
-     * {@link org.tiatesting.core.testrunner.TestClassScanner#scanTopLevelTestSuiteNames(String)} are
+     * {@link org.tiatesting.core.testrunner.TestClassScanner#scanTestSuiteNames(String)} are
      * wired into {@link TiaBasePlugin#buildDistributedGroupingIfConfigured} in place of the Stage 1
      * placeholder supplier.
      *

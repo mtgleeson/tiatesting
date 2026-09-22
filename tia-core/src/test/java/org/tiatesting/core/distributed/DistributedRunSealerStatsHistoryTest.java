@@ -715,6 +715,38 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>A nested test class's binary name is a tracked suite the seed scan must keep.</b> Tia
+     * tracks a JUnit5 {@code @Nested} suite by its binary name ({@code Outer$Nested}), and the
+     * seed-run disk scan keeps such {@code $} names rather than dropping them. This pins that a
+     * split seed run whose assignment and tracked map both carry a {@code $}-containing name still
+     * seals with nothing ignored and the full-suite baseline recorded - the case that would regress
+     * if the scan dropped inner and nested classes, leaving the tracked {@code Outer$Nested} absent
+     * from every group's assignment.
+     */
+    @Test
+    void aSplitSeedRunWithANestedBinaryNameSuiteIgnoresNothing() {
+        // given - a seed plan split across two groups, one carrying a plain suite and the other a
+        // @Nested-style binary name, both tracked by the seed run's own runners by seal time
+        seedTrackedSuitesNamed("com.example.ATest", "com.example.Outer$Nested");
+        persistPlanOfKind(RUN_ID, Arrays.asList(
+                Collections.singletonList("com.example.ATest"),
+                Collections.singletonList("com.example.Outer$Nested")), true);
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(0, entry.getNumSuitesIgnored(),
+                "a tracked @Nested binary-name suite present in the assignment must not be counted "
+                        + "as ignored");
+        assertEquals(1L, dataStore.getTiaCore().getTestStats().getNumAllTestsRuns(),
+                "the split seed run must still count as an all-tests run with a $-name suite");
+    }
+
+    /**
      * Suites the developer disabled in source do not hold the baseline back. They would not run
      * without Tia either, so a build that ran everything else still ran everything Tia could have
      * selected - the same rule the single-host ignored-count applies.
