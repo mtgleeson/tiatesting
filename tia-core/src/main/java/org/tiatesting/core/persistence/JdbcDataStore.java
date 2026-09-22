@@ -3830,9 +3830,12 @@ public class JdbcDataStore implements DataStore {
         String createTestSuitesFailedTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITES_FAILED + " " +
                 "(" + COL_TEST_SUITE_NAME + " VARCHAR(255) PRIMARY KEY)";
 
+        // method_name is declared unbounded (VARCHAR with no length) because it stores a method's
+        // full descriptor including its complete parameter-type list, which can exceed any fixed
+        // width for high-arity methods and constructors.
         String createSourceMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_METHOD + " " +
                 "(" + COL_ID + " INT PRIMARY KEY, " +
-                COL_METHOD_NAME + " VARCHAR(2000), " +
+                COL_METHOD_NAME + " VARCHAR, " +
                 COL_LINE_NUMBER_START + " INT, " +
                 COL_LINE_NUMBER_END + " INT)";
 
@@ -4352,6 +4355,9 @@ public class JdbcDataStore implements DataStore {
      * Build the DDL for the {@code tia_distributed_run_method_stage} table. Runners stage their
      * method trackers here so the sealer can write the method catalogue once, after the barrier.
      * Created alongside the other distributed-run tables so the schema is a single migration.
+     * The {@code method_name} column is declared unbounded (VARCHAR with no length) because a
+     * method descriptor includes its full parameter-type list and can exceed any fixed width for
+     * high-arity methods and constructors.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the method staging table
      */
@@ -4359,7 +4365,7 @@ public class JdbcDataStore implements DataStore {
         return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " ("
                 + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
                 + COL_ID + " INT NOT NULL, "
-                + COL_METHOD_NAME + " VARCHAR(2000), "
+                + COL_METHOD_NAME + " VARCHAR, "
                 + COL_LINE_NUMBER_START + " INT, "
                 + COL_LINE_NUMBER_END + " INT, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
