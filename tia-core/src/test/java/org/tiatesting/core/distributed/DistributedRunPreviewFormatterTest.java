@@ -152,6 +152,28 @@ class DistributedRunPreviewFormatterTest {
     }
 
     /**
+     * Verify a seed run's preview prints no ms figures at all in its "Groups:" line: the balancer's
+     * per-group weights for a seed run are a uniform 1ms device used only to divide suites evenly by
+     * count, not a real time estimate, so the average/heaviest ms wording must not appear.
+     */
+    @Test
+    void seedRunPreviewOmitsAverageAndHeaviestMsFigures() {
+        // given a seed run split across two groups, each carrying the balancer's uniform weight
+        List<SuiteGroup> groups = Arrays.asList(
+                new SuiteGroup(0, Collections.singletonList("com.example.ATest"), 1L),
+                new SuiteGroup(1, Collections.singletonList("com.example.BTest"), 1L));
+        GroupingResult result = new GroupingResult(groups, true, false, false, false);
+
+        // when
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+
+        // then
+        assertTrue(preview.contains("Groups: 2"), preview);
+        assertFalse(preview.contains("ms per group"), preview);
+        assertFalse(preview.contains("heaviest"), preview);
+    }
+
+    /**
      * Verify that a dynamic-groups preview whose heaviest group came in at or under the configured
      * target reports the target as met, with no lever lines.
      */
