@@ -242,7 +242,9 @@ public final class DistributedRunPlanSummary {
      *         verdict, since a seed run has no target to report - distinguishing a split seed,
      *         whose suites were discovered on disk and divided across the configured groups, from
      *         a fallback seed, which collapses to a single group covering the whole suite, by
-     *         whether {@link #getSelectedSuiteCount()} is greater than zero
+     *         whether {@link #getSelectedSuiteCount()} is greater than zero; a seed run's "Groups:"
+     *         line also omits the average-ms-per-group figure, since a seed run has no run-time
+     *         data to average
      */
     public String toConsoleSummary() {
         StringBuilder summary = new StringBuilder();
@@ -261,8 +263,14 @@ public final class DistributedRunPlanSummary {
                         .append("the mapping; the next build will plan normally.\n");
             }
         }
-        summary.append("  Groups: ").append(groupCount)
-                .append(", average ").append(avgGroupMs).append("ms per group\n");
+        // A seed run has no run-time data at all - its groups were split by even suite count, not
+        // by duration - so avgGroupMs (0 from item 1's zeroing) is meaningless and is omitted rather
+        // than printed as if it were a measured average.
+        summary.append("  Groups: ").append(groupCount);
+        if (!seedRun) {
+            summary.append(", average ").append(avgGroupMs).append("ms per group");
+        }
+        summary.append("\n");
         if (!seedRun) {
             summary.append(DistributedRunDurations.format(heaviestGroupMs, totalEstimatedMs, "\n"))
                     .append("\n");

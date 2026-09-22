@@ -44,6 +44,9 @@ public final class DistributedRunPreviewFormatter {
      * happened would be misleading. Which of the two the line describes is decided by summing
      * {@link SuiteGroup#getSuiteNames()} size across {@link GroupingResult#getGroups()}: greater
      * than zero means suites were found and split, zero means the fallback single empty group.
+     * The "Groups:" line itself also drops the average/heaviest ms figures for a seed run, since
+     * {@code result}'s per-group weights are an even-count split device with no real timing
+     * information behind them - see {@link DistributedRunPlanner}'s {@code seedGroupingResult}.
      *
      * @param result the balancer's grouping result to describe; nothing about it is persisted by
      *               this method or by the caller previewing it
@@ -83,9 +86,14 @@ public final class DistributedRunPreviewFormatter {
                         .append(lineSep);
             }
         }
-        preview.append("  Groups: ").append(result.getGroupCount())
-                .append(", average ").append(avgGroupMs)
-                .append("ms per group, heaviest ").append(result.getHeaviestGroupMs()).append("ms");
+        // A seed run has no run-time data at all - its groups were split by even suite count, not
+        // by duration - so the average/heaviest ms figures are meaningless and are omitted rather
+        // than printed as if they were measured.
+        preview.append("  Groups: ").append(result.getGroupCount());
+        if (!seedRun) {
+            preview.append(", average ").append(avgGroupMs)
+                    .append("ms per group, heaviest ").append(result.getHeaviestGroupMs()).append("ms");
+        }
 
         if (!seedRun) {
             if (targetRunTimeMs == null) {
