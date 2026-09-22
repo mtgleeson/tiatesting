@@ -251,6 +251,39 @@ class DistributedRunStatusReportTest {
     }
 
     /**
+     * Verify a split seed's groups - suites discovered on disk and divided across the groups, not
+     * collapsed to a single empty one - render like any other group's: a real assigned count and
+     * real observed progress, never {@code all} or {@code n/a}. This is the behaviour fix: gating
+     * the rendering on {@code run.isSeedRun()} globally used to render every group of a split seed
+     * as {@code all}/{@code n/a} too, even though its groups carry real suite names.
+     */
+    @Test
+    void shouldReportASplitSeedsGroupsWithRealCountsRatherThanAllOrNA() {
+        // given - a split seed: two groups, each carrying real suite names, flagged as a seed run
+        persistPlan("build-1", "commit-abc", twoGroups(), true);
+        dataStore.claimNextPendingGroup("build-1", "runner-b", NOW_MS - 30_000L);
+        dataStore.reportGroupProgress("build-1", 0, "runner-b", 5_000L, 1, 0, 1, 4_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", true, NOW_MS, LINE_SEP);
+
+        // then - the run-level note uses the split wording, and the claimed group reports its real
+        // assigned and observed counts rather than the fallback seed's all/n/a
+        assertTrue(report.contains("Seed run:   yes"), report);
+        assertTrue(report.contains("its suites were discovered on disk and split across the groups"),
+                report);
+        assertTrue(report.contains("Group 0: CLAIMED by 'runner-b' (running for 30s)"), report);
+        assertTrue(report.contains("observed 1 of 2 assigned suite(s)."), report);
+        assertFalse(report.contains("working through every suite it discovers"), report);
+        assertFalse(report.contains("| all "), "a split seed's group should not render 'all': " + report);
+        assertFalse(report.contains("n/a"), "a split seed's group should not render 'n/a': " + report);
+        assertTrue(report.contains("Group 0 (2):"), report);
+        assertTrue(report.contains("com.example.ATest"), report);
+        assertTrue(report.contains("Group 1 (1):"), report);
+        assertTrue(report.contains("com.example.CTest"), report);
+    }
+
+    /**
      * Verify a nothing-impacted run - whose single group is just as empty as a seed run's, but which
      * is not flagged as one - reports its assigned count as the literal 0. This is the trap the seed
      * flag exists for: the two runs have identical group shapes, and only the persisted flag
