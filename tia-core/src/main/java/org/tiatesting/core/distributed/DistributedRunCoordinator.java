@@ -144,9 +144,13 @@ public final class DistributedRunCoordinator {
      * would be absent from every runner's ignore list and every runner would run it - turning one
      * new suite into as many duplicate executions as there are groups.
      *
-     * <p>A seed run needs no special case. One group, no suites in the plan, nothing tracked: the
-     * union is empty and so is the result, so the single runner runs the whole suite and records
-     * the mapping the next build plans from.
+     * <p>A seed run needs no special case, and the same math covers both of its shapes. A split
+     * seed's groups carry real suite names - suites discovered on disk and divided across the
+     * groups - so the union-minus-my-group arithmetic gives each runner exactly its own slice, the
+     * same as it would for any other run. A fallback seed - nothing found on disk, or no group
+     * count applied - has one group, no suites in the plan, and nothing tracked yet: the union is
+     * empty and so is the result, so its single runner runs the whole suite and records the mapping
+     * the next build plans from.
      *
      * <p>A surplus runner needs no special case either, only an explicit one: passing a null group
      * number subtracts nothing, so the union itself is the ignore list and the runner executes

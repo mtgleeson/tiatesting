@@ -261,17 +261,17 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                     config, workspaceIdentity.getCommitValue(), System.currentTimeMillis());
 
             if (assignment.isClaimed()){
-                // A seed run's group deliberately carries no suite names - there is no mapping yet
-                // to split - and its runner ignores nothing and executes everything it discovers.
-                // Reporting the assigned count there would say "will run 0 test suite(s)" about the
-                // one run that executes the entire suite.
+                // A seed run can still carry real suite names: when suites are discovered on disk
+                // they are split across the groups by even count, and this runner's testsToRun then
+                // holds its real slice. Only a fallback seed - nothing found on disk, or no group
+                // count applied - collapses to a single group carrying no suite names, whose runner
+                // ignores nothing and executes everything it discovers. Reporting the assigned
+                // count for that group would say "will run 0 test suite(s)" about the one run that
+                // executes the entire suite. See seedRunClaimLogMessage for the exact wording of
+                // each case.
                 if (assignment.isSeedRun()){
-                    getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
-                            + assignment.getRunnerKey() + "' claimed group "
-                            + assignment.getGroupNumber() + ". This is a seed run - there is no "
-                            + "stored mapping for this branch yet, so the plan carries no suite "
-                            + "names and this runner will execute every test it discovers and "
-                            + "record the mapping the next build plans from.");
+                    getLog().info(seedRunClaimLogMessage(config.getRunId(), assignment.getRunnerKey(),
+                            assignment.getGroupNumber(), assignment.getTestsToRun().size()));
                 } else {
                     getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
                             + assignment.getRunnerKey() + "' claimed group "
@@ -289,6 +289,40 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             throw new MojoExecutionException("This runner could not claim its share of the "
                     + "distributed test run: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Build the INFO message logged when this runner claims a group of a seed run, naming which of
+     * the two seed shapes applies. A split seed's claimed group carries real suite names -
+     * discovered on disk and divided across the groups - so this runner reports the number it will
+     * run, same as an ordinary claim. A fallback seed's single group carries no suite names, so
+     * reporting the assigned count would say "will run 0 test suite(s)" about the one run that
+     * executes the entire suite - it gets its own wording instead. Extracted from {@link
+     * #claimDistributedRunGroup(WorkspaceIdentity)} as a small, package-private, pure function so
+     * the exact text of each branch can be asserted directly by a unit test rather than only
+     * observed in console output.
+     *
+     * @param runId the distributed run's shared identifier
+     * @param runnerKey the identity this runner claimed under
+     * @param groupNumber the group number this runner claimed
+     * @param assignedSuiteCount the number of suites this runner's claimed group carries; greater
+     *                           than zero for a split seed, zero for a fallback seed
+     * @return the message to log at INFO for this runner's seed-run claim
+     */
+    static String seedRunClaimLogMessage(String runId, String runnerKey, int groupNumber,
+                                          int assignedSuiteCount) {
+        if (assignedSuiteCount == 0) {
+            return "Tia distributed run '" + runId + "': runner '" + runnerKey + "' claimed group "
+                    + groupNumber + ". This is a seed run - there is no "
+                    + "stored mapping for this branch yet, so the plan carries no suite "
+                    + "names and this runner will execute every test it discovers and "
+                    + "record the mapping the next build plans from.";
+        }
+        return "Tia distributed run '" + runId + "': runner '" + runnerKey + "' claimed group "
+                + groupNumber + " and will run " + assignedSuiteCount + " test suite(s). This is a seed "
+                + "run - no stored mapping for this branch yet, so its suites were "
+                + "discovered on disk and split across the groups; together the groups "
+                + "record the mapping the next build plans from.";
     }
 
     /**
