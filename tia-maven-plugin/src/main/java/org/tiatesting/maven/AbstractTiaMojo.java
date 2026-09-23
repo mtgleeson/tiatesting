@@ -296,8 +296,10 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Whether this build participates in a distributed test run: the tests Tia selects are split
      * into groups and persisted to a shared database instead of all running in this one build.
-     * Distributed runs require a shared datastore ({@link #tiaDBUrl}) and {@link
-     * #tiaCheckLocalChanges} disabled - see {@code DistributedRunPreconditions} in {@code tia-core}.
+     * Distributed runs require a shared datastore ({@link #tiaDBUrl}), and reject {@link
+     * #tiaCheckLocalChanges} only when {@link #tiaUpdateDBMapping} is also on (checking local
+     * changes is allowed when the run does not update the mapping) - see {@code
+     * DistributedRunPreconditions} in {@code tia-core}.
      */
     @Parameter(property = "tiaDistributed")
     boolean tiaDistributed;

@@ -755,7 +755,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         // applyTo's isTiaEnabled branch.
         DistributedRunPreconditions.check(true, plugin.getReactorProjects().size(),
                 plugin.getDbUrl(), plugin.getDbDialect(),
-                Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges()));
+                Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges()),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
         refuseATestTaskThatForksMoreThanOneJvm(testTask);
 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
