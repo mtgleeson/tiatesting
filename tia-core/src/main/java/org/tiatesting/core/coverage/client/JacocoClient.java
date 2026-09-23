@@ -1,6 +1,7 @@
 package org.tiatesting.core.coverage.client;
 
 import org.jacoco.core.analysis.*;
+import org.jacoco.core.data.ExecutionData;
 import org.jacoco.core.data.ExecutionDataStore;
 import org.jacoco.core.data.SessionInfoStore;
 import org.jacoco.core.runtime.RemoteControlReader;
@@ -14,15 +15,18 @@ import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.sourcefile.FileExtensions;
 import org.tiatesting.core.util.StringUtil;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
 public class JacocoClient {
@@ -32,7 +36,29 @@ public class JacocoClient {
     private static final String ADDRESS = "localhost";
     private static final int PORT = 6300;
 
-    private final List<File> classfiles = new ArrayList<>();
+    /**
+     * Reads the bytecode for one class on demand. Backed either by a {@code .class} file on disk or
+     * a class entry inside a library jar. Kept lazy so that per-suite coverage collection only reads
+     * the handful of classes a suite actually executed, rather than holding every class' bytes in
+     * memory for the JVM's lifetime.
+     */
+    @FunctionalInterface
+    private interface ClassBytesSource {
+        /**
+         * Reads and returns this class' raw bytecode.
+         *
+         * @return the class file bytes
+         * @throws IOException if the underlying file or jar entry cannot be read
+         */
+        byte[] read() throws IOException;
+    }
+
+    /**
+     * Index from VM class name (e.g. {@code org/foo/Bar}) to a lazy source for that class' bytecode.
+     * Built once in {@link #initialize()} from the configured class dirs and library jars, then used
+     * by {@link #analyze(ExecutionDataStore)} to look up only the classes that were executed.
+     */
+    private final Map<String, ClassBytesSource> classBytesByVmName = new HashMap<>();
     private String name = "TIA Client Coverage Bundle";
 
     public JacocoClient(){
@@ -40,7 +66,7 @@ public class JacocoClient {
 
     public void initialize(){
         loadClasses();
-        log.debug("classes size: " + this.classfiles.size());
+        log.debug("classes size: " + this.classBytesByVmName.size());
 
         try {
             // collect & dump any existing coverage metrics
@@ -85,7 +111,17 @@ public class JacocoClient {
         return coverageResult;
     }
 
-    private CoverageResult collectMethodsCalled(IBundleCoverage bundleCoverage){
+    /**
+     * Walks a coverage bundle and builds the {@link CoverageResult} for a suite: the per-source-file
+     * {@link ClassImpactTracker}s (with the ids of the methods that have line coverage) and the
+     * catalogue of every method in the covered classes. Only classes and methods with line coverage
+     * are recorded, so a bundle built from the scoped {@link #analyze(ExecutionDataStore)} yields the
+     * same result as one built from a full-classpath analysis.
+     *
+     * @param bundleCoverage the coverage bundle for the executed classes
+     * @return the coverage result for the suite
+     */
+    CoverageResult collectMethodsCalled(IBundleCoverage bundleCoverage){
         CoverageResult coverageResult = new CoverageResult();
         // track classes by source name - we could have multiple coverage results for the same class when there are nested and inner classes.
         // we want to combine these into one class impact tracker for the source file.
@@ -134,11 +170,33 @@ public class JacocoClient {
         return counter.getMissedCount() < counter.getTotalCount();
     }
 
-    private IBundleCoverage analyze(final ExecutionDataStore data) throws IOException {
+    /**
+     * Builds the coverage bundle for a suite by analyzing only the classes that were actually
+     * executed. The dumped {@code ExecutionDataStore} holds one {@link ExecutionData} per executed
+     * class (the dump command resets the agent, so this is the delta since the previous suite), so
+     * we look each executed class' bytecode up in {@link #classBytesByVmName} and analyze just those
+     * rather than re-parsing every class on the classpath. Classes with no execution data produce no
+     * coverage and were discarded downstream anyway, so the resulting bundle is equivalent to a
+     * full-classpath analysis - it just skips the parsing work for classes the suite never touched.
+     *
+     * @param data the execution data dumped from the coverage agent for the finished suite
+     * @return the coverage bundle covering the executed classes
+     * @throws IOException if an executed class' bytecode cannot be read
+     */
+    IBundleCoverage analyze(final ExecutionDataStore data) throws IOException {
         final CoverageBuilder builder = new CoverageBuilder();
         final Analyzer analyzer = new Analyzer(data, builder);
-        for (final File f : classfiles) {
-            analyzer.analyzeAll(f);
+        for (final ExecutionData executionData : data.getContents()) {
+            final ClassBytesSource source = classBytesByVmName.get(executionData.getName());
+            if (source == null) {
+                log.trace("Executed class {} not found in the configured class dirs/jars; skipping",
+                        executionData.getName());
+                continue;
+            }
+            // Analyzer correlates by the class id (CRC of these bytes), so passing the executed
+            // class' current bytecode reproduces today's name+id matching; a stale class still
+            // surfaces via getNoMatchClasses() exactly as before.
+            analyzer.analyzeClass(source.read(), executionData.getName());
         }
         printNoMatchWarning(builder.getNoMatchClasses());
         return builder.getBundle(name);
@@ -166,27 +224,55 @@ public class JacocoClient {
         return count;
     }
 
-    private void loadClasses(){
+    /**
+     * Builds the {@link #classBytesByVmName} index from the configured class dirs
+     * ({@code tiaClassFilesDirs}) and any library jars ({@code tiaLibraryJars}). Only class names and
+     * their byte sources are recorded here; the bytecode itself is read lazily per suite, so this is
+     * cheap regardless of how many classes are on the classpath.
+     */
+    void loadClasses(){
         String classesDirsStr = System.getProperty("tiaClassFilesDirs");
-        List<String> classesDirs = classesDirsStr != null ? Arrays.asList(classesDirsStr.split(",")) : null;
+        List<String> classesDirs = classesDirsStr != null ? new ArrayList<>(Arrays.asList(classesDirsStr.split(","))) : null;
         StringUtil.sanitizeInputArray(classesDirs);
-        String classExtension = "." + FileExtensions.CLASS_FILE_EXT;
 
         for (String classesDir: classesDirs){
-            classesDir = getProjectDir() + classesDir;
-            List<File> classFiles = loadFiles(classesDir, classExtension);
-            this.classfiles.addAll(classFiles);
+            indexClassDir(getProjectDir() + classesDir);
         }
 
         loadLibraryJars();
     }
 
     /**
+     * Indexes every {@code .class} file under a directory into {@link #classBytesByVmName}, keyed by
+     * VM class name (the path relative to the directory root with the {@code .class} suffix removed
+     * and file separators normalised to {@code /}). Each entry reads its bytes lazily from disk.
+     *
+     * @param classesDir the compiled-classes directory to walk
+     */
+    private void indexClassDir(final String classesDir){
+        final String classExtension = "." + FileExtensions.CLASS_FILE_EXT;
+        final Path root = Paths.get(classesDir);
+
+        try (Stream<Path> paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(classExtension))
+                    .forEach(p -> {
+                        final File file = p.toFile();
+                        String relative = root.relativize(p).toString().replace(File.separatorChar, '/');
+                        String vmName = relative.substring(0, relative.length() - classExtension.length());
+                        classBytesByVmName.put(vmName, () -> Files.readAllBytes(file.toPath()));
+                    });
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * Load any library JARs declared via the {@code tiaLibraryJars} system property (comma-separated
-     * absolute paths). Each JAR is added directly to the {@link #classfiles} list — JaCoCo's
-     * {@code Analyzer.analyzeAll(File)} handles JAR files natively by reading the {@code .class}
-     * entries inside. The paths are not prefixed with the TIA project dir because they are
-     * expected to be absolute paths into the local Maven/Gradle artifact cache.
+     * absolute paths). Each jar's {@code .class} entries are indexed into {@link #classBytesByVmName}
+     * by VM class name, reading the entry bytes lazily when the class is actually executed. The paths
+     * are not prefixed with the TIA project dir because they are expected to be absolute paths into
+     * the local Maven/Gradle artifact cache.
      */
     private void loadLibraryJars(){
         String libraryJarsStr = System.getProperty("tiaLibraryJars");
@@ -203,31 +289,81 @@ public class JacocoClient {
             }
             File jarFile = new File(jarPath);
             if (jarFile.isFile()){
-                this.classfiles.add(jarFile);
-                log.debug("Adding library JAR to the JacocoClient classfiles: " + jarPath);
+                indexJar(jarFile);
+                log.debug("Indexing library JAR for the JacocoClient: " + jarPath);
             } else {
                 log.warn("tiaLibraryJars entry not found, skipping: " + jarPath);
             }
         }
     }
 
-    private String getProjectDir(){
-        return System.getProperty("tiaProjectDir");
+    /**
+     * Indexes every {@code .class} entry in a jar into {@link #classBytesByVmName}, keyed by VM class
+     * name (the entry name with the {@code .class} suffix removed). Each entry reads its bytes lazily
+     * from the jar when the class is executed, so touched library classes are read on demand rather
+     * than eagerly loading the whole jar into memory.
+     *
+     * @param jar the library jar to index
+     */
+    private void indexJar(final File jar){
+        final String classExtension = "." + FileExtensions.CLASS_FILE_EXT;
+
+        try (JarFile jarFile = new JarFile(jar)) {
+            Enumeration<JarEntry> entries = jarFile.entries();
+            while (entries.hasMoreElements()){
+                JarEntry entry = entries.nextElement();
+                if (entry.isDirectory() || !entry.getName().toLowerCase().endsWith(classExtension)){
+                    continue;
+                }
+                final String entryName = entry.getName();
+                String vmName = entryName.substring(0, entryName.length() - classExtension.length());
+                classBytesByVmName.put(vmName, () -> readJarEntry(jar, entryName));
+            }
+        } catch (IOException e) {
+            log.warn("Failed to index library JAR, skipping: " + jar.getAbsolutePath(), e);
+        }
     }
 
-    private List<File> loadFiles(String systemPropertyDirectory, String fileExtension){
-        List<File> filteredFiles = new ArrayList<>();
-
-        try (Stream<Path> paths = Files.walk(Paths.get(systemPropertyDirectory))) {
-            filteredFiles = paths.filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(fileExtension))
-                    .map( path -> path.toFile())
-                    .collect(Collectors.toList());
-        } catch (IOException e) {
-            e.printStackTrace();
+    /**
+     * Reads the bytecode for a single class entry from a jar. Opened per read; only the few library
+     * classes a suite executes are ever read, so this stays off the bulk hot path.
+     *
+     * @param jar the jar containing the entry
+     * @param entryName the full entry name (e.g. {@code org/foo/Bar.class})
+     * @return the entry's bytes
+     * @throws IOException if the jar or entry cannot be read, or the entry is missing
+     */
+    private byte[] readJarEntry(final File jar, final String entryName) throws IOException {
+        try (JarFile jarFile = new JarFile(jar)) {
+            JarEntry entry = jarFile.getJarEntry(entryName);
+            if (entry == null){
+                throw new IOException("Entry " + entryName + " not found in jar " + jar.getAbsolutePath());
+            }
+            try (InputStream in = jarFile.getInputStream(entry)) {
+                return readAllBytes(in);
+            }
         }
+    }
 
-        return filteredFiles;
+    /**
+     * Reads an input stream fully into a byte array.
+     *
+     * @param in the stream to drain
+     * @return the stream's bytes
+     * @throws IOException if reading fails
+     */
+    private byte[] readAllBytes(final InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = in.read(buffer)) != -1){
+            out.write(buffer, 0, read);
+        }
+        return out.toByteArray();
+    }
+
+    private String getProjectDir(){
+        return System.getProperty("tiaProjectDir");
     }
 
 }
