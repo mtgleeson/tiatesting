@@ -69,6 +69,76 @@ class HtmlHistoryDetailReportTest {
                 "timestamp should carry the entry's epoch ms. Output:\n" + html);
     }
 
+    /**
+     * A distributed run's summary shows both its times, both its savings and the groups it used
+     * against the groups it had available.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_distributedRun_rendersBothTimesBothSavingsAndTheGroups(@TempDir File tempDir)
+            throws Exception {
+        // given - 60s baseline; 1 of 6 groups used for 2s: 58s (97%) serial, 8s (80%) wall clock
+        TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
+                "ci-run-1", 1_700_000_000_000L, 3, 7, 0, 2_000L, true, 58_000L, 97, 8_000L, 80,
+                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+
+        // when
+        String html = generateAndRead(entry, tempDir);
+
+        // then
+        assertTrue(html.contains("Wall clock: 2s"), "should show the wall clock. Output:\n" + html);
+        assertTrue(html.contains("Serial duration: 2s"), "should show the serial duration. Output:\n" + html);
+        assertTrue(html.contains("Groups used: 1"), "should show the groups used. Output:\n" + html);
+        assertTrue(html.contains("Groups available: 6"), "should show the groups available. Output:\n" + html);
+        assertTrue(html.contains("Wall-clock savings: 8s (80%)"),
+                "should show the wall-clock savings. Output:\n" + html);
+        assertTrue(html.contains("Serial savings: 58s (97%)"),
+                "should show the serial savings. Output:\n" + html);
+    }
+
+    /**
+     * A single-host run's two savings are the same figure, and it has no groups to show.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_singleHostRun_rendersEqualSavingsAndDashedGroups(@TempDir File tempDir)
+            throws Exception {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+
+        // when
+        String html = generateAndRead(entry, tempDir);
+
+        // then
+        assertTrue(html.contains("Wall clock: 12s"), "the duration is the wall clock. Output:\n" + html);
+        assertTrue(html.contains("Groups used: -"), "no groups on a single host. Output:\n" + html);
+        assertTrue(html.contains("Groups available: -"), "no groups on a single host. Output:\n" + html);
+        assertTrue(html.contains("Wall-clock savings: 4s (25%)"), "Output:\n" + html);
+        assertTrue(html.contains("Serial savings: 4s (25%)"), "Output:\n" + html);
+    }
+
+    /**
+     * Generate one run's detail page into a temp directory and read it back as a string.
+     *
+     * @param entry the run the page describes
+     * @param tempDir the directory to write the report tree into
+     * @return the rendered HTML
+     * @throws Exception if the page cannot be written or read back
+     */
+    private String generateAndRead(TestRunHistoryEntry entry, File tempDir) throws Exception {
+        new HtmlHistoryDetailReport("html", tempDir)
+                .generateReport(entry, Collections.<TestRunTrigger>emptyList(), 0);
+        File page = new File(tempDir, "html" + File.separator + "html" + File.separator
+                + "history" + File.separator + entry.getId() + ".html");
+        return new String(Files.readAllBytes(page.toPath()));
+    }
+
     @Test
     void generateReport_rendersNoBreakdownNoteWhenNothingRecorded(@TempDir File tempDir) throws Exception {
         // given - an entry with no triggers and no selection counters recorded at all

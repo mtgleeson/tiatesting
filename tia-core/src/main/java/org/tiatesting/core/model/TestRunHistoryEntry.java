@@ -369,6 +369,18 @@ public final class TestRunHistoryEntry implements Serializable {
      */
     public Long getWallClockMs() { return wallClockMs; }
 
+    /**
+     * How long the run took end to end, whichever mode it ran in: the slowest group for a
+     * distributed build, and the duration for a single-host run, whose one machine makes its
+     * duration its wall clock. This is the time the reports show and chart, and what {@link
+     * #getWallClockSavingsMs()} was measured from.
+     *
+     * @return the run's wall-clock time in ms
+     */
+    public long getRunWallClockMs() {
+        return wallClockMs != null ? wallClockMs.longValue() : durationMs;
+    }
+
     /** @return the number of groups the distributed build was split across, or null when single-host */
     public Integer getGroupCount() { return groupCount; }
 
