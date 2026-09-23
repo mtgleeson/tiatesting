@@ -49,11 +49,22 @@ import java.util.List;
  * DataStoreFactory#isSharedDatabase(String, String)} is the single source of truth for what counts
  * as shared, kept next to {@link DataStoreFactory#fromConfig} so the two cannot disagree.
  *
- * <p>Rule 3 - {@code tiaCheckLocalChanges} must be off. A distributed run is a primary build
- * diffing a committed baseline, and the whole design rests on every runner producing line numbers
- * for the same commit. Uncommitted local changes make that false per-runner: two runners with
- * different working-copy edits would compute different line numbers for the same source file
- * against the same commit, corrupting the shared plan they are meant to agree on.
+ * <p>Rule 3 - {@code tiaCheckLocalChanges} and {@code tiaUpdateDBMapping} must not both be on. A
+ * distributed run selects its tests once, at plan time, and persists the plan; each runner then
+ * claims a group and runs the suite names assigned to it without diffing again, so a runner never
+ * computes line numbers of its own and divergent working copies cannot corrupt the plan. The real
+ * hazard is at seal time: when the run collects coverage ({@code tiaUpdateDBMapping} on) each
+ * runner stages a fresh method-to-line mapping for its suites, and the sealer folds that into the
+ * mapping keyed to the committed baseline. Coverage measured against uncommitted local edits would
+ * then be stored as if it belonged to the commit, silently poisoning every later build's selection.
+ * So local-change checking is allowed for a distributed run that does not update the mapping - a
+ * build that only wants to fan test execution out across runners against uncommitted changes - and
+ * rejected only when it would write that mapping. This is the same committed-baseline-only rule the
+ * non-distributed path enforces by silently disabling {@code tiaCheckLocalChanges} when {@code
+ * tiaUpdateDBMapping} is on; the distributed path fails fast instead, so a run that asked to test
+ * local changes never silently tests the committed baseline behind the user's back. Every runner
+ * must still have the same working copy checked out, which is an operational requirement of the
+ * pipeline, not something this precondition can verify.
  */
 public final class DistributedRunPreconditions {
 
@@ -63,11 +74,11 @@ public final class DistributedRunPreconditions {
     /**
      * Validate that a distributed run's environment can support runner coordination, checking
      * rule 1 (Tia enabled) before rule 4 (single-project build) before rule 2 (shared database)
-     * before rule 3 (local-changes checking off), so a configuration that breaks more than one
-     * rule fails on the most fundamental one - a disabled Tia makes every other question moot, a
-     * build that cannot be planned or claimed against at all (a multi-project reactor) makes the
-     * database and local-changes questions moot, and a database no runner can share makes the
-     * local-changes question moot.
+     * before rule 3 (local-change checking not combined with mapping updates), so a configuration
+     * that breaks more than one rule fails on the most fundamental one - a disabled Tia makes every
+     * other question moot, a build that cannot be planned or claimed against at all (a multi-project
+     * reactor) makes the database and local-changes questions moot, and a database no runner can
+     * share makes the local-changes question moot.
      *
      * @param tiaEnabled       the resolved value of {@code tiaEnabled}; must be true, since
      *                         the plan step opens the shared datastore and persists a claimable run
@@ -86,21 +97,31 @@ public final class DistributedRunPreconditions {
      *                         straight through to {@link DataStoreFactory#isSharedDatabase(String, String)}
      * @param dialectOverride  an explicit dialect id (e.g. {@code "h2"}), or {@code null}/blank to
      *                         infer the dialect from {@code dbUrl}
-     * @param checkLocalChanges the resolved value of {@code tiaCheckLocalChanges}; must be false
+     * @param checkLocalChanges the resolved value of {@code tiaCheckLocalChanges}; may be true only
+     *                          when {@code updateDBMapping} is false, since a run that both checks
+     *                          local changes and updates the mapping would store coverage of
+     *                          uncommitted edits against the committed baseline
+     * @param updateDBMapping  the resolved value of {@code tiaUpdateDBMapping}; when true it makes
+     *                          {@code checkLocalChanges} illegal for the reason above, and when
+     *                          false it lets a distributed run fan test execution out across runners
+     *                          against uncommitted local changes without writing the mapping
      * @throws IllegalStateException if {@code tiaEnabled} is false, naming {@code tiaEnabled} as
      *         the property to set; or if {@code projectCount} is more than 1, stating the project
      *         count and that multi-module distributed runs (planning or claiming) are not
      *         supported; or if the resolved
      *         datastore is embedded H2, naming server-mode H2 and Postgres as the options and {@code
-     *         tiaDBUrl} as the property that selects them; or if {@code checkLocalChanges} is true,
-     *         naming {@code tiaCheckLocalChanges}
+     *         tiaDBUrl} as the property that selects them; or if {@code checkLocalChanges} and
+     *         {@code updateDBMapping} are both true, naming both {@code tiaCheckLocalChanges} and
+     *         {@code tiaUpdateDBMapping} and stating that a distributed run may do one or the other
+     *         but not both
      * @throws IllegalArgumentException if {@link DataStoreFactory#isSharedDatabase(String, String)}
      *         cannot resolve a dialect for {@code dbUrl}/{@code dialectOverride} - see
      *         {@link DataStoreFactory#fromConfig}; this class does not catch it, so it propagates
      *         to the caller unchanged
      */
     public static void check(final boolean tiaEnabled, final int projectCount, final String dbUrl,
-                              final String dialectOverride, final boolean checkLocalChanges) {
+                              final String dialectOverride, final boolean checkLocalChanges,
+                              final boolean updateDBMapping) {
         if (!tiaEnabled) {
             throw new IllegalStateException(
                     "Distributed test runs require Tia to be enabled, but tiaEnabled is false - "
@@ -134,12 +155,16 @@ public final class DistributedRunPreconditions {
                             + "server-mode H2 URL (jdbc:h2:tcp://...) or a Postgres URL "
                             + "(jdbc:postgresql://...).");
         }
-        if (checkLocalChanges) {
+        if (checkLocalChanges && updateDBMapping) {
             throw new IllegalStateException(
-                    "Distributed test runs require every runner to diff the same committed baseline, "
-                            + "but tiaCheckLocalChanges is enabled - uncommitted local changes would make "
-                            + "each runner compute different line numbers for the same commit. Set "
-                            + "tiaCheckLocalChanges to false for a distributed run.");
+                    "Distributed test runs may check local changes or update the mapping database, "
+                            + "but not both - tiaCheckLocalChanges and tiaUpdateDBMapping are both "
+                            + "enabled. The run would measure coverage against uncommitted local edits "
+                            + "and store it against the committed baseline, poisoning every later "
+                            + "build's selection. Set tiaUpdateDBMapping to false to fan test "
+                            + "execution out across runners against your local changes, or set "
+                            + "tiaCheckLocalChanges to false to update the mapping from the committed "
+                            + "baseline.");
         }
     }
 

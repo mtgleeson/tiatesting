@@ -62,7 +62,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
         DistributedRunConfig config;
         try {
             DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
-                    getTiaDBDialect(), isTiaCheckLocalChanges());
+                    getTiaDBDialect(), isTiaCheckLocalChanges(), isTiaUpdateDBMapping());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
                     getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
                     getTiaDistributedRunnerKey());
@@ -89,8 +89,11 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
-            // isTiaCheckLocalChanges() is already guaranteed false here - DistributedRunPreconditions.check
-            // above rejects tiaCheckLocalChanges=true before this point is reached.
+            // The raw isTiaCheckLocalChanges() drives selection here. It can legitimately be true:
+            // DistributedRunPreconditions.check above rejects it only when tiaUpdateDBMapping is
+            // also on, so whenever this point is reached with local-change checking enabled the run
+            // is not updating the mapping and selecting against the local workspace is exactly what
+            // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
                     testFilesDirs, isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
                     isTiaUpdateDBMapping());

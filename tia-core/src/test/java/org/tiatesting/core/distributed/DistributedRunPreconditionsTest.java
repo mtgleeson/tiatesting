@@ -15,10 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Verifies {@link DistributedRunPreconditions#check}'s four rules that only the plugin layer can
  * enforce - Tia enabled, a single-project reactor, a shared database, and {@code
- * tiaCheckLocalChanges} disabled - and that the happy path throws nothing. Each rejection test
- * asserts on the exception message content, not just its type, because the whole point of naming
- * the user-facing property (or, for the reactor rule, the project count) in the message is
- * defeated if a test would pass just as well with a generic message.
+ * tiaCheckLocalChanges} not combined with {@code tiaUpdateDBMapping} - and that the happy paths
+ * throw nothing, including a distributed run that checks local changes while leaving the mapping
+ * untouched. Each rejection test asserts on the exception message content, not just its type,
+ * because the whole point of naming the user-facing property (or, for the reactor rule, the project
+ * count) in the message is defeated if a test would pass just as well with a generic message.
  */
 class DistributedRunPreconditionsTest {
 
@@ -35,7 +36,7 @@ class DistributedRunPreconditionsTest {
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(tiaEnabled, 1, dbUrl, null, false));
+                () -> DistributedRunPreconditions.check(tiaEnabled, 1, dbUrl, null, false, false));
 
         // then
         assertTrue(ex.getMessage().contains("tiaEnabled"),
@@ -59,7 +60,7 @@ class DistributedRunPreconditionsTest {
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 2, dbUrl, null, false));
+                () -> DistributedRunPreconditions.check(true, 2, dbUrl, null, false, false));
 
         // then
         String message = ex.getMessage();
@@ -81,7 +82,7 @@ class DistributedRunPreconditionsTest {
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false));
+                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false, false));
 
         // then
         String message = ex.getMessage();
@@ -104,7 +105,7 @@ class DistributedRunPreconditionsTest {
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false));
+                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false, false));
 
         // then
         String message = ex.getMessage();
@@ -114,25 +115,45 @@ class DistributedRunPreconditionsTest {
     }
 
     /**
-     * Verifies that {@code checkLocalChanges=true} is rejected even when Tia is enabled, the
-     * reactor is single-project, and the database is shared, and that the message names {@code
-     * tiaCheckLocalChanges}, so a user reading the failure knows exactly which setting broke the
-     * every-runner-diffs-the-same-commit assumption.
+     * Verifies that {@code checkLocalChanges=true} together with {@code updateDBMapping=true} is
+     * rejected even when Tia is enabled, the reactor is single-project, and the database is shared,
+     * and that the message names both {@code tiaCheckLocalChanges} and {@code tiaUpdateDBMapping},
+     * so a user reading the failure knows exactly which pair of settings would have folded coverage
+     * of uncommitted edits into the committed-baseline mapping.
      */
     @Test
-    void check_localChangesEnabled_throwsNamingCheckLocalChangesProperty() {
-        // given - Tia enabled, a single-project reactor, a shared (Postgres) database, but
-        // checkLocalChanges is on
+    void check_localChangesAndUpdateMappingBothEnabled_throwsNamingBothProperties() {
+        // given - Tia enabled, a single-project reactor, a shared (Postgres) database, but both
+        // checkLocalChanges and updateDBMapping are on
         String dbUrl = "jdbc:postgresql://localhost:5432/tiaperf";
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, true));
+                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, true, true));
 
         // then
         String message = ex.getMessage();
         assertTrue(message.contains("tiaCheckLocalChanges"),
                 "message should name tiaCheckLocalChanges, was: " + message);
+        assertTrue(message.contains("tiaUpdateDBMapping"),
+                "message should name tiaUpdateDBMapping, was: " + message);
+    }
+
+    /**
+     * Verifies that {@code checkLocalChanges=true} on its own - with {@code updateDBMapping=false} -
+     * throws nothing, so a distributed run may fan test execution out across runners against
+     * uncommitted local changes as long as it does not write the mapping. This is the case the
+     * relaxed rule 3 exists to allow, and the reason the rule guards the pair rather than {@code
+     * checkLocalChanges} alone.
+     */
+    @Test
+    void check_localChangesEnabledWithoutUpdateMapping_throwsNothing() {
+        // given - Tia enabled, a single-project reactor, a shared (Postgres) database,
+        // checkLocalChanges on but updateDBMapping off
+        String dbUrl = "jdbc:postgresql://localhost:5432/tiaperf";
+
+        // when / then
+        assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, true, false));
     }
 
     /**
@@ -155,7 +176,7 @@ class DistributedRunPreconditionsTest {
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 2, dbUrl, null, false));
+                () -> DistributedRunPreconditions.check(true, 2, dbUrl, null, false, false));
 
         // then
         String message = ex.getMessage();
@@ -167,21 +188,22 @@ class DistributedRunPreconditionsTest {
     }
 
     /**
-     * Verifies that an embedded H2 configuration with {@code checkLocalChanges=true} - both of the
-     * remaining rules broken at once, with Tia enabled and a single-project reactor - fails on the
-     * shared-database rule, since that is the first check {@link DistributedRunPreconditions#check}
-     * performs once Tia is confirmed enabled and the reactor is confirmed single-project. The
-     * message a user sees should not depend on which rule happens to be checked last.
+     * Verifies that an embedded H2 configuration with {@code checkLocalChanges=true} and {@code
+     * updateDBMapping=true} - both of the remaining rules broken at once, with Tia enabled and a
+     * single-project reactor - fails on the shared-database rule, since that is the first check
+     * {@link DistributedRunPreconditions#check} performs once Tia is confirmed enabled and the
+     * reactor is confirmed single-project. The message a user sees should not depend on which rule
+     * happens to be checked last.
      */
     @Test
     void check_bothRemainingRulesBroken_throwsNamingSharedDatabaseFirst() {
-        // given - Tia enabled, a single-project reactor, but embedded H2 and checkLocalChanges
-        // both broken
+        // given - Tia enabled, a single-project reactor, but embedded H2 and the
+        // checkLocalChanges/updateDBMapping pair both broken
         String dbUrl = null;
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, true));
+                () -> DistributedRunPreconditions.check(true, 1, dbUrl, null, true, true));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDBUrl"),
@@ -192,22 +214,22 @@ class DistributedRunPreconditionsTest {
 
     /**
      * Verifies that {@code tiaEnabled=false} together with a multi-project reactor, an embedded H2
-     * database and {@code checkLocalChanges=true} - all four rules broken at once - fails on the
-     * disabled-Tia rule, since that is the very first check {@link
-     * DistributedRunPreconditions#check} performs. A user who has disabled Tia should be told they
-     * are disabled rather than being told anything about their reactor shape, database, or
+     * database and both {@code checkLocalChanges=true} and {@code updateDBMapping=true} - all four
+     * rules broken at once - fails on the disabled-Tia rule, since that is the very first check
+     * {@link DistributedRunPreconditions#check} performs. A user who has disabled Tia should be told
+     * they are disabled rather than being told anything about their reactor shape, database, or
      * local-changes checking.
      */
     @Test
     void check_allRulesBroken_throwsNamingTiaEnabledFirst() {
-        // given - Tia disabled, a two-project reactor, embedded H2, and checkLocalChanges all
-        // broken at once
+        // given - Tia disabled, a two-project reactor, embedded H2, and the
+        // checkLocalChanges/updateDBMapping pair all broken at once
         boolean tiaEnabled = false;
         String dbUrl = null;
 
         // when
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> DistributedRunPreconditions.check(tiaEnabled, 2, dbUrl, null, true));
+                () -> DistributedRunPreconditions.check(tiaEnabled, 2, dbUrl, null, true, true));
 
         // then
         assertTrue(ex.getMessage().contains("tiaEnabled"),
@@ -226,7 +248,7 @@ class DistributedRunPreconditionsTest {
         String dbUrl = "jdbc:postgresql://localhost:5432/tiaperf";
 
         // when / then
-        assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false));
+        assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false, true));
     }
 
     /**
@@ -241,7 +263,7 @@ class DistributedRunPreconditionsTest {
         String dbUrl = "jdbc:h2:tcp://h2host:9092/tiadb";
 
         // when / then
-        assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false));
+        assertDoesNotThrow(() -> DistributedRunPreconditions.check(true, 1, dbUrl, null, false, true));
     }
 
     /**
