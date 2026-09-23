@@ -473,15 +473,16 @@ public final class DistributedRunPlanner {
      * @param seedRun whether this plan was collapsed to a seed run, recorded on the run row because
      *                the seal cannot tell a seed run's plan from a nothing-impacted one by its
      *                shape - see {@code DistributedRunSealer.ignoredSuiteCount}
-     * @return the validated plan, ready to persist
+     * @return the validated plan, ready to persist, with the groups available recorded on its run
+     *         row - see {@link #groupsAvailable}
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
                                             long createdAtMs, LibraryImpactDrainResult drainResult,
                                             boolean seedRun) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
-                result.getGroupCount(), targetRunTimeMs, result.getTotalEstimatedMs(), createdAtMs,
-                seedRun);
+                result.getGroupCount(), groupsAvailable(result.getGroupCount()), targetRunTimeMs,
+                result.getTotalEstimatedMs(), createdAtMs, seedRun);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
@@ -492,6 +493,27 @@ public final class DistributedRunPlanner {
         }
 
         return new DistributedRunPlan(run, groups, suitesByGroup, drainResult);
+    }
+
+    /**
+     * Work out how many groups this build had available, which is what its wall-clock savings are
+     * measured against: the full suite spread across every machine the build could have used, not
+     * just the ones this selection needed. Recorded at plan time because only the planner sees the
+     * configuration - the runner that later seals the build does not.
+     *
+     * <p>A fixed group count is its own answer. In target-run-time mode the configured maximum is
+     * the pool, and with no maximum there is no pool to speak of, so the groups the plan used
+     * stand in. The result never drops below the groups used, so a baseline can never be split
+     * across fewer machines than the build actually ran on. See the distributed test runs chapter
+     * in {@code WIKI.md}.
+     *
+     * @param plannedGroupCount the number of groups the balancer split this build into
+     * @return the number of groups available to this build; at least {@code plannedGroupCount}
+     */
+    private int groupsAvailable(int plannedGroupCount) {
+        Integer configured = config.getGroupCount() != null
+                ? config.getGroupCount() : config.getMaxGroups();
+        return configured == null ? plannedGroupCount : Math.max(configured, plannedGroupCount);
     }
 
     /**

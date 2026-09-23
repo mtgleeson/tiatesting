@@ -256,7 +256,8 @@ public final class DistributedRunSealer {
                     dataStore.readDistributedRunSelectionDetails(context.getRunId());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
-                    run.getCreatedAtMs(), ranNoExpectedSuites, selectionDetails);
+                    run.getGroupsAvailable(), run.getCreatedAtMs(), ranNoExpectedSuites,
+                    selectionDetails);
         }
     }
 
@@ -323,8 +324,10 @@ public final class DistributedRunSealer {
      * duration on the single-host rows either side of it and the savings frozen onto it stay
      * comparable with theirs - which is why it charges the runners' fixed per-JVM overhead once
      * rather than once per group; see {@link DistributedRunTotals}. The wall clock the build
-     * actually took is carried in its own column alongside. The row is stamped with the time the run was planned rather than with any runner's
-     * own start time, since that is the one timestamp every runner in the build shares.
+     * actually took is carried in its own column alongside, with its own wall-clock savings: the
+     * full-suite baseline spread across the groups available, minus that wall clock. The row is
+     * stamped with the time the run was planned rather than with any runner's own start time,
+     * since that is the one timestamp every runner in the build shares.
      *
      * <p>The row also carries the build's selection breakdown, copied from what the plan staged
      * for this run id: {@code selectionDetails}'s five scalar counters are folded into the entry
@@ -344,6 +347,8 @@ public final class DistributedRunSealer {
      * @param allTestsRun whether the groups between them ran every tracked suite, which is what
      *                    makes this build's savings zero
      * @param allTestsRunTimeMs the full-suite baseline to freeze this build's savings against
+     * @param groupsAvailable the groups the build had available, recorded on the run row at plan
+     *                        time; the wall-clock savings spread the baseline across them
      * @param runTimestampMs UTC epoch millis when the run's plan was written, read from the same
      *                       run row {@link #recordBuild} already read the commit and branch from,
      *                       so the row is read once per seal rather than once per figure
@@ -357,17 +362,25 @@ public final class DistributedRunSealer {
     private void persistBuildHistory(final String commitValue, final String branch,
                                      final boolean updateDBMapping, final DistributedRunTotals totals,
                                      final int ignoredSuiteCount, final boolean allTestsRun,
-                                     final long allTestsRunTimeMs, final long runTimestampMs,
+                                     final long allTestsRunTimeMs, final int groupsAvailable,
+                                     final long runTimestampMs,
                                      final boolean ranNoExpectedSuites,
                                      final TestRunSelectionDetails selectionDetails) {
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
                 totals.getSerialDurationMs(), allTestsRun || ranNoExpectedSuites);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
+        long wallClockAllTestsRunTimeMs =
+                ReportUtils.wallClockAllTestsRunTimeMs(allTestsRunTimeMs, groupsAvailable);
+        long wallClockSavingsMs = ReportUtils.runSavingsMs(wallClockAllTestsRunTimeMs,
+                totals.getWallClockMs(), allTestsRun || ranNoExpectedSuites);
+        int wallClockSavingsPercent =
+                (int) ReportUtils.percentOfTotal(wallClockSavingsMs, wallClockAllTestsRunTimeMs);
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(branch, commitValue,
                 context.getRunId(), runTimestampMs, totals.getSuitesRan(), ignoredSuiteCount,
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
-                timeSavingsMs, savingsPercent, totals.getWallClockMs(), totals.getGroupCount(),
+                timeSavingsMs, savingsPercent, wallClockSavingsMs, wallClockSavingsPercent,
+                totals.getWallClockMs(), totals.getGroupCount(), groupsAvailable,
                 RunEnvironment.distributedRunOrigin(), selectionDetails);
         dataStore.persistTestRunHistoryEntry(entry);
         // Best-effort: the row and its counters are already saved and the per-trigger rows are
@@ -383,10 +396,12 @@ public final class DistributedRunSealer {
 
         log.info("Distributed run '{}': recorded the build's history row {} (groups={}, ran={}, "
                         + "ignored={}, failed={}, serialMs={}, wallClockMs={}, "
-                        + "fixedOverheadChargedOnceMs={}, savingsMs={}).",
+                        + "fixedOverheadChargedOnceMs={}, savingsMs={}, groupsAvailable={}, "
+                        + "wallClockSavingsMs={}).",
                 context.getRunId(), entry.getId(), totals.getGroupCount(), totals.getSuitesRan(),
                 ignoredSuiteCount, totals.getSuitesFailed(), totals.getSerialDurationMs(),
-                totals.getWallClockMs(), totals.getFixedOverheadMs(), timeSavingsMs);
+                totals.getWallClockMs(), totals.getFixedOverheadMs(), timeSavingsMs,
+                groupsAvailable, wallClockSavingsMs);
     }
 
     /**

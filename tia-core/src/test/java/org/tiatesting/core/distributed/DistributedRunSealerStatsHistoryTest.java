@@ -225,6 +225,33 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * Wall-clock savings spread the full-suite baseline across every group the build had available,
+     * not just the ones it used, and subtract the build's wall clock. A 60s suite on a pool of six
+     * machines would take roughly 10s end to end, so a build that needed one group for 2s saved 8s
+     * of wall clock - while its serial savings are the full 58s of machine time.
+     */
+    @Test
+    void wallClockSavingsSpreadTheBaselineAcrossEveryGroupAvailable() {
+        // given - a 60s baseline, and a build that used 1 of 6 available groups for 2s
+        seedAllTestsBaseline(60_000L);
+        seedTrackedSuites(8, 0);
+        persistPlanWithGroupsAvailable(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)), 6,
+                false);
+        completeGroup(RUN_ID, 0, RUNNER_A, 2_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(Integer.valueOf(1), entry.getGroupCount());
+        assertEquals(Integer.valueOf(6), entry.getGroupsAvailable());
+        assertEquals(58_000L, entry.getTimeSavingsMs(), "serial savings: 60s - 2s");
+        assertEquals(8_000L, entry.getWallClockSavingsMs(), "wall-clock savings: 60s / 6 - 2s");
+        assertEquals(80, entry.getWallClockSavingsPercent(), "8s of the 10s spread baseline");
+    }
+
+    /**
      * The Tia-level stats are incremented once for the whole build, from the aggregated figures. No
      * runner writes them - the commit stamp and the stats share the core row and the stamp belongs
      * to the sealer - so if the sealer did not do this, a distributed build would silently record
@@ -440,6 +467,8 @@ class DistributedRunSealerStatsHistoryTest {
                 "an all-tests build ignored nothing");
         assertEquals(0L, dataStore.readTestRunHistory().get(0).getTimeSavingsMs(),
                 "an all-tests build saved nothing, so its savings are zero");
+        assertEquals(0L, dataStore.readTestRunHistory().get(0).getWallClockSavingsMs(),
+                "and it saved no wall clock either");
     }
 
     /**
@@ -907,7 +936,8 @@ class DistributedRunSealerStatsHistoryTest {
 
     /**
      * Build and persist a distributed run plan whose groups are assigned the given suite names,
-     * recording whether the planner produced it as a seed run.
+     * recording whether the planner produced it as a seed run. The run row records exactly the
+     * groups planned as available.
      *
      * @param runId the run identifier to plan under
      * @param suitesByGroup the suite names to assign, one list per group, in group-number order
@@ -915,6 +945,23 @@ class DistributedRunSealerStatsHistoryTest {
      */
     private void persistPlanOfKind(final String runId, final List<List<String>> suitesByGroup,
                                    final boolean seedRun) {
+        persistPlanWithGroupsAvailable(runId, suitesByGroup, suitesByGroup.size(), seedRun);
+    }
+
+    /**
+     * Build and persist a distributed run plan whose groups are assigned the given suite names,
+     * recording how many groups the build had available - which the wall-clock savings spread the
+     * baseline across - and whether the planner produced it as a seed run.
+     *
+     * @param runId the run identifier to plan under
+     * @param suitesByGroup the suite names to assign, one list per group, in group-number order
+     * @param groupsAvailable the groups the run row records as available, at least the number of
+     *                        groups in {@code suitesByGroup}
+     * @param seedRun whether the run row records this plan as a seed run
+     */
+    private void persistPlanWithGroupsAvailable(final String runId,
+                                                final List<List<String>> suitesByGroup,
+                                                final int groupsAvailable, final boolean seedRun) {
         int groupCount = suitesByGroup.size();
         List<DistributedRunGroup> groups = new ArrayList<>();
         Map<Integer, List<String>> suites = new HashMap<>();
@@ -923,7 +970,7 @@ class DistributedRunSealerStatsHistoryTest {
             suites.put(i, suitesByGroup.get(i));
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
+                DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupsAvailable, null,
                         1000L * groupCount, PLANNED_AT_MS, seedRun), groups, suites, null));
     }
 
@@ -1161,6 +1208,7 @@ class DistributedRunSealerStatsHistoryTest {
         assertNull(entry.getRunId(), "a single-host row names no distributed run");
         assertNull(entry.getWallClockMs(), "a single-host row has no separate wall clock");
         assertNull(entry.getGroupCount(), "a single-host row has no groups");
+        assertNull(entry.getGroupsAvailable(), "a single-host row has no groups available");
     }
 
     /**

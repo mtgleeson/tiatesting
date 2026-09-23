@@ -21,19 +21,23 @@ import java.util.List;
  * <pre>
  * Displaying the latest N test runs from a total of X
  *
- * Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Mapping  Id
- * -------------------  ------------  --------  ---  -------  ------  --------  -------  --------
- * 2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    yes      550e8400
+ * Date/time            Branch  Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+ * -------------------  ------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+ * 2026-05-15 09:30:42  main    abc123de   42        3       1  1m 23s      45s            35%  CI      yes      550e8400
  * ...
  * </pre>
+ *
+ * <p><b>Every time on the table is wall-clock time</b>: how long the run took end to end ({@link
+ * TestRunHistoryEntry#getRunWallClockMs()}) and how much end-to-end time Tia saved it ({@link
+ * TestRunHistoryEntry#getWallClockSavingsMs()}), so single-host and distributed rows read the same.
+ * The serial duration and serial savings are on the per-run detail view, {@link
+ * TestRunHistoryDetailConsoleFormatter}.
  *
  * <p><b>Two groups of columns appear only when they have something to say.</b> The table is already
  * wide, and a column that is a dash on every row costs width while telling the reader nothing:
  * <ul>
- *   <li>{@code Wall clock} and {@code Groups} appear when any row in view describes a distributed
- *       build. {@code Duration} keeps the serial-equivalent time in both modes, so it stays the
- *       figure savings are computed from and stays comparable across the two; single-host rows in a
- *       mixed history dash the two extra columns.</li>
+ *   <li>{@code Groups} appears when any row in view describes a distributed build; single-host
+ *       rows in a mixed history dash it.</li>
  *   <li>{@code Source} is always rendered - every recorded run resolves one. {@code Host} appears
  *       only when some row in view names a machine, so a history made up entirely of distributed
  *       builds does not carry a column that could only ever be dashes.</li>
@@ -155,7 +159,7 @@ public final class TestRunHistoryConsoleFormatter {
      * Assemble the columns for this render, including each optional group only when the rows in
      * view have something to put in it.
      *
-     * @param showDistributed whether to include the wall-clock and group-count columns
+     * @param showDistributed whether to include the group-count column
      * @param showHost whether to include the host column
      * @return the columns in display order
      */
@@ -169,23 +173,20 @@ public final class TestRunHistoryConsoleFormatter {
         columns.add(new Column("Ran", true, (e, zone) -> Integer.toString(e.getNumSuitesRan())));
         columns.add(new Column("Ignored", true, (e, zone) -> Integer.toString(e.getNumSuitesIgnored())));
         columns.add(new Column("Failed", true, (e, zone) -> Integer.toString(e.getNumSuitesFailed())));
-        columns.add(new Column("Duration", false, (e, zone) ->
-                ReportUtils.prettyDuration(e.getDurationMs(), true)));
+        columns.add(new Column("Wall clock", false, (e, zone) ->
+                ReportUtils.prettyDuration(e.getRunWallClockMs(), true)));
 
         if (showDistributed) {
-            // Dashed rather than zeroed on a single-host row, which would read as a build that took
-            // no time and used no groups.
-            columns.add(new Column("Wall clock", false, (e, zone) -> e.getWallClockMs() != null
-                    ? ReportUtils.prettyDuration(e.getWallClockMs().longValue(), true)
-                    : NOT_APPLICABLE));
+            // Dashed rather than zeroed on a single-host row, which would read as a build that
+            // used no groups.
             columns.add(new Column("Groups", true, (e, zone) -> e.getGroupCount() != null
                     ? e.getGroupCount().toString() : NOT_APPLICABLE));
         }
 
-        columns.add(new Column("Savings", false, (e, zone) -> e.getTimeSavingsMs() > 0
-                ? ReportUtils.prettyDuration(e.getTimeSavingsMs(), true) : NOT_APPLICABLE));
-        columns.add(new Column("Savings %", true, (e, zone) -> e.getTimeSavingsMs() > 0
-                ? e.getSavingsPercent() + "%" : NOT_APPLICABLE));
+        columns.add(new Column("Savings", false, (e, zone) -> e.getWallClockSavingsMs() > 0
+                ? ReportUtils.prettyDuration(e.getWallClockSavingsMs(), true) : NOT_APPLICABLE));
+        columns.add(new Column("Savings %", true, (e, zone) -> e.getWallClockSavingsMs() > 0
+                ? e.getWallClockSavingsPercent() + "%" : NOT_APPLICABLE));
 
         columns.add(new Column("Source", false, (e, zone) ->
                 orNotApplicable(e.getRunOrigin().getRunSource())));

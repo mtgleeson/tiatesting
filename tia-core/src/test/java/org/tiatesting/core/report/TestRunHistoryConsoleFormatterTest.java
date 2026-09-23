@@ -245,7 +245,7 @@ class TestRunHistoryConsoleFormatterTest {
         String expectedLocal = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
-                1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                1, 0, 0, 1000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
 
         // when
@@ -265,10 +265,10 @@ class TestRunHistoryConsoleFormatterTest {
     void savingsColumns_renderDurationPercentAndDashForZero() {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
-                10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                10, 0, 0, 5000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
 
         // when
@@ -284,15 +284,14 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * A history of single-host runs renders exactly the columns it always did. The two distributed
-     * columns would be a dash on every row of such a history, so they are left out rather than
-     * widening the table for every project that does not distribute its tests.
+     * A history of single-host runs shows each run's duration as its wall clock, and leaves out the
+     * Groups column, which would be a dash on every row of such a history.
      */
     @Test
-    void singleHostOnlyHistory_omitsTheDistributedColumns() {
+    void singleHostOnlyHistory_showsTheWallClockAndOmitsGroups() {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
-                8, 2, 0, 1000L, true, 4000L, 80, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
 
         // when
@@ -300,23 +299,28 @@ class TestRunHistoryConsoleFormatterTest {
                 Collections.singletonList(entry), 20, LF);
 
         // then
-        assertFalse(output.contains("Wall clock"),
-                "a history with no distributed runs should not carry a wall clock column. Output:\n" + output);
+        assertTrue(output.contains("Wall clock"),
+                "every history carries a wall clock column. Output:\n" + output);
+        assertFalse(output.contains("Duration"),
+                "the serial duration belongs on the detail view. Output:\n" + output);
+        assertTrue(output.split(LF, -1)[4].contains("1s"),
+                "a single-host run's duration is its wall clock. Output:\n" + output);
         assertFalse(output.contains("Groups"),
                 "a history with no distributed runs should not carry a groups column. Output:\n" + output);
     }
 
     /**
-     * A distributed run's row shows the wall clock the build actually took and how many groups it
-     * was split across, alongside - never instead of - the serial-equivalent duration that the
-     * Duration column carries and that savings are computed from.
+     * A distributed run's row shows the wall clock the build actually took, how many groups it was
+     * split across and its wall-clock savings - not the serial duration or serial savings, which
+     * are on the detail view.
      */
     @Test
-    void distributedRun_rendersTheWallClockAndGroupColumnsAlongsideTheDuration() {
-        // given - a build whose groups summed to 20s but which took 8s of wall clock across 3 groups
+    void distributedRun_rendersTheWallClockGroupsAndWallClockSavings() {
+        // given - 20s serial across 3 of 6 groups in 8s: 40s (67%) serial savings, 2s (20%) wall clock
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
-                "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+                "abc", 8, 2, 0, 20_000L, true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
+                Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -325,25 +329,27 @@ class TestRunHistoryConsoleFormatterTest {
         // then
         assertTrue(output.contains("Wall clock"), "header should include a Wall clock column. Output:\n" + output);
         assertTrue(output.contains("Groups"), "header should include a Groups column. Output:\n" + output);
-        assertTrue(output.contains("20s"), "the Duration column should show the serial-equivalent time. Output:\n" + output);
-        assertTrue(output.contains("8s"), "the Wall clock column should show the build's actual time. Output:\n" + output);
-        String[] lines = output.split(LF, -1);
-        assertTrue(lines[4].contains("3"), "the Groups column should show the group count. Row: " + lines[4]);
+        String row = output.split(LF, -1)[4];
+        assertTrue(row.contains("8s"), "the Wall clock column should show the build's actual time. Row: " + row);
+        assertTrue(row.contains(" 3 "), "the Groups column should show the groups used. Row: " + row);
+        assertTrue(row.contains("2s") && row.contains("20%"),
+                "the Savings columns should show the wall-clock savings. Row: " + row);
+        assertFalse(row.contains("20s") || row.contains("40s") || row.contains("67%"),
+                "the serial duration and savings belong on the detail view. Row: " + row);
     }
 
     /**
-     * When a history mixes the two modes, the single-host rows show a dash in the distributed
-     * columns rather than a misleading zero - they had no wall clock separate from their duration
-     * and no groups at all.
+     * When a history mixes the two modes, the single-host rows show a dash in the Groups column
+     * rather than a misleading zero - they had no groups at all.
      */
     @Test
     void mixedHistory_showsADashInTheDistributedColumnsForSingleHostRows() {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
-                "abc", 8, 2, 0, 20_000L, true, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+                "abc", 8, 2, 0, 20_000L, true, 4000L, 80, 4000L, 80, "run-1", Long.valueOf(8_000L),
+                Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
         TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
-                "abc", 10, 0, 0, 5000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
 
         // when
@@ -354,7 +360,7 @@ class TestRunHistoryConsoleFormatterTest {
         String[] lines = output.split(LF, -1);
         String singleHostRow = lines[5];
         assertTrue(singleHostRow.contains("-"),
-                "the single-host row should show a dash for the distributed columns. Row: " + singleHostRow);
+                "the single-host row should show a dash in the Groups column. Row: " + singleHostRow);
         assertFalse(singleHostRow.contains("run-1"),
                 "the single-host row belongs to no distributed run. Row: " + singleHostRow);
     }
@@ -501,7 +507,7 @@ class TestRunHistoryConsoleFormatterTest {
      */
     private static TestRunHistoryEntry entryWithOrigin(RunOrigin origin) {
         return new TestRunHistoryEntry("id-1", 1_700_000_000_000L, "main", "abc123",
-                42, 3, 1, 83_000L, true, 0L, 0, null, null, null, origin, null, null, null, null, null);
+                42, 3, 1, 83_000L, true, 0L, 0, 0L, 0, null, null, null, null, origin, null, null, null, null, null);
     }
 
     private static TestRunHistoryEntry entry(int year, int month, int day, int hour, int minute,
@@ -511,7 +517,7 @@ class TestRunHistoryConsoleFormatterTest {
         long epoch = java.time.LocalDateTime.of(year, month, day, hour, minute, second)
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
-                durationMs, mapping, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                durationMs, mapping, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
     }
 
@@ -520,7 +526,7 @@ class TestRunHistoryConsoleFormatterTest {
         long base = 1_700_000_000_000L;
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
-                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                    "c" + i, 1, 0, 0, 1000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                     null, null, null, null, null));
         }
         return entries;

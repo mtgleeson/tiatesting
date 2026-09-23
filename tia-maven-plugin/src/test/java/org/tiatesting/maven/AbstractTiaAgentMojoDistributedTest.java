@@ -166,7 +166,7 @@ class AbstractTiaAgentMojoDistributedTest {
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, branch, commitValue, groups.size(), null,
+        DistributedRun run = DistributedRun.open(runId, branch, commitValue, groups.size(), groups.size(), null,
                 1000L * groups.size(), 5000L, false);
         try (DataStore dataStore = openStore(branch)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));

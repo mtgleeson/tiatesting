@@ -22,8 +22,8 @@ class ReportUtilsTest {
      * the rest are filler.
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0,
-                null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0, timeSavingsMs, 0,
+                null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
     }
 
     /**
@@ -84,6 +84,34 @@ class ReportUtilsTest {
     }
 
     /**
+     * The wall-clock baseline is the serial full-suite baseline spread evenly across the groups
+     * available; one group leaves it unchanged.
+     */
+    @Test
+    void wallClockAllTestsRunTimeMs_spreadsTheBaselineAcrossTheGroupsAvailable(){
+        // given
+        long allTestsRunTimeMs = 3_600_000L;
+
+        // when
+        long acrossSix = ReportUtils.wallClockAllTestsRunTimeMs(allTestsRunTimeMs, 6);
+        long acrossOne = ReportUtils.wallClockAllTestsRunTimeMs(allTestsRunTimeMs, 1);
+
+        // then
+        assertEquals(600_000L, acrossSix);
+        assertEquals(3_600_000L, acrossOne);
+    }
+
+    /**
+     * Savings text is the duration followed by its percentage, or a dash when nothing was saved.
+     */
+    @Test
+    void savingsText_rendersDurationAndPercentOrADash(){
+        // given / when / then
+        assertEquals("8s (80%)", ReportUtils.savingsText(8_000L, 80));
+        assertEquals("-", ReportUtils.savingsText(0L, 0));
+    }
+
+    /**
      * Total savings sums the per-run {@code timeSavingsMs} frozen on the history rows.
      */
     @Test
@@ -93,99 +121,78 @@ class ReportUtilsTest {
                 historyEntry(4000L), historyEntry(0L), historyEntry(1500L));
 
         // when
-        long savings = ReportUtils.totalSavingsMs(history);
+        long savings = ReportUtils.totalWallClockSavingsMs(history);
 
         // then
         assertEquals(5500L, savings);
     }
 
     /**
-     * Build a history entry for a distributed build, carrying the wall clock and group count only a
-     * distributed run records; a single-host row leaves both null.
+     * The total sums the wall-clock savings, not the serial savings, when the two differ.
+     */
+    @Test
+    void totalWallClockSavingsMs_sumsTheWallClockNotTheSerialSavings(){
+        // given - a distributed row that saved 58s serially but 8s of wall clock
+        List<TestRunHistoryEntry> history = Arrays.asList(historyEntry(4000L),
+                allTestsRunEntry(1L, true, Integer.valueOf(6)),
+                new TestRunHistoryEntry("d", 2L, "main", "commit", 1, 7, 0, 2_000L, true, 58_000L,
+                        97, 8_000L, 80, "run-1", Long.valueOf(2_000L), Integer.valueOf(1),
+                        Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
+                        null, null, null, null, null));
+
+        // when
+        long savings = ReportUtils.totalWallClockSavingsMs(history);
+
+        // then
+        assertEquals(12_000L, savings);
+    }
+
+    /**
+     * Build a history row for a run that ignored nothing - an all-tests run - at the given time.
      *
-     * @param wallClockMs the build's wall clock - its slowest group
-     * @return a history entry the distributed aggregations count
+     * @param timestampMs when the run started
+     * @param updatedDbMapping whether the run owned the mapping, and so moved the baseline
+     * @param groupCount the groups it was split across, or null for a single-host run
+     * @return the history row
      */
-    private static TestRunHistoryEntry distributedEntry(long wallClockMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, 0L, 0,
-                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null);
+    private static TestRunHistoryEntry allTestsRunEntry(long timestampMs, boolean updatedDbMapping,
+                                                        Integer groupCount){
+        return new TestRunHistoryEntry("all-" + timestampMs, timestampMs, "main", "commit", 10, 0, 0,
+                60_000L, updatedDbMapping, 0L, 0, 0L, 0, groupCount == null ? null : "run-" + timestampMs,
+                groupCount == null ? null : Long.valueOf(10_000L), groupCount, groupCount,
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null);
     }
 
     /**
-     * The distributed average covers only the rows that carry a wall clock, and ignores single-host
-     * rows entirely rather than treating their absent wall clock as a zero - which would drag the
-     * average towards zero in proportion to how much of the project's history predates distributed
-     * mode.
+     * The group count comes from the most recent all-tests run that owned the mapping. A later
+     * local all-tests run did not move the baseline, so it is ignored, as is any partial run.
      */
     @Test
-    void averageDistributedWallClockMs_averagesOnlyTheDistributedRows(){
-        // given - two distributed rows either side of a single-host one
+    void lastAllTestsRunGroupCount_readsTheLatestMappingOwningAllTestsRun(){
+        // given - an older 3-group run, a newer 6-group run, then a newer local single-host run
         List<TestRunHistoryEntry> history = Arrays.asList(
-                distributedEntry(40_000L), historyEntry(9999L), distributedEntry(60_000L));
+                allTestsRunEntry(1_000L, true, Integer.valueOf(3)),
+                allTestsRunEntry(3_000L, false, null),
+                historyEntry(4000L),
+                allTestsRunEntry(2_000L, true, Integer.valueOf(6)));
 
         // when
-        long average = ReportUtils.averageDistributedWallClockMs(history);
+        int groups = ReportUtils.lastAllTestsRunGroupCount(history);
 
-        // then - the mean of 40s and 60s, with the single-host row excluded
-        assertEquals(50_000L, average);
-        assertEquals(2, ReportUtils.distributedRunCount(history));
+        // then
+        assertEquals(6, groups);
     }
 
     /**
-     * A history with no distributed build yields a zero average and a zero count, which is what the
-     * summary reports key their second line off - so a project that has never distributed a build
-     * sees no change at all.
+     * A single-host all-tests run, or no all-tests run at all, counts as one group.
      */
     @Test
-    void averageDistributedWallClockMs_noDistributedRows_isZero(){
+    void lastAllTestsRunGroupCount_isOneForASingleHostRunOrNone(){
         // given / when / then
-        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(null));
-        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(Collections.emptyList()));
-        assertEquals(0L, ReportUtils.averageDistributedWallClockMs(
-                Arrays.asList(historyEntry(1000L), historyEntry(2000L))));
-        assertEquals(0, ReportUtils.distributedRunCount(null));
-        assertEquals(0, ReportUtils.distributedRunCount(
-                Arrays.asList(historyEntry(1000L), historyEntry(2000L))));
-    }
-
-    /**
-     * With no distributed build in the history the reports print the one line they always have,
-     * unqualified - a project that never distributes must see no change.
-     */
-    @Test
-    void averageRunTimeLines_noDistributedRows_isTheSingleUnqualifiedLine(){
-        // given
-        List<TestRunHistoryEntry> history = Arrays.asList(historyEntry(0L));
-
-        // when
-        List<String> lines = ReportUtils.averageRunTimeLines(100_000L, 200_000L, history);
-
-        // then
-        assertEquals(1, lines.size());
-        assertEquals("Average run time: 1m 40s (50%)", lines.get(0));
-    }
-
-    /**
-     * With distributed builds present, the existing line is qualified as the serial equivalent and a
-     * second reports the average wall clock. Both changes belong together: the qualifier alone
-     * explains nothing, and the second line alone leaves two unlabelled averages of different things
-     * beside each other. The run count is stated because the two lines average different
-     * populations - every run against distributed runs only.
-     */
-    @Test
-    void averageRunTimeLines_withDistributedRows_qualifiesTheTotalAndAddsTheWallClock(){
-        // given - two distributed runs averaging 50s, against a 200s all-tests baseline
-        List<TestRunHistoryEntry> history = Arrays.asList(
-                distributedEntry(40_000L), historyEntry(0L), distributedEntry(60_000L));
-
-        // when
-        List<String> lines = ReportUtils.averageRunTimeLines(100_000L, 200_000L, history);
-
-        // then
-        assertEquals(2, lines.size());
-        assertEquals("Average run time (serial equivalent): 1m 40s (50%)", lines.get(0));
-        assertEquals("Average distributed run time: 50s (25%) over 2 distributed run(s)", lines.get(1));
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(
+                Collections.singletonList(allTestsRunEntry(1_000L, true, null))));
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(Collections.emptyList()));
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(null));
     }
 
     /**
@@ -194,8 +201,8 @@ class ReportUtilsTest {
     @Test
     void totalSavingsMs_nullOrEmpty_isZero(){
         // given / when / then
-        assertEquals(0L, ReportUtils.totalSavingsMs(null));
-        assertEquals(0L, ReportUtils.totalSavingsMs(Collections.emptyList()));
+        assertEquals(0L, ReportUtils.totalWallClockSavingsMs(null));
+        assertEquals(0L, ReportUtils.totalWallClockSavingsMs(Collections.emptyList()));
     }
 
     /**

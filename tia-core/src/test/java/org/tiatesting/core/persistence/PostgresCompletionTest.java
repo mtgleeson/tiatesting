@@ -135,7 +135,7 @@ class PostgresCompletionTest {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
-        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groupCount, null,
+        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groupCount, groupCount, null,
                 1000L * groupCount, 1234L, false);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
@@ -157,7 +157,7 @@ class PostgresCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, null, 1000L, 1234L, false);
+        DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", 1, 1, null, 1000L, 1234L, false);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -431,8 +431,8 @@ class PostgresCompletionTest {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry(
                 "pg-dist-id", 1_700_000_000_000L, BRANCH, "abc123",
-                10, 2, 1, 5_000L, true, 4_000L, 80,
-                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                10, 2, 1, 5_000L, true, 4_000L, 80, 4_000L, 80,
+                "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
         TestRunHistoryEntry singleHost = TestRunHistoryEntry.create(
                 BRANCH, "def456", 1_600_000_000_000L, 3, 1, 0, 300L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);

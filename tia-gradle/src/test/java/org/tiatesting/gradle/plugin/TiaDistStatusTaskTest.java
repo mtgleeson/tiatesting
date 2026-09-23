@@ -230,7 +230,7 @@ class TiaDistStatusTaskTest {
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), null, 2000L,
+        DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), groups.size(), null, 2000L,
                 System.currentTimeMillis(), false);
 
         TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);

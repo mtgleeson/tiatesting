@@ -99,11 +99,11 @@ class TestRunHistoryEntryIdTest {
         // given
         long ts = 1_700_000_000_000L;
         TestRunHistoryEntry baseline = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                "run-1", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // when
         TestRunHistoryEntry other = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
-                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 500L, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                "run-2", ts, 5, 0, 0, 1000L, true, 0L, 0, 0L, 0, 500L, 2, 2, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
 
         // then
         assertNotEquals(baseline.getId(), other.getId(),

@@ -339,3 +339,24 @@ table th,
     width: auto;
     margin: 0;
 }
+
+/* Summary page Stats hints. Pico's tooltip is a single line (nowrap, ellipsis) centred on its
+   anchor, which truncates a sentence-long explanation and pushes it off the left edge for a
+   label near the margin. Wrap it instead, and anchor it to the label's left edge. */
+.tia-stat-hint[data-tooltip]::before {
+    left: 0;
+    transform: translate(0, -.25rem);
+    width: max-content;
+    max-width: min(28rem, 90vw);
+    white-space: normal;
+    text-overflow: clip;
+}
+
+/* On hover Pico slides the tooltip in with an animation whose end position comes from
+   --pico-tooltip-slide-to, and an animation's transform beats the rule above - so without
+   overriding the slide as well, the tooltip re-centres on the label as it appears. */
+.tia-stat-hint[data-tooltip]:hover::before,
+.tia-stat-hint[data-tooltip]:focus::before {
+    --pico-tooltip-slide-to: translate(0, -.25rem);
+    transform: translate(0, .75rem);
+}

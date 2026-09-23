@@ -90,6 +90,8 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
+    private static final String COL_WALL_CLOCK_SAVINGS = "wall_clock_savings";
+    private static final String COL_WALL_CLOCK_SAVINGS_PERCENT = "wall_clock_savings_percent";
     private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
     private static final String COL_RUN_SOURCE = "run_source";
     private static final String COL_HOST_NAME = "host_name";
@@ -123,6 +125,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SEALED_AT = "sealed_at";
     private static final String COL_DRAIN_RESULT = "drain_result";
     private static final String COL_SEED_RUN = "seed_run";
+    private static final String COL_GROUPS_AVAILABLE = "groups_available";
     private static final String COL_GROUP_NUMBER = "group_number";
     private static final String COL_RUNNER_KEY = "runner_key";
     private static final String COL_CLAIMED_AT = "claimed_at";
@@ -1393,8 +1396,10 @@ public class JdbcDataStore implements DataStore {
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
                             COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT,
-                            COL_RUN_SOURCE, COL_HOST_NAME, COL_NUM_MODIFIED_TEST_FILES,
+                            COL_SAVINGS_PERCENT, COL_WALL_CLOCK_SAVINGS,
+                            COL_WALL_CLOCK_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS,
+                            COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
+                            COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
                             COL_NUM_PENDING_LIBRARY),
                     Collections.singletonList(COL_ID));
@@ -1411,22 +1416,25 @@ public class JdbcDataStore implements DataStore {
             ps.setBoolean(9, entry.isUpdatedDbMapping());
             ps.setLong(10, entry.getTimeSavingsMs());
             ps.setInt(11, entry.getSavingsPercent());
-            // A single-host run binds SQL NULL for all three, so its row stays exactly what it was
+            ps.setLong(12, entry.getWallClockSavingsMs());
+            ps.setInt(13, entry.getWallClockSavingsPercent());
+            // A single-host run binds SQL NULL for all four, so its row stays exactly what it was
             // before distributed runs existed.
-            setNullableString(ps, 12, entry.getRunId());
-            setNullableLong(ps, 13, entry.getWallClockMs());
-            setNullableInt(ps, 14, entry.getGroupCount());
+            setNullableString(ps, 14, entry.getRunId());
+            setNullableLong(ps, 15, entry.getWallClockMs());
+            setNullableInt(ps, 16, entry.getGroupCount());
+            setNullableInt(ps, 17, entry.getGroupsAvailable());
             // Both nullable for the same reason as the distributed columns above: an unknown origin
             // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
-            setNullableString(ps, 15, entry.getRunOrigin().getRunSource());
-            setNullableString(ps, 16, entry.getRunOrigin().getHostName());
+            setNullableString(ps, 18, entry.getRunOrigin().getRunSource());
+            setNullableString(ps, 19, entry.getRunOrigin().getHostName());
             // Nullable for the same reason: a row written before this feature, or an all-tests run
             // with nothing to attribute, stores SQL NULL rather than a made-up zero.
-            setNullableInt(ps, 17, entry.getNumModifiedTestFiles());
-            setNullableInt(ps, 18, entry.getNumNewTestFiles());
-            setNullableInt(ps, 19, entry.getNumPreviouslyFailed());
-            setNullableInt(ps, 20, entry.getNumUnsealedMapping());
-            setNullableInt(ps, 21, entry.getNumPendingLibrary());
+            setNullableInt(ps, 20, entry.getNumModifiedTestFiles());
+            setNullableInt(ps, 21, entry.getNumNewTestFiles());
+            setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
+            setNullableInt(ps, 23, entry.getNumUnsealedMapping());
+            setNullableInt(ps, 24, entry.getNumPendingLibrary());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1468,9 +1476,12 @@ public class JdbcDataStore implements DataStore {
                         resultSet.getBoolean(COL_UPDATED_DB_MAPPING),
                         resultSet.getLong(COL_TIME_SAVINGS),
                         resultSet.getInt(COL_SAVINGS_PERCENT),
+                        resultSet.getLong(COL_WALL_CLOCK_SAVINGS),
+                        resultSet.getInt(COL_WALL_CLOCK_SAVINGS_PERCENT),
                         resultSet.getString(COL_RUN_ID),
                         getNullableLong(resultSet, COL_WALL_CLOCK_MS),
                         getNullableInt(resultSet, COL_GROUP_COUNT),
+                        getNullableInt(resultSet, COL_GROUPS_AVAILABLE),
                         RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
                                 resultSet.getString(COL_HOST_NAME)),
                         getNullableInt(resultSet, COL_NUM_MODIFIED_TEST_FILES),
@@ -1629,8 +1640,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ", " + COL_SEED_RUN
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + ", " + COL_SEED_RUN + ", " + COL_GROUPS_AVAILABLE
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
@@ -1674,6 +1685,7 @@ public class JdbcDataStore implements DataStore {
                     setNullableLong(statement, 10, run.getSealedAtMs());
                     setDrainResult(statement, 11, plan.getDrainResult());
                     statement.setBoolean(12, run.isSeedRun());
+                    statement.setInt(13, run.getGroupsAvailable());
                     statement.executeUpdate();
                 }
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
@@ -1848,6 +1860,7 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getString(COL_COMMIT_VALUE),
                 DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
                 resultSet.getInt(COL_GROUP_COUNT),
+                resultSet.getInt(COL_GROUPS_AVAILABLE),
                 getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
                 resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
                 resultSet.getLong(COL_CREATED_AT),
@@ -4115,11 +4128,14 @@ public class JdbcDataStore implements DataStore {
                 + COL_UPDATED_DB_MAPPING + " BOOLEAN, "
                 + COL_TIME_SAVINGS + " BIGINT DEFAULT 0, "
                 + COL_SAVINGS_PERCENT + " INT DEFAULT 0, "
+                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0, "
+                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0, "
                 // Distributed builds only; null on a single-host run, which is what makes such a
                 // row indistinguishable from one written before distributed runs existed.
                 + COL_RUN_ID + " VARCHAR(255), "
                 + COL_WALL_CLOCK_MS + " BIGINT, "
                 + COL_GROUP_COUNT + " INT, "
+                + COL_GROUPS_AVAILABLE + " INT, "
                 // Where the run came from. Nullable throughout: null means "not known", which is
                 // what a row written before these columns existed, a run whose hostname would not
                 // resolve, and a distributed build (no single host ran it) all genuinely are.
@@ -4174,6 +4190,14 @@ public class JdbcDataStore implements DataStore {
                 + COL_WALL_CLOCK_MS + " BIGINT");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_GROUP_COUNT + " INT");
+        // Migration: add the wall-clock savings columns and the groups available they are
+        // measured against.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_GROUPS_AVAILABLE + " INT");
         // Migration: add the run-origin columns to DBs created before them. No DEFAULT, so old rows
         // read back null rather than being retro-labelled as something nobody actually recorded.
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
@@ -4356,7 +4380,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_SEALED_BY + " VARCHAR(255), "
                 + COL_SEALED_AT + " BIGINT, "
                 + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE)";
+                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE, "
+                + COL_GROUPS_AVAILABLE + " INT)";
     }
 
     /**
@@ -4450,20 +4475,35 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Build the migration that backfills the {@code tia_distributed_run.groups_available} column
+     * onto a run table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT
+     * EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunTableSql} just created.
+     *
+     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
+     */
+    private String buildAddGroupsAvailableColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
+                + COL_GROUPS_AVAILABLE + " INT";
+    }
+
+    /**
      * Ensure the four distributed-run tables, the group-status index and the additive {@code
-     * seed_run} column exist. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code
-     * ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new database and backfills the
-     * run row's seed flag onto a database created before it was recorded.
+     * seed_run} and {@code groups_available} columns exist. Idempotent via {@code CREATE
+     * TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both creates
+     * everything on a new database and backfills the run row's seed flag and groups available onto
+     * a database created before they were recorded.
      *
      * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
      * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
      * pre-release with no external databases to preserve, so a database is simply created with
-     * them. Only {@code seed_run} is backfilled, because getting it wrong on an existing run row
-     * corrupts the full-suite baseline rather than merely failing the write.
+     * them. {@code seed_run} is backfilled because getting it wrong on an existing run row
+     * corrupts the full-suite baseline rather than merely failing the write, and {@code
+     * groups_available} because the plan write names it, so a store without it would fail the
+     * next plan.
      *
-     * <p>All six DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>All seven DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be six wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be seven wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
@@ -4481,6 +4521,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSeedRunColumnSql());
+            statement.addBatch(buildAddGroupsAvailableColumnSql());
             statement.executeBatch();
         }
         ensureDistributedRunSelectionTablesExist(connection);

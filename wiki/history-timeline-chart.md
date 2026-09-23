@@ -1,6 +1,6 @@
 # History timeline chart
 
-The History page opens with a bar chart of recent run durations, sitting directly above the
+The History page opens with a bar chart of recent run wall clocks, sitting directly above the
 history table. Where the table is built for looking a run up, the chart is built for reading the
 trend at a glance: how long recent runs took, and which of them failed. It is rendered by
 `HtmlHistoryTimeline` and dropped into `history/tia-history.html` by `HtmlHistoryReport`, just
@@ -13,10 +13,9 @@ categorical - one slot per run, not a real time axis - so several runs on the sa
 side and a quiet week leaves no gap. Reading left-to-right is therefore "in order of run", not "in
 proportion to elapsed time".
 
-- **Height is `duration_ms`** - the same figure the table's Duration column shows. For a
-  distributed build that is the serial-equivalent duration (the sum of every group's time), so a
-  bar means the same thing whether or not the run was distributed, and the chart stays comparable
-  across the build where distributed mode was switched on. See
+- **Height is the run's wall clock** (`TestRunHistoryEntry.getRunWallClockMs()`) - the same
+  figure the table's Wall clock column shows: `duration_ms` for a single-host run, the slowest
+  group for a distributed build. The chart reads in the same end-to-end terms as the table. See
   ["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row).
 - **Colour is pass/fail** - green when the run had no failed suites, red when `num_suites_failed`
   is greater than zero. This is the one thing the eye should catch without hovering.
@@ -25,10 +24,10 @@ proportion to elapsed time".
   [Run history details](run-history-details.md)). Being an anchor rather than a scripted click
   handler means it is keyboard-focusable and "open in new tab" works; each carries an `aria-label`
   summarising the run for screen readers.
-- **Hover or focus shows a tooltip** with the run's local date/time, its duration, its savings
-  percentage, and the short id. The date is localized in the viewer's timezone with the same
-  options as the table's timestamps, and the duration is formatted the same way as the Duration
-  column, so the chart and the table never disagree on how a run reads.
+- **Hover or focus shows a tooltip** with the run's local date/time, its wall clock, its
+  wall-clock savings percentage, and the short id. The date is localized in the viewer's timezone
+  with the same options as the table's timestamps, and the wall clock is formatted the same way as
+  the Wall clock column, so the chart and the table never disagree on how a run reads.
 
 ### Default window and "Show 10 more"
 
@@ -60,7 +59,7 @@ The Java side (`HtmlHistoryTimeline`) does only data preparation, and is unit-te
 - `selectTimelineRuns` sorts the history oldest-first and keeps the most recent
   `MAX_TIMELINE_RUNS`.
 - `buildRunsJson` serialises those runs to a compact, `<script>`-safe JSON array - one small
-  object per run carrying `id`, `t` (timestamp), `d` (duration), `s` (savings percent) and `f`
+  object per run carrying `id`, `t` (timestamp), `d` (wall clock), `s` (wall-clock savings percent) and `f`
   (1 when the run had any failed suite, else 0). String values go through
   `ScriptSafeJson.appendString`, which unicode-escapes `< > &` so the embedded data can never
   terminate the surrounding `<script>` element - the same helper (and the same reason) the Source

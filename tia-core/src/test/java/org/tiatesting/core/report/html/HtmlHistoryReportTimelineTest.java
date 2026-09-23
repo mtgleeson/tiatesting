@@ -33,7 +33,7 @@ class HtmlHistoryReportTimelineTest {
      */
     private static TestRunHistoryEntry entry(String id, long timestampMs, long durationMs, int numFailed) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 5, 0, numFailed, durationMs,
-                true, 1000L, 25, null, null, null,
+                true, 1000L, 25, 1000L, 25, null, null, null, null,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
     }
 
@@ -69,7 +69,7 @@ class HtmlHistoryReportTimelineTest {
         // then - the chart block, its chrome and embedded data are present
         assertTrue(html.contains("class=\"tia-timeline\""), "timeline block missing");
         assertTrue(html.contains("id=\"tiaTimelineChart\""), "chart host missing");
-        assertTrue(html.contains("Run duration timeline"), "chart heading missing");
+        assertTrue(html.contains("Run wall clock timeline"), "chart heading missing");
         assertTrue(html.contains("id=\"tiaTimelineMore\""), "show-more control missing");
         assertTrue(html.contains(">Passed<") && html.contains(">Failed<"), "legend labels missing");
         assertTrue(html.contains("var RUNS=["), "embedded run data missing");

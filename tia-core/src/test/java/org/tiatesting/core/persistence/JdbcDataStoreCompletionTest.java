@@ -97,7 +97,7 @@ class JdbcDataStoreCompletionTest {
             groups.add(DistributedRunGroup.pending(runId, i, 1000L));
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", groupCount, null,
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", groupCount, groupCount, null,
                 1000L * groupCount, 1234L, false);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
@@ -119,7 +119,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L, false);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, false);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -140,7 +140,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L, true);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -156,7 +156,7 @@ class JdbcDataStoreCompletionTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, new ArrayList<String>());
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L, true);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
