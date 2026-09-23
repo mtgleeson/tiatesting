@@ -189,6 +189,22 @@ must be its own always-run step" below). A crashed or failed test step that neve
 only changes how few suites a *reporting* runner needs to have observed, not whether it needs to
 report at all.
 
+**Caveat: a partially-run seed group can seal as all-tests-run.** The loosened threshold is also
+what a *partial* seed run passes. `dist-complete` is designed to run whether the test step passed
+or failed - the Gradle finalizer runs even when the test task it finalizes fails
+(`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
+and the Maven completion is documented as an `if: always()` step (see "Maven: the completion must
+be its own always-run step" below). So if a test step runs some but not all of its assigned suites
+and then crashes or is killed (a fork crash, an OOM, `--fail-fast`, a CI timeout), `dist-complete`
+still runs and completes the group on `observed >= LEAST(1, assigned)`, and the seed-aware seal -
+which treats a seed run as ignoring nothing - can then seal the run as all-tests-run even though
+that group ran only part of its share. The `observed >= 1` per-group guard only blocks the
+all-nothing case; it cannot tell a partially-run seed group from a fully-run one, because a seed run
+has no stored mapping to compare `observed` against - the very reason the guard is loosened. A
+non-seed run is not exposed: its `observed >= assigned` guard leaves a partially-run group
+`CLAIMED`. This is left as a documented caveat rather than papered over with build-tool-specific
+crash detection.
+
 ### The claim protocol
 
 No runner is told which group it is. Each runner claims one, and `JdbcDataStore.claimNextPendingGroup`
