@@ -259,12 +259,34 @@ public class JacocoClient {
                     .forEach(p -> {
                         final File file = p.toFile();
                         String relative = root.relativize(p).toString().replace(File.separatorChar, '/');
+                        if (!isIndexableClassEntry(relative)){
+                            return;
+                        }
                         String vmName = relative.substring(0, relative.length() - classExtension.length());
                         classBytesByVmName.put(vmName, () -> Files.readAllBytes(file.toPath()));
                     });
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Decides whether a {@code .class} resource path is worth indexing. A dumped
+     * {@code ExecutionDataStore} only ever names ordinary classes, so entries that can never match -
+     * the versioned copies a multi-release jar nests under {@code META-INF/versions/<n>/...} and the
+     * {@code module-info} descriptor - are excluded. This keeps the index (and the logged class
+     * count) to names a suite's execution data can actually resolve.
+     *
+     * @param resourcePath the class entry path with {@code /} separators (a jar entry name or a
+     *                     directory-relative path), including the {@code .class} suffix
+     * @return {@code true} if the entry should be indexed, {@code false} to skip it
+     */
+    private boolean isIndexableClassEntry(final String resourcePath){
+        if (resourcePath.startsWith("META-INF/")){
+            return false;
+        }
+        String simpleName = resourcePath.substring(resourcePath.lastIndexOf('/') + 1);
+        return !simpleName.equals("module-info." + FileExtensions.CLASS_FILE_EXT);
     }
 
     /**
@@ -312,10 +334,11 @@ public class JacocoClient {
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()){
                 JarEntry entry = entries.nextElement();
-                if (entry.isDirectory() || !entry.getName().toLowerCase().endsWith(classExtension)){
+                final String entryName = entry.getName();
+                if (entry.isDirectory() || !entryName.toLowerCase().endsWith(classExtension)
+                        || !isIndexableClassEntry(entryName)){
                     continue;
                 }
-                final String entryName = entry.getName();
                 String vmName = entryName.substring(0, entryName.length() - classExtension.length());
                 classBytesByVmName.put(vmName, () -> readJarEntry(jar, entryName));
             }
@@ -364,6 +387,16 @@ public class JacocoClient {
 
     private String getProjectDir(){
         return System.getProperty("tiaProjectDir");
+    }
+
+    /**
+     * Exposes the VM class names currently indexed for coverage analysis. Intended for tests that
+     * assert which classes were picked up from the configured class dirs and library jars.
+     *
+     * @return an unmodifiable view of the indexed VM class names
+     */
+    Set<String> indexedClassNames(){
+        return Collections.unmodifiableSet(classBytesByVmName.keySet());
     }
 
 }
