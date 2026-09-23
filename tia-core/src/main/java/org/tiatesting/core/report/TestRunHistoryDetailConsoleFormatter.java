@@ -19,14 +19,18 @@ import java.util.List;
  * <p>The output shape is:
  * <pre>
  * Test run 550e8400-e29b-41d4-a716-446655440000
- * Branch:          main
- * Commit:          abc123def456
- * Date/time:       2026-05-15 09:30:42
- * Suites ran:      42
- * Suites ignored:  3
- * Suites failed:   1
- * Duration:        1m 23s
- * Savings:         45s
+ * Branch:              main
+ * Commit:              abc123def456
+ * Date/time:           2026-05-15 09:30:42
+ * Suites ran:          42
+ * Suites ignored:      3
+ * Suites failed:       1
+ * Wall clock:          1m 23s
+ * Serial duration:     1m 23s
+ * Groups used:         -
+ * Groups available:    -
+ * Wall-clock savings:  45s (35%)
+ * Serial savings:      45s (35%)
  *
  * Selection sources:
  *   Modified test files:  2
@@ -45,9 +49,11 @@ import java.util.List;
  *
  * <p>Timestamps are rendered in the JVM's local time zone with the same
  * {@code yyyy-MM-dd HH:mm:ss} pattern {@link TestRunHistoryConsoleFormatter} uses, so the two views
- * read consistently. Durations and savings reuse {@link ReportUtils#prettyDuration}; savings render
- * as {@code "-"} when the entry recorded none ({@link TestRunHistoryEntry#getTimeSavingsMs()}
- * {@code <= 0}). Each of the five scalar selection-source counters renders {@code "-"} when its
+ * read consistently. Durations reuse {@link ReportUtils#prettyDuration} and savings {@link
+ * ReportUtils#savingsText}, which renders {@code "-"} when the entry recorded none. The wall clock
+ * and wall-clock savings are what the history table shows; the serial duration and serial savings
+ * measure the same run as total machine time. The two are equal for a single-host run, whose group
+ * lines are dashed. Each of the five scalar selection-source counters renders {@code "-"} when its
  * boxed {@link Integer} is null (not recorded), rather than a misleading zero.
  */
 public final class TestRunHistoryDetailConsoleFormatter {
@@ -65,7 +71,8 @@ public final class TestRunHistoryDetailConsoleFormatter {
 
     /**
      * Render one run's full selection breakdown: a header/summary section (id, branch, commit,
-     * timestamp, suite counts, duration, savings), a "Selection sources" section with the five
+     * timestamp, suite counts, wall clock and serial duration, groups used and available, wall-clock
+     * and serial savings), a "Selection sources" section with the five
      * scalar counters, and "Source method changes" / "Static rules" sections listing the run's
      * triggers ranked by the number of suites each accounts for.
      *
@@ -83,17 +90,26 @@ public final class TestRunHistoryDetailConsoleFormatter {
         StringBuilder sb = new StringBuilder();
 
         sb.append("Test run ").append(nullSafe(entry.getId())).append(lineSep);
-        sb.append("Branch:          ").append(nullSafe(entry.getBranch())).append(lineSep);
-        sb.append("Commit:          ").append(nullSafe(entry.getCommit())).append(lineSep);
-        sb.append("Date/time:       ")
+        sb.append("Branch:              ").append(nullSafe(entry.getBranch())).append(lineSep);
+        sb.append("Commit:              ").append(nullSafe(entry.getCommit())).append(lineSep);
+        sb.append("Date/time:           ")
                 .append(Instant.ofEpochMilli(entry.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME))
                 .append(lineSep);
-        sb.append("Suites ran:      ").append(entry.getNumSuitesRan()).append(lineSep);
-        sb.append("Suites ignored:  ").append(entry.getNumSuitesIgnored()).append(lineSep);
-        sb.append("Suites failed:   ").append(entry.getNumSuitesFailed()).append(lineSep);
-        sb.append("Duration:        ").append(ReportUtils.prettyDuration(entry.getDurationMs(), true)).append(lineSep);
-        sb.append("Savings:         ").append(entry.getTimeSavingsMs() > 0
-                ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : NOT_APPLICABLE).append(lineSep);
+        sb.append("Suites ran:          ").append(entry.getNumSuitesRan()).append(lineSep);
+        sb.append("Suites ignored:      ").append(entry.getNumSuitesIgnored()).append(lineSep);
+        sb.append("Suites failed:       ").append(entry.getNumSuitesFailed()).append(lineSep);
+        sb.append("Wall clock:          ")
+                .append(ReportUtils.prettyDuration(entry.getRunWallClockMs(), true)).append(lineSep);
+        sb.append("Serial duration:     ")
+                .append(ReportUtils.prettyDuration(entry.getDurationMs(), true)).append(lineSep);
+        sb.append("Groups used:         ").append(orDash(entry.getGroupCount()))
+                .append(lineSep);
+        sb.append("Groups available:    ").append(orDash(entry.getGroupsAvailable()))
+                .append(lineSep);
+        sb.append("Wall-clock savings:  ").append(ReportUtils.savingsText(
+                entry.getWallClockSavingsMs(), entry.getWallClockSavingsPercent())).append(lineSep);
+        sb.append("Serial savings:      ").append(ReportUtils.savingsText(
+                entry.getTimeSavingsMs(), entry.getSavingsPercent())).append(lineSep);
         sb.append(lineSep);
 
         appendSelectionSources(sb, entry, lineSep);

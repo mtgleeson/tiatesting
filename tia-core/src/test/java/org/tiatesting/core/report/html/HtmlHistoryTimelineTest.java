@@ -24,8 +24,9 @@ class HtmlHistoryTimelineTest {
      *
      * @param id the entry id (used for the bar's detail-page link)
      * @param timestampMs the run's UTC epoch millis (drives chart ordering)
-     * @param durationMs the run duration (drives bar height)
-     * @param savingsPercent the run's savings percentage (shown on hover)
+     * @param durationMs the run duration, which is a single-host run's wall clock (drives bar height)
+     * @param savingsPercent the run's savings percentage, serial and wall clock alike on a
+     *                       single-host run (shown on hover)
      * @param numFailed the number of failed suites (drives the pass/fail colour)
      * @return the populated entry
      */
@@ -129,6 +130,26 @@ class HtmlHistoryTimelineTest {
         assertTrue(json.contains("\"s\":40"), "savings percent mapped: " + json);
         assertTrue(json.indexOf("\"id\":\"first\"") < json.indexOf("\"id\":\"second\""),
                 "array should preserve oldest-first order: " + json);
+    }
+
+    /**
+     * A distributed run's bar is its wall clock and its hover shows its wall-clock savings, not the
+     * serial duration or serial savings, so the chart reads in the same terms as the table.
+     */
+    @Test
+    void buildRunsJsonUsesADistributedRunsWallClockFigures() {
+        // given - 20s serial taking 8s across 3 of 6 groups: 67% serial, 20% wall-clock savings
+        TestRunHistoryEntry distributed = new TestRunHistoryEntry("dist", 1000L, "main", "abc", 5, 0,
+                0, 20_000L, true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
+                Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
+                null, null, null, null, null);
+
+        // when
+        String json = HtmlHistoryTimeline.buildRunsJson(Collections.singletonList(distributed));
+
+        // then
+        assertTrue(json.contains("\"d\":8000"), "bar height is the wall clock: " + json);
+        assertTrue(json.contains("\"s\":20"), "hover shows the wall-clock savings: " + json);
     }
 
     /**

@@ -571,13 +571,23 @@ durations that are not interchangeable:
   figure: the stats and the savings are computed from it, so "time saved by not running unimpacted
   tests" keeps meaning the same thing and stays comparable with the project's pre-distributed
   history.
-- The **wall clock** is the slowest group, recorded alongside so the user can see what the build
-  actually took and whether the target was met. Making it primary would credit Tia with the
-  parallelism the CI system provided and would quietly redefine `avgRunTime`.
+- The **wall clock** is the slowest group: what the build actually took and whether the target
+  was met. It is what the history table shows, but it never feeds the stats - folding it into
+  `avgRunTime` would quietly redefine that counter.
+
+Each duration has its own savings, both frozen onto the row. The **serial savings** are the
+full-suite baseline minus the serial-equivalent duration. The **wall-clock savings** are the
+baseline spread across the groups the build had *available* minus its wall clock, so the CI
+system's parallelism is not credited to Tia: a build that needed one of its six groups is compared
+against the full suite run on all six. The planner records the groups available on the run row
+(`groups_available`: the fixed group count, else `tiaDistributedMaxGroups`, else the groups
+planned), since the sealer never sees the configuration. See "Wall-clock savings" in the
+[test-run history log](test-run-history.md) chapter.
 
 The row is stamped with the time the run was *planned*, since that is the one timestamp every runner
 in the build shares. See the [test-run history log](test-run-history.md) chapter for the table
-itself, where the two land as its `Duration` and `Wall clock` columns.
+itself, which shows the wall clock and wall-clock savings; the serial duration and savings are on
+each run's detail page.
 
 The same pair surfaces once more, aggregated, in the three Tia-level summary reports - the `status`
 console output, the plain-text report and the HTML report's landing page:

@@ -157,6 +157,21 @@ public class ReportUtils {
     }
 
     /**
+     * Format one run's savings for the history detail views as the duration followed by its share
+     * of the baseline, e.g. {@code "8m (80%)"}, or {@code "-"} when the run saved nothing.
+     *
+     * @param savingsMs the savings frozen on the history row (ms)
+     * @param savingsPercent {@code savingsMs} as a percentage of the baseline it was measured against
+     * @return the formatted savings, or {@code "-"} when {@code savingsMs} is not positive
+     */
+    public static String savingsText(long savingsMs, int savingsPercent){
+        if (savingsMs <= 0){
+            return "-";
+        }
+        return prettyDuration(savingsMs, true) + " (" + savingsPercent + "%)";
+    }
+
+    /**
      * Sum the per-run savings frozen on the history rows. Each row's {@code time_savings} was
      * computed against the all-tests baseline current at the time of that run, so summing the
      * stored values is accurate even though the baseline moves over time.

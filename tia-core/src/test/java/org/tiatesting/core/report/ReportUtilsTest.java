@@ -102,6 +102,16 @@ class ReportUtilsTest {
     }
 
     /**
+     * Savings text is the duration followed by its percentage, or a dash when nothing was saved.
+     */
+    @Test
+    void savingsText_rendersDurationAndPercentOrADash(){
+        // given / when / then
+        assertEquals("8s (80%)", ReportUtils.savingsText(8_000L, 80));
+        assertEquals("-", ReportUtils.savingsText(0L, 0));
+    }
+
+    /**
      * Total savings sums the per-run {@code timeSavingsMs} frozen on the history rows.
      */
     @Test
