@@ -154,7 +154,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 60000L, 90000L, 1234L, false);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, false);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -357,7 +357,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid seed-run plan, unsaved
      */
     private static DistributedRunPlan seedRunPlan(String runId) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 0L, 7L, true);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, true);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Collections.<String>emptyList());
         return new DistributedRunPlan(run,
@@ -406,6 +406,29 @@ class JdbcDataStoreDistributedPlanTest {
         } finally {
             migratedStore.close();
         }
+    }
+
+    /**
+     * Verify that the groups available round-trip independently of the groups used, so a build
+     * that planned one group out of six available reads back as exactly that.
+     */
+    @Test
+    void shouldRoundTripTheGroupsAvailable() {
+        // given
+        DistributedRun run = DistributedRun.open("run-avail", "main", "commit-1", 1, 6, 60000L,
+                10L, 7L, false);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList("com.example.ATest"));
+        DistributedRunPlan plan = new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending("run-avail", 0, 10L)), suites, null);
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-avail");
+
+        // then
+        assertEquals(1, read.getGroupCount());
+        assertEquals(6, read.getGroupsAvailable());
     }
 
     /**
@@ -476,7 +499,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, null, 10L, 7L, false);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, false);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -595,7 +618,7 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, null, 10L, 7L, false);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, false);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

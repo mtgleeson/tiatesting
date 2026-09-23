@@ -409,7 +409,7 @@ class DistributedRunnerPersistTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, "main", "plan-commit", groupCount, null,
+                DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
                         1000L * groupCount, 1234L, false), groups, suites, null));
     }
 
@@ -428,7 +428,7 @@ class DistributedRunnerPersistTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, "main", "plan-commit", groupCount, null,
+                DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
                         1000L * groupCount, 1234L, true), groups, suites, null));
     }
 }
