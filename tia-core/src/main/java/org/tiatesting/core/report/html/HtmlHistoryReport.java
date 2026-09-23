@@ -94,8 +94,8 @@ public class HtmlHistoryReport {
 
         List<TestRunHistoryEntry> history = tiaData.getTestRunHistory();
         final String numberDataType = "data-type=\"number\"";
-        // The two distributed columns only earn their place when the history has a distributed
-        // build in it; otherwise every row would dash them, so the table stays as it was.
+        // The Groups column only earns its place when the history has a distributed build in it;
+        // otherwise every row would dash it.
         final boolean showDistributed = anyDistributed(history);
         // Same rule for the run-origin pair: a history recorded entirely before those columns
         // existed renders neither rather than dashing both on every row.
@@ -137,7 +137,7 @@ public class HtmlHistoryReport {
 
     /**
      * Report whether any row in the history describes a distributed build, which is what decides
-     * whether the wall clock and group columns are rendered at all.
+     * whether the Groups column is rendered at all.
      *
      * @param history the history rows about to be rendered; may be null
      * @return true when at least one row carries a distributed run's group count
@@ -176,13 +176,14 @@ public class HtmlHistoryReport {
     }
 
     /**
-     * Build the table's header row for the layout in use. The two distributed columns sit next to
-     * Duration, since the reason they exist is to be read against it: Duration is the
-     * serial-equivalent time the build would have taken unsplit and the figure savings come from,
-     * while Wall clock is what the build actually took.
+     * Build the table's header row for the layout in use. Every time on the table is wall-clock
+     * time - how long the run took end to end, and how much end-to-end time Tia saved it - so the
+     * table reads the same for single-host and distributed runs. The serial duration and serial
+     * savings live on each run's detail page. See the "Test-run history log" chapter in {@code
+     * WIKI.md}.
      *
      * @param numberDataType the {@code data-type} attribute simple-datatables sorts numerically by
-     * @param showDistributed whether the wall clock and group columns are being rendered
+     * @param showDistributed whether the Groups column is being rendered
      * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} of header cells
      */
@@ -195,9 +196,8 @@ public class HtmlHistoryReport {
         cells.add(th("Suites ran").attr(numberDataType));
         cells.add(th("Ignored").attr(numberDataType));
         cells.add(th("Failed").attr(numberDataType));
-        cells.add(th("Duration").attr(numberDataType));
+        cells.add(th("Wall clock").attr(numberDataType));
         if (showDistributed) {
-            cells.add(th("Wall clock").attr(numberDataType));
             cells.add(th("Groups").attr(numberDataType));
         }
         cells.add(th("Savings").attr(numberDataType));
@@ -220,11 +220,11 @@ public class HtmlHistoryReport {
      * value from that attribute, and a number column with none falls back to parsing the cell
      * text, which yields {@code NaN} for a "-" cell and breaks the column's sort.
      *
-     * <p>A single-host row rendered in a mixed history dashes the two distributed cells rather than
-     * showing zeros, which would read as a build that took no time and used no groups.
+     * <p>A single-host row rendered in a mixed history dashes the Groups cell rather than showing a
+     * zero, which would read as a build that used no groups.
      *
      * @param entry the history entry to render as a row
-     * @param showDistributed whether the wall clock and group columns are being rendered
+     * @param showDistributed whether the Groups column is being rendered
      * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} content for this entry
      */
@@ -250,21 +250,18 @@ public class HtmlHistoryReport {
         cells.add(td(String.valueOf(entry.getNumSuitesRan())));
         cells.add(td(String.valueOf(entry.getNumSuitesIgnored())));
         cells.add(td(String.valueOf(entry.getNumSuitesFailed())));
-        cells.add(td(ReportUtils.prettyDuration(entry.getDurationMs(), true))
-                .attr("data-order", String.valueOf(entry.getDurationMs())));
+        cells.add(td(ReportUtils.prettyDuration(entry.getRunWallClockMs(), true))
+                .attr("data-order", String.valueOf(entry.getRunWallClockMs())));
         if (showDistributed) {
-            long wallClockMs = entry.getWallClockMs() == null ? 0L : entry.getWallClockMs().longValue();
-            cells.add(td(entry.getWallClockMs() == null
-                    ? "-" : ReportUtils.prettyDuration(wallClockMs, true))
-                    .attr("data-order", String.valueOf(wallClockMs)));
             cells.add(td(entry.getGroupCount() == null ? "-" : entry.getGroupCount().toString())
                     .attr("data-order", entry.getGroupCount() == null
                             ? "0" : entry.getGroupCount().toString()));
         }
-        cells.add(td(entry.getTimeSavingsMs() > 0 ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-")
-                .attr("data-order", String.valueOf(entry.getTimeSavingsMs())));
-        cells.add(td(entry.getTimeSavingsMs() > 0 ? entry.getSavingsPercent() + "%" : "-")
-                .attr("data-order", String.valueOf(entry.getSavingsPercent())));
+        long savingsMs = entry.getWallClockSavingsMs();
+        cells.add(td(savingsMs > 0 ? ReportUtils.prettyDuration(savingsMs, true) : "-")
+                .attr("data-order", String.valueOf(savingsMs)));
+        cells.add(td(savingsMs > 0 ? entry.getWallClockSavingsPercent() + "%" : "-")
+                .attr("data-order", String.valueOf(entry.getWallClockSavingsPercent())));
         RunOrigin origin = entry.getRunOrigin();
         cells.add(td(origin.getRunSource()));
         if (showHost) {

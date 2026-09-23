@@ -16,6 +16,7 @@ public final class DistributedRun implements Serializable {
     private final String commitValue;
     private final DistributedRunStatus status;
     private final int groupCount;
+    private final int groupsAvailable;
     private final Long targetRunTimeMs;
     private final long estimatedTotalMs;
     private final long createdAtMs;
@@ -31,6 +32,11 @@ public final class DistributedRun implements Serializable {
      * @param commitValue VCS commit the plan targets; every runner must match it
      * @param status lifecycle state of the run
      * @param groupCount number of groups the plan was split into
+     * @param groupsAvailable number of groups (runner machines) the build had available: the
+     *                        fixed group count, else the configured maximum, else {@code
+     *                        groupCount} when target-run-time mode sets no ceiling. Never below
+     *                        {@code groupCount}; the wall-clock savings divide the full-suite
+     *                        baseline by it
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups mode
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
@@ -42,14 +48,15 @@ public final class DistributedRun implements Serializable {
      *                disk or no group count applies
      */
     public DistributedRun(String runId, String branch, String commitValue,
-                          DistributedRunStatus status, int groupCount, Long targetRunTimeMs,
-                          long estimatedTotalMs, long createdAtMs, String sealedBy,
-                          Long sealedAtMs, boolean seedRun) {
+                          DistributedRunStatus status, int groupCount, int groupsAvailable,
+                          Long targetRunTimeMs, long estimatedTotalMs, long createdAtMs,
+                          String sealedBy, Long sealedAtMs, boolean seedRun) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
         this.status = status;
         this.groupCount = groupCount;
+        this.groupsAvailable = groupsAvailable;
         this.targetRunTimeMs = targetRunTimeMs;
         this.estimatedTotalMs = estimatedTotalMs;
         this.createdAtMs = createdAtMs;
@@ -65,6 +72,11 @@ public final class DistributedRun implements Serializable {
      * @param branch VCS branch the plan targets
      * @param commitValue VCS commit the plan targets
      * @param groupCount number of groups the plan was split into
+     * @param groupsAvailable number of groups (runner machines) the build had available: the
+     *                        fixed group count, else the configured maximum, else {@code
+     *                        groupCount} when target-run-time mode sets no ceiling. Never below
+     *                        {@code groupCount}; the wall-clock savings divide the full-suite
+     *                        baseline by it
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
@@ -75,10 +87,11 @@ public final class DistributedRun implements Serializable {
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
-                                      int groupCount, Long targetRunTimeMs,
+                                      int groupCount, int groupsAvailable, Long targetRunTimeMs,
                                       long estimatedTotalMs, long createdAtMs, boolean seedRun) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
-                groupCount, targetRunTimeMs, estimatedTotalMs, createdAtMs, null, null, seedRun);
+                groupCount, groupsAvailable, targetRunTimeMs, estimatedTotalMs, createdAtMs, null,
+                null, seedRun);
     }
 
     /** @return the CI-supplied run identifier */
@@ -95,6 +108,16 @@ public final class DistributedRun implements Serializable {
 
     /** @return the number of groups the plan was split into */
     public int getGroupCount() { return groupCount; }
+
+    /**
+     * The number of groups the build had available to it, as opposed to the number it used. A
+     * build in target-run-time mode can plan fewer groups than its configured maximum, and the
+     * wall-clock savings are measured against the full suite spread across every available
+     * machine, not just the ones this build needed.
+     *
+     * @return the groups available to the build; never below {@link #getGroupCount()}
+     */
+    public int getGroupsAvailable() { return groupsAvailable; }
 
     /** @return the configured target run time in ms, or null in static groups mode */
     public Long getTargetRunTimeMs() { return targetRunTimeMs; }
@@ -137,6 +160,7 @@ public final class DistributedRun implements Serializable {
         if (o == null || getClass() != o.getClass()) { return false; }
         DistributedRun that = (DistributedRun) o;
         return groupCount == that.groupCount
+                && groupsAvailable == that.groupsAvailable
                 && estimatedTotalMs == that.estimatedTotalMs
                 && createdAtMs == that.createdAtMs
                 && seedRun == that.seedRun
@@ -156,8 +180,8 @@ public final class DistributedRun implements Serializable {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(runId, branch, commitValue, status, groupCount, targetRunTimeMs,
-                estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun);
+        return Objects.hash(runId, branch, commitValue, status, groupCount, groupsAvailable,
+                targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun);
     }
 
     /**
@@ -168,6 +192,7 @@ public final class DistributedRun implements Serializable {
     @Override
     public String toString() {
         return "DistributedRun{runId=" + runId + ", branch=" + branch + ", commit=" + commitValue
-                + ", status=" + status + ", groupCount=" + groupCount + ", seedRun=" + seedRun + "}";
+                + ", status=" + status + ", groupCount=" + groupCount
+                + ", groupsAvailable=" + groupsAvailable + ", seedRun=" + seedRun + "}";
     }
 }

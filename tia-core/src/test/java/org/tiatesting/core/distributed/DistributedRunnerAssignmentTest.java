@@ -110,7 +110,7 @@ class DistributedRunnerAssignmentTest {
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), null,
+        DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), null,
                 1000L * groups.size(), 5000L, seedRun);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }

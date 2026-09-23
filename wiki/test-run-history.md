@@ -8,7 +8,10 @@ Every Tia-enabled test run logs one row to a `tia_test_run_history` table in the
 - `run_timestamp` — UTC epoch milliseconds when the run started.
 - `branch`, `commit_value` — VCS branch and commit / changelist the run targeted.
 - `num_suites_ran`, `num_suites_ignored`, `num_suites_failed` — derived from the listener data already produced for stats / mapping (`testSuiteTrackers.size()`, `runnerTestSuites.size() - testSuiteTrackers.size()`, `testSuitesFailed.size()`).
-- `duration_ms` — wall-clock duration of the run.
+- `duration_ms` - the run's serial duration: its test time on one machine. For a distributed build this is the serial equivalent of every group's time; its end-to-end time is `wall_clock_ms`, the slowest group.
+- `time_savings`, `savings_percent` - the **serial** savings: the full-suite baseline (`all_tests_run_time`) minus `duration_ms`, i.e. machine time saved.
+- `wall_clock_savings`, `wall_clock_savings_percent` - the **wall-clock** savings: the baseline spread across the groups the build had available, minus its wall clock, i.e. end-to-end time saved. Equal to the serial savings on a single-host run. See "Wall-clock savings" below.
+- `run_id`, `wall_clock_ms`, `group_count`, `groups_available` - distributed builds only; null on a single-host row. `group_count` is the groups the build used, `groups_available` the pool it could have used.
 - `updated_db_mapping` — whether this run also persisted updates to the suite-to-method mapping.
 - `run_source`, `host_name` — where the run came from and which machine executed it. See "Run origin" below.
 
@@ -35,6 +38,21 @@ As plugin config it is the Maven `tiaRunSource` parameter and the Gradle `runSou
 Note that a bare `-DtiaRunSource=...` on the Maven command line sets the property on the *build* JVM, not the fork, so it has no effect on its own — use the plugin parameter (which the command-line property does feed, via `@Parameter(property = ...)`) or the environment variable.
 
 **A null host means "no machine to name"**. The source is never null - `RunEnvironment` falls back to `LOCAL` when nothing marks the run as CI - so every run Tia records carries one. A run whose hostname will not resolve stores a null host rather than a placeholder — several unrelated runs would otherwise appear to share a machine called "unknown". And a distributed build stores its source but a **null host**: the row describes work several machines did between them, so naming the one that happened to seal last would read as "this build ran here", which is exactly what it did not do.
+
+### Wall-clock savings
+
+Both savings figures are frozen onto the row when it is written, because the baseline they are measured against is a rolling average that cannot be re-derived later. They answer different questions:
+
+- **Serial savings** = `all_tests_run_time - duration_ms`. Machine time saved, as if one machine had run every test. `all_tests_run_time` is itself serial - a distributed all-tests build contributes the sum of its groups.
+- **Wall-clock savings** = `all_tests_run_time / groups_available - wall clock`. End-to-end time saved - what a developer waiting on the build feels. Running every test across the machines the build had available would take roughly the baseline divided by that many machines; the build took its wall clock instead.
+
+For example, with a 60 minute baseline and six groups available, a build that needs one group for 2 minutes saves 58 minutes serially but 8 minutes of wall clock (60 / 6 - 2). Dividing by the groups *available* rather than the groups *used* is what stops the parallelism the CI system provides being credited to Tia: a build that used one of six machines is compared against the full suite on all six, not on one.
+
+`groups_available` is recorded by the planner on the `tia_distributed_run` row, because only the planner sees the configuration: the fixed `tiaDistributedGroupCount`, else `tiaDistributedMaxGroups`, else - target-run-time mode with no ceiling - the groups the plan used, which is the only pool such a build can be said to have had. The sealer copies it onto the history row. A single-host row has one machine, so its wall clock is its duration and its wall-clock savings equal its serial savings.
+
+The summary reports' Stats block (`SummaryStats`) uses the same division. Under All Tests, `Run time (distributed)` is the serial baseline spread across the groups the most recent mapping-owning all-tests run used (`ReportUtils.lastAllTestsRunGroupCount`), with that count in brackets, and `Run time (not distributed)` is the serial baseline itself. The baseline is a running average over every all-tests run, not the last one's time; only its group count comes from the last run. Every other wall-clock figure there is derived from the history rows: `Average run time` averages each row's wall clock (under Partial Test Runs, only the rows that ignored at least one suite), `Average test run savings` is (distributed all-tests run time - that average) / distributed all-tests run time, clamped at zero, and `Total savings over all runs` sums the frozen wall-clock savings. `Group savings` and `Groups used` average the distributed rows' groups used and available.
+
+The division is even, so it ignores the fixed per-JVM overhead each extra group pays: the wall-clock baseline is a slight under-estimate and the wall-clock savings a conservative figure.
 
 **What the columns do not fix.** The stored `time_savings` on a local row is still computed against `all_tests_run_time`, the baseline CI maintains — so it is (CI's full-suite time) minus (a laptop's partial run time), two different machines. To get a defensible local-machine ROI figure, compute the savings yourself from the local rows: average `duration_ms` where `num_suites_ignored = 0` is that population's full-suite baseline, and the difference from the average partial run is the real saving.
 
@@ -82,11 +100,13 @@ Tia runs on developer laptops, CI runners, and shared workspaces in potentially 
 
 `HtmlHistoryReport` reads `tiaData.getTestRunHistory()` and renders `history/tia-history.html`, linked from the top navigation as "History". The table uses `simple-datatables` for sort / filter / paginate, defaulting to date descending. Long values (entry id, commit hash) are truncated to 8 characters in the cell; the full value is on a hover `title` so it stays accessible without widening the column.
 
+**Every time on the table is wall-clock time.** `Wall clock` is how long each run took end to end - its duration on a single host, its slowest group on a distributed build - and `Savings` / `Savings %` are its wall-clock savings. The serial duration and serial savings are on the run's detail page, alongside the groups it used and the groups it had available (see [Run history details](run-history-details.md)). `Groups` appears only when some row is a distributed build, dashed on the single-host rows.
+
 `Source` and `Host` render there too, on the same "only when some row has one" rule the console table uses, and dashed rather than blank on a row that has none — an empty cell reads as a rendering slip, and a dash also sorts the unknown rows together.
 
 A subtlety worth knowing: the local-time-rendering script must run **before** the `simple-datatables` init, not after. `simple-datatables` captures cell text into its internal model at init time; if the localization runs later via `DOMContentLoaded`, the `<time>` elements have already been replaced by `simple-datatables`' render output and the swap finds nothing.
 
-Above the table the page also renders a bar chart of recent run durations - see the [History timeline chart](history-timeline-chart.md) chapter.
+Above the table the page also renders a bar chart of recent run wall clocks - see the [History timeline chart](history-timeline-chart.md) chapter.
 
 ### Config gate
 
@@ -101,40 +121,37 @@ The HTML report is the rich view, but it requires a full `tia-html-report` invoc
 ```
 Displaying the latest 20 test runs from a total of 47
 
-Date/time            Branch        Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Mapping  Id
--------------------  ------------  --------  ---  -------  ------  --------  -------  ---------  -------  --------
-2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s    5m 12s         79%  yes      550e8400
-2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s       -                -  no       7c3e1a09
+Date/time            Branch        Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+-------------------  ------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
+2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s         -                -  LOCAL   no       7c3e1a09
 ```
 
 The number of rows is configurable: `mvn <plugin>:history -DtiaHistoryLast=N` for Maven, `./gradlew tia-history --last=N` for Gradle. The default is **20**, chosen so the output fits in a terminal screen without scrolling. Values `<= 0` (or non-numeric for `--last`) fail fast with a clear error.
 
-When any run in view was a distributed build, two further columns appear after `Duration` -
-`Wall clock` and `Groups`:
+As in the HTML table, every time is wall-clock time: `Wall clock` is the run's end-to-end time
+and `Savings` / `Savings %` its wall-clock savings (see "Wall-clock savings" above). The serial
+duration and serial savings are in the per-run `history-details` output. When any run in view was a
+distributed build, a `Groups` column - the groups the build used - appears after `Wall clock`:
 
 ```
-Date/time            Branch  Commit    Ran  Ignored  Failed  Duration  Wall clock  Groups  Savings  Savings %  Mapping  Id
--------------------  ------  --------  ---  -------  ------  --------  ----------  ------  -------  ---------  -------  --------
-2026-08-17 22:35:46  main    6097d683    2        1       0  615ms     506ms            2  49ms            7%  yes      3fd70a70
-2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms     664ms            1  -                -  yes      17972bd5
+Date/time            Branch  Commit    Ran  Ignored  Failed  Wall clock  Groups  Savings  Savings %  Source  Mapping  Id
+-------------------  ------  --------  ---  -------  ------  ----------  ------  -------  ---------  ------  -------  --------
+2026-08-17 22:35:46  main    6097d683    2        1       0  506ms            2  49ms            7%  CI      yes      3fd70a70
+2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms            1  -                -  CI      yes      17972bd5
 ```
 
-`Duration` keeps its meaning in both modes - it is the **serial equivalent**, what the run's
-selection would have cost on one host - which is why it stays the column `Savings` is computed
-from and why a project's history stays comparable across the build where distributed mode was
-switched on. `Wall clock` is what the distributed build actually waited for: its slowest group.
-The two are equal when a run had a single group, as the seed run above did. A single-host row in a
-mixed history dashes both extra columns rather than showing zeros, which would read as a build that
-took no time and used no groups; a history with no distributed run in view renders neither column,
-so the table is exactly as it was for a project that does not distribute. See
+A single-host row in a mixed history dashes `Groups` rather than showing a zero, which would read
+as a build that used no groups; a history with no distributed run in view does not render the
+column. See
 ["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row)
-for how the sealer computes the pair, and why the wall clock is deliberately not the primary figure.
+for how the sealer computes the serial and wall-clock durations.
 
 Likewise, `Source` appears after `Savings %` on every history, since every run resolves one, while `Host` appears only when some run in view names a machine - a history made up entirely of distributed builds would otherwise carry a column of dashes. The host is deliberately **not** truncated the way commit and id are: it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes the host - no single machine ran it.
 
 Both optional groups are assembled by filtering one list of column descriptors (header, alignment, cell accessor) rather than by selecting between hardcoded parallel arrays. With two independent toggles there are four layouts; held as three parallel arrays each, a header, an alignment flag and a cell that drifted out of step would produce a table that is quietly *wrong* rather than one that fails.
 
-Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` — the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the time that run saved versus running the full suite, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
+Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` - the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the wall-clock time that run saved versus running the full suite across the machines available, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
 
 
 ---

@@ -280,7 +280,7 @@ class DistributedRunCompleterTest {
                 suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
             }
         }
-        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, null,
+        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
                 1000L * groupCount, 1234L, false);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }

@@ -24,7 +24,7 @@ wiki can also be read front to back.
 - [Test-run history log](wiki/test-run-history.md) - the `tia_test_run_history` audit table, the
   `history` task and the HTML History tab.
 - [History timeline chart](wiki/history-timeline-chart.md) - the inline-SVG bar chart of recent run
-  durations above the History table: pass/fail colour, click-through to a run's detail page, the
+  wall clocks above the History table: pass/fail colour, click-through to a run's detail page, the
   last-20 / show-10-more window, and why it is hand-rolled rather than a bundled charting library.
 - [Run history details](wiki/run-history-details.md) - the per-run selection breakdown (source-method
   and static-rule triggers, five scalar counters), its storage, transport and distributed staging,

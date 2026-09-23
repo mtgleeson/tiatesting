@@ -145,10 +145,13 @@ public class HtmlHistoryDetailReport {
     }
 
     /**
-     * Build the summary block: the run's timestamp, branch, commit, suite counts, duration and
-     * savings. The timestamp is rendered the same way as {@link HtmlHistoryReport}'s table rows -
-     * an HTML5 {@code <time>} element carrying the UTC epoch ms, localized client-side by {@link
-     * HtmlLayout#localTimeRenderingScript()}.
+     * Build the summary block: the run's timestamp, branch, commit, suite counts, both its times and
+     * both its savings, and the groups it used and had available. The wall clock and wall-clock
+     * savings are what the History table shows; the serial duration and serial savings are the same
+     * run measured as total machine time, as if one machine had run it. The two are equal for a
+     * single-host run, whose group lines are dashed. The timestamp is rendered the same way as
+     * {@link HtmlHistoryReport}'s table rows - an HTML5 {@code <time>} element carrying the UTC
+     * epoch ms, localized client-side by {@link HtmlLayout#localTimeRenderingScript()}.
      *
      * @param entry the history row this page describes
      * @return the summary block content
@@ -163,8 +166,6 @@ public class HtmlHistoryDetailReport {
                 .toLocalDateTime()
                 .withNano(0)
                 .toString();
-        String savings = entry.getTimeSavingsMs() > 0
-                ? ReportUtils.prettyDuration(entry.getTimeSavingsMs(), true) : "-";
 
         return p(
                 span(rawHtml("Date / time: <time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>")), br(),
@@ -173,8 +174,14 @@ public class HtmlHistoryDetailReport {
                 span("Suites ran: " + entry.getNumSuitesRan()
                         + ", ignored: " + entry.getNumSuitesIgnored()
                         + ", failed: " + entry.getNumSuitesFailed()), br(),
-                span("Duration: " + ReportUtils.prettyDuration(entry.getDurationMs(), true)), br(),
-                span("Savings: " + savings)
+                span("Wall clock: " + ReportUtils.prettyDuration(entry.getRunWallClockMs(), true)), br(),
+                span("Serial duration: " + ReportUtils.prettyDuration(entry.getDurationMs(), true)), br(),
+                span("Groups used: " + counterOrDash(entry.getGroupCount())), br(),
+                span("Groups available: " + counterOrDash(entry.getGroupsAvailable())), br(),
+                span("Wall-clock savings: " + ReportUtils.savingsText(entry.getWallClockSavingsMs(),
+                        entry.getWallClockSavingsPercent())), br(),
+                span("Serial savings: " + ReportUtils.savingsText(entry.getTimeSavingsMs(),
+                        entry.getSavingsPercent()))
         );
     }
 
@@ -197,9 +204,10 @@ public class HtmlHistoryDetailReport {
     }
 
     /**
-     * Render one selection-source counter, or a dash when it was not recorded.
+     * Render one nullable count - a selection-source counter or a distributed group count - or a
+     * dash when it was not recorded or does not apply.
      *
-     * @param count the counter value; null when not recorded
+     * @param count the count; null when not recorded or not applicable
      * @return {@code count} as a string, or {@code "-"} when null
      */
     private String counterOrDash(Integer count) {

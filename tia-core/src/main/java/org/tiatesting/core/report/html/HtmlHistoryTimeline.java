@@ -22,8 +22,9 @@ import static j2html.TagCreator.text;
  * array that the page's inline rendering script draws from. The markup and rendering script are
  * added by {@link HtmlHistoryReport}.
  *
- * <p>Bars read oldest-to-newest, left to right; bar height is the run's {@code durationMs} (the
- * same figure as the table's Duration column) and bar colour is decided by whether the run had any
+ * <p>Bars read oldest-to-newest, left to right; bar height is the run's wall clock ({@link
+ * TestRunHistoryEntry#getRunWallClockMs()}, the same figure as the table's Wall clock column), the
+ * hover shows its wall-clock savings, and bar colour is decided by whether the run had any
  * failed suites. Each bar links to the run's existing {@code history/<id>.html} detail page.
  *
  * <p>See the "History timeline chart" chapter in {@code WIKI.md}.
@@ -63,7 +64,7 @@ final class HtmlHistoryTimeline {
         }
         String runsJson = buildRunsJson(runs);
         return div(attrs(".tia-timeline"),
-                HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Run duration timeline"),
+                HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Run wall clock timeline"),
                 div(attrs("#tiaTimelineChart.tia-timeline-chart")),
                 div(attrs(".tia-timeline-legend"),
                         span(span(attrs(".swatch.pass")), text("Passed")),
@@ -144,7 +145,7 @@ final class HtmlHistoryTimeline {
                 + "s+='</svg>';return s;}\n"
                 + "function showTip(b){var sv=+b.getAttribute('data-s');"
                 + "tip.innerHTML='<strong>'+esc(fmtDate(+b.getAttribute('data-t')))+'</strong>'"
-                + "+'<div>Duration: '+esc(pretty(+b.getAttribute('data-d')))+'</div>'"
+                + "+'<div>Wall clock: '+esc(pretty(+b.getAttribute('data-d')))+'</div>'"
                 + "+'<div>Savings: '+(sv>0?sv+'%':'-')+'</div>'"
                 + "+'<div class=\"tia-tl-tip-id\">'+esc(String(b.getAttribute('data-id')).slice(0,8))+'</div>';"
                 + "tip.style.display='block';}\n"
@@ -199,8 +200,8 @@ final class HtmlHistoryTimeline {
      * Serialise the given runs to a compact JSON array literal, safe to embed inside an inline
      * {@code <script>}. Each element carries only what the chart draws: {@code id} (the run's full
      * id, used for the bar's {@code history/<id>.html} link), {@code t} (run timestamp in UTC
-     * millis, shown localized on hover), {@code d} ({@code durationMs}, the bar height), {@code s}
-     * ({@code savingsPercent}, shown on hover) and {@code f} (1 when the run had any failed suite,
+     * millis, shown localized on hover), {@code d} (the run's wall clock, the bar height), {@code s}
+     * ({@code wallClockSavingsPercent}, shown on hover) and {@code f} (1 when the run had any failed suite,
      * else 0, deciding the bar colour). The array preserves the given order.
      *
      * @param runs the runs to serialise, already ordered oldest-first
@@ -218,8 +219,8 @@ final class HtmlHistoryTimeline {
             sb.append("{\"id\":");
             ScriptSafeJson.appendString(sb, run.getId() == null ? "" : run.getId());
             sb.append(",\"t\":").append(run.getRunTimestampMs())
-                    .append(",\"d\":").append(run.getDurationMs())
-                    .append(",\"s\":").append(run.getSavingsPercent())
+                    .append(",\"d\":").append(run.getRunWallClockMs())
+                    .append(",\"s\":").append(run.getWallClockSavingsPercent())
                     .append(",\"f\":").append(run.getNumSuitesFailed() > 0 ? 1 : 0)
                     .append('}');
         }

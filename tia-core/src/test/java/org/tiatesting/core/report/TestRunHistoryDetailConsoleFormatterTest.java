@@ -72,6 +72,52 @@ class TestRunHistoryDetailConsoleFormatterTest {
     }
 
     /**
+     * A distributed run's summary shows both its times, both its savings and the groups it used
+     * against the groups it had available.
+     */
+    @Test
+    void format_distributedRun_rendersBothTimesBothSavingsAndTheGroups() {
+        // given - 60s baseline; 1 of 6 groups used for 2s: 58s (97%) serial, 8s (80%) wall clock
+        TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun("main", "abc123",
+                "ci-run-1", 1_700_000_000_000L, 3, 7, 0, 2_000L, true, 58_000L, 97, 8_000L, 80,
+                2_000L, 1, 6, RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+
+        // when
+        String output = TestRunHistoryDetailConsoleFormatter.format(
+                entry, Collections.<TestRunTrigger>emptyList(), LF);
+
+        // then
+        assertTrue(output.contains("Wall clock:          2s" + LF), output);
+        assertTrue(output.contains("Serial duration:     2s" + LF), output);
+        assertTrue(output.contains("Groups used:         1" + LF), output);
+        assertTrue(output.contains("Groups available:    6" + LF), output);
+        assertTrue(output.contains("Wall-clock savings:  8s (80%)" + LF), output);
+        assertTrue(output.contains("Serial savings:      58s (97%)" + LF), output);
+    }
+
+    /**
+     * A single-host run's two savings are the same figure, and it has no groups to show.
+     */
+    @Test
+    void format_singleHostRun_rendersEqualSavingsAndDashedGroups() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+
+        // when
+        String output = TestRunHistoryDetailConsoleFormatter.format(
+                entry, Collections.<TestRunTrigger>emptyList(), LF);
+
+        // then
+        assertTrue(output.contains("Wall clock:          12s" + LF), output);
+        assertTrue(output.contains("Groups used:         -" + LF), output);
+        assertTrue(output.contains("Groups available:    -" + LF), output);
+        assertTrue(output.contains("Wall-clock savings:  4s (25%)" + LF), output);
+        assertTrue(output.contains("Serial savings:      4s (25%)" + LF), output);
+    }
+
+    /**
      * An entry with no recorded selection breakdown - null counters, no triggers - should render a
      * dash for every scalar counter and a "(none)" line in place of each trigger section's rows,
      * rather than a misleading zero or an empty section.
