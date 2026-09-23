@@ -589,22 +589,17 @@ in the build shares. See the [test-run history log](test-run-history.md) chapter
 itself, which shows the wall clock and wall-clock savings; the serial duration and savings are on
 each run's detail page.
 
-The same pair surfaces once more, aggregated, in the three Tia-level summary reports - the `status`
-console output, the plain-text report and the HTML report's landing page:
-
-```
-Average run time (serial equivalent): 638ms (96%)
-Average distributed run time: 553ms (83%) over 3 distributed run(s)
-```
-
-The first is `TestStats.avgRunTime`, which a distributed build contributes its serial-equivalent
-duration to (`DistributedRunSealer.buildRunStats`) precisely so the counter means the same thing
-either side of the switch to distributed mode. The second has no stored counter and is derived from
-the history rows' wall clocks by `ReportUtils.averageRunTimeLines`, because a wall clock only exists
-per run and only for a distributed one. That difference is also why the run count is printed: the
-two lines average different populations - every run against distributed runs only - and without it
-the pair reads as though the same builds got faster. A project with no distributed run in its
-history gets neither the qualifier nor the second line.
+The same pair surfaces once more, aggregated, in the Stats block of the three Tia-level summary
+reports - the `status` console output, the plain-text report and the HTML report's landing page -
+all built from one `SummaryStats` model so they cannot drift. Under Test Run Duration, `Average
+run time` is the **wall clock** averaged across every history row, and under Partial Test Runs
+the same average across the rows that ignored at least one suite. Both are measured against the
+all-tests run time spread across the groups the last all-tests run used, and both are derived from
+the history, because a wall clock only exists per run. `TestStats.avgRunTime` - the serial
+average a distributed build contributes its serial-equivalent duration to
+(`DistributedRunSealer.buildRunStats`) - is still maintained but no longer shown. The Savings
+section's group lines - `Group savings` and `Groups used` - average `group_count` and
+`groups_available` over the distributed rows, and only appear once there is one.
 
 The same two durations, under the same two names, are what the *estimate* side reports before the
 run. `select-tests` prints them in its estimate block:

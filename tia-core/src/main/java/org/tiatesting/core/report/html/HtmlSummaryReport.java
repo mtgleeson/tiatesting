@@ -5,14 +5,12 @@ import j2html.tags.DomContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
-import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TiaData;
-import org.tiatesting.core.report.ReportUtils;
+import org.tiatesting.core.report.SummaryStats;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
-import java.text.DecimalFormat;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -29,7 +27,6 @@ public class HtmlSummaryReport {
     protected static final String INDEX_HTML = "index.html";
     private final String filenameExt;
     private final File reportOutputDir;
-    private final DecimalFormat avgFormat = new DecimalFormat("###.#");
 
     public HtmlSummaryReport(String filenameExt, File reportOutputDir){
         this.filenameExt = filenameExt;
@@ -61,20 +58,11 @@ public class HtmlSummaryReport {
                 ? tiaData.getPendingLibraryImpactedMethods().size() : 0;
 
         try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
-            int numTestSuites = tiaData.getTestSuitesTracked().size();
-            int numSourceMethods = tiaData.getMethodsTracked().size();
-            TestStats stats = tiaData.getTestStats();
-
-            // Total savings sums the per-run wall-clock savings frozen on each history row.
-            long totalSavingsMs = ReportUtils.totalWallClockSavingsMs(tiaData.getTestRunHistory());
-            boolean hasSavings = totalSavingsMs > 0;
-            // One line normally; a second naming the average wall clock once this project has
-            // distributed builds in its history. Built by the same helper the console and
-            // plain-text summaries use, so the three cannot drift on the wording.
-            List<String> avgRunTimeLines = ReportUtils.averageRunTimeLines(stats.getAvgRunTime(),
-                    stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
-            List<String> allTestsRunTimeLines = ReportUtils.allTestsRunTimeLines(
-                    stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
+            // Built by the same model the console and plain-text summaries render, so the three
+            // cannot drift on the wording, grouping or arithmetic.
+            List<SummaryStats.Section> statsSections = SummaryStats.build(
+                    tiaData.getTestSuitesTracked().size(), tiaData.getMethodsTracked().size(),
+                    tiaData.getTestStats(), tiaData.getTestRunHistory());
 
             html(
                     HtmlLayout.pageHead("Summary", assetsRel),
@@ -95,23 +83,7 @@ public class HtmlSummaryReport {
                                     ),
 
                                     HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Stats"),
-                                    p(
-                                            span("Number of test classes with mappings: " + numTestSuites), br(),
-                                            span("Number of source methods tracked for tests: " + numSourceMethods)
-                                    ),
-                                    p(
-                                            span("Number of partial runs: " + stats.getNumPartialRuns()), br(),
-                                            each(spansWithBreaks(avgRunTimeLines), content -> content),
-                                            span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
-                                            each(spansWithBreaks(allTestsRunTimeLines), content -> content),
-                                            iff(hasSavings, span("Total savings over all runs: "
-                                                    + ReportUtils.prettyDurationDropMsAboveMinute(totalSavingsMs))),
-                                            iff(hasSavings, br()),
-                                            span("Number of successful runs: " + stats.getNumSuccessRuns()
-                                                    + " (" + getAvgSuccess(stats) + "%)"), br(),
-                                            span("Number of failed runs: " + stats.getNumFailRuns()
-                                                    + " (" + getAvgFail(stats) + "%)")
-                                    ),
+                                    each(statsSections, HtmlSummaryReport::renderStatsSection),
 
                                     HtmlLayout.sectionHeading(HtmlLayout.ICON_FAILED, "Pending Failed Tests"),
                                     renderPendingFailedTests(tiaData),
@@ -130,24 +102,40 @@ public class HtmlSummaryReport {
     }
 
     /**
-     * Wrap each line in its own {@code span}, followed by a line break, so a variable number of
-     * lines can sit inside a paragraph of fixed ones.
+     * Render one Stats section: its heading - an {@code h4} for a top-level section, an {@code h5}
+     * for one nested under it - then its lines as a paragraph. A heading or line with a hint
+     * carries it as a hover tooltip, so the explanation sits where the reader is looking without
+     * adding to the page.
      *
-     * <p>Built as real tags rather than through j2html's {@code join}, which renders its arguments
-     * eagerly with default settings: its breaks came out as {@code <br>} while every other break on
-     * the page, rendered through this report's {@code withEmptyTagsClosed(true)} writer, is {@code
-     * <br/>}. Returning the tags themselves leaves the rendering to that one writer.
-     *
-     * @param lines the text lines to wrap, in order
-     * @return the spans and breaks, ready to be emitted by {@code each}
+     * @param section the section to render
+     * @return the heading and paragraph
      */
-    private static List<DomContent> spansWithBreaks(List<String> lines) {
-        List<DomContent> content = new ArrayList<>(lines.size() * 2);
-        for (String line : lines) {
-            content.add(span(line));
-            content.add(br());
+    private static DomContent renderStatsSection(SummaryStats.Section section) {
+        List<DomContent> lines = new ArrayList<>(section.getLines().size() * 2);
+        for (SummaryStats.Line line : section.getLines()) {
+            lines.add(line.getHint() == null
+                    ? span(line.toText())
+                    : span(hinted(line.getLabel(), line.getHint()), text(": " + line.getValue())));
+            lines.add(br());
         }
-        return content;
+        DomContent heading = section.getHint() == null
+                ? text(section.getHeading())
+                : hinted(section.getHeading(), section.getHint());
+        return each(section.getDepth() == 0 ? h4(heading) : h5(heading),
+                p(each(lines, content -> content)));
+    }
+
+    /**
+     * Wrap text in a span that shows a hover tooltip. The {@code tia-stat-hint} class lets the
+     * tooltip wrap and anchors it to the text's left edge, since Pico's default truncates it to
+     * one line centred on the text - see {@code tia.css}.
+     *
+     * @param text the visible text
+     * @param hint the tooltip text
+     * @return the hinted span
+     */
+    private static DomContent hinted(String text, String hint) {
+        return span(text).withClass("tia-stat-hint").attr("data-tooltip", hint);
     }
 
     private DomContent renderPendingFailedTests(TiaData tiaData) {
@@ -188,22 +176,6 @@ public class HtmlSummaryReport {
                         )
                 ))
         );
-    }
-
-    private String getAvgSuccess(TestStats stats){
-        if (stats.getNumRuns() == 0) {
-            return "0";
-        }
-        double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
-        return avgFormat.format(percSuccess);
-    }
-
-    private String getAvgFail(TestStats stats){
-        if (stats.getNumRuns() == 0) {
-            return "0";
-        }
-        double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
-        return avgFormat.format(percFail);
     }
 
     private void createOutputDir() {
