@@ -84,12 +84,13 @@ public class TiaDistPlanTask extends DefaultTask {
         System.out.println("Planning a distributed Tia test run:");
 
         boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
+        boolean updateDBMapping = Boolean.TRUE.equals(plugin.getUpdateDBMapping());
         boolean tiaEnabled = Boolean.TRUE.equals(plugin.getEnabled());
         Set<Project> reactorProjects = plugin.getReactorProjects();
         DistributedRunConfig config;
         try {
             DistributedRunPreconditions.check(tiaEnabled, reactorProjects.size(), plugin.getDbUrl(),
-                    plugin.getDbDialect(), checkLocalChanges);
+                    plugin.getDbDialect(), checkLocalChanges, updateDBMapping);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
                     plugin.getDistributedRunnerKey());
@@ -116,11 +117,11 @@ public class TiaDistPlanTask extends DefaultTask {
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = plugin.buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = plugin.buildStaticTestSelectionConfig();
-            boolean updateDBMapping = Boolean.TRUE.equals(plugin.getUpdateDBMapping());
-            // checkLocalChanges is already guaranteed false here - DistributedRunPreconditions.check
-            // above rejects checkLocalChanges=true before this point is reached. Passed through as
-            // the same resolved value (not a literal false) so this stays in lockstep with the
-            // Maven goal's isTiaCheckLocalChanges() if that precondition is ever relaxed.
+            // The resolved checkLocalChanges drives selection here. It can legitimately be true:
+            // DistributedRunPreconditions.check above rejects it only when updateDBMapping is also
+            // on, so whenever this point is reached with local-change checking enabled the run is
+            // not updating the mapping and selecting against the local workspace is exactly what was
+            // asked for. When updateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
                     testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping);
 

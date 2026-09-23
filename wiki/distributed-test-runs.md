@@ -35,8 +35,9 @@ The plan is written by the Maven `dist-plan` goal (`AbstractTiaDistPlanMojo`) or
 every piece of logic that produces a value:
 
 1. `DistributedRunPreconditions.check` - the four rules the plugin layer owns (Tia enabled,
-   single-project build, shared database, `tiaCheckLocalChanges` off). See "Multi-module is not
-   supported" below for the second one.
+   single-project build, shared database, and `tiaCheckLocalChanges` not combined with
+   `tiaUpdateDBMapping`). See "Multi-module is not supported" below for the second one, and
+   "Local-change checking without mapping updates" below for the fourth.
 2. `DistributedRunConfig.validated` - exactly one of `tiaDistributedGroupCount` or
    `tiaDistributedTargetRunTime`, with `tiaDistributedMaxGroups` only alongside the target.
 3. The **real** test selection: `TestSelector.selectTestsToIgnore`, with `updateDBMapping` set to
@@ -929,6 +930,46 @@ planning invocation, the test invocation and the completion invocation.
 
 Multi-module support is future work, not something the configuration can be adjusted to fix, and the
 failure message says so.
+
+## Local-change checking without mapping updates
+
+`DistributedRunPreconditions` rule 3 allows `tiaCheckLocalChanges` in a distributed run **as long as
+`tiaUpdateDBMapping` is off**, and rejects only the combination of both. This is looser than it once
+was - the rule used to forbid local-change checking outright - and the reason the old blanket ban was
+wrong is worth stating, because it is the same reasoning that bounds the new rule.
+
+**Runners do not diff.** The selection is computed once, at plan time, by the single
+`TestSelector.selectTestsToIgnore` call in step 3 above; the plan persists suite-name-to-group
+assignments, and each runner claims a group and runs the suite names it was handed without diffing
+anything itself (see "Which suites a runner skips"). So a runner never computes line numbers of its
+own, and divergent working copies across runners cannot corrupt the plan they all share. The old
+justification - "every runner must produce the same line numbers for the same commit" - described a
+model where each runner selects, which is not how the run works.
+
+**The real hazard is at seal time, and only when the mapping is written.** When the run collects
+coverage (`tiaUpdateDBMapping` on), each runner stages a fresh method-to-line mapping for its suites,
+and the sealer folds that into the mapping keyed to the committed baseline (see "What only the sealer
+can do"). If that coverage was measured against uncommitted local edits, it would be stored as if it
+belonged to the commit, silently poisoning every later build's selection. That is the one genuinely
+unsafe combination, so it is the one the precondition rejects. A run with `tiaUpdateDBMapping=false`
+stages and writes no mapping, so there is nothing to poison.
+
+**Why fail fast rather than silently disable.** The non-distributed path resolves the same conflict by
+quietly forcing `tiaCheckLocalChanges` off when `tiaUpdateDBMapping` is on (see the
+`isCheckLocalChanges()` helper in the Maven agent mojo). The distributed path throws instead: a CI job
+that deliberately asked to test uncommitted changes should be told its configuration is contradictory,
+not have Tia quietly run the committed baseline behind its back and report success. The rule is checked
+at both plan time and claim time, the same way rule 4 is, so a runner whose configuration disagrees with
+the plan's is refused rather than left to do the wrong thing.
+
+**The use case, and its operational requirement.** The allowed mode - distributed with
+`tiaCheckLocalChanges=true` and `tiaUpdateDBMapping=false` - lets a build that has not committed its
+changes (a CI job testing a working tree, for example) fan the impacted tests out across runners purely
+for speed, without writing to the mapping. The plan step selects against the local workspace once; every
+runner then physically runs the impacted code, so every runner must have that **same working copy - the
+same uncommitted changes - checked out**. Tia has no way to verify that the runners' trees match the
+plan's, so distributing the workspace (not just the commit) is the pipeline's responsibility. Get it
+wrong and a runner runs stale code for the suites it was assigned; Tia cannot detect it.
 
 ## `tiaDistributedRunnerKey`
 

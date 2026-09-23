@@ -426,7 +426,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             // Passing the reactor's real size here, the same way AbstractTiaDistPlanMojo does, lets
             // DistributedRunPreconditions.check reject that shape before any group is claimed.
             DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
-                    getTiaDBDialect(), isTiaCheckLocalChanges());
+                    getTiaDBDialect(), isTiaCheckLocalChanges(), isTiaUpdateDBMapping());
             // forRunner, not validated: how the build was split is the planner's decision and is
             // already recorded in the plan being claimed from. Requiring the grouping properties
             // here would make every runner job repeat configuration only the planning job uses, and
