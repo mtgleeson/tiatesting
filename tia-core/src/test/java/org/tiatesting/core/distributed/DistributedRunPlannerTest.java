@@ -345,6 +345,62 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verify that a fixed-count plan records its configured group count as the groups available,
+     * since a fixed count is the pool of runner machines the build has.
+     */
+    @Test
+    void shouldRecordTheFixedGroupCountAsTheGroupsAvailable() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-fixed", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-avail-fixed");
+        assertEquals(2, readRun.getGroupsAvailable());
+    }
+
+    /**
+     * Verify that a target-run-time plan records its configured maximum as the groups available
+     * even when the balancer needed fewer groups. The wall-clock savings are measured against the
+     * full suite spread across every machine the build could have used, so the unused ones count.
+     */
+    @Test
+    void shouldRecordTheMaxGroupsAsTheGroupsAvailableWhenTheBalancerUsesFewer() {
+        // given - a target the whole 60s selection fits under in one group, with six available
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-max", null, 120000L, 6, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-avail-max");
+        assertEquals(1, readRun.getGroupCount(), "the balancer should need only one group");
+        assertEquals(6, readRun.getGroupsAvailable());
+    }
+
+    /**
+     * Verify that a target-run-time plan with no configured maximum records the groups it used as
+     * the groups available, since with no ceiling there is no other pool to measure against.
+     */
+    @Test
+    void shouldRecordTheGroupsUsedAsTheGroupsAvailableWhenThereIsNoMaximum() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-nomax", null, 25000L, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-avail-nomax");
+        assertEquals(readRun.getGroupCount(), readRun.getGroupsAvailable());
+    }
+
+    /**
      * Verify that every selected suite appears exactly once in the persisted plan: the union of
      * suite names read back across every group equals {@code selection.getTestsToRun()} exactly.
      * This is the end-to-end assertion of the suite-conservation guard - it checks what actually
@@ -991,7 +1047,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, null, 1000L, 1L, "runner-1", 2L, false);
+                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, false);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -1013,7 +1069,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, false);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
@@ -1037,7 +1093,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, null, 2000L, 1L, null, null, false);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));

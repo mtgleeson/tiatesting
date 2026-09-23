@@ -239,7 +239,7 @@ class DistributedRunStatusReportTest {
         // given - a non-seed run planned with a genuinely zero estimate (nothing impacted)
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
-        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, null, 0L,
+        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
                 NOW_MS - 120_000L, false);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
@@ -264,7 +264,7 @@ class DistributedRunStatusReportTest {
         // given - a seed run planned with no estimate at all
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
-        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, null, 0L,
+        DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
                 NOW_MS - 120_000L, true);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
@@ -524,7 +524,7 @@ class DistributedRunStatusReportTest {
         for (int groupNumber = 0; groupNumber < suitesByGroup.size(); groupNumber++) {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
-        DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), 5000L,
+        DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), 5000L,
                 1000L * groups.size(), NOW_MS - 120_000L, seedRun);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }

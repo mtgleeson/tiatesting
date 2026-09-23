@@ -125,7 +125,7 @@ class TiaSpockRunListenerDistributedTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, Collections.singletonList("com.example.ATest"));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, null, 1000L, 5000L, false),
+                DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, false),
                 groups, suitesByGroup, null));
     }
 

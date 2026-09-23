@@ -123,6 +123,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SEALED_AT = "sealed_at";
     private static final String COL_DRAIN_RESULT = "drain_result";
     private static final String COL_SEED_RUN = "seed_run";
+    private static final String COL_GROUPS_AVAILABLE = "groups_available";
     private static final String COL_GROUP_NUMBER = "group_number";
     private static final String COL_RUNNER_KEY = "runner_key";
     private static final String COL_CLAIMED_AT = "claimed_at";
@@ -1629,8 +1630,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ", " + COL_SEED_RUN
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + ", " + COL_SEED_RUN + ", " + COL_GROUPS_AVAILABLE
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
                 + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
@@ -1674,6 +1675,7 @@ public class JdbcDataStore implements DataStore {
                     setNullableLong(statement, 10, run.getSealedAtMs());
                     setDrainResult(statement, 11, plan.getDrainResult());
                     statement.setBoolean(12, run.isSeedRun());
+                    statement.setInt(13, run.getGroupsAvailable());
                     statement.executeUpdate();
                 }
                 try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
@@ -1848,6 +1850,7 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getString(COL_COMMIT_VALUE),
                 DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
                 resultSet.getInt(COL_GROUP_COUNT),
+                resultSet.getInt(COL_GROUPS_AVAILABLE),
                 getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
                 resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
                 resultSet.getLong(COL_CREATED_AT),
@@ -4356,7 +4359,8 @@ public class JdbcDataStore implements DataStore {
                 + COL_SEALED_BY + " VARCHAR(255), "
                 + COL_SEALED_AT + " BIGINT, "
                 + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE)";
+                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE, "
+                + COL_GROUPS_AVAILABLE + " INT)";
     }
 
     /**
@@ -4450,20 +4454,35 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Build the migration that backfills the {@code tia_distributed_run.groups_available} column
+     * onto a run table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT
+     * EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunTableSql} just created.
+     *
+     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
+     */
+    private String buildAddGroupsAvailableColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
+                + COL_GROUPS_AVAILABLE + " INT";
+    }
+
+    /**
      * Ensure the four distributed-run tables, the group-status index and the additive {@code
-     * seed_run} column exist. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code
-     * ADD COLUMN IF NOT EXISTS}, so it both creates everything on a new database and backfills the
-     * run row's seed flag onto a database created before it was recorded.
+     * seed_run} and {@code groups_available} columns exist. Idempotent via {@code CREATE
+     * TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both creates
+     * everything on a new database and backfills the run row's seed flag and groups available onto
+     * a database created before they were recorded.
      *
      * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
      * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
      * pre-release with no external databases to preserve, so a database is simply created with
-     * them. Only {@code seed_run} is backfilled, because getting it wrong on an existing run row
-     * corrupts the full-suite baseline rather than merely failing the write.
+     * them. {@code seed_run} is backfilled because getting it wrong on an existing run row
+     * corrupts the full-suite baseline rather than merely failing the write, and {@code
+     * groups_available} because the plan write names it, so a store without it would fail the
+     * next plan.
      *
-     * <p>All six DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>All seven DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be six wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be seven wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
@@ -4481,6 +4500,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSeedRunColumnSql());
+            statement.addBatch(buildAddGroupsAvailableColumnSql());
             statement.executeBatch();
         }
         ensureDistributedRunSelectionTablesExist(connection);
