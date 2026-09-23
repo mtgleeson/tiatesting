@@ -747,6 +747,35 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * <b>A seed run ignores nothing even when a tracked suite is absent from its assigned set.</b> A
+     * seed run's assigned suite names come from a disk scan, and a suite a runner tracked by seal
+     * time can be absent from it - a {@code @Nested} binary name the scan enumerated differently, for
+     * one. The old tracked-vs-assigned path counted such a suite as ignored, which would drop {@code
+     * allTestsRun} on a run that genuinely ran everything. A seed run must resolve to zero ignored
+     * regardless of the disk scan's shape.
+     */
+    @Test
+    void aSeedRunIgnoresNothingEvenWhenATrackedSuiteIsAbsentFromTheAssignedSet() {
+        // given - a seed plan whose assigned set (a.T1, a.T2) is missing a suite the runners tracked
+        seedTrackedSuitesNamed("a.T1", "a.Outer$Nested");
+        persistPlanOfKind(RUN_ID, Arrays.asList(Collections.singletonList("a.T1"),
+                Collections.singletonList("a.T2")), true);
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+        completeGroup(RUN_ID, 1, RUNNER_B, 5_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_B, 1).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(0, entry.getNumSuitesIgnored(),
+                "a seed run runs everything, so a tracked suite absent from the disk-scan assigned "
+                        + "set must not be counted as ignored");
+        assertEquals(1L, dataStore.getTiaCore().getTestStats().getNumAllTestsRuns(),
+                "the seed run must still count as an all-tests run");
+    }
+
+    /**
      * Suites the developer disabled in source do not hold the baseline back. They would not run
      * without Tia either, so a build that ran everything else still ran everything Tia could have
      * selected - the same rule the single-host ignored-count applies.

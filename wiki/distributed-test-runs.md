@@ -161,6 +161,50 @@ The grouping shape is still validated on a seed run, so a misconfigured
 than on it. And if `tiaUpdateDBMapping` is off, the plan step logs a WARN naming that property: a
 seed run that records no mapping leaves the next build another seed run, indefinitely.
 
+### Seed-run completion
+
+A seed run's `Assigned` count comes from the disk scan above, not a stored mapping, so it is a
+superset that can include non-test classes JUnit itself never observes. Guarding completion on
+`observed >= assigned`, the way a normal run does, would leave `Assigned` permanently out of
+`Observed`'s reach even though the runner genuinely ran everything JUnit was ever going to run for
+that group.
+
+The completeness guard (see "The completeness guard" below) is loosened for a seed run: it
+completes on `observed >= LEAST(1, assigned)` rather than `observed >= assigned`. A group assigned
+real suites must have observed at least one to close; a group assigned nothing - the fallback
+single-group case above - closes trivially, the same as it always has. `describeRejectedCompletion`
+and the status report's footer are both seed-aware to match: a seed group rejected as incomplete is
+reported as having observed nothing rather than an "N of M assigned" fraction that would misstate
+what the disk-scan superset means, and the status footer explains that `Observed` may legitimately
+stay below `Assigned` on a seed run instead of claiming the two must meet.
+
+The seal is seed-aware for the same reason: `DistributedRunSealer` treats a seed run as ignoring
+nothing, so `allTestsRun` rests on whether any suite ran rather than on the assigned-vs-tracked
+comparison a normal run uses, which the disk-scan superset would otherwise fail.
+
+This loosened guard still assumes the same completion step the rest of this chapter does: the
+`dist-complete` step must run whether the test step passed or failed (see "Maven: the completion
+must be its own always-run step" below). A crashed or failed test step that never reaches
+`dist-complete` still leaves the group `CLAIMED` forever, seed run or not - the loosened threshold
+only changes how few suites a *reporting* runner needs to have observed, not whether it needs to
+report at all.
+
+**Caveat: a partially-run seed group can seal as all-tests-run.** The loosened threshold is also
+what a *partial* seed run passes. `dist-complete` is designed to run whether the test step passed
+or failed - the Gradle finalizer runs even when the test task it finalizes fails
+(`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
+and the Maven completion is documented as an `if: always()` step (see "Maven: the completion must
+be its own always-run step" below). So if a test step runs some but not all of its assigned suites
+and then crashes or is killed (a fork crash, an OOM, `--fail-fast`, a CI timeout), `dist-complete`
+still runs and completes the group on `observed >= LEAST(1, assigned)`, and the seed-aware seal -
+which treats a seed run as ignoring nothing - can then seal the run as all-tests-run even though
+that group ran only part of its share. The `observed >= 1` per-group guard only blocks the
+all-nothing case; it cannot tell a partially-run seed group from a fully-run one, because a seed run
+has no stored mapping to compare `observed` against - the very reason the guard is loosened. A
+non-seed run is not exposed: its `observed >= assigned` guard leaves a partially-run group
+`CLAIMED`. This is left as a documented caveat rather than papered over with build-tool-specific
+crash detection.
+
 ### The claim protocol
 
 No runner is told which group it is. Each runner claims one, and `JdbcDataStore.claimNextPendingGroup`
@@ -828,9 +872,17 @@ UPDATE tia_distributed_run_group SET status = 'COMPLETED', completed_at = ?
                             WHERE run_id = ? AND group_number = ?)
 ```
 
+(On a seed run that assigned-count subquery is wrapped in `LEAST(1, ...)`, so the predicate becomes
+`suites_observed >= LEAST(1, assignedCount)` - see "Seed-run completion" above for why.)
+
 In words: **a group may only complete once it has observed at least as many suites as the plan
 assigned to it.** Those are the two numbers the status command puts side by side as its `Observed`
-and `Assigned` columns, since they are what a run's progress actually comes down to. This is what
+and `Assigned` columns, since they are what a run's progress actually comes down to. That rule is
+unqualified only for a non-seed run; a seed run's assigned suites come from a disk scan that
+over-includes non-test classes the runner never observes, so its guard is loosened to
+`suites_observed >= LEAST(1, assignedCount)` - a group assigned real suites need only have observed
+at least one, and a group assigned nothing completes trivially. See "Seed-run completion" above for
+the full reasoning. This is what
 stands in for the crash protection a JVM shutdown hook used to provide. Without it, a JVM killed mid-run (SIGKILL, OOM) after reporting only part of its group
 could still have its group completed by the build tool step, and the build would seal on a catalogue
 missing whatever that JVM never got to run.
@@ -869,16 +921,22 @@ Reading `tia_distributed_run_group` directly instead, the groups that are not `C
 | `PENDING`, never claimed | The pipeline started fewer jobs than the plan's `groupCount`. **Those suites did not run.** |
 | `CLAIMED`, never completed | The runner died, or its completion step never ran (the Maven lifecycle-abort trap above), or the completion was refused. |
 
-When the completion was *refused*, the log says so, and it says which of four cases it was.
+When the completion was *refused*, the log says so, and it says which of five cases it was.
 `DistributedRunnerPersist.describeRejectedCompletion` reads the group row back on the failure path
 specifically so that the message names what actually happened rather than the most likely thing -
-the guard's row count alone cannot tell the cases apart, since all four miss the same `WHERE`
-clause. The four clauses it can produce:
+the guard's row count alone cannot tell the cases apart, since all five miss the same `WHERE`
+clause. The five clauses it can produce:
 
 - *"this runner already completed this group, so there is nothing further to write for it"* - a
   duplicate completion. Harmless.
+- *"this is a seed run and this runner has observed no suites yet (N), so the group has run nothing
+  to complete"* - the seed-aware completeness guard (see "Seed-run completion" above). Since a seed
+  run's assigned count is a disk-scan superset, this case is reported as having observed nothing
+  rather than an "N of M assigned" fraction, which would misstate what the superset means. The
+  runner has not reported any progress on its group yet.
 - *"this runner has observed only N of M assigned suite(s) so far, so the group is not complete
-  enough to close"* - the completeness guard. The runner did not get through its group.
+  enough to close"* - the completeness guard on a non-seed run. The runner did not get through its
+  group.
 - *"the group is now `<STATUS>` under runner '`<key>`', so it is no longer this runner's to
   complete"* - another runner holds it. Usually a runner-key collision or a re-claim.
 - *"the run's group rows are gone, so a newer build's plan write superseded this run"* - a
