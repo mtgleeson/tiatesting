@@ -139,8 +139,11 @@ public class TextSummaryReport {
             reportBuilder.append(line + lineSep);
         }
         reportBuilder.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
-        reportBuilder.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
-        long totalSavings = ReportUtils.totalSavingsMs(tiaData.getTestRunHistory());
+        for (String line : ReportUtils.allTestsRunTimeLines(stats.getAllTestsRunTime(),
+                tiaData.getTestRunHistory())) {
+            reportBuilder.append(line + lineSep);
+        }
+        long totalSavings = ReportUtils.totalWallClockSavingsMs(tiaData.getTestRunHistory());
         if (totalSavings > 0){
             reportBuilder.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
         }

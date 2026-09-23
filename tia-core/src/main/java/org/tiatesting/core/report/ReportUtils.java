@@ -172,22 +172,75 @@ public class ReportUtils {
     }
 
     /**
-     * Sum the per-run savings frozen on the history rows. Each row's {@code time_savings} was
-     * computed against the all-tests baseline current at the time of that run, so summing the
-     * stored values is accurate even though the baseline moves over time.
+     * Sum the per-run wall-clock savings frozen on the history rows - the end-to-end time Tia saved
+     * across every recorded run. Each row's {@code wall_clock_savings} was computed against the
+     * all-tests baseline current at the time of that run, so summing the stored values is accurate
+     * even though the baseline moves over time.
      *
      * @param history the recorded test-run history rows
-     * @return the total time saved across all runs, in ms
+     * @return the total wall-clock time saved across all runs, in ms
      */
-    public static long totalSavingsMs(List<TestRunHistoryEntry> history){
+    public static long totalWallClockSavingsMs(List<TestRunHistoryEntry> history){
         if (history == null){
             return 0L;
         }
         long total = 0L;
         for (TestRunHistoryEntry entry : history){
-            total += entry.getTimeSavingsMs();
+            total += entry.getWallClockSavingsMs();
         }
         return total;
+    }
+
+    /**
+     * The number of groups the most recent all-tests run in the history was split across: its
+     * group count for a distributed build, 1 for a single-host run. Only runs that owned the
+     * mapping count, since they are the only ones that move the full-suite baseline; a local
+     * all-tests run on a laptop says nothing about how the baseline was measured.
+     *
+     * @param history the run history to scan; may be null or empty
+     * @return the most recent all-tests run's group count, or 1 when the history holds none
+     */
+    public static int lastAllTestsRunGroupCount(List<TestRunHistoryEntry> history){
+        if (history == null){
+            return 1;
+        }
+        TestRunHistoryEntry latest = null;
+        for (TestRunHistoryEntry entry : history){
+            boolean allTestsRun = entry.isUpdatedDbMapping() && entry.getNumSuitesIgnored() == 0
+                    && entry.getNumSuitesRan() > 0;
+            if (allTestsRun && (latest == null
+                    || entry.getRunTimestampMs() > latest.getRunTimestampMs())){
+                latest = entry;
+            }
+        }
+        return latest == null || latest.getGroupCount() == null ? 1 : latest.getGroupCount();
+    }
+
+    /**
+     * Render the all-tests run time lines for a summary report, so the console, plain-text and HTML
+     * summaries cannot drift on the wording.
+     *
+     * <p>The first line is the wall clock: the serial full-suite baseline spread across the groups
+     * the most recent all-tests run used ({@link #lastAllTestsRunGroupCount(List)}), the same
+     * division the per-run wall-clock savings use. When that is more than one group, a second line
+     * gives the serial baseline itself, labelled as the time on one group. With one group the two
+     * are the same figure, so only the first line is printed.
+     *
+     * @param allTestsRunTimeMs the serial full-suite baseline in ms
+     * @param history the run history the group count is read from; may be null
+     * @return one line, or two when the last all-tests run was split across several groups
+     */
+    public static List<String> allTestsRunTimeLines(long allTestsRunTimeMs,
+                                                    List<TestRunHistoryEntry> history){
+        int groups = lastAllTestsRunGroupCount(history);
+        List<String> lines = new ArrayList<>(2);
+        lines.add("All tests run time: "
+                + prettyDuration(wallClockAllTestsRunTimeMs(allTestsRunTimeMs, groups))
+                + " (" + groups + (groups == 1 ? " group)" : " groups)"));
+        if (groups > 1){
+            lines.add("All tests run time (1 group): " + prettyDuration(allTestsRunTimeMs));
+        }
+        return lines;
     }
 
     /**

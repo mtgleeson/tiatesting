@@ -65,13 +65,15 @@ public class HtmlSummaryReport {
             int numSourceMethods = tiaData.getMethodsTracked().size();
             TestStats stats = tiaData.getTestStats();
 
-            // Total savings sums the per-run savings frozen on each history row.
-            long totalSavingsMs = ReportUtils.totalSavingsMs(tiaData.getTestRunHistory());
+            // Total savings sums the per-run wall-clock savings frozen on each history row.
+            long totalSavingsMs = ReportUtils.totalWallClockSavingsMs(tiaData.getTestRunHistory());
             boolean hasSavings = totalSavingsMs > 0;
             // One line normally; a second naming the average wall clock once this project has
             // distributed builds in its history. Built by the same helper the console and
             // plain-text summaries use, so the three cannot drift on the wording.
             List<String> avgRunTimeLines = ReportUtils.averageRunTimeLines(stats.getAvgRunTime(),
+                    stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
+            List<String> allTestsRunTimeLines = ReportUtils.allTestsRunTimeLines(
                     stats.getAllTestsRunTime(), tiaData.getTestRunHistory());
 
             html(
@@ -101,7 +103,7 @@ public class HtmlSummaryReport {
                                             span("Number of partial runs: " + stats.getNumPartialRuns()), br(),
                                             each(spansWithBreaks(avgRunTimeLines), content -> content),
                                             span("Number of all-tests runs: " + stats.getNumAllTestsRuns()), br(),
-                                            span("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime())), br(),
+                                            each(spansWithBreaks(allTestsRunTimeLines), content -> content),
                                             iff(hasSavings, span("Total savings over all runs: "
                                                     + ReportUtils.prettyDurationDropMsAboveMinute(totalSavingsMs))),
                                             iff(hasSavings, br()),

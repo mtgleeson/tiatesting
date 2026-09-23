@@ -62,7 +62,8 @@ public class StatusReportGenerator {
         DecimalFormat avgFormat = new DecimalFormat("###.#");
 
         // Read once and reused: the average-run-time lines need it to work out whether this project
-        // has any distributed builds to report a wall clock for, and the savings line sums it.
+        // has any distributed builds to report a wall clock for, the all-tests lines read the group
+        // count off it, and the savings line sums it.
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
 
         sb.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
@@ -71,8 +72,10 @@ public class StatusReportGenerator {
             sb.append(line + lineSep);
         }
         sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
-        sb.append("All tests run time: " + ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + lineSep);
-        long totalSavings = ReportUtils.totalSavingsMs(history);
+        for (String line : ReportUtils.allTestsRunTimeLines(stats.getAllTestsRunTime(), history)) {
+            sb.append(line + lineSep);
+        }
+        long totalSavings = ReportUtils.totalWallClockSavingsMs(history);
         if (totalSavings > 0){
             sb.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
         }

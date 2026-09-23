@@ -45,7 +45,8 @@ class SummaryReportAllTestsRunTimeTest {
 
     /**
      * History with one partial run carrying 3m of frozen savings and one all-tests run (0 saved).
-     * The summary "Total savings" line sums the persisted {@code timeSavingsMs}.
+     * The summary "Total savings" line sums the persisted wall-clock savings, which equal the serial
+     * savings on these single-host rows.
      */
     private static List<TestRunHistoryEntry> history() {
         return Arrays.asList(
@@ -129,6 +130,42 @@ class SummaryReportAllTestsRunTimeTest {
         assertTrue(html.contains("Number of all-tests runs: " + NUM_ALL_TESTS_RUNS), html);
         assertTrue(html.contains("All tests run time: " + ReportUtils.prettyDuration(ALL_TESTS_RUN_TIME)), html);
         assertTrue(html.contains(EXPECTED_SAVINGS_LINE), html);
+    }
+
+    /**
+     * After a distributed all-tests run, the HTML summary shows the all-tests time as wall clock
+     * across that run's groups, then the serial time on one group, and totals the wall-clock
+     * savings rather than the serial ones.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the report cannot be written or read back
+     */
+    @Test
+    void htmlSummaryReport_distributed_showsWallClockAllTestsTimeAndSavings(@TempDir File tempDir)
+            throws Exception {
+        // given - a 1h baseline set by a 6-group all-tests build, then a partial build that saved
+        // 58m serially but 8m of wall clock
+        TiaData tiaData = coreData();
+        tiaData.getTestStats().setAllTestsRunTime(3_600_000L);
+        tiaData.setTestRunHistory(Arrays.asList(
+                new TestRunHistoryEntry("1", 1_000L, "main", "c1", 10, 0, 0, 3_600_000L, true, 0L, 0,
+                        0L, 0, "run-1", Long.valueOf(600_000L), Integer.valueOf(6), Integer.valueOf(6),
+                        RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null),
+                new TestRunHistoryEntry("2", 2_000L, "main", "c2", 1, 9, 0, 120_000L, true, 3_480_000L,
+                        97, 480_000L, 80, "run-2", Long.valueOf(120_000L), Integer.valueOf(1),
+                        Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
+                        null, null, null, null, null)));
+        HtmlSummaryReport report = new HtmlSummaryReport("html", tempDir);
+
+        // when
+        report.generateSummaryReport(tiaData);
+        File indexHtml = new File(tempDir, "html" + File.separator + "html" + File.separator + "index.html");
+        String html = new String(Files.readAllBytes(indexHtml.toPath()));
+
+        // then
+        assertTrue(html.contains("All tests run time: 10m (6 groups)"), html);
+        assertTrue(html.contains("All tests run time (1 group): 1h"), html);
+        assertTrue(html.contains("Total savings over all runs: 8m"), html);
     }
 
     /**
