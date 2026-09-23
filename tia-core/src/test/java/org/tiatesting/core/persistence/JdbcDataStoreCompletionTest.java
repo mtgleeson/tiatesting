@@ -124,6 +124,43 @@ class JdbcDataStoreCompletionTest {
     }
 
     /**
+     * Build and persist a single-group SEED plan with {@code suiteCount} suites assigned to that
+     * group, so a test can exercise the seed completion guard against a group whose assigned count
+     * exceeds what its runner can ever observe.
+     *
+     * @param runId the run identifier to plan under
+     * @param suiteCount how many suites to assign to the run's one group
+     */
+    private void persistSeedPlanWithOneGroupOfSuites(String runId, int suiteCount) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        List<String> suiteNames = new ArrayList<>();
+        for (int i = 0; i < suiteCount; i++) {
+            suiteNames.add("com.example.Suite" + i + "Test");
+        }
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, suiteNames);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L, true);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
+    }
+
+    /**
+     * Build and persist a single-group SEED plan assigned no suite names at all - the shape a seed
+     * run collapses to when nothing is found on disk - so a test can exercise the seed guard's
+     * empty-assignment case.
+     *
+     * @param runId the run identifier to plan under
+     */
+    private void persistSeedPlanWithOneEmptyGroup(String runId) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, new ArrayList<String>());
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, null, 1000L, 1234L, true);
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
+    }
+
+    /**
      * Read one group back from the store by number, so a test can assert what the guarded update
      * actually left on disk rather than trusting the value the call returned.
      *
@@ -538,6 +575,67 @@ class JdbcDataStoreCompletionTest {
 
         // then
         assertNotNull(completed, "a group with zero assigned suites must complete on 0 >= 0");
+    }
+
+    /**
+     * A seed run's group completes once it has observed at least one suite, even though its observed
+     * count stays far below its assigned count - the assigned count comes from a disk scan that
+     * over-includes non-test classes the runner can never observe, so requiring observed to reach it
+     * would leave the group open forever.
+     */
+    @Test
+    void shouldCompleteSeedGroupWhenAtLeastOneSuiteObservedEvenBelowAssigned() {
+        // given - a seed group assigned 5 suites, of which the runner observes only 1
+        persistSeedPlanWithOneGroupOfSuites("run-1", 5);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, 1, 0L));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a seed group that observed at least one suite must complete");
+        assertEquals(DistributedRunGroupStatus.COMPLETED, completed.getStatus());
+        assertEquals(1, completed.getSuitesObserved());
+    }
+
+    /**
+     * A seed run's group that has observed nothing must not complete: observing no suite at all is
+     * the group-level signal that the runner ran nothing (a crash, a filter that excluded its share,
+     * a misconfiguration), which must not be allowed to ride another group's work into a false
+     * all-tests-run at the seal.
+     */
+    @Test
+    void shouldNotCompleteSeedGroupWhenNoSuiteObserved() {
+        // given - a seed group assigned 5 suites, with no progress reported at all
+        persistSeedPlanWithOneGroupOfSuites("run-1", 5);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNull(completed, "a seed group that observed no suite must not complete");
+        assertEquals(DistributedRunGroupStatus.CLAIMED, storedGroup("run-1", 0).getStatus());
+    }
+
+    /**
+     * A seed run's group assigned no suite names - the shape a seed run collapses to when nothing is
+     * found on disk - completes with nothing observed, since its runner runs everything it discovers
+     * and there is no assigned count for observed to fall short of.
+     */
+    @Test
+    void shouldCompleteSeedGroupAssignedNoSuitesWithNothingObserved() {
+        // given - a seed group assigned no suite names, with nothing observed
+        persistSeedPlanWithOneEmptyGroup("run-1");
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a seed group assigned nothing must complete without observing anything");
+        assertEquals(DistributedRunGroupStatus.COMPLETED, completed.getStatus());
     }
 
     /**
