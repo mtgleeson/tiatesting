@@ -345,8 +345,15 @@ public final class DistributedRunStatusReport {
         report.append(table.render(lineSep)).append(lineSep).append(lineSep);
         report.append("  Assigned = suites the plan gave this group; Observed = suites its runner ")
                 .append("saw finish or skip.").append(lineSep);
-        report.append("  A group completes once Observed reaches Assigned, and the run seals once ")
-                .append("every group completes.").append(lineSep);
+        if (run.isSeedRun()) {
+            report.append("  A group completes once Observed reaches at least one - a seed run's ")
+                    .append("Assigned counts include non-test classes the runner never observes, so ")
+                    .append("Observed may stay below Assigned - and the run seals once every group ")
+                    .append("completes.").append(lineSep);
+        } else {
+            report.append("  A group completes once Observed reaches Assigned, and the run seals ")
+                    .append("once every group completes.").append(lineSep);
+        }
         report.append("  Actual = measured test-execution time; Elapsed = wall clock since the ")
                 .append("group was claimed.");
     }

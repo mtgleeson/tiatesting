@@ -289,6 +289,31 @@ class DistributedRunnerPersistTest {
     }
 
     /**
+     * A rejected completion on a seed run says the group observed nothing, rather than printing the
+     * "observed N of M assigned" fraction: on a seed run M is a disk-scan count that includes
+     * non-test classes, so the fraction would misrepresent a group that simply ran nothing.
+     */
+    @Test
+    void aRejectedSeedCompletionReportsThatTheGroupObservedNothing() {
+        // given - a seed run whose group has observed no suites
+        persistSeedPlan(RUN_ID, 2);
+        dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
+        DistributedRunnerPersist runnerPersist = persistFor(0);
+        assertNull(runnerPersist.completeGroup(6000L),
+                "a seed group that observed nothing must be rejected as incomplete");
+
+        // when
+        String description = runnerPersist.describeRejectedCompletion();
+
+        // then
+        assertTrue(description.contains("seed run"),
+                "a seed run's rejection must say it is a seed run, was: " + description);
+        assertFalse(description.contains(" of "),
+                "a seed run's rejection must not print the observed-of-assigned fraction, was: "
+                        + description);
+    }
+
+    /**
      * The accumulation contract, exercised through the persist wrapper: two progress reports
      * in the same JVM - the second reporting fewer suites ran than the first, as a Surefire retry of
      * a smaller failing subset would - sum the ran counter and the duration. The failed set is
@@ -386,5 +411,24 @@ class DistributedRunnerPersistTest {
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, null,
                         1000L * groupCount, 1234L, false), groups, suites, null));
+    }
+
+    /**
+     * Build and persist a SEED distributed run plan, one suite per group, so a test can exercise the
+     * seed-run rejection wording.
+     *
+     * @param runId the run identifier to plan under
+     * @param groupCount how many groups the plan is split into
+     */
+    private void persistSeedPlan(final String runId, final int groupCount) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        Map<Integer, List<String>> suites = new HashMap<>();
+        for (int i = 0; i < groupCount; i++) {
+            groups.add(DistributedRunGroup.pending(runId, i, 1000L));
+            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+        }
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", "plan-commit", groupCount, null,
+                        1000L * groupCount, 1234L, true), groups, suites, null));
     }
 }
