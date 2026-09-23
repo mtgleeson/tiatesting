@@ -161,6 +161,34 @@ The grouping shape is still validated on a seed run, so a misconfigured
 than on it. And if `tiaUpdateDBMapping` is off, the plan step logs a WARN naming that property: a
 seed run that records no mapping leaves the next build another seed run, indefinitely.
 
+### Seed-run completion
+
+A seed run's `Assigned` count comes from the disk scan above, not a stored mapping, so it is a
+superset that can include non-test classes JUnit itself never observes. Guarding completion on
+`observed >= assigned`, the way a normal run does, would leave `Assigned` permanently out of
+`Observed`'s reach even though the runner genuinely ran everything JUnit was ever going to run for
+that group.
+
+The completeness guard (see "The completeness guard" below) is loosened for a seed run: it
+completes on `observed >= LEAST(1, assigned)` rather than `observed >= assigned`. A group assigned
+real suites must have observed at least one to close; a group assigned nothing - the fallback
+single-group case above - closes trivially, the same as it always has. `describeRejectedCompletion`
+and the status report's footer are both seed-aware to match: a seed group rejected as incomplete is
+reported as having observed nothing rather than an "N of M assigned" fraction that would misstate
+what the disk-scan superset means, and the status footer explains that `Observed` may legitimately
+stay below `Assigned` on a seed run instead of claiming the two must meet.
+
+The seal is seed-aware for the same reason: `DistributedRunSealer` treats a seed run as ignoring
+nothing, so `allTestsRun` rests on whether any suite ran rather than on the assigned-vs-tracked
+comparison a normal run uses, which the disk-scan superset would otherwise fail.
+
+This loosened guard still assumes the same completion step the rest of this chapter does: the
+`dist-complete` step must run whether the test step passed or failed (see "Maven: the completion
+must be its own always-run step" below). A crashed or failed test step that never reaches
+`dist-complete` still leaves the group `CLAIMED` forever, seed run or not - the loosened threshold
+only changes how few suites a *reporting* runner needs to have observed, not whether it needs to
+report at all.
+
 ### The claim protocol
 
 No runner is told which group it is. Each runner claims one, and `JdbcDataStore.claimNextPendingGroup`

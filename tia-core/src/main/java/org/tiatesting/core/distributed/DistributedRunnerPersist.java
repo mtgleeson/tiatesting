@@ -256,6 +256,9 @@ public final class DistributedRunnerPersist {
      * <p>Read only on the failure path, where one extra read costs nothing and a wrong explanation
      * costs an engineer an afternoon.
      *
+     * <p>On a seed run the incomplete case reports that the group observed nothing rather than an
+     * observed-of-assigned fraction, since the assigned count is a disk-scan superset there.
+     *
      * @return a clause naming what the group row says, to be embedded in the failure log
      */
     String describeRejectedCompletion() {
@@ -271,6 +274,11 @@ public final class DistributedRunnerPersist {
                         + "write for it";
             }
             if (group.getStatus() == DistributedRunGroupStatus.CLAIMED && heldByThisRunner) {
+                if (dataStore.readDistributedRun(context.getRunId()).isSeedRun()) {
+                    return "this is a seed run and this runner has observed no suites yet ("
+                            + group.getSuitesObserved() + "), so the group has run nothing to "
+                            + "complete";
+                }
                 int assigned = dataStore.readDistributedRunGroupSuites(context.getRunId(), groupNumber)
                         .size();
                 return "this runner has observed only " + group.getSuitesObserved() + " of "
