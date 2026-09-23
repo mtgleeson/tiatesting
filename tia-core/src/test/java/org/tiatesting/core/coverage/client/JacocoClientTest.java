@@ -9,6 +9,7 @@ import org.jacoco.core.runtime.LoggerRuntime;
 import org.jacoco.core.runtime.RuntimeData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.coverage.result.CoverageResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
@@ -16,10 +17,16 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,6 +45,7 @@ class JacocoClientTest {
 
     private String originalProjectDir;
     private String originalClassFilesDirs;
+    private String originalLibraryJars;
 
     /**
      * Restores any system properties the test overrode so it does not leak configuration into other
@@ -47,6 +55,7 @@ class JacocoClientTest {
     void restoreSystemProperties() {
         restore("tiaProjectDir", originalProjectDir);
         restore("tiaClassFilesDirs", originalClassFilesDirs);
+        restore("tiaLibraryJars", originalLibraryJars);
     }
 
     /**
@@ -119,6 +128,74 @@ class JacocoClientTest {
 
         // then
         assertTrue(result.getClassesInvoked().isEmpty(), "an unknown executed class should be skipped");
+    }
+
+    /**
+     * A library jar's ordinary classes are indexed, while multi-release ({@code META-INF/versions/})
+     * copies and the {@code module-info} descriptor - which can never appear in execution data - are
+     * skipped so the index only holds resolvable names.
+     *
+     * @param tempDir a JUnit-provided temporary directory for the throwaway jar
+     * @throws Exception if the jar cannot be written or indexed
+     */
+    @Test
+    void indexingAJarSkipsMultiReleaseAndModuleInfoEntries(@TempDir Path tempDir) throws Exception {
+        // given
+        File jar = writeJar(tempDir, "lib.jar",
+                "com/example/Real.class",
+                "META-INF/versions/11/com/example/Real.class",
+                "module-info.class");
+        File testClassesDir = new File(getClass().getProtectionDomain().getCodeSource().getLocation().toURI());
+        originalProjectDir = System.getProperty("tiaProjectDir");
+        originalClassFilesDirs = System.getProperty("tiaClassFilesDirs");
+        originalLibraryJars = System.getProperty("tiaLibraryJars");
+        System.setProperty("tiaProjectDir", "");
+        System.setProperty("tiaClassFilesDirs", testClassesDir.getAbsolutePath());
+        System.setProperty("tiaLibraryJars", jar.getAbsolutePath());
+
+        // when
+        JacocoClient client = new JacocoClient();
+        client.loadClasses();
+        Set<String> indexed = client.indexedClassNames();
+
+        // then
+        assertTrue(indexed.contains("com/example/Real"), "an ordinary jar class should be indexed");
+        assertFalse(indexed.contains("META-INF/versions/11/com/example/Real"),
+                "a multi-release versioned copy should be skipped");
+        assertFalse(indexed.contains("module-info"), "the module descriptor should be skipped");
+    }
+
+    /**
+     * Writes a jar containing the given entry names with placeholder bytes. Only the entry names
+     * matter for indexing (bytes are read lazily and never read in this test).
+     *
+     * @param dir the directory to write the jar into
+     * @param jarName the jar file name
+     * @param entryNames the entry names to add
+     * @return the written jar file
+     * @throws Exception if writing fails
+     */
+    private File writeJar(Path dir, String jarName, String... entryNames) throws Exception {
+        File jar = dir.resolve(jarName).toFile();
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar.toPath()))) {
+            for (String entryName : entryNames) {
+                out.putNextEntry(new JarEntry(entryName));
+                writeBytes(out, "placeholder".getBytes());
+                out.closeEntry();
+            }
+        }
+        return jar;
+    }
+
+    /**
+     * Writes bytes to a stream without closing it.
+     *
+     * @param out the stream to write to
+     * @param bytes the bytes to write
+     * @throws Exception if writing fails
+     */
+    private void writeBytes(OutputStream out, byte[] bytes) throws Exception {
+        out.write(bytes);
     }
 
     /**
