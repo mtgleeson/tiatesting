@@ -472,6 +472,43 @@ class DistributedRunStatusReportTest {
     }
 
     /**
+     * A seed run's footer explains completion needs only one observed suite, and does not claim
+     * Observed must reach Assigned - on a seed run Assigned is a disk-scan count that includes
+     * non-test classes, so Observed can legitimately stay below it.
+     */
+    @Test
+    void aSeedRunsFooterExplainsObservedNeedNotReachAssigned() {
+        // given - a seed run
+        persistPlan("build-1", "commit-abc", singleGroup(Collections.<String>emptyList()), true);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertFalse(report.contains("Observed reaches Assigned"),
+                "a seed run must not claim completion needs Observed to reach Assigned: " + report);
+        assertTrue(report.contains("include non-test classes"),
+                "a seed run's footer must explain Observed can stay below Assigned: " + report);
+    }
+
+    /**
+     * A non-seed run's footer is unchanged: completion is reaching the assigned suite count, which is
+     * a reliable target when the assignment comes from the stored mapping rather than a disk scan.
+     */
+    @Test
+    void aNonSeedRunsFooterStillSaysObservedReachesAssigned() {
+        // given - a non-seed run with an assigned suite
+        persistPlan("build-1", "commit-abc", singleGroup(Arrays.asList("com.example.ATest")), false);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-1", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("A group completes once Observed reaches Assigned"),
+                "a non-seed run's footer must be unchanged: " + report);
+    }
+
+    /**
      * Persist a run plan with an exact, caller-chosen suite-to-group assignment and seed-run flag,
      * so a test asserts against the shape it wrote rather than one the balancer chose.
      *

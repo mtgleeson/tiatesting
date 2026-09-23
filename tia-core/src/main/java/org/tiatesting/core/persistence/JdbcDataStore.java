@@ -2448,6 +2448,13 @@ public class JdbcDataStore implements DataStore {
      * Row count is the entire answer, exactly as for {@link #claimNextPendingGroup} and
      * {@link #electSealer}.
      *
+     * <p>On a seed run the completeness predicate is loosened from {@code suites_observed >=
+     * assignedCount} to {@code suites_observed >= LEAST(1, assignedCount)}: a seed run's assigned
+     * suite names come from a disk scan that over-includes non-test classes the runner never
+     * observes, so requiring observed to reach the full assigned count would leave every group open
+     * forever. A group assigned real suites must therefore have observed at least one; a group
+     * assigned nothing completes with nothing observed. Non-seed runs are unchanged.
+     *
      * <p>Row count 0 returns {@code null} without reading anything back, since there is by
      * definition nothing this runner wrote to return. Row count 1 re-reads the row through
      * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
@@ -2468,16 +2475,30 @@ public class JdbcDataStore implements DataStore {
     @Override
     public DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
                                              final long completedAtMs) {
-        String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
-                + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
-                + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_OBSERVED
-                + " >= (SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " WHERE " + COL_RUN_ID
-                + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
+        String assignedCountSubquery = "(SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
+                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
         String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
 
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
+
+            // A seed run's assigned suite names come from a raw disk scan that over-includes classes
+            // JUnit never reports as observed - abstract bases, fixtures, anonymous $ classes - so
+            // observed can never reach assigned and the group would never complete. On a seed run the
+            // guard therefore takes what the runners observed as the run's source of truth: the group
+            // need only have observed at least one suite (or, when it was assigned nothing at all,
+            // nothing). Both inputs - the seed flag and the assigned count - are fixed at plan time,
+            // so reading the flag separately from the conditional update cannot race the guard. See
+            // the distributed test runs chapter in WIKI.md.
+            boolean seedRun = readIsSeedRun(connection, runId);
+            String observedThreshold = seedRun
+                    ? "LEAST(1, " + assignedCountSubquery + ")"
+                    : assignedCountSubquery;
+            String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
+                    + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
+                    + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_OBSERVED
+                    + " >= " + observedThreshold;
 
             int rowsUpdated;
             try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
@@ -2508,6 +2529,29 @@ public class JdbcDataStore implements DataStore {
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
+        }
+    }
+
+    /**
+     * Read whether a distributed run was planned as a seed run, on the caller's own connection. A
+     * seed run's group assignments come from a disk scan that over-includes non-test classes, so its
+     * completion guard is loosened to observed-as-truth - see {@link #completeGroup}. Read only on
+     * the completion path, which runs once per group at the end of a build, never on a hot read path.
+     *
+     * @param connection the open connection to read on
+     * @param runId the distributed run to read the seed flag for
+     * @return true when the run row records this plan as a seed run; false when it does not, or no
+     *         such run row exists
+     * @throws SQLException if the read fails
+     */
+    private boolean readIsSeedRun(final Connection connection, final String runId) throws SQLException {
+        String sql = "SELECT " + COL_SEED_RUN + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
+                + " WHERE " + COL_RUN_ID + " = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, runId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getBoolean(COL_SEED_RUN);
+            }
         }
     }
 
