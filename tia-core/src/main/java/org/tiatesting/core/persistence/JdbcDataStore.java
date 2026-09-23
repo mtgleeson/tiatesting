@@ -90,6 +90,8 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
     private static final String COL_TIME_SAVINGS = "time_savings";
     private static final String COL_SAVINGS_PERCENT = "savings_percent";
+    private static final String COL_WALL_CLOCK_SAVINGS = "wall_clock_savings";
+    private static final String COL_WALL_CLOCK_SAVINGS_PERCENT = "wall_clock_savings_percent";
     private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
     private static final String COL_RUN_SOURCE = "run_source";
     private static final String COL_HOST_NAME = "host_name";
@@ -1394,8 +1396,10 @@ public class JdbcDataStore implements DataStore {
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
                             COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS, COL_GROUP_COUNT,
-                            COL_RUN_SOURCE, COL_HOST_NAME, COL_NUM_MODIFIED_TEST_FILES,
+                            COL_SAVINGS_PERCENT, COL_WALL_CLOCK_SAVINGS,
+                            COL_WALL_CLOCK_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS,
+                            COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
+                            COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
                             COL_NUM_PENDING_LIBRARY),
                     Collections.singletonList(COL_ID));
@@ -1412,22 +1416,25 @@ public class JdbcDataStore implements DataStore {
             ps.setBoolean(9, entry.isUpdatedDbMapping());
             ps.setLong(10, entry.getTimeSavingsMs());
             ps.setInt(11, entry.getSavingsPercent());
-            // A single-host run binds SQL NULL for all three, so its row stays exactly what it was
+            ps.setLong(12, entry.getWallClockSavingsMs());
+            ps.setInt(13, entry.getWallClockSavingsPercent());
+            // A single-host run binds SQL NULL for all four, so its row stays exactly what it was
             // before distributed runs existed.
-            setNullableString(ps, 12, entry.getRunId());
-            setNullableLong(ps, 13, entry.getWallClockMs());
-            setNullableInt(ps, 14, entry.getGroupCount());
+            setNullableString(ps, 14, entry.getRunId());
+            setNullableLong(ps, 15, entry.getWallClockMs());
+            setNullableInt(ps, 16, entry.getGroupCount());
+            setNullableInt(ps, 17, entry.getGroupsAvailable());
             // Both nullable for the same reason as the distributed columns above: an unknown origin
             // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
-            setNullableString(ps, 15, entry.getRunOrigin().getRunSource());
-            setNullableString(ps, 16, entry.getRunOrigin().getHostName());
+            setNullableString(ps, 18, entry.getRunOrigin().getRunSource());
+            setNullableString(ps, 19, entry.getRunOrigin().getHostName());
             // Nullable for the same reason: a row written before this feature, or an all-tests run
             // with nothing to attribute, stores SQL NULL rather than a made-up zero.
-            setNullableInt(ps, 17, entry.getNumModifiedTestFiles());
-            setNullableInt(ps, 18, entry.getNumNewTestFiles());
-            setNullableInt(ps, 19, entry.getNumPreviouslyFailed());
-            setNullableInt(ps, 20, entry.getNumUnsealedMapping());
-            setNullableInt(ps, 21, entry.getNumPendingLibrary());
+            setNullableInt(ps, 20, entry.getNumModifiedTestFiles());
+            setNullableInt(ps, 21, entry.getNumNewTestFiles());
+            setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
+            setNullableInt(ps, 23, entry.getNumUnsealedMapping());
+            setNullableInt(ps, 24, entry.getNumPendingLibrary());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1469,9 +1476,12 @@ public class JdbcDataStore implements DataStore {
                         resultSet.getBoolean(COL_UPDATED_DB_MAPPING),
                         resultSet.getLong(COL_TIME_SAVINGS),
                         resultSet.getInt(COL_SAVINGS_PERCENT),
+                        resultSet.getLong(COL_WALL_CLOCK_SAVINGS),
+                        resultSet.getInt(COL_WALL_CLOCK_SAVINGS_PERCENT),
                         resultSet.getString(COL_RUN_ID),
                         getNullableLong(resultSet, COL_WALL_CLOCK_MS),
                         getNullableInt(resultSet, COL_GROUP_COUNT),
+                        getNullableInt(resultSet, COL_GROUPS_AVAILABLE),
                         RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
                                 resultSet.getString(COL_HOST_NAME)),
                         getNullableInt(resultSet, COL_NUM_MODIFIED_TEST_FILES),
@@ -4118,11 +4128,14 @@ public class JdbcDataStore implements DataStore {
                 + COL_UPDATED_DB_MAPPING + " BOOLEAN, "
                 + COL_TIME_SAVINGS + " BIGINT DEFAULT 0, "
                 + COL_SAVINGS_PERCENT + " INT DEFAULT 0, "
+                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0, "
+                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0, "
                 // Distributed builds only; null on a single-host run, which is what makes such a
                 // row indistinguishable from one written before distributed runs existed.
                 + COL_RUN_ID + " VARCHAR(255), "
                 + COL_WALL_CLOCK_MS + " BIGINT, "
                 + COL_GROUP_COUNT + " INT, "
+                + COL_GROUPS_AVAILABLE + " INT, "
                 // Where the run came from. Nullable throughout: null means "not known", which is
                 // what a row written before these columns existed, a run whose hostname would not
                 // resolve, and a distributed build (no single host ran it) all genuinely are.
@@ -4177,6 +4190,14 @@ public class JdbcDataStore implements DataStore {
                 + COL_WALL_CLOCK_MS + " BIGINT");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_GROUP_COUNT + " INT");
+        // Migration: add the wall-clock savings columns and the groups available they are
+        // measured against.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0");
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_GROUPS_AVAILABLE + " INT");
         // Migration: add the run-origin columns to DBs created before them. No DEFAULT, so old rows
         // read back null rather than being retro-labelled as something nobody actually recorded.
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "

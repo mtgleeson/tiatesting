@@ -22,8 +22,8 @@ class ReportUtilsTest {
      * the rest are filler.
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0,
-                null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0, timeSavingsMs, 0,
+                null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
     }
 
     /**
@@ -84,6 +84,24 @@ class ReportUtilsTest {
     }
 
     /**
+     * The wall-clock baseline is the serial full-suite baseline spread evenly across the groups
+     * available; one group leaves it unchanged.
+     */
+    @Test
+    void wallClockAllTestsRunTimeMs_spreadsTheBaselineAcrossTheGroupsAvailable(){
+        // given
+        long allTestsRunTimeMs = 3_600_000L;
+
+        // when
+        long acrossSix = ReportUtils.wallClockAllTestsRunTimeMs(allTestsRunTimeMs, 6);
+        long acrossOne = ReportUtils.wallClockAllTestsRunTimeMs(allTestsRunTimeMs, 1);
+
+        // then
+        assertEquals(600_000L, acrossSix);
+        assertEquals(3_600_000L, acrossOne);
+    }
+
+    /**
      * Total savings sums the per-run {@code timeSavingsMs} frozen on the history rows.
      */
     @Test
@@ -107,8 +125,8 @@ class ReportUtilsTest {
      * @return a history entry the distributed aggregations count
      */
     private static TestRunHistoryEntry distributedEntry(long wallClockMs){
-        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, 0L, 0,
-                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+        return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, 0L, 0, 0L, 0,
+                "run-1", Long.valueOf(wallClockMs), Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
     }
 

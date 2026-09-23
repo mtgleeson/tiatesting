@@ -26,10 +26,10 @@ class HtmlHistoryReportSavingsTest {
         // given - a partial run that saved 4s (80%) and an all-tests run that saved nothing
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
-                new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
-                new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
+                new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
+                new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
@@ -59,10 +59,10 @@ class HtmlHistoryReportSavingsTest {
         // given a partial run that saved 4s (80%) and an all-tests run that saved nothing (dashed)
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
-                new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
-                new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
+                new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
+                new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
@@ -96,7 +96,7 @@ class HtmlHistoryReportSavingsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("a-full-history-id-1234", 1_700_000_000_000L, "main", "abc", 8, 2, 0,
-                        1000L, true, 4000L, 80, null, null, null,
+                        1000L, true, 4000L, 80, 4000L, 80, null, null, null, null,
                         RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
 
         // when

@@ -143,6 +143,20 @@ public class ReportUtils {
     }
 
     /**
+     * The full-suite baseline as wall-clock time: the serial all-tests run time spread evenly across
+     * every group a distributed build had available. This is roughly how long running every test
+     * would have taken end to end on that pool of machines, and it is what a build's wall clock is
+     * compared against to give its wall-clock savings.
+     *
+     * @param allTestsRunTimeMs the serial full-suite baseline current at the time of the run (ms)
+     * @param groupsAvailable the number of groups the build had available; at least 1
+     * @return the baseline spread across {@code groupsAvailable} machines (ms)
+     */
+    public static long wallClockAllTestsRunTimeMs(long allTestsRunTimeMs, int groupsAvailable){
+        return allTestsRunTimeMs / groupsAvailable;
+    }
+
+    /**
      * Sum the per-run savings frozen on the history rows. Each row's {@code time_savings} was
      * computed against the all-tests baseline current at the time of that run, so summing the
      * stored values is accurate even though the baseline moves over time.

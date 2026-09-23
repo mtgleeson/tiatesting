@@ -33,7 +33,7 @@ class HtmlHistoryReportTimelineTest {
      */
     private static TestRunHistoryEntry entry(String id, long timestampMs, long durationMs, int numFailed) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 5, 0, numFailed, durationMs,
-                true, 1000L, 25, null, null, null,
+                true, 1000L, 25, 1000L, 25, null, null, null, null,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
     }
 

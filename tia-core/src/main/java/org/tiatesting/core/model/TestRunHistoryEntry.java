@@ -31,9 +31,12 @@ public final class TestRunHistoryEntry implements Serializable {
     private final boolean updatedDbMapping;
     private final long timeSavingsMs;
     private final int savingsPercent;
+    private final long wallClockSavingsMs;
+    private final int wallClockSavingsPercent;
     private final String runId;
     private final Long wallClockMs;
     private final Integer groupCount;
+    private final Integer groupsAvailable;
     private final RunOrigin runOrigin;
     private final Integer numModifiedTestFiles;
     private final Integer numNewTestFiles;
@@ -46,8 +49,8 @@ public final class TestRunHistoryEntry implements Serializable {
      * stored on disk is round-tripped exactly. New entries should normally be created via
      * {@link #create} which derives the id.
      *
-     * <p>The three parameters after {@code savingsPercent} describe a distributed build and are
-     * null for a single-host run. {@code durationMs} keeps the same meaning in both modes - the
+     * <p>The run id, wall clock, group count and groups available describe a distributed build and
+     * are null for a single-host run. {@code durationMs} keeps the same meaning in both modes - the
      * serial-equivalent test-execution time, which for a distributed build is the sum of every
      * group's time - so savings stay comparable across the two. See the "Stats and history"
      * material in the distributed test runs chapter of {@code WIKI.md}.
@@ -76,11 +79,20 @@ public final class TestRunHistoryEntry implements Serializable {
      *                      all-tests runs or when no baseline existed
      * @param savingsPercent {@code timeSavingsMs} as a percentage of the full-suite baseline; {@code 0}
      *                       for all-tests runs or when no baseline existed
+     * @param wallClockSavingsMs the wall-clock time Tia saved this run (ms): the full-suite
+     *                           baseline spread across the groups available, minus the run's wall
+     *                           clock. Equal to {@code timeSavingsMs} for a single-host run, whose
+     *                           one machine makes the two the same; {@code 0} whenever {@code
+     *                           timeSavingsMs} is
+     * @param wallClockSavingsPercent {@code wallClockSavingsMs} as a percentage of the spread
+     *                                baseline; {@code 0} when there are no wall-clock savings
      * @param runId the distributed run this row summarises, or null for a single-host run
      * @param wallClockMs the distributed build's wall-clock test time - the slowest group's
      *                    duration - or null for a single-host run
      * @param groupCount the number of groups the distributed build was split across, or null for a
      *                   single-host run
+     * @param groupsAvailable the number of groups the distributed build had available, which can
+     *                        exceed {@code groupCount}, or null for a single-host run
      * @param runOrigin where the run came from and which machine executed it; never null, though
      *                  its host may be
      * @param numModifiedTestFiles count of modified test files that were selected, or null when
@@ -96,8 +108,10 @@ public final class TestRunHistoryEntry implements Serializable {
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
                                long durationMs, boolean updatedDbMapping,
                                long timeSavingsMs, int savingsPercent,
+                               long wallClockSavingsMs, int wallClockSavingsPercent,
                                String runId, Long wallClockMs, Integer groupCount,
-                               RunOrigin runOrigin, Integer numModifiedTestFiles,
+                               Integer groupsAvailable, RunOrigin runOrigin,
+                               Integer numModifiedTestFiles,
                                Integer numNewTestFiles, Integer numPreviouslyFailed,
                                Integer numUnsealedMapping, Integer numPendingLibrary) {
         this.id = id;
@@ -111,9 +125,12 @@ public final class TestRunHistoryEntry implements Serializable {
         this.updatedDbMapping = updatedDbMapping;
         this.timeSavingsMs = timeSavingsMs;
         this.savingsPercent = savingsPercent;
+        this.wallClockSavingsMs = wallClockSavingsMs;
+        this.wallClockSavingsPercent = wallClockSavingsPercent;
         this.runId = runId;
         this.wallClockMs = wallClockMs;
         this.groupCount = groupCount;
+        this.groupsAvailable = groupsAvailable;
         this.runOrigin = Objects.requireNonNull(runOrigin, "runOrigin");
         this.numModifiedTestFiles = numModifiedTestFiles;
         this.numNewTestFiles = numNewTestFiles;
@@ -125,8 +142,9 @@ public final class TestRunHistoryEntry implements Serializable {
     /**
      * Factory for a single-host run that derives the entry's id from
      * {@code branch|commit|runTimestampMs} so two persists of the same logical run produce the same
-     * row. Leaves the three distributed fields null, which is what makes a non-distributed history
-     * row indistinguishable from one written before distributed runs existed.
+     * row. Leaves the distributed fields null, and records the wall-clock savings as the serial
+     * savings: one machine ran the whole selection, so its wall clock is its duration and the
+     * full-suite baseline is not spread across anything.
      *
      * @param branch            VCS branch the run targeted
      * @param commit            VCS HEAD commit / changelist the run targeted
@@ -154,7 +172,7 @@ public final class TestRunHistoryEntry implements Serializable {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, null, null, null, runOrigin,
+                savingsPercent, timeSavingsMs, savingsPercent, null, null, null, null, runOrigin,
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
@@ -185,14 +203,21 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param timeSavingsMs     time Tia saved this build versus running the full suite (ms),
      *                          measured against the serial-equivalent duration
      * @param savingsPercent    {@code timeSavingsMs} as a percentage of the full-suite baseline
+     * @param wallClockSavingsMs the wall-clock time Tia saved this build (ms): the full-suite
+     *                          baseline spread across {@code groupsAvailable}, minus {@code
+     *                          wallClockMs}
+     * @param wallClockSavingsPercent {@code wallClockSavingsMs} as a percentage of the spread
+     *                          baseline
      * @param wallClockMs       the build's wall-clock test time (ms): its slowest group
      * @param groupCount        the number of groups the build was split across
+     * @param groupsAvailable   the number of groups the build had available, at least {@code
+     *                          groupCount}
      * @param runOrigin         where the build came from. Its host is expected to be null: the build
      *                          ran across several machines, so no single one executed it
      * @param selectionDetails  the build-level breakdown of what drove test selection, used to
      *                          populate the five selection-counter fields; null leaves all five
      *                          null (not recorded) rather than defaulting to zero
-     * @return a new entry carrying the build-level figures and the three distributed fields
+     * @return a new entry carrying the build-level figures and the distributed fields
      */
     public static TestRunHistoryEntry createForDistributedRun(String branch, String commit,
                                                               String runId, long runTimestampMs,
@@ -201,7 +226,10 @@ public final class TestRunHistoryEntry implements Serializable {
                                                               long serialDurationMs,
                                                               boolean updatedDbMapping,
                                                               long timeSavingsMs, int savingsPercent,
+                                                              long wallClockSavingsMs,
+                                                              int wallClockSavingsPercent,
                                                               long wallClockMs, int groupCount,
+                                                              int groupsAvailable,
                                                               RunOrigin runOrigin,
                                                               TestRunSelectionDetails selectionDetails) {
         // The run id joins the seed so two builds planned in the same millisecond against the same
@@ -210,8 +238,9 @@ public final class TestRunHistoryEntry implements Serializable {
                 + "|" + nullSafe(runId));
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, serialDurationMs, updatedDbMapping, timeSavingsMs,
-                savingsPercent, runId, Long.valueOf(wallClockMs), Integer.valueOf(groupCount),
-                runOrigin,
+                savingsPercent, wallClockSavingsMs, wallClockSavingsPercent, runId,
+                Long.valueOf(wallClockMs), Integer.valueOf(groupCount),
+                Integer.valueOf(groupsAvailable), runOrigin,
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumModifiedTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
@@ -311,19 +340,44 @@ public final class TestRunHistoryEntry implements Serializable {
     /** @return {@link #getTimeSavingsMs()} as a percentage of the full-suite baseline; {@code 0} when none */
     public int getSavingsPercent() { return savingsPercent; }
 
+    /**
+     * The wall-clock time Tia saved this run: what running every test would have taken spread
+     * across the machines available, minus what this run actually took end to end. This is the
+     * figure a developer waiting on the build feels. {@link #getTimeSavingsMs()} is the serial
+     * figure - total machine time saved - and the two are equal for a single-host run.
+     *
+     * @return the wall-clock savings in ms, frozen at persist time; {@code 0} for all-tests runs
+     *         and for runs persisted before any all-tests baseline existed
+     */
+    public long getWallClockSavingsMs() { return wallClockSavingsMs; }
+
+    /**
+     * @return {@link #getWallClockSavingsMs()} as a percentage of the full-suite baseline spread
+     *         across the groups available; {@code 0} when none
+     */
+    public int getWallClockSavingsPercent() { return wallClockSavingsPercent; }
+
     /** @return the distributed run this row summarises, or null when the run was single-host */
     public String getRunId() { return runId; }
 
     /**
      * @return the distributed build's wall-clock test time in ms (the slowest group's duration),
-     *         or null when the run was single-host. Deliberately not the primary duration:
-     *         reporting it as such would conflate Tia's selection savings with the parallelism the
-     *         CI system provided
+     *         or null when the run was single-host. Its savings are measured against the
+     *         full-suite baseline spread across the same pool of machines - see {@link
+     *         #getWallClockSavingsMs()} - so they never credit Tia with the parallelism the CI
+     *         system provided
      */
     public Long getWallClockMs() { return wallClockMs; }
 
     /** @return the number of groups the distributed build was split across, or null when single-host */
     public Integer getGroupCount() { return groupCount; }
+
+    /**
+     * @return the number of groups the distributed build had available - at least {@link
+     *         #getGroupCount()}, and more when the build needed fewer than its configured pool - or
+     *         null when single-host
+     */
+    public Integer getGroupsAvailable() { return groupsAvailable; }
 
     /**
      * @return where the run came from and which machine executed it; never null, though its host
