@@ -497,17 +497,16 @@ public final class DistributedRunSealer {
      * class the distributed feature exists to close off. What the plan assigned each group cannot be
      * moved by any number of retries, so it is what this counts against.
      *
-     * <p><b>An empty union is answered from the persisted seed-run flag, never inferred.</b> Two
-     * opposite builds plan an empty assignment. A <em>seed run</em> - no stored mapping for the
-     * branch yet - is collapsed to a single group with no suite names, and its runner ignores
-     * nothing and runs everything, so its ignored count is genuinely zero. A <em>nothing-impacted</em>
-     * build - a real selection that chose no suites - persists the configured number of groups, every
-     * one of them with an empty suite list, and it ignored <em>every</em> tracked suite. Nothing in
-     * the plan's shape separates them: the group count does not (a nothing-impacted build configured
-     * for one group has one group too), the estimated total does not (both are zero), and the tracked
-     * suite map does not (the seed run's own runners populate it before the sealer reads it). So
-     * {@link DistributedRun#isSeedRun()}, written by the planner that knows the answer, is what
-     * decides here.
+     * <p><b>A seed run returns zero up front.</b> A seed run runs every test, so it ignores nothing.
+     * Its assignment shape does not matter: a fanned-out seed carries disk-scanned suite names and a
+     * collapsed seed carries none, but neither is a reliable tracked-vs-assigned basis, and the
+     * barrier only released once every group observed at least one suite. Deciding this from {@link
+     * DistributedRun#isSeedRun()} rather than from the assignment also makes it robust to a tracked
+     * suite whose name the disk scan did not enumerate (a {@code @Nested} binary name, say), which
+     * the general path below would otherwise miscount as ignored.
+     *
+     * <p>For a non-seed build the count is read from the plan's assignment, never from the execution
+     * counter - see the {@code suites_ran} caveat below.
      *
      * <p>Getting that the wrong way round on a nothing-impacted build is not merely a wrong number in
      * the history row. With the ignored count reported as zero, {@code allTestsRun} rests entirely on
@@ -527,17 +526,27 @@ public final class DistributedRunSealer {
      * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
      *                              number
      * @return the number of tracked, non-developer-disabled suites the plan did not assign to any
-     *         group; zero for a seed run, whose single group is assigned no suite names at all
+     *         group; always zero for a seed run
      */
     private int ignoredSuiteCount(final DistributedRun run,
                                   final Map<Integer, Set<String>> assignedSuitesByGroup) {
+        // A seed run runs every test by definition, and its group assignments come from a disk scan
+        // that over-includes non-test classes - not a reliable basis for a tracked-vs-assigned
+        // difference. Whether it fanned out across groups (assigned real suite names) or collapsed to
+        // a single empty group (assigned nothing), a sealed seed run ignored nothing: the barrier
+        // only released once every group had observed at least one suite. See the distributed test
+        // runs chapter in WIKI.md.
+        if (run.isSeedRun()) {
+            return 0;
+        }
+
         Set<String> assignedSuites = new HashSet<>();
         for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
             assignedSuites.addAll(groupSuites);
         }
 
         if (assignedSuites.isEmpty()) {
-            return run.isSeedRun() ? 0 : countTrackedSelectableSuites();
+            return countTrackedSelectableSuites();
         }
 
         int ignoredSuites = 0;
