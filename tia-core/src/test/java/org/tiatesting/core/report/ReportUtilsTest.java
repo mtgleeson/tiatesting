@@ -121,10 +121,112 @@ class ReportUtilsTest {
                 historyEntry(4000L), historyEntry(0L), historyEntry(1500L));
 
         // when
-        long savings = ReportUtils.totalSavingsMs(history);
+        long savings = ReportUtils.totalWallClockSavingsMs(history);
 
         // then
         assertEquals(5500L, savings);
+    }
+
+    /**
+     * The total sums the wall-clock savings, not the serial savings, when the two differ.
+     */
+    @Test
+    void totalWallClockSavingsMs_sumsTheWallClockNotTheSerialSavings(){
+        // given - a distributed row that saved 58s serially but 8s of wall clock
+        List<TestRunHistoryEntry> history = Arrays.asList(historyEntry(4000L),
+                allTestsRunEntry(1L, true, Integer.valueOf(6)),
+                new TestRunHistoryEntry("d", 2L, "main", "commit", 1, 7, 0, 2_000L, true, 58_000L,
+                        97, 8_000L, 80, "run-1", Long.valueOf(2_000L), Integer.valueOf(1),
+                        Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
+                        null, null, null, null, null));
+
+        // when
+        long savings = ReportUtils.totalWallClockSavingsMs(history);
+
+        // then
+        assertEquals(12_000L, savings);
+    }
+
+    /**
+     * Build a history row for a run that ignored nothing - an all-tests run - at the given time.
+     *
+     * @param timestampMs when the run started
+     * @param updatedDbMapping whether the run owned the mapping, and so moved the baseline
+     * @param groupCount the groups it was split across, or null for a single-host run
+     * @return the history row
+     */
+    private static TestRunHistoryEntry allTestsRunEntry(long timestampMs, boolean updatedDbMapping,
+                                                        Integer groupCount){
+        return new TestRunHistoryEntry("all-" + timestampMs, timestampMs, "main", "commit", 10, 0, 0,
+                60_000L, updatedDbMapping, 0L, 0, 0L, 0, groupCount == null ? null : "run-" + timestampMs,
+                groupCount == null ? null : Long.valueOf(10_000L), groupCount, groupCount,
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null);
+    }
+
+    /**
+     * The group count comes from the most recent all-tests run that owned the mapping. A later
+     * local all-tests run did not move the baseline, so it is ignored, as is any partial run.
+     */
+    @Test
+    void lastAllTestsRunGroupCount_readsTheLatestMappingOwningAllTestsRun(){
+        // given - an older 3-group run, a newer 6-group run, then a newer local single-host run
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                allTestsRunEntry(1_000L, true, Integer.valueOf(3)),
+                allTestsRunEntry(3_000L, false, null),
+                historyEntry(4000L),
+                allTestsRunEntry(2_000L, true, Integer.valueOf(6)));
+
+        // when
+        int groups = ReportUtils.lastAllTestsRunGroupCount(history);
+
+        // then
+        assertEquals(6, groups);
+    }
+
+    /**
+     * A single-host all-tests run, or no all-tests run at all, counts as one group.
+     */
+    @Test
+    void lastAllTestsRunGroupCount_isOneForASingleHostRunOrNone(){
+        // given / when / then
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(
+                Collections.singletonList(allTestsRunEntry(1_000L, true, null))));
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(Collections.emptyList()));
+        assertEquals(1, ReportUtils.lastAllTestsRunGroupCount(null));
+    }
+
+    /**
+     * Split across several groups, the all-tests time is shown as the wall clock with the group
+     * count, followed by the serial time on one group.
+     */
+    @Test
+    void allTestsRunTimeLines_distributed_showsTheWallClockThenTheSerialTime(){
+        // given
+        List<TestRunHistoryEntry> history = Collections.singletonList(
+                allTestsRunEntry(1_000L, true, Integer.valueOf(6)));
+
+        // when
+        List<String> lines = ReportUtils.allTestsRunTimeLines(3_600_000L, history);
+
+        // then
+        assertEquals(Arrays.asList("All tests run time: 10m (6 groups)",
+                "All tests run time (1 group): 1h"), lines);
+    }
+
+    /**
+     * On one group the wall clock and serial time are the same figure, so one line is printed.
+     */
+    @Test
+    void allTestsRunTimeLines_singleGroup_isOneLine(){
+        // given
+        List<TestRunHistoryEntry> history = Collections.singletonList(
+                allTestsRunEntry(1_000L, true, null));
+
+        // when
+        List<String> lines = ReportUtils.allTestsRunTimeLines(3_600_000L, history);
+
+        // then
+        assertEquals(Collections.singletonList("All tests run time: 1h (1 group)"), lines);
     }
 
     /**
@@ -222,8 +324,8 @@ class ReportUtilsTest {
     @Test
     void totalSavingsMs_nullOrEmpty_isZero(){
         // given / when / then
-        assertEquals(0L, ReportUtils.totalSavingsMs(null));
-        assertEquals(0L, ReportUtils.totalSavingsMs(Collections.emptyList()));
+        assertEquals(0L, ReportUtils.totalWallClockSavingsMs(null));
+        assertEquals(0L, ReportUtils.totalWallClockSavingsMs(Collections.emptyList()));
     }
 
     /**
