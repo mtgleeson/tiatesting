@@ -62,13 +62,13 @@ class SummaryReportDistributedAverageTest {
      */
     private static List<TestRunHistoryEntry> mixedHistory() {
         return Arrays.asList(
-                new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0,
-                        "run-1", Long.valueOf(40_000L), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0, 0L, 0,
+                        "run-1", Long.valueOf(40_000L), Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                         null, null, null, null, null),
-                new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
-                new TestRunHistoryEntry("3", 0L, "main", "c3", 6, 2, 0, 140_000L, false, 0L, 0,
-                        "run-2", Long.valueOf(60_000L), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
+                new TestRunHistoryEntry("3", 0L, "main", "c3", 6, 2, 0, 140_000L, false, 0L, 0, 0L, 0,
+                        "run-2", Long.valueOf(60_000L), Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                         null, null, null, null, null));
     }
 
@@ -80,10 +80,10 @@ class SummaryReportDistributedAverageTest {
      */
     private static List<TestRunHistoryEntry> singleHostHistory() {
         return Arrays.asList(
-                new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
-                new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0,
-                        null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null));
+                new TestRunHistoryEntry("1", 0L, "main", "c1", 5, 3, 0, 120_000L, false, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null),
+                new TestRunHistoryEntry("2", 0L, "main", "c2", 4, 4, 0, 90_000L, false, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null));
     }
 
     /**

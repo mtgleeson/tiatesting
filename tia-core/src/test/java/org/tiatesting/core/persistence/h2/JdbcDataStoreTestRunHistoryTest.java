@@ -96,8 +96,8 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry(
                 "dist-id", 1_700_000_000_000L, "main", "abc123",
-                10, 2, 1, 5_000L, true, 4_000L, 80,
-                "ci-run-42", 1_800L, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                10, 2, 1, 5_000L, true, 4_000L, 80, 4_000L, 80,
+                "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
                 null, null, null, null, null);
 
         // when
@@ -255,7 +255,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(
                 "main", "abc123", "ci-run-42", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, 1_800L, 4,
+                10, 2, 1, 5_000L, true, 4_000L, 80, 700L, 28, 1_800L, 4, 4,
                 RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
 
         // when
@@ -267,6 +267,52 @@ class JdbcDataStoreTestRunHistoryTest {
         assertEquals(RunOrigin.SOURCE_CI, round.getRunSource());
         assertNull(round.getHostName(),
                 "a distributed build must not be attributed to a single host");
+    }
+
+    /**
+     * A distributed build's wall-clock savings and the groups available they were measured against
+     * round-trip alongside the serial savings, each kept distinct from the other.
+     */
+    @Test
+    void aDistributedRunRoundTripsItsWallClockSavingsAndGroupsAvailable() {
+        // given - one group used out of six available
+        TestRunHistoryEntry entry = TestRunHistoryEntry.createForDistributedRun(
+                "main", "abc123", "ci-run-43", 1_700_000_000_000L,
+                10, 2, 0, 120_000L, true, 3_480_000L, 97, 480_000L, 80, 120_000L, 1, 6,
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        TestRunHistoryEntry read = dataStore.readTestRunHistory().get(0);
+
+        // then
+        assertEquals(3_480_000L, read.getTimeSavingsMs());
+        assertEquals(97, read.getSavingsPercent());
+        assertEquals(480_000L, read.getWallClockSavingsMs());
+        assertEquals(80, read.getWallClockSavingsPercent());
+        assertEquals(Integer.valueOf(1), read.getGroupCount());
+        assertEquals(Integer.valueOf(6), read.getGroupsAvailable());
+    }
+
+    /**
+     * A single-host run stores its serial savings as its wall-clock savings - one machine means the
+     * two are the same - and no groups available.
+     */
+    @Test
+    void aSingleHostRunStoresItsSerialSavingsAsItsWallClockSavings() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 44,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        TestRunHistoryEntry read = dataStore.readTestRunHistory().get(0);
+
+        // then
+        assertEquals(4_000L, read.getWallClockSavingsMs());
+        assertEquals(44, read.getWallClockSavingsPercent());
+        assertNull(read.getGroupsAvailable());
     }
 
     /**
