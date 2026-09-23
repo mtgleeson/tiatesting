@@ -635,16 +635,16 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
-     * Verify the local-changes precondition fires from the daemon's claim. A distributed run
-     * requires every runner to diff the same committed baseline; {@code tiaCheckLocalChanges}
-     * enabled would let this runner's uncommitted edits compute different line numbers than the
-     * plan was built from.
+     * Verify the local-changes precondition fires from the daemon's claim only when the run would
+     * also write the mapping. A distributed run that both checks local changes and updates the
+     * mapping would fold coverage of this runner's uncommitted edits into the committed-baseline
+     * mapping, so the claim is refused with a message naming both properties.
      *
      * @param projectDir a temporary directory to root the Gradle project and the database at
      */
     @org.junit.jupiter.api.Test
-    void shouldFailWhenCheckLocalChangesIsEnabled(@TempDir File projectDir) {
-        // given a distributed build with tiaCheckLocalChanges enabled
+    void shouldFailWhenCheckLocalChangesAndUpdateMappingAreBothEnabled(@TempDir File projectDir) {
+        // given a distributed build with both tiaCheckLocalChanges and tiaUpdateDBMapping enabled
         File dbDir = newDbDir(projectDir);
         persistPlan(dbDir, "run-local-changes", PLAN_COMMIT, singleGroupAssignment());
         Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
@@ -654,6 +654,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         extension.setDistributed(Boolean.TRUE);
         extension.setRunId("run-local-changes");
         extension.setCheckLocalChanges(Boolean.TRUE);
+        extension.setUpdateDBMapping(Boolean.TRUE);
 
         // when
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
@@ -661,6 +662,40 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
 
         // then
         assertTrue(thrown.getMessage().contains("tiaCheckLocalChanges"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("tiaUpdateDBMapping"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a distributed runner may check local changes as long as it does not update the
+     * mapping: with {@code tiaCheckLocalChanges} on and {@code tiaUpdateDBMapping} off the claim
+     * proceeds normally and forwards the claimed group to the fork, so a CI build can fan test
+     * execution out across runners against uncommitted changes without writing to the mapping.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimWhenCheckLocalChangesIsEnabledButNotUpdatingMapping(@TempDir File projectDir) {
+        // given a distributed build with tiaCheckLocalChanges on but tiaUpdateDBMapping off
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-local-changes", PLAN_COMMIT, singleGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-local-changes");
+        extension.setCheckLocalChanges(Boolean.TRUE);
+        extension.setUpdateDBMapping(Boolean.FALSE);
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertEquals("true", systemProperties.get("tiaDistributed"));
+        assertEquals("run-local-changes", systemProperties.get("tiaRunId"));
+        assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
+        assertNotNull(systemProperties.get("tiaDistributedRunnerKey"));
     }
 
     /**
