@@ -1,15 +1,11 @@
 package org.tiatesting.core.report;
 
-import org.tiatesting.core.model.TestRunHistoryEntry;
-import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.DataStore;
 
-import java.text.DecimalFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -51,36 +47,9 @@ public class StatusReportGenerator {
         }
         sb.append(lineSep);
 
-        int numTestSuites = dataStore.getNumTestSuites();
-        sb.append("Number of tests classes with mappings: " + numTestSuites + lineSep);
-        int numSourceMethods = dataStore.getNumSourceMethods();
-        sb.append("Number of source methods tracked for tests: " + numSourceMethods + lineSep);
-
-        TestStats stats = tiaData.getTestStats();
-        double percSuccess = ((double)stats.getNumSuccessRuns()) / (double)(stats.getNumRuns()) * 100;
-        double percFail = ((double)stats.getNumFailRuns()) / (double)(stats.getNumRuns()) * 100;
-        DecimalFormat avgFormat = new DecimalFormat("###.#");
-
-        // Read once and reused: the average-run-time lines need it to work out whether this project
-        // has any distributed builds to report a wall clock for, the all-tests lines read the group
-        // count off it, and the savings line sums it.
-        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
-
-        sb.append("Number of partial runs: " + stats.getNumPartialRuns() + lineSep);
-        for (String line : ReportUtils.averageRunTimeLines(stats.getAvgRunTime(),
-                stats.getAllTestsRunTime(), history)) {
-            sb.append(line + lineSep);
-        }
-        sb.append("Number of all-tests runs: " + stats.getNumAllTestsRuns() + lineSep);
-        for (String line : ReportUtils.allTestsRunTimeLines(stats.getAllTestsRunTime(), history)) {
-            sb.append(line + lineSep);
-        }
-        long totalSavings = ReportUtils.totalWallClockSavingsMs(history);
-        if (totalSavings > 0){
-            sb.append("Total savings over all runs: " + ReportUtils.prettyDurationDropMsAboveMinute(totalSavings) + lineSep);
-        }
-        sb.append("Number of successful runs: " + stats.getNumSuccessRuns() + " (" + avgFormat.format(percSuccess) + "%)" + lineSep);
-        sb.append("Number of failed runs: " + stats.getNumFailRuns() + " (" + avgFormat.format(percFail) + "%)");
+        sb.append(SummaryStats.toText(SummaryStats.build(dataStore.getNumTestSuites(),
+                dataStore.getNumSourceMethods(), tiaData.getTestStats(),
+                dataStore.readTestRunHistory()), lineSep));
 
         return sb.toString();
     }
