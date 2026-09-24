@@ -177,7 +177,9 @@ public final class SummaryStats {
     /**
      * Build the All Tests sub-section. The distributed run time only appears when the last
      * all-tests run was split across more than one group; otherwise it would repeat the
-     * not-distributed figure under a label that does not describe the run.
+     * not-distributed figure under a label that does not describe the run. Both run times drop
+     * their ms component above a minute, matching the other durations on the summary, since at
+     * that scale it only makes the figure harder to read.
      *
      * @param stats the Tia-level run statistics, carrying the serial full-suite baseline
      * @param allTestsGroups the groups the most recent all-tests run used
@@ -189,13 +191,13 @@ public final class SummaryStats {
         List<Line> lines = new ArrayList<>();
         lines.add(new Line("Number of all-tests runs", String.valueOf(stats.getNumAllTestsRuns()), null));
         if (allTestsGroups > 1) {
-            lines.add(new Line("Run time (distributed)", ReportUtils.prettyDuration(allTestsWallClockMs)
+            lines.add(new Line("Run time (distributed)", ReportUtils.prettyDurationDropMsAboveMinute(allTestsWallClockMs)
                     + " (" + allTestsGroups + " groups)",
                     "The average all-tests run time spread evenly across the groups the last "
                             + "all-tests run used."));
         }
         lines.add(new Line("Run time (not distributed)",
-                ReportUtils.prettyDuration(stats.getAllTestsRunTime()) + " (1 group)",
+                ReportUtils.prettyDurationDropMsAboveMinute(stats.getAllTestsRunTime()) + " (1 group)",
                 "The average time an all-tests run takes on one machine."));
         return new Section("All Tests", null, 1, lines);
     }
