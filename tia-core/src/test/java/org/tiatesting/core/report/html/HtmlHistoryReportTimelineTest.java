@@ -103,6 +103,30 @@ class HtmlHistoryReportTimelineTest {
     }
 
     /**
+     * The chart's y-axis ticks step by round durations picked from a fixed ladder of times, with
+     * the axis top rounded up to the next tick, rather than an even split of a power-of-ten max.
+     */
+    @Test
+    void historyPage_usesRoundTimeYAxisTicks(@TempDir File tempDir) throws Exception {
+        // given a run of two and a half hours
+        TiaData tiaData = new TiaData();
+        tiaData.setTestRunHistory(Collections.singletonList(
+                entry("run-long", 1_700_000_000_000L, 9_000_000L, 0)));
+
+        // when
+        String html = generateAndRead(tempDir, tiaData);
+
+        // then - the tick step comes from the round-time ladder and ticks are whole steps
+        assertTrue(html.contains("MAX_TICKS=" + HtmlHistoryTimeline.MAX_Y_TICKS),
+                "the tick cap should be embedded in the script");
+        assertTrue(html.contains("3e4,6e4,12e4,3e5,6e5,9e5,") && html.contains("18e5,36e5,72e5"),
+                "the ladder should include round minute and hour steps");
+        assertTrue(html.contains("var ns=niceStep(maxD),ticks=ns.count,yMax=ns.step*ticks;"),
+                "the axis top should be a whole number of round steps");
+        assertFalse(html.contains("niceMax("), "the power-of-ten max should be gone");
+    }
+
+    /**
      * A history with no runs omits the timeline chart entirely, leaving the table as the only
      * content.
      */
