@@ -85,9 +85,12 @@ The two modes solve different problems and use different algorithms:
 
 - **Fixed group count** (`tiaDistributedGroupCount`) is makespan scheduling: the count is given, and
   the goal is to minimise the heaviest group. `balanceIntoGroups` walks the suites heaviest-first
-  and drops each into the currently-lightest group - LPT (longest processing time first). Groups
-  beyond the number of suites come back empty rather than being dropped, because the pipeline was
-  told to start that many jobs. An empty selection is the one exception: it produces no groups.
+  and drops each into the currently-lightest group - LPT (longest processing time first). The count
+  is a ceiling, not a promise: with fewer selected suites than groups it is capped at one group per
+  suite, because every planned group becomes a runner job and an empty one would start a checkout,
+  a compile and a test JVM to run nothing. `groups_available` still records the configured count, so
+  the wall-clock savings are measured against the pool the build had. An empty selection is the
+  limit of that cap: it produces no groups.
 - **Target run time** (`tiaDistributedTargetRunTime`) is bin packing: the capacity is given, and the
   group **count** is what is being minimised. `balanceForTargetRunTime` uses FFD (first-fit
   decreasing) to choose the count, then re-balances with LPT at that same count and keeps whichever
@@ -123,8 +126,13 @@ The last two cases also change the packing: the capacity is raised to `max(targe
 heaviestSuite)`, so anything that puts the target out of reach no matter what does not also inflate
 the runner count. Same makespan, fewer runners.
 
-Every ordering decision is broken deterministically - by weight descending, then by suite name
-ascending. Two runners deriving different groupings from the same selection would be undebuggable.
+Every ordering decision is broken deterministically - suites by weight descending, then by suite
+name ascending; groups by lightest weight, then by fewest suites, then by lowest group number. Two
+runners deriving different groupings from the same selection would be undebuggable. The
+fewest-suites tie-break also does real work: an empty group weighs zero, the least any group can,
+so it always wins the tie, and suites that weigh nothing (a very fast suite whose recorded average
+rounds to 0ms) spread across the groups instead of piling into the first one and leaving others
+empty.
 
 ### The seed run
 
@@ -137,7 +145,7 @@ weight, since there is nothing to balance by duration.
 Which groups it splits across depends on the configured mode:
 
 - **Fixed group count** splits the scanned suites across `tiaDistributedGroupCount`, the same count
-  a normal run uses.
+  a normal run uses - capped, as on a normal run, at one group per suite found.
 - **Target run time** cannot honour a real target with no timings to check it against, so it splits
   across `tiaDistributedMaxGroups` instead when that is configured, and otherwise stays a single
   group.
