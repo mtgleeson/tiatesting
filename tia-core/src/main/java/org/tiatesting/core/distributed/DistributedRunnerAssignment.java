@@ -123,9 +123,9 @@ public final class DistributedRunnerAssignment {
                                                                 final String runnerKey,
                                                                 final Integer groupNumber) {
         DistributedRunCoordinator coordinator = new DistributedRunCoordinator(dataStore, config);
-        // Read from the run row, never inferred from an empty suite list: a nothing-impacted build
-        // plans groups that are empty too, and treating one as a seed run would report it as having
-        // run every test. The planner persists the flag precisely so nobody has to guess.
+        // Read from the run row, never inferred from an empty suite list: a runner that claimed no
+        // group has an empty list too, and treating it as a seed run would report it as having run
+        // every test. The planner persists the flag precisely so nobody has to guess.
         boolean seedRun = coordinator.readRun().isSeedRun();
         Set<String> testsToIgnore = coordinator.deriveTestsToIgnore(groupNumber,
                 dataStore.getTestSuitesTracked().keySet());
@@ -180,7 +180,8 @@ public final class DistributedRunnerAssignment {
      * carrying no suite names, whose runner ignores nothing and executes every test it discovers.
      *
      * <p>Read from the persisted run row rather than inferred from {@link #getTestsToRun()} being
-     * empty, because a nothing-impacted build plans empty groups too. Callers need it to describe
+     * empty, because a runner that claimed no group - a surplus runner, or one started for a plan
+     * with no groups - has an empty list too. Callers need it to describe
      * what a runner is about to do: on a fallback seed run an empty {@code testsToRun} means "runs
      * everything", on a split seed run or any ordinary run an empty {@code testsToRun} means "runs
      * nothing", and only the persisted flag - together with whether {@code testsToRun} is empty -

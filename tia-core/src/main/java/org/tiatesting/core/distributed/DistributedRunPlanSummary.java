@@ -18,7 +18,8 @@ package org.tiatesting.core.distributed;
  * <p>{@code seedRun} is true exactly when no stored mapping existed yet for this branch - see
  * {@link DistributedRunPlanner#plan}. That does not fix {@link #getGroupCount()} at one: when
  * suites are discovered on disk, the plan splits them across the configured group count by even
- * count and {@code groupCount} is whatever that split produced; only when nothing is found on
+ * count - capped at one group per suite found - and {@code groupCount} is whatever that split
+ * produced; only when nothing is found on
  * disk, or no group count applies, does the plan fall back to a single empty group. A pipeline
  * reading {@code tia-run-plan.json} can use {@code seedRun} to explain why the mapping was
  * missing rather than assuming it will always receive exactly one job.
@@ -157,7 +158,7 @@ public final class DistributedRunPlanSummary {
      * @return whether no stored mapping existed yet for this branch, so the plan's suites were
      *         split by even count rather than balanced from the selection; when true, {@link
      *         #getGroupCount()} is the configured group count the split suites were divided
-     *         across, or 1 only in the fallback case where nothing was found on disk to split (or
+     *         across (capped at one group per suite found), or 1 only in the fallback case where nothing was found on disk to split (or
      *         no group count applied)
      */
     public boolean isSeedRun() { return seedRun; }
