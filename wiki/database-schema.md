@@ -144,6 +144,7 @@ erDiagram
         VARCHAR commit_value
         VARCHAR status
         INT group_count
+        INT groups_available
         BIGINT target_run_time_ms
         BIGINT estimated_total_ms
         BIGINT created_at
@@ -258,13 +259,14 @@ rather than needing their own cleanup.)
   and advances it by the size of the block a writer needs, so concurrent writers reserve disjoint
   id ranges instead of both computing the same `MAX(id) + 1` and colliding on the primary key.
 - **tia_distributed_run** - one row per distributed run, keyed by the user-supplied `run_id`: the
-  branch and commit the plan was built from (authoritative for the seal), the run's `status`
-  (`OPEN` / `SEALED`), the plan's shape, and `sealed_by` / `sealed_at` - the election record whose
-  `IS NULL` predicate is what makes exactly one runner the sealer. `drain_result` carries the
-  library-impact drain the plan computed, for the sealer to apply once. `seed_run` records that the
-  planner collapsed this run to a single group with no suite names because the branch had no stored
-  mapping yet - the seal reads it to tell that build (which ran everything and ignored nothing) from
-  a nothing-impacted one, whose groups carry empty suite lists too but which ignored every tracked
+  branch and commit the plan was built from (authoritative for the seal), the run's `status` (`OPEN`
+  / `SEALED`), the plan's shape, and `sealed_by` / `sealed_at` - the election record whose `IS NULL`
+  predicate is what makes exactly one runner the sealer. A plan with no groups - nothing was
+  selected - is sealed by the plan step itself, recorded as `<run_id>-planner`. `drain_result`
+  carries the library-impact drain the plan computed, for the sealer to apply once. `seed_run`
+  records that the planner collapsed this run to a single group with no suite names because the
+  branch had no stored mapping yet - the seal reads it to tell that build (which ran everything and
+  ignored nothing) from a nothing-impacted one, which has no groups at all and ignored every tracked
   suite. Nothing else in the row separates the two, which is why the planner's answer is stored
   rather than re-derived.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
