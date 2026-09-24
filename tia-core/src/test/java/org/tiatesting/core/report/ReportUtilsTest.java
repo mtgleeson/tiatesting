@@ -11,9 +11,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Verifies {@link ReportUtils#prettyDuration(long, boolean)}. The single-arg overload's
- * existing behaviour is exercised indirectly by other tests; this class focuses on the
- * {@code dropMsWhenAboveSecond} flag added for the select-tests output.
+ * Verifies {@link ReportUtils}'s duration formatting - {@link ReportUtils#prettyDuration(long,
+ * boolean)} and its {@code dropMsWhenAboveSecond} flag, and {@link
+ * ReportUtils#prettyDurationDropMsAboveMinute(long)} - along with the savings helpers.
  */
 class ReportUtilsTest {
 
@@ -251,11 +251,9 @@ class ReportUtilsTest {
 
         // when
         String withFlagFalse = ReportUtils.prettyDuration(oneAndAHalfSeconds, false);
-        String singleArg = ReportUtils.prettyDuration(oneAndAHalfSeconds);
 
         // then
         assertEquals("1s 500ms", withFlagFalse);
-        assertEquals("1s 500ms", singleArg);
     }
 
     /**
@@ -268,7 +266,7 @@ class ReportUtilsTest {
         long zero = 0L;
 
         // when
-        String plain = ReportUtils.prettyDuration(zero);
+        String plain = ReportUtils.prettyDuration(zero, false);
         String droppingMs = ReportUtils.prettyDuration(zero, true);
         String droppingMsAboveMinute = ReportUtils.prettyDurationDropMsAboveMinute(zero);
 

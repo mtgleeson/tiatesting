@@ -9,18 +9,6 @@ public class ReportUtils {
 
     /**
      * Build a user-friendly string showing a duration in hours, minutes, seconds and ms.
-     * i.e. 1h 23m 57s 687ms
-     * If component of time is 0 it will not be shown.
-     *
-     * @param durationMs the duration represented in MS
-     * @return a user-friendly string showing a duration in hours, minutes, seconds and ms.
-     */
-    public static String prettyDuration(long durationMs){
-        return prettyDuration(durationMs, false);
-    }
-
-    /**
-     * Build a user-friendly string showing a duration in hours, minutes, seconds and ms.
      * When {@code dropMsWhenAboveSecond} is {@code true}, the {@code ms} component is
      * suppressed for durations of one second or more — sub-second precision is rarely
      * useful when reading times measured in seconds or minutes.
