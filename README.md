@@ -933,7 +933,7 @@ For the mechanism (the claim protocol, the completeness guard, how the two durat
 Three job types, in order:
 
 1. **Plan** - one job runs `dist-plan`, which writes the plan and `<tiaBuildDir>/tia-run-plan.json`.
-2. **Run** - N jobs, each running the tests normally with `tiaDistributed=true` and the same `tiaRunId`. Each claims one group.
+2. **Run** - N jobs, each running the tests normally with `tiaDistributed=true` and the same `tiaRunId`. Each claims one group. N is `groupCount` from `tia-run-plan.json`, and is `0` when nothing was selected - the plan step has then already sealed the build, so skip this step and the next (see [When nothing is selected](#when-nothing-is-selected)).
 3. **Complete** - each runner job runs `dist-complete` **whatever the test result**.
 
 A fourth command, `dist-status`, sits outside that order: it is read-only, and reports the state of a run at any point during or after it. See [Status - inspect a run in flight](#status---inspect-a-run-in-flight).
@@ -981,7 +981,7 @@ gradle tia-dist-plan
 | `branch` | string | The VCS branch the selection was made against. A runner is verified against this before it claims. |
 | `commit` | string | The VCS commit the selection was made against, and the one the build seals at. |
 | `seedRun` | boolean | `true` when no stored mapping existed yet for this branch, so the plan was collapsed to a single group covering the whole suite and the configured group count / target were ignored. Explains why a pipeline received one job despite asking for more. |
-| `groupCount` | number | How many groups the selection was split into. **This is the field to size your job matrix from** - start exactly this many runner jobs. |
+| `groupCount` | number | How many groups the selection was split into. **This is the field to size your job matrix from** - start exactly this many runner jobs. `0` when Tia selected nothing to run: the plan step has then already sealed the build itself, so start no runner jobs (see [When nothing is selected](#when-nothing-is-selected)). |
 | `avgGroupMs` | number | `totalEstimatedMs / groupCount`. A shape indicator only; do not set job timeouts from it - uneven packing is exactly what it hides. |
 | `heaviestGroupMs` | number | The heaviest group's estimate, including its own copy of the fixed per-JVM cost. This is the build's expected wall-clock test time, since groups run in parallel, and the figure to base a job timeout on. |
 | `targetMs` | number or `null` | The configured `tiaDistributedTargetRunTime`. Rendered as JSON `null` - never `0` - in static-groups mode, where a fixed group count means there is no target. |
@@ -1043,6 +1043,15 @@ The one that catches people out: **`Savings` never includes the speed-up from di
 Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
 
 Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - one group with everything, ignoring your configured group count, because there is no mapping yet to split. `seedRun: true` says so.
+
+### When nothing is selected
+
+A change no test covers - a README edit, a comment, a build-script tweak - selects nothing. The plan then has **no groups** (`groupCount: 0`), whatever group count or target you configured, and the plan step seals the build on the spot, because no runner will ever be started to do it. It records exactly what a runner would have:
+
+- the stored commit moves forward to this build's commit (when `tiaUpdateDBMapping` is on), so the next build diffs from here rather than re-examining this change;
+- one history row with 0 groups and 0 suites run, credited the full-suite baseline as savings - the time a full build would otherwise have spent.
+
+Your pipeline should skip the runner jobs entirely when `groupCount` is `0`. That is the point of the zero: no machines to start, no checkout, no compile. Starting one anyway is harmless - it claims nothing and runs no tests - but some CI systems will not start zero jobs: a GitHub Actions matrix built from an empty list fails the workflow, so guard the job (see the [full example](#full-example-github-actions)). `dist-status` reports such a run as `SEALED` by the plan step with `Groups: none`.
 
 ### Complete - close out this runner's group
 
@@ -1201,6 +1210,7 @@ plan:
 
 test:
   needs: plan
+  if: needs.plan.outputs.groups != '[]'   # nothing selected: the plan step already sealed the build
   strategy:
     fail-fast: false
     matrix:
@@ -1220,7 +1230,7 @@ test:
       run: mvn tia-junit5-git:dist-complete
 ```
 
-Two details worth copying: `fail-fast: false`, so one failing group does not cancel the others and strand their claims, and a `tiaDistributedRunnerKey` taken from the matrix index, so a retried job resumes its own group rather than claiming a second one.
+Three details worth copying: `fail-fast: false`, so one failing group does not cancel the others and strand their claims; a `tiaDistributedRunnerKey` taken from the matrix index, so a retried job resumes its own group rather than claiming a second one; and the `if:` on the test job, since a build that selected nothing plans no groups and GitHub Actions rejects an empty matrix.
 
 ## What is Tia
 Tia ia a free test impact analysis library. It analyses changes made to source code and automatically selects the tests to run for your test runner. It's designed as a developer productivity tool to increase the efficiency of developers by cutting down the time required to get feedback on changes. 
