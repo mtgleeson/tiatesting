@@ -45,6 +45,13 @@ final class HtmlHistoryTimeline {
     /** Number of additional older runs each "show more" step reveals. */
     static final int SHOW_MORE_STEP = 10;
 
+    /**
+     * Most y-axis intervals the chart draws above zero. The step between ticks is the smallest
+     * round duration (1s, 15s, 1m, 5m, 30m, 1h ...) that covers the tallest visible bar within
+     * this many intervals.
+     */
+    static final int MAX_Y_TICKS = 5;
+
     private HtmlHistoryTimeline() {}
 
     /**
@@ -86,7 +93,10 @@ final class HtmlHistoryTimeline {
      * its interactions: hover/focus tooltip, click-through to each run's detail page (each bar is
      * an SVG anchor), the "show more" step, and a debounced redraw on resize. The chart shows the
      * most recent {@link #DEFAULT_VISIBLE} runs first and reveals {@link #SHOW_MORE_STEP} more per
-     * click. The y-axis gutter is sized to the widest tick label (measured with a canvas, falling
+     * click. Y-axis ticks fall on round durations: the step is the smallest entry in a ladder of
+     * round times (1/2/5 ms multiples, then 1s, 2s, 5s, 10s, 15s, 30s, 1m, 2m, 5m, 10m, 15m, 30m,
+     * 1h, 2h, 3h, 6h, 12h, 1d, then day multiples) that spans the tallest visible bar in at most
+     * {@link #MAX_Y_TICKS} intervals, and the axis top is rounded up to the next tick. The y-axis gutter is sized to the widest tick label (measured with a canvas, falling
      * back to a per-character estimate) so long labels such as {@code 2h 46m 40s} are not clipped
      * at the chart's left edge. Durations are formatted to match {@code ReportUtils.prettyDuration(ms, true)} and
      * timestamps localized with the same options as {@code HtmlLayout.localTimeRenderingScript} so
@@ -99,7 +109,8 @@ final class HtmlHistoryTimeline {
         return "(function(){\n"
                 + "var RUNS=" + runsJson + ";\n"
                 + "if(!RUNS.length){return;}\n"
-                + "var DEFAULT_VISIBLE=" + DEFAULT_VISIBLE + ",STEP=" + SHOW_MORE_STEP + ";\n"
+                + "var DEFAULT_VISIBLE=" + DEFAULT_VISIBLE + ",STEP=" + SHOW_MORE_STEP
+                + ",MAX_TICKS=" + MAX_Y_TICKS + ";\n"
                 + "var visible=Math.min(DEFAULT_VISIBLE,RUNS.length);\n"
                 + "var chart=document.getElementById('tiaTimelineChart');\n"
                 + "var tip=document.getElementById('tiaTimelineTip');\n"
@@ -114,8 +125,13 @@ final class HtmlHistoryTimeline {
                 + "if(s){o.push(s+'s');}if(mil){o.push(mil+'ms');}return o.length?o.join(' '):'0';}\n"
                 + "function fmtDate(ms){return new Date(ms).toLocaleString(undefined,"
                 + "{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}\n"
-                + "function niceMax(v){if(v<=0){return 1;}var p=Math.pow(10,Math.floor(Math.log10(v)));"
-                + "var n=v/p;var st=n<=1?1:n<=2?2:n<=5?5:10;return st*p;}\n"
+                + "var STEPS=[1,2,5,10,20,50,100,200,500,1e3,2e3,5e3,1e4,15e3,3e4,6e4,12e4,3e5,6e5,9e5,"
+                + "18e5,36e5,72e5,108e5,216e5,432e5,864e5];\n"
+                + "function niceStep(v){if(v<=0){return {step:1,count:1};}"
+                + "for(var i=0;i<STEPS.length;i++){var c=Math.ceil(v/STEPS[i]);if(c<=MAX_TICKS){"
+                + "return {step:STEPS[i],count:c};}}"
+                + "for(var e=1;;e*=10){for(var q=1;q<=5;q+=q===1?1:3){var st=864e5*q*e;"
+                + "if(Math.ceil(v/st)<=MAX_TICKS){return {step:st,count:Math.ceil(v/st)};}}}}\n"
                 + "var measureCtx=null;\n"
                 + "function labelWidth(txt){try{if(!measureCtx){measureCtx=document.createElement('canvas')"
                 + ".getContext('2d');measureCtx.font='11px '+getComputedStyle(chart).fontFamily;}"
@@ -123,16 +139,16 @@ final class HtmlHistoryTimeline {
                 + "function build(w,h){\n"
                 + "var runs=RUNS.slice(RUNS.length-visible);\n"
                 + "var maxD=0;for(var i=0;i<runs.length;i++){if(runs[i].d>maxD){maxD=runs[i].d;}}\n"
-                + "var yMax=niceMax(maxD);\n"
-                + "var ticks=4,labels=[],maxLabelW=0;\n"
-                + "for(var k=0;k<=ticks;k++){labels.push(pretty(yMax*k/ticks));"
+                + "var ns=niceStep(maxD),ticks=ns.count,yMax=ns.step*ticks;\n"
+                + "var labels=[],maxLabelW=0;\n"
+                + "for(var k=0;k<=ticks;k++){labels.push(pretty(ns.step*k));"
                 + "maxLabelW=Math.max(maxLabelW,labelWidth(labels[k]));}\n"
                 + "var padL=Math.max(56,maxLabelW+16),padR=16,padT=16,padB=36;\n"
                 + "var plotW=Math.max(10,w-padL-padR),plotH=Math.max(10,h-padT-padB);\n"
                 + "var n=runs.length,band=plotW/n,barW=Math.min(band*0.62,46);\n"
                 + "var s='<svg viewBox=\"0 0 '+w+' '+h+'\" width=\"'+w+'\" height=\"'+h+'\" "
                 + "xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">';\n"
-                + "for(var t=0;t<=ticks;t++){var val=yMax*t/ticks,y=padT+plotH-(val/yMax)*plotH;"
+                + "for(var t=0;t<=ticks;t++){var val=ns.step*t,y=padT+plotH-(val/yMax)*plotH;"
                 + "s+='<line class=\"tia-tl-grid\" x1=\"'+padL+'\" y1=\"'+y+'\" x2=\"'+(w-padR)+'\" y2=\"'+y+'\"/>';"
                 + "s+='<text class=\"tia-tl-ylabel\" x=\"'+(padL-8)+'\" y=\"'+(y+3)+'\" text-anchor=\"end\">'"
                 + "+esc(labels[t])+'</text>';}\n"
