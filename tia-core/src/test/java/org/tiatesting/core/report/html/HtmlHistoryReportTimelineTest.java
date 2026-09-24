@@ -82,6 +82,27 @@ class HtmlHistoryReportTimelineTest {
     }
 
     /**
+     * The chart's y-axis gutter is sized from the widest tick label rather than a fixed width, so
+     * multi-unit labels on long runs (e.g. {@code 2h 46m 40s}) are not clipped at the left edge.
+     */
+    @Test
+    void historyPage_sizesYAxisGutterFromWidestLabel(@TempDir File tempDir) throws Exception {
+        // given a run over two hours long, whose top tick label spans hours, minutes and seconds
+        TiaData tiaData = new TiaData();
+        tiaData.setTestRunHistory(Collections.singletonList(
+                entry("run-long", 1_700_000_000_000L, 9_000_000L, 0)));
+
+        // when
+        String html = generateAndRead(tempDir, tiaData);
+
+        // then - the gutter is derived from the measured labels, not hard-coded
+        assertTrue(html.contains("padL=Math.max(56,maxLabelW+16)"),
+                "y-axis gutter should grow to fit the widest tick label");
+        assertFalse(html.contains("var padL=56,"), "y-axis gutter should not be a fixed width");
+        assertTrue(html.contains("esc(labels[t])"), "tick labels should be the measured labels");
+    }
+
+    /**
      * A history with no runs omits the timeline chart entirely, leaving the table as the only
      * content.
      */
