@@ -70,7 +70,12 @@ on a debounced window resize. Embedding the data once and drawing client-side mi
 Source Methods table feeds its rows through `simple-datatables`' data option. Duration labels on
 the y-axis and in the tooltip are formatted by a small JavaScript port of
 `ReportUtils.prettyDuration(ms, true)` (whole units, dropping milliseconds at or above a second),
-so they match the table exactly.
+so they match the table exactly. The y-axis ticks fall on round durations: the step is the
+smallest round time (1s, 2s, 5s, 10s, 15s, 30s, 1m, 2m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 6h, 12h,
+1d, with 1/2/5 ms steps below a second and 1/2/5 x 10^n days above a day) that covers the tallest
+visible bar in at most five intervals, and the axis top is rounded up to the next tick - so a
+2.5h run reads `0, 30m, 1h, 1h 30m, 2h, 2h 30m` rather than `41m 40s, 1h 23m 20s ...`. The left gutter is sized to
+the widest tick label so multi-unit labels never clip.
 
 The chart is a progressive enhancement. With JavaScript disabled it simply does not draw, and the
 full table below is the fallback - the same posture the report already takes for its
