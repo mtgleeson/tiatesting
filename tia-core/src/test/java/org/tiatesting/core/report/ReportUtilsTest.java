@@ -257,4 +257,24 @@ class ReportUtilsTest {
         assertEquals("1s 500ms", withFlagFalse);
         assertEquals("1s 500ms", singleArg);
     }
+
+    /**
+     * A zero duration renders as {@code 0ms} rather than an empty string, which would read as a
+     * missing value - a distributed build with no groups records exactly zero.
+     */
+    @Test
+    void prettyDuration_zero_rendersAsZeroMs(){
+        // given
+        long zero = 0L;
+
+        // when
+        String plain = ReportUtils.prettyDuration(zero);
+        String droppingMs = ReportUtils.prettyDuration(zero, true);
+        String droppingMsAboveMinute = ReportUtils.prettyDurationDropMsAboveMinute(zero);
+
+        // then
+        assertEquals("0ms", plain);
+        assertEquals("0ms", droppingMs);
+        assertEquals("0ms", droppingMsAboveMinute);
+    }
 }

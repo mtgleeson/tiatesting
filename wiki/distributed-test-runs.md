@@ -44,7 +44,9 @@ every piece of logic that produces a value:
    the run's own configured value rather than the always-`false` the `select-tests` preview passes.
    This is the one selection the whole build gets - one VCS diff, one static-rule pass, one
    library-impact drain, rather than N of each.
-4. `DistributedRunPlanner.plan` - weight, balance, project onto the persisted types, persist.
+4. `DistributedRunPlanner.plan` - weight, balance, project onto the persisted types, persist, and
+   seal the run on the spot when the plan has no groups - see ["When nothing is
+   selected"](#when-nothing-is-selected-a-plan-with-no-groups).
 5. Print `DistributedRunPlanSummary.toConsoleSummary()` and write `toJson()` to
    `<tiaBuildDir>/tia-run-plan.json` via `DistributedRunPlanWriter`.
 
@@ -85,13 +87,14 @@ The two modes solve different problems and use different algorithms:
   the goal is to minimise the heaviest group. `balanceIntoGroups` walks the suites heaviest-first
   and drops each into the currently-lightest group - LPT (longest processing time first). Groups
   beyond the number of suites come back empty rather than being dropped, because the pipeline was
-  told to start that many jobs.
+  told to start that many jobs. An empty selection is the one exception: it produces no groups.
 - **Target run time** (`tiaDistributedTargetRunTime`) is bin packing: the capacity is given, and the
   group **count** is what is being minimised. `balanceForTargetRunTime` uses FFD (first-fit
   decreasing) to choose the count, then re-balances with LPT at that same count and keeps whichever
   packing has the lighter heaviest group. FFD fills groups to capacity while LPT spreads them, so
   the re-balance usually finishes sooner for the same number of runners - but not always, which is
-  why both are computed and compared rather than one being assumed better.
+  why both are computed and compared rather than one being assumed better. An empty selection
+  produces no groups here too.
 
 Target mode therefore **minimises runners, it does not maximise speed**. A target of 25 minutes with
 `tiaDistributedMaxGroups: 12` means "the fewest runners that get the tests under 25 minutes", not
@@ -283,6 +286,46 @@ Starting fewer is the one way a distributed build can report green while skippin
 surplus groups are never claimed and their suites never run. That is why the group count is handed
 to the pipeline explicitly in `tia-run-plan.json` rather than inferred, and why the fan-out step is
 the integration requirement with a correctness consequence attached.
+
+### When nothing is selected: a plan with no groups
+
+A change no tracked test covers - documentation, a comment, a build script - selects nothing. Both
+balancer modes then return **no groups**, whatever `tiaDistributedGroupCount` or
+`tiaDistributedTargetRunTime` says, and `tia-run-plan.json` reports `groupCount: 0`. Planning empty
+groups instead would have the pipeline start a runner job for each - a checkout, a compile and a
+test JVM - only to reach a seal with nothing to record but the commit.
+
+With no groups there is no runner to finish last, so **the plan step seals the run itself**, in the
+same process, straight after the plan write. It goes through the same `DistributedRunSealer` a
+runner uses, under the context `DistributedRunnerContext.forPlanner`, whose runner key is
+`<runId>-planner`. The election cannot be lost: `electSealer`'s `NOT EXISTS (a group that is not
+COMPLETED)` holds trivially with no groups, and no runner exists to compete for `sealed_by`. The
+plan step fails the build if it is somehow not elected, since an unsealed empty plan would leave the
+stored commit behind with nothing else to move it.
+
+The seal records exactly what a runner's seal of an empty group would have:
+
+- the stored commit advances to the plan's commit, the plan's library-impact drain cleanup is
+  applied, and the Tia-level run stats count the build as one run of zero duration - all three only
+  when the build owns mapping updates, as on every other seal;
+- one history row is written (when `tiaUpdateDBTestRunHistory` is on) with 0 groups, 0 suites ran
+  and every tracked suite ignored. Its savings are the full-suite baseline, and its wall-clock
+  savings are that baseline spread across the groups available - see ["Reporting: two durations,
+  one history row"](#reporting-two-durations-one-history-row). The run row's `groups_available`
+  never drops below 1, since it divides the baseline: target mode with no
+  `tiaDistributedMaxGroups` has no pool, and falls back to the single group an empty plan used to
+  have.
+
+A zero-group row never counts as an all-tests run - that needs `suitesRan > 0` - so it cannot move
+the all-tests baseline. A seed run is never planned with zero groups: with nothing found on disk it
+still collapses to one group that runs everything.
+
+The pipeline should start no runner jobs for such a plan. Starting some anyway is harmless: the
+claim finds no group, logs that the plan has none, and the runner ignores every suite, exactly as a
+[surplus runner](#surplus-runners) does. The one integration hazard is a CI system that refuses a
+zero-sized fan-out - GitHub Actions fails a workflow whose matrix list is empty - so the matrix job
+needs a guard; see [the CI step](#the-ci-step). `dist-status` reports the run as `SEALED` "by the plan
+step", with `Groups: none` in place of the group table.
 
 ### `tia-run-plan.json` is a published contract
 
@@ -527,7 +570,9 @@ UPDATE tia_distributed_run SET sealed_by = ?, sealed_at = ?
 ```
 
 `sealed_by IS NULL` makes at most one runner win. The `NOT EXISTS` makes that runner the **last**
-one, and that is the barrier the whole design turns on.
+one, and that is the barrier the whole design turns on. A plan with no groups meets it at once, which
+is how the plan step seals one itself - see ["When nothing is
+selected"](#when-nothing-is-selected-a-plan-with-no-groups).
 
 **The catalogue rebuild is the reason the barrier exists.** `tia_source_method` is rebuilt wholesale
 from the distinct method ids on the suite-to-method edge table, and any id that query omits is
@@ -685,7 +730,7 @@ The ignored half of that comes from what the plan **assigned** the groups, never
 accumulating `suites_ran` counter, which a retry within one JVM legitimately inflates. Where the
 assignment is empty it is answered from the run row's `seed_run` flag rather than from the plan's
 shape: a seed run that fell back to a single group carries no suite names and ignored nothing, a
-nothing-impacted build's groups carry no suite names and ignored every tracked suite, and by seal
+nothing-impacted build has no groups at all and ignored every tracked suite, and by seal
 time the two plans are indistinguishable - the seed run's own runners have already populated the
 tracked suite map. A split seed run never hits this empty-assignment case at all: its groups carry
 real suite names, so the general (non-empty) path applies, and the disk scan's superset property is
@@ -762,7 +807,9 @@ and never enters the packing weights.
 ## The CI step
 
 The shape is the same on both build tools and in every CI system: **run the plan step, read
-`groupCount` out of `tia-run-plan.json`, start that many identical jobs.** The jobs are identical -
+`groupCount` out of `tia-run-plan.json`, start that many identical jobs** - none at all when it is
+`0`, since the plan step has then already sealed the build (see ["When nothing is
+selected"](#when-nothing-is-selected-a-plan-with-no-groups)). The jobs are identical -
 no index, no group number, no test list. Any matrix index the CI generates exists purely to make it
 spawn the right number of jobs; it is never passed to Tia as anything other than a runner key.
 
@@ -808,6 +855,9 @@ and the planning job that produced the matrix:
 - id: plan
   run: echo "groups=$(jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json)" >> $GITHUB_OUTPUT
 ```
+
+and the runner job guarded with `if: needs.plan.outputs.groups != '[]'`, since a build that selected
+nothing plans no groups and GitHub Actions rejects an empty matrix.
 
 The completion goal is safe to run unconditionally: with no `fork.properties`, or a file carrying no
 distributed handoff, there is nothing to complete and the goal logs that and exits successfully. It

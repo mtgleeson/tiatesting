@@ -5,12 +5,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
+import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -24,6 +28,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -159,6 +164,42 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Store a prior commit and a full-suite baseline on the core row, standing in for the builds
+     * the project recorded before the one under test.
+     *
+     * @param commitValue the stored commit the next seal would advance from
+     * @param allTestsRunTimeMs the full-suite baseline savings are measured against
+     */
+    private void seedCoreData(final String commitValue, final long allTestsRunTimeMs) {
+        TiaData tiaData = dataStore.getTiaCore();
+        tiaData.setCommitValue(commitValue);
+        tiaData.setBranch("main");
+        tiaData.setLastUpdated(Instant.now());
+        tiaData.getTestStats().setAllTestsRunTime(allTestsRunTimeMs);
+        dataStore.persistCoreData(tiaData);
+    }
+
+    /**
+     * Store one tracked suite per name, each covering its own source method, so the seal has
+     * tracked suites to count as ignored.
+     *
+     * @param suiteNames the names of the suites to track
+     */
+    private void seedTrackedSuites(final String... suiteNames) {
+        Map<String, TestSuiteTracker> tracked = new HashMap<>();
+        int index = 0;
+        for (String suiteName : suiteNames) {
+            TestSuiteTracker tracker = new TestSuiteTracker(suiteName);
+            tracker.setClassesImpacted(Collections.singletonList(
+                    new ClassImpactTracker("com/example/Source" + index + ".java",
+                            new HashSet<>(Collections.singletonList(Integer.valueOf(100 + index))))));
+            tracked.put(tracker.getName(), tracker);
+            index++;
+        }
+        dataStore.persistTestSuites(tracked);
+    }
+
+    /**
      * Build a selection with no suites at all, so tests can verify the planner produces a valid
      * (if trivial) plan rather than failing on an empty build.
      *
@@ -220,7 +261,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-1", false, 111222L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-1", false, true, 111222L, noSeedSuites());
 
         // then
         DistributedRun readRun = dataStore.readDistributedRun("run-static");
@@ -263,7 +304,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(selectionWithDrainResult(drainResult), "main", "commit-1", false, 111222L, noSeedSuites());
+        planner.plan(selectionWithDrainResult(drainResult), "main", "commit-1", false, true, 111222L, noSeedSuites());
 
         // then
         assertEquals(drainResult, dataStore.readDistributedRunDrainResult("run-drain"));
@@ -282,7 +323,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 111222L, noSeedSuites());
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 111222L, noSeedSuites());
 
         // then
         assertNull(dataStore.readDistributedRunDrainResult("run-nodrain"));
@@ -308,7 +349,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(threeSuiteSelectionWithSelectionDetails(details), "main", "commit-1", false, 1L, noSeedSuites());
+        planner.plan(threeSuiteSelectionWithSelectionDetails(details), "main", "commit-1", false, true, 1L, noSeedSuites());
 
         // then
         TestRunSelectionDetails read = dataStore.readDistributedRunSelectionDetails("run-selection-details");
@@ -334,7 +375,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-2", false, 555L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-2", false, true, 555L, noSeedSuites());
 
         // then
         DistributedRun readRun = dataStore.readDistributedRun("run-dynamic");
@@ -355,7 +396,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 1L, noSeedSuites());
 
         // then
         DistributedRun readRun = dataStore.readDistributedRun("run-avail-fixed");
@@ -374,7 +415,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 1L, noSeedSuites());
 
         // then
         DistributedRun readRun = dataStore.readDistributedRun("run-avail-max");
@@ -393,7 +434,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
-        planner.plan(threeSuiteSelection(), "main", "commit-1", false, 1L, noSeedSuites());
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 1L, noSeedSuites());
 
         // then
         DistributedRun readRun = dataStore.readDistributedRun("run-avail-nomax");
@@ -414,7 +455,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-3", false, 999L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-3", false, true, 999L, noSeedSuites());
 
         // then
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-conserve");
@@ -440,7 +481,7 @@ class DistributedRunPlannerTest {
         // given
         DistributedRunConfig firstConfig = DistributedRunConfig.validated("run-old", 2, null, null, null);
         DistributedRunPlanner firstPlanner = new DistributedRunPlanner(dataStore, firstConfig);
-        firstPlanner.plan(threeSuiteSelection(), "main", "commit-old", false, 100L, noSeedSuites());
+        firstPlanner.plan(threeSuiteSelection(), "main", "commit-old", false, true, 100L, noSeedSuites());
         try (Connection connection = connectionProvider.get();
              Statement statement = connection.createStatement()) {
             // A raw connection from the provider is not pinned to the per-branch schema the way
@@ -455,7 +496,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner secondPlanner = new DistributedRunPlanner(dataStore, secondConfig);
 
         // when
-        secondPlanner.plan(threeSuiteSelection(), "main", "commit-new", false, 200L, noSeedSuites());
+        secondPlanner.plan(threeSuiteSelection(), "main", "commit-new", false, true, 200L, noSeedSuites());
 
         // then
         assertNull(dataStore.readDistributedRun("run-old"));
@@ -481,13 +522,13 @@ class DistributedRunPlannerTest {
 
         // when
         new DistributedRunPlanner(dataStore, configWithoutCoverage)
-                .plan(selection, "main", "commit-a", false, 1L, noSeedSuites());
+                .plan(selection, "main", "commit-a", false, true, 1L, noSeedSuites());
         DistributedRun withoutCoverage = dataStore.readDistributedRun("run-no-coverage");
         // planning a second run clears the first, so read it back before planning again
         long estimatedWithoutCoverage = withoutCoverage.getEstimatedTotalMs();
 
         new DistributedRunPlanner(dataStore, configWithCoverage)
-                .plan(selection, "main", "commit-b", true, 2L, noSeedSuites());
+                .plan(selection, "main", "commit-b", true, true, 2L, noSeedSuites());
         DistributedRun withCoverage = dataStore.readDistributedRun("run-coverage");
 
         // then
@@ -497,29 +538,158 @@ class DistributedRunPlannerTest {
     }
 
     /**
-     * Verify that an empty selection still produces a valid, persisted plan rather than failing:
-     * every group is created (empty of suites) and the suite-conservation guard passes trivially
-     * since zero suites were selected and zero were persisted.
+     * Verify that an empty selection plans no groups in fixed group-count mode - not one empty
+     * group per configured slot - so the pipeline starts no runner jobs for a build with nothing
+     * to run, and that the plan step then seals the run itself, since no runner exists to.
      */
     @Test
-    void shouldProduceAValidPlanForAnEmptySelection() {
+    void plan_emptySelectionWithFixedGroupCount_plansNoGroupsAndSealsTheRun() {
         // given
         DistributedRunConfig config = DistributedRunConfig.validated("run-empty", 3, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
-        TestSelectorResult selection = emptySelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-empty", false, 42L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(emptySelection(), "main", "commit-empty",
+                true, true, 42L, noSeedSuites());
 
         // then
+        assertEquals(0, summary.getGroupCount());
         assertEquals(0, summary.getSelectedSuiteCount());
         DistributedRun readRun = dataStore.readDistributedRun("run-empty");
-        assertEquals(3, readRun.getGroupCount());
-        List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-empty");
-        assertEquals(3, groups.size());
-        for (DistributedRunGroup group : groups) {
-            assertTrue(dataStore.readDistributedRunGroupSuites("run-empty", group.getGroupNumber()).isEmpty());
-        }
+        assertEquals(0, readRun.getGroupCount());
+        assertEquals(3, readRun.getGroupsAvailable(),
+                "the configured groups stay the pool the wall-clock savings are measured against");
+        assertTrue(dataStore.readDistributedRunGroups("run-empty").isEmpty());
+        assertEquals(DistributedRunStatus.SEALED, readRun.getStatus());
+        assertEquals("run-empty-planner", readRun.getSealedBy());
+    }
+
+    /**
+     * Verify that an empty selection plans no groups in target-run-time mode either, where it
+     * used to fall back to a single empty group that a runner job then had to be started for.
+     */
+    @Test
+    void plan_emptySelectionWithTargetRunTime_plansNoGroupsAndSealsTheRun() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-target", null,
+                1_800_000L, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(emptySelection(), "main", "commit-empty",
+                true, true, 42L, noSeedSuites());
+
+        // then
+        assertEquals(0, summary.getGroupCount());
+        assertTrue(summary.isTargetMet());
+        DistributedRun readRun = dataStore.readDistributedRun("run-empty-target");
+        assertEquals(0, readRun.getGroupCount());
+        assertEquals(1, readRun.getGroupsAvailable(),
+                "with no maxGroups there is no pool, and the wall-clock baseline is divided by it");
+        assertEquals(DistributedRunStatus.SEALED, readRun.getStatus());
+    }
+
+    /**
+     * Verify the plan-time seal of an empty plan does what a runner's seal would have: advances
+     * the stored commit past a build that changed nothing any test covers, and writes the build's
+     * one history row - no groups, nothing run, every tracked suite ignored - credited the whole
+     * full-suite baseline as savings, serial and wall clock alike.
+     */
+    @Test
+    void plan_emptySelectionOwningTheMapping_advancesTheCommitAndRecordsAZeroGroupHistoryRow() {
+        // given - a prior commit, a 60s full-suite baseline and 4 tracked suites
+        seedCoreData("prior-commit", 60_000L);
+        seedTrackedSuites("com.example.ATest", "com.example.BTest", "com.example.CTest",
+                "com.example.DTest");
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-seal", 3, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(emptySelection(), "main", "commit-empty", true, true, 42L, noSeedSuites());
+
+        // then
+        assertEquals("commit-empty", dataStore.getTiaCore().getCommitValue());
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+        assertEquals(1, history.size());
+        TestRunHistoryEntry entry = history.get(0);
+        assertEquals("run-empty-seal", entry.getRunId());
+        assertEquals(Integer.valueOf(0), entry.getGroupCount());
+        assertEquals(Integer.valueOf(3), entry.getGroupsAvailable());
+        assertEquals(0, entry.getNumSuitesRan());
+        assertEquals(4, entry.getNumSuitesIgnored());
+        assertEquals(0L, entry.getDurationMs());
+        assertEquals(42L, entry.getRunTimestampMs());
+        assertEquals(60_000L, entry.getTimeSavingsMs());
+        assertEquals(20_000L, entry.getWallClockSavingsMs(),
+                "the 60s baseline spread across the 3 groups available");
+        assertTrue(entry.isUpdatedDbMapping());
+    }
+
+    /**
+     * Verify that a build not owning the mapping still gets its history row from the plan-time
+     * seal, but leaves the stored commit alone - that commit describes a mapping this build does
+     * not own, the same rule a runner's seal follows.
+     */
+    @Test
+    void plan_emptySelectionNotOwningTheMapping_recordsHistoryButLeavesTheCommit() {
+        // given
+        seedCoreData("prior-commit", 60_000L);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-readonly", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(emptySelection(), "main", "commit-empty", false, true, 42L, noSeedSuites());
+
+        // then
+        assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue());
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+        assertEquals(1, history.size());
+        assertFalse(history.get(0).isUpdatedDbMapping());
+        assertEquals(DistributedRunStatus.SEALED,
+                dataStore.readDistributedRun("run-empty-readonly").getStatus());
+    }
+
+    /**
+     * Verify that with history updates off the plan-time seal writes no history row, while still
+     * advancing the commit and retiring the run.
+     */
+    @Test
+    void plan_emptySelectionWithHistoryOff_writesNoHistoryRow() {
+        // given
+        seedCoreData("prior-commit", 60_000L);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-nohistory", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(emptySelection(), "main", "commit-empty", true, false, 42L, noSeedSuites());
+
+        // then
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
+        assertEquals("commit-empty", dataStore.getTiaCore().getCommitValue());
+        assertEquals(DistributedRunStatus.SEALED,
+                dataStore.readDistributedRun("run-empty-nohistory").getStatus());
+    }
+
+    /**
+     * Verify a plan with groups is left for its runners to seal: the plan step must never retire a
+     * run whose groups have not run yet.
+     */
+    @Test
+    void plan_selectionWithSuites_isNotSealedAtPlanTime() {
+        // given
+        seedCoreData("prior-commit", 60_000L);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-with-groups", 2, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", true, true, 42L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-with-groups");
+        assertEquals(DistributedRunStatus.OPEN, readRun.getStatus());
+        assertNull(readRun.getSealedBy());
+        assertEquals("prior-commit", dataStore.getTiaCore().getCommitValue());
+        assertTrue(dataStore.readTestRunHistory().isEmpty());
     }
 
     /**
@@ -541,7 +711,7 @@ class DistributedRunPlannerTest {
                 "com.example.T5", "com.example.T6", "com.example.T7", "com.example.T8");
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-split", true, 1L, scan);
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-split", true, true, 1L, scan);
 
         // then the summary and persisted plan report four groups and a seed run
         assertEquals(4, summary.getGroupCount());
@@ -584,7 +754,7 @@ class DistributedRunPlannerTest {
 
         // when
         DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
-                "commit-seed-empty", true, 1L, noSeedSuites());
+                "commit-seed-empty", true, true, 1L, noSeedSuites());
 
         // then
         assertEquals(1, summary.getGroupCount());
@@ -605,7 +775,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = runAllTestsSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed", true, 1L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed", true, true, 1L, noSeedSuites());
 
         // then - the summary reports exactly one group and a seed run
         assertEquals(1, summary.getGroupCount());
@@ -636,7 +806,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = runAllTestsSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-target", true, 1L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-target", true, true, 1L, noSeedSuites());
 
         // then
         assertEquals(1, summary.getGroupCount());
@@ -661,7 +831,7 @@ class DistributedRunPlannerTest {
 
         // when
         DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
-                "commit-seed-target-max", true, 1L, scan);
+                "commit-seed-target-max", true, true, 1L, scan);
 
         // then the seed fans out to the three-group ceiling with the suites split evenly
         assertEquals(3, summary.getGroupCount());
@@ -689,7 +859,7 @@ class DistributedRunPlannerTest {
 
         // when
         DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
-                "commit-seed-target-nomax", true, 1L, scan);
+                "commit-seed-target-nomax", true, true, 1L, scan);
 
         // then it stays a single group
         assertEquals(1, summary.getGroupCount());
@@ -709,7 +879,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-not-seed", false, 1L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-not-seed", false, true, 1L, noSeedSuites());
 
         // then
         assertFalse(summary.isSeedRun());
@@ -732,7 +902,7 @@ class DistributedRunPlannerTest {
 
         // when
         DistributedRunPlanSummary summary = planner.plan(threeSuiteSelection(), "main",
-                "commit-no-scan", false, 1L, throwingProvider);
+                "commit-no-scan", false, true, 1L, throwingProvider);
 
         // then
         assertFalse(summary.isSeedRun());
@@ -751,7 +921,7 @@ class DistributedRunPlannerTest {
         TestSelectorResult selection = runAllTestsSelection();
 
         // when
-        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-json", true, 1L, noSeedSuites());
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-json", true, true, 1L, noSeedSuites());
 
         // then
         assertTrue(summary.toJson().contains("\"seedRun\": true,"));
@@ -777,7 +947,7 @@ class DistributedRunPlannerTest {
 
         // when
         DistributedRunPlanSummary summary = planner.plan(selection, "main",
-                "commit-seed-no-coverage", false, 1L, noSeedSuites());
+                "commit-seed-no-coverage", false, true, 1L, noSeedSuites());
 
         // then - the plan still succeeds and is still a one-group seed run
         assertTrue(summary.isSeedRun());
@@ -1002,7 +1172,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanner planner = new DistributedRunPlanner(recordingDataStore, config);
 
         // when
-        planner.plan(threeSuiteSelection(), "main", "commit-order", false, 1L, noSeedSuites());
+        planner.plan(threeSuiteSelection(), "main", "commit-order", false, true, 1L, noSeedSuites());
 
         // then
         assertEquals(2, callOrder.size(), "expected exactly one read and one persist call: " + callOrder);

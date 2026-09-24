@@ -438,4 +438,29 @@ class DistributedRunPlanSummaryTest {
         assertFalse(consoleSummary.contains("Target:"),
                 "console summary should not print a target verdict for a seed run: " + consoleSummary);
     }
+
+    /**
+     * Verifies a plan with no groups tells the developer to start no runner jobs because the run
+     * is already sealed, and prints no duration or target lines, which would describe groups that
+     * do not exist.
+     */
+    @Test
+    void toConsoleSummary_noGroups_saysNoRunnerJobsAreNeeded() {
+        // given - a nothing-selected plan in target-run-time mode
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 0, 1800000L, true, false, false, false, 0L,
+                0L, 0, false);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+
+        // then
+        assertTrue(consoleSummary.contains("Groups: 0\n"), consoleSummary);
+        assertTrue(consoleSummary.contains("start no runner jobs"), consoleSummary);
+        assertTrue(consoleSummary.contains("already sealed"), consoleSummary);
+        assertFalse(consoleSummary.contains("per group"), consoleSummary);
+        assertFalse(consoleSummary.contains("Target:"), consoleSummary);
+        assertFalse(consoleSummary.contains("Wall clock"), consoleSummary);
+        assertTrue(consoleSummary.contains("Selected suites: 0"), consoleSummary);
+    }
 }

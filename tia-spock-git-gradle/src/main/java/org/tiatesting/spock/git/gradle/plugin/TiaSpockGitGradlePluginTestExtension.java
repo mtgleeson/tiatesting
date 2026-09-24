@@ -779,10 +779,11 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",
                     config.getRunId(), testTask.getPath(), groupNumber);
         } else {
-            LOGGER.info("Tia distributed run '{}': test task '{}' claimed no group - every group "
-                            + "was already claimed, so this test task will run no tests. This is "
-                            + "expected when the pipeline fans out to more jobs than the plan has "
-                            + "groups.", config.getRunId(), testTask.getPath());
+            LOGGER.info("Tia distributed run '{}': test task '{}' claimed no group, so this test "
+                            + "task will run no tests. This is expected when the pipeline fans out "
+                            + "to more jobs than the plan has groups, or starts a runner for a plan "
+                            + "with no groups because nothing was selected.", config.getRunId(),
+                    testTask.getPath());
         }
 
         Map<String, String> properties = DistributedForkProperties.forkProperties(config.getRunId(),

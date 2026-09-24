@@ -97,4 +97,36 @@ class DistributedRunnerContextTest {
         assertThrows(IllegalArgumentException.class,
                 () -> DistributedRunnerContext.forClaimedGroup("run-1", "runner-a", negativeGroupNumber));
     }
+
+    /**
+     * The plan step's context holds no group and seals under a key derived from the run id, so
+     * the run row's sealed-by names the planner rather than a runner that never existed.
+     */
+    @Test
+    void plannerContextHoldsNoGroupAndDerivesItsKeyFromTheRunId() {
+        // given
+        String runId = " run-1 ";
+
+        // when
+        DistributedRunnerContext context = DistributedRunnerContext.forPlanner(runId);
+
+        // then
+        assertFalse(context.isClaimed());
+        assertNull(context.getGroupNumber());
+        assertEquals("run-1", context.getRunId());
+        assertEquals("run-1-planner", context.getRunnerKey());
+    }
+
+    /**
+     * The plan step's context rejects a blank run id, since every seal write is keyed by it.
+     */
+    @Test
+    void plannerContextRejectsABlankRunId() {
+        // given
+        String blankRunId = " ";
+
+        // when / then
+        assertThrows(IllegalArgumentException.class,
+                () -> DistributedRunnerContext.forPlanner(blankRunId));
+    }
 }

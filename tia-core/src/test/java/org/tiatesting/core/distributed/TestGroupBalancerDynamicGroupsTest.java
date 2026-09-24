@@ -226,12 +226,12 @@ class TestGroupBalancerDynamicGroupsTest {
     }
 
     /**
-     * Verify an empty selection produces a single empty group rather than zero groups or a
-     * failure. A build where Tia selects nothing is normal, and the planner still needs a plan shape
-     * to write.
+     * Verify an empty selection produces no groups rather than a single empty group or a
+     * failure. A build where Tia selects nothing is normal, and needs no runner at all: the
+     * planner seals a plan with no groups itself.
      */
     @Test
-    void shouldProduceOneEmptyGroupForAnEmptySelection() {
+    void shouldProduceNoGroupsForAnEmptySelection() {
         // given
         Map<String, Long> suiteWeights = new HashMap<>();
 
@@ -239,7 +239,7 @@ class TestGroupBalancerDynamicGroupsTest {
         GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(suiteWeights, 10L, null, 0L);
 
         // then
-        assertEquals(1, result.getGroupCount());
+        assertEquals(0, result.getGroupCount());
         assertEquals(0L, result.getTotalEstimatedMs());
         assertTrue(result.isTargetMet());
         assertFalse(result.isClampedToMaxGroups());

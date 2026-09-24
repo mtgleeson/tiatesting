@@ -108,7 +108,8 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                         .scanTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
-                        System.currentTimeMillis(), seedTestSuiteProvider);
+                        isTiaUpdateDBTestRunHistory(), System.currentTimeMillis(),
+                        seedTestSuiteProvider);
             } catch (IllegalStateException e) {
                 throw new MojoExecutionException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }
