@@ -693,6 +693,53 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verify a fixed group count larger than the selection plans one group per selected suite, so
+     * the pipeline starts no runner job for a group with nothing in it, while the run row still
+     * records the configured count as the groups available - the pool the wall-clock savings are
+     * measured against is the one the build had, not the one it needed.
+     */
+    @Test
+    void plan_fixedGroupCountAboveTheSuiteCount_plansOneGroupPerSuite() {
+        // given - three selected suites and five configured groups
+        DistributedRunConfig config = DistributedRunConfig.validated("run-capped", 5, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(threeSuiteSelection(), "main", "commit-1",
+                false, true, 1L, noSeedSuites());
+
+        // then
+        assertEquals(3, summary.getGroupCount());
+        DistributedRun readRun = dataStore.readDistributedRun("run-capped");
+        assertEquals(3, readRun.getGroupCount());
+        assertEquals(5, readRun.getGroupsAvailable());
+        for (DistributedRunGroup group : dataStore.readDistributedRunGroups("run-capped")) {
+            assertEquals(1, dataStore.readDistributedRunGroupSuites("run-capped",
+                    group.getGroupNumber()).size());
+        }
+    }
+
+    /**
+     * Verify a seed run that finds fewer suites on disk than the configured group count splits
+     * them one per group rather than planning empty seed groups.
+     */
+    @Test
+    void plan_seedSelectionWithFewerScannedSuitesThanGroups_plansOneGroupPerSuite() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-capped", 4, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(runAllTestsSelection(), "main",
+                "commit-seed", true, true, 1L, seedSuites("com.example.T1", "com.example.T2"));
+
+        // then
+        assertEquals(2, summary.getGroupCount());
+        assertTrue(summary.isSeedRun());
+        assertEquals(4, dataStore.readDistributedRun("run-seed-capped").getGroupsAvailable());
+    }
+
+    /**
      * Verify that a seed run with suites discovered on disk splits them across the configured
      * group count instead of collapsing to one group: every configured group is planned, the
      * suites are divided by even count, their union is exactly the scanned set (so each runs once),

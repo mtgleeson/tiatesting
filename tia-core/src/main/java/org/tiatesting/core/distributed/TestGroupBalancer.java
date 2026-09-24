@@ -80,23 +80,25 @@ public final class TestGroupBalancer {
     }
 
     /**
-     * Split the suites into exactly {@code groupCount} groups, minimising the heaviest group.
+     * Split the suites into {@code groupCount} groups, minimising the heaviest group.
      *
-     * <p>Walks the suites heaviest-first and puts each into the currently-lightest group. Groups
-     * beyond the number of suites come back empty rather than being dropped, because the planner
-     * turns every group into a runner and the pipeline was told to start that many.
+     * <p>Walks the suites heaviest-first and puts each into the currently-lightest group. When
+     * there are fewer suites than {@code groupCount}, the count is capped at the number of suites,
+     * one suite per group, rather than padded with empty groups: the planner turns every group
+     * into a runner job, and an empty one would start a checkout, a compile and a test JVM to run
+     * nothing. A pipeline that starts the configured count anyway only produces surplus runners,
+     * which claim nothing and run nothing.
      *
-     * <p>An empty selection is the one exception: it produces no groups at all, since a build with
-     * nothing to run needs no runner, and the planner seals such a plan itself - see {@link
-     * #noGroups()}.
+     * <p>An empty selection therefore produces no groups at all, and the planner seals such a plan
+     * itself - see {@link #noGroups()}.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
-     * @param groupCount how many groups to produce when there is at least one suite; must be at
-     *                   least 1
-     * @param fixedOverheadMs the per-JVM cost in ms each group pays once, added to every group that
-     *                        was given at least one suite; must not be negative
+     * @param groupCount the most groups to produce; fewer are produced when there are fewer suites.
+     *                   Must be at least 1
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once; must not be negative
      * @return the grouping, always reporting the target as met and not clamped, since a fixed
-     *         group count has neither a target nor a ceiling; zero groups when {@code
+     *         group count has neither a target nor a ceiling; {@code min(groupCount, suites)}
+     *         groups, every one holding at least one suite, so zero groups when {@code
      *         suiteWeightsMs} is empty
      * @throws IllegalArgumentException if {@code groupCount} is below 1 or {@code fixedOverheadMs}
      *                                  is negative
@@ -113,10 +115,13 @@ public final class TestGroupBalancer {
                     + "has no groups.");
             return noGroups();
         }
-        GroupingResult result = lptIntoGroups(suiteWeightsMs, groupCount, fixedOverheadMs);
-        log.debug("Distributed run grouping (fixed count): balanced {} suite(s) into {} group(s) "
-                        + "by longest-processing-time, heaviest group {}ms.",
-                suiteWeightsMs.size(), groupCount, result.getHeaviestGroupMs());
+        // Capped so no group is planned empty: an empty group would still have a runner job
+        // started for it, to run nothing.
+        int plannedGroupCount = Math.min(groupCount, suiteWeightsMs.size());
+        GroupingResult result = lptIntoGroups(suiteWeightsMs, plannedGroupCount, fixedOverheadMs);
+        log.debug("Distributed run grouping (fixed count): balanced {} suite(s) into {} of the {} "
+                        + "configured group(s) by longest-processing-time, heaviest group {}ms.",
+                suiteWeightsMs.size(), plannedGroupCount, groupCount, result.getHeaviestGroupMs());
         logGroupAssignment(result);
         return result;
     }
@@ -126,6 +131,10 @@ public final class TestGroupBalancer {
      * Split out from {@link #balanceIntoGroups} so the target-run-time path can use it as a
      * candidate re-balance - which it may then discard - without that discarded candidate being
      * logged as if it were the plan.
+     *
+     * <p>Ties on weight go to the group holding fewer suites, then to the lowest group number, so
+     * as long as there are at least {@code groupCount} suites every group gets one - even when
+     * some suites weigh nothing.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
      * @param groupCount how many groups to produce; must be at least 1
@@ -147,9 +156,15 @@ public final class TestGroupBalancer {
         }
 
         for (String suiteName : sortedByWeightDescending(suiteWeightsMs)) {
+            // Lightest group first; a weight tie goes to the group holding fewer suites, then to
+            // the lowest group number. The suite-count tie-break is what keeps zero-weight suites
+            // from piling into one group: an empty group weighs zero, the least any group can, so
+            // it always wins the tie and every group gets a suite while suites remain.
             int lightest = 0;
             for (int i = 1; i < groupCount; i++) {
-                if (groupWeights[i] < groupWeights[lightest]) {
+                if (groupWeights[i] < groupWeights[lightest]
+                        || (groupWeights[i] == groupWeights[lightest]
+                                && groupSuites.get(i).size() < groupSuites.get(lightest).size())) {
                     lightest = i;
                 }
             }
@@ -397,13 +412,13 @@ public final class TestGroupBalancer {
      * Convert the balancer's parallel working structures into the immutable result type.
      *
      * <p>This is where the fixed per-JVM cost is charged, once per group - never in the weights the
-     * packing decided on. A group that was given no suites is charged nothing: an empty group runs
-     * no tests, and charging it would put a non-zero estimate on a build that has nothing to do.
+     * packing decided on. Every group reaching here holds at least one suite, since neither packing
+     * produces an empty group, so every group pays it.
      *
      * @param groupSuites suite names per group, indexed by group number
      * @param groupWeights summed suite weight per group, indexed by group number, without the fixed
      *                     per-JVM cost
-     * @param fixedOverheadMs the per-JVM cost in ms to add to each group that has at least one suite
+     * @param fixedOverheadMs the per-JVM cost in ms to add to each group
      * @return one {@link SuiteGroup} per entry, in group-number order
      */
     private static List<SuiteGroup> toSuiteGroups(final List<List<String>> groupSuites,
@@ -411,10 +426,7 @@ public final class TestGroupBalancer {
                                                   final long fixedOverheadMs) {
         List<SuiteGroup> groups = new ArrayList<>(groupSuites.size());
         for (int i = 0; i < groupSuites.size(); i++) {
-            long estimatedMs = groupSuites.get(i).isEmpty()
-                    ? groupWeights[i]
-                    : groupWeights[i] + fixedOverheadMs;
-            groups.add(new SuiteGroup(i, groupSuites.get(i), estimatedMs));
+            groups.add(new SuiteGroup(i, groupSuites.get(i), groupWeights[i] + fixedOverheadMs));
         }
         return groups;
     }

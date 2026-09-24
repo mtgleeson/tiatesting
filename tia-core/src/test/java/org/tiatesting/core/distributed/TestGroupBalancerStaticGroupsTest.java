@@ -97,36 +97,59 @@ class TestGroupBalancerStaticGroupsTest {
      */
     @Test
     void shouldBreakGroupTiesByLowestGroupNumber() {
-        // given
-        Map<String, Long> suiteWeights = weights("A", 5, "B", 5);
+        // given - four equal suites, so groups tie on weight and on suite count at every step
+        Map<String, Long> suiteWeights = weights("A", 5, "B", 5, "C", 5, "D", 5);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 4, 0L);
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2, 0L);
 
         // then
-        assertEquals(Arrays.asList("A"), result.getGroups().get(0).getSuiteNames());
-        assertEquals(Arrays.asList("B"), result.getGroups().get(1).getSuiteNames());
-        assertTrue(result.getGroups().get(2).getSuiteNames().isEmpty());
-        assertTrue(result.getGroups().get(3).getSuiteNames().isEmpty());
+        assertEquals(Arrays.asList("A", "C"), result.getGroups().get(0).getSuiteNames());
+        assertEquals(Arrays.asList("B", "D"), result.getGroups().get(1).getSuiteNames());
     }
 
     /**
-     * Verify a group count larger than the number of suites still returns that many groups, with
-     * the surplus empty. The planner turns every group into a runner, so silently returning fewer
-     * would make the plan disagree with the fan-out count the pipeline was given.
+     * Verify a group count larger than the number of suites is capped at the suite count, one
+     * suite per group, rather than padded with empty groups. An empty group would still have a
+     * runner job started for it - a checkout, a compile and a test JVM - to run nothing. A pipeline
+     * that starts the configured count anyway only produces surplus runners, which are harmless.
      */
     @Test
-    void shouldReturnEmptyGroupsWhenThereAreMoreGroupsThanSuites() {
+    void shouldCapTheGroupCountAtTheNumberOfSuites() {
         // given
-        Map<String, Long> suiteWeights = weights("A", 5);
+        Map<String, Long> suiteWeights = weights("A", 5, "B", 3, "C", 1);
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 10, 0L);
+
+        // then
+        assertEquals(3, result.getGroupCount());
+        assertEquals(Arrays.asList("A"), result.getGroups().get(0).getSuiteNames());
+        assertEquals(Arrays.asList("B"), result.getGroups().get(1).getSuiteNames());
+        assertEquals(Arrays.asList("C"), result.getGroups().get(2).getSuiteNames());
+        assertEquals(9L, result.getTotalEstimatedMs());
+        assertEquals(5L, result.getHeaviestGroupMs());
+    }
+
+    /**
+     * Verify that suites weighing nothing still spread one per group rather than piling onto the
+     * first zero-weight group. Weight alone ties every empty group with a group holding only
+     * zero-weight suites, so the tie is broken by suite count - otherwise a group could be left
+     * empty even with enough suites to fill every group.
+     */
+    @Test
+    void shouldGiveEveryGroupASuiteWhenSomeSuitesWeighNothing() {
+        // given
+        Map<String, Long> suiteWeights = weights("A", 100, "B", 0, "C", 0);
 
         // when
         GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3, 0L);
 
         // then
         assertEquals(3, result.getGroupCount());
-        assertEquals(5L, result.getTotalEstimatedMs());
-        assertEquals(5L, result.getHeaviestGroupMs());
+        for (SuiteGroup group : result.getGroups()) {
+            assertEquals(1, group.getSuiteNames().size(), result.getGroups().toString());
+        }
     }
 
     /**

@@ -325,7 +325,7 @@ public final class DistributedRunPlanner {
         if (collectingCoverage) {
             log.debug("Distributed run grouping: weighting {} suite(s) with {}ms of coverage "
                             + "capture spread across them, and charging {}ms of fixed per-JVM "
-                            + "overhead once to each non-empty group.{} The fixed part is "
+                            + "overhead once to each group.{} The fixed part is "
                             + "deliberately kept out of the per-suite weights - it is the same on "
                             + "every group, so it cannot change which suites group together.",
                     weights.size(), selection.getCaptureOverheadMs(), fixedOverheadMs,
@@ -350,7 +350,8 @@ public final class DistributedRunPlanner {
 
     /**
      * Build the grouping a seed run plans. When suites are discovered on disk and a group count is
-     * available, they are split across that many groups by even count - there is no timing data
+     * available, they are split across that many groups by even count - capped at one group per
+     * suite found, as every fixed-count split is - there is no timing data
      * yet, so every suite is given a uniform 1ms weight purely so the balancer divides them by
      * quantity, and every group's {@code estimatedMs} is then rebuilt as zero before this method
      * returns, since that weight carries no real timing information and must not leak out as if it
