@@ -196,6 +196,46 @@ class SummaryStatsTest {
     }
 
     /**
+     * All-tests run times over a minute drop the ms component, which is noise at that scale and
+     * only makes the figure harder to read: a 1h 2m 3s 456ms baseline reads as 1h 2m 3s, and spread
+     * across 6 groups (620,576ms) as 10m 20s.
+     */
+    @Test
+    void build_allTestsRunTimesOverAMinute_dropTheMilliseconds() {
+        // given - a 6-group all-tests run, and a baseline with a non-zero ms component
+        TestStats stats = stats();
+        stats.setAllTestsRunTime(3_723_456L);
+        List<TestRunHistoryEntry> history = Collections.singletonList(
+                distributed(1L, 0, 620_576L, 0L, 6, 6));
+
+        // when
+        List<SummaryStats.Section> sections = SummaryStats.build(0, 0, stats, history);
+
+        // then
+        assertEquals("10m 20s (6 groups)", line(sections, "Run time (distributed)").getValue());
+        assertEquals("1h 2m 3s (1 group)", line(sections, "Run time (not distributed)").getValue());
+    }
+
+    /**
+     * An all-tests run time of a minute or less keeps its ms component, where it is still a
+     * meaningful share of the figure.
+     */
+    @Test
+    void build_allTestsRunTimeUnderAMinute_keepsTheMilliseconds() {
+        // given
+        TestStats stats = stats();
+        stats.setAllTestsRunTime(45_250L);
+        List<TestRunHistoryEntry> history = Collections.singletonList(
+                singleHost(1L, 0, 45_250L, 0L));
+
+        // when
+        List<SummaryStats.Section> sections = SummaryStats.build(0, 0, stats, history);
+
+        // then
+        assertEquals("45s 250ms (1 group)", line(sections, "Run time (not distributed)").getValue());
+    }
+
+    /**
      * With no recorded runs there is no average and no savings to report, so both read N/A rather
      * than a misleading zero.
      */
