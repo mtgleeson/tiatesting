@@ -127,12 +127,12 @@ class TestGroupBalancerFixedOverheadTest {
     }
 
     /**
-     * A group with no suites is charged nothing. Groups beyond the suite count come back empty
-     * rather than being dropped, and an empty group runs no tests - charging it would put a non-zero
-     * estimate on a runner with nothing to do.
+     * More groups than suites are capped at the suite count, so no JVM is charged for a group with
+     * nothing to run: the plan's total carries exactly one copy of the fixed cost per suite-bearing
+     * group, not one per configured group.
      */
     @Test
-    void anEmptyGroupIsChargedNoFixedOverhead() {
+    void surplusGroupsAreNotPlannedSoTheirJvmIsNeverCharged() {
         // given - more groups than suites
         Map<String, Long> suiteWeights = weights("OnlyIT", 100);
 
@@ -140,12 +140,11 @@ class TestGroupBalancerFixedOverheadTest {
         GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 3, 500L);
 
         // then
+        assertEquals(1, result.getGroupCount(), "one suite needs one group");
         assertEquals(600L, result.getGroups().get(0).getEstimatedMs(),
                 "the group that got the suite pays for its JVM");
-        assertEquals(0L, result.getGroups().get(1).getEstimatedMs(),
-                "a group with nothing to run costs nothing");
-        assertEquals(0L, result.getGroups().get(2).getEstimatedMs(),
-                "a group with nothing to run costs nothing");
+        assertEquals(600L, result.getTotalEstimatedMs(),
+                "no copy of the fixed cost is charged for a group that was never planned");
     }
 
     /**
