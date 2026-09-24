@@ -280,9 +280,10 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                 }
             } else {
                 getLog().info("Tia distributed run '" + config.getRunId() + "': runner '"
-                        + assignment.getRunnerKey() + "' claimed no group - every group was already "
-                        + "claimed, so this runner will run no tests. This is expected when the "
-                        + "pipeline fans out to more jobs than the plan has groups.");
+                        + assignment.getRunnerKey() + "' claimed no group, so this runner will run "
+                        + "no tests. This is expected when the pipeline fans out to more jobs than "
+                        + "the plan has groups, or starts a runner for a plan with no groups because "
+                        + "nothing was selected.");
             }
             return assignment;
         } catch (IllegalStateException e) {

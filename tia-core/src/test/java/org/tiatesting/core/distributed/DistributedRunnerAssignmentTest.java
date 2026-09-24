@@ -3,9 +3,11 @@ package org.tiatesting.core.distributed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
@@ -501,5 +503,45 @@ class DistributedRunnerAssignmentTest {
         assertNotNull(context, "a surplus runner is still a distributed runner");
         assertFalse(context.isClaimed());
         assertEquals("runner-c", context.getRunnerKey());
+    }
+
+    /**
+     * Verify a runner a pipeline starts anyway for a plan with no groups - already sealed by the
+     * plan step - claims nothing and runs nothing: it ignores every tracked suite, the same safe
+     * shape as a surplus runner.
+     */
+    @Test
+    void shouldClaimNothingAndRunNothingForAPlanWithNoGroups() {
+        // given
+        persistTracked("com.example.ATest", "com.example.BTest");
+        planNothingSelected("run-empty", "commit-1", 1L);
+
+        // when
+        DistributedRunnerAssignment assignment = DistributedRunnerAssignment.claim(dataStore,
+                config("run-empty", "runner-a"), "commit-1", 2L);
+
+        // then
+        assertFalse(assignment.isClaimed());
+        assertTrue(assignment.getTestsToRun().isEmpty(), assignment.getTestsToRun().toString());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")),
+                assignment.getTestsToIgnore());
+    }
+
+    /**
+     * Plan a nothing-selected build through the real planner, which gives it no groups and seals
+     * it at plan time - the only way such a run reaches the plan tables.
+     *
+     * @param runId the run identifier to plan under
+     * @param commitValue the VCS commit the plan is pinned to
+     * @param createdAtMs the epoch millis to record as the plan's creation and seal time
+     */
+    private void planNothingSelected(final String runId, final String commitValue,
+                                     final long createdAtMs) {
+        TestSelectorResult nothingSelected = new TestSelectorResult(Collections.<String>emptySet(),
+                Collections.<String>emptySet(), null, 0L, Collections.<String>emptySet(), 0L,
+                new HashMap<String, Long>(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null))
+                .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
+                        () -> Collections.<String>emptySet());
     }
 }

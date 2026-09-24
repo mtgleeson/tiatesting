@@ -78,7 +78,8 @@ public final class DistributedRunCoordinator {
      *                    rather than read from the clock here, so tests can assert the persisted
      *                    value exactly
      * @return a claimed outcome carrying this runner's group, or a no-op outcome when every group
-     *         was already claimed - a legitimate surplus runner, not a failure
+     *         was already claimed - a legitimate surplus runner, not a failure - or when the plan
+     *         has no groups at all because nothing was selected
      * @throws IllegalStateException if no run is planned under the configured run id (this build
      *                                was superseded, or never planned), or if the plan's commit
      *                                differs from {@code workspaceCommitValue}; both messages name
@@ -108,6 +109,13 @@ public final class DistributedRunCoordinator {
         DistributedRunGroup group = dataStore.claimNextPendingGroup(config.getRunId(), runnerKey,
                 claimedAtMs);
 
+        if (group == null && run.getGroupCount() == 0) {
+            log.info("Distributed run '{}' has no groups at all - nothing was selected, so the plan "
+                            + "step sealed it without any runner. Runner '{}' has nothing to run; "
+                            + "the pipeline can skip starting runner jobs when the plan's "
+                            + "groupCount is 0.", config.getRunId(), runnerKey);
+            return ClaimOutcome.nothingToClaim(runnerKey);
+        }
         if (group == null) {
             log.info("Distributed run '{}' has no group left for runner '{}' - all {} group(s) "
                             + "were already claimed. This runner has nothing to run, which is "
