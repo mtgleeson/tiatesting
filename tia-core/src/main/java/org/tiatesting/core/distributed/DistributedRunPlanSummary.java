@@ -22,6 +22,10 @@ package org.tiatesting.core.distributed;
  * disk, or no group count applies, does the plan fall back to a single empty group. A pipeline
  * reading {@code tia-run-plan.json} can use {@code seedRun} to explain why the mapping was
  * missing rather than assuming it will always receive exactly one job.
+ *
+ * <p>{@code groupCount} is {@code 0} when a non-seed selection chose nothing. The plan step has
+ * then already sealed the run itself, so a pipeline must start no runner jobs for it - see
+ * {@link DistributedRunPlanner#plan}.
  */
 public final class DistributedRunPlanSummary {
 
@@ -102,7 +106,10 @@ public final class DistributedRunPlanSummary {
     /** @return the VCS commit the run was planned against */
     public String getCommit() { return commit; }
 
-    /** @return the number of groups the balancer produced */
+    /**
+     * @return the number of groups the balancer produced; 0 when nothing was selected, in which
+     *         case the plan step has already sealed the run and no runner job is needed
+     */
     public int getGroupCount() { return groupCount; }
 
     /**
@@ -244,7 +251,9 @@ public final class DistributedRunPlanSummary {
      *         a fallback seed, which collapses to a single group covering the whole suite, by
      *         whether {@link #getSelectedSuiteCount()} is greater than zero; a seed run's "Groups:"
      *         line also omits the average-ms-per-group figure, since a seed run has no run-time
-     *         data to average
+     *         data to average; a plan with no groups says the run was sealed at plan time and
+     *         that no runner job is needed, in place of the duration and target lines, which have
+     *         nothing to describe
      */
     public String toConsoleSummary() {
         StringBuilder summary = new StringBuilder();
@@ -266,12 +275,16 @@ public final class DistributedRunPlanSummary {
         // A seed run has no run-time data at all - its groups were split by even suite count, not
         // by duration - so avgGroupMs (0 from item 1's zeroing) is meaningless and is omitted rather
         // than printed as if it were a measured average.
+        boolean noGroups = groupCount == 0;
         summary.append("  Groups: ").append(groupCount);
-        if (!seedRun) {
+        if (!seedRun && !noGroups) {
             summary.append(", average ").append(avgGroupMs).append("ms per group");
         }
         summary.append("\n");
-        if (!seedRun) {
+        if (noGroups) {
+            summary.append("  Nothing was selected to run, so start no runner jobs: the plan step ")
+                    .append("has already sealed the run itself.\n");
+        } else if (!seedRun) {
             summary.append(DistributedRunDurations.format(heaviestGroupMs, totalEstimatedMs, "\n"))
                     .append("\n");
             if (targetMs == null) {

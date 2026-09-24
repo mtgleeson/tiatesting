@@ -85,6 +85,9 @@ public class TiaDistPlanTask extends DefaultTask {
 
         boolean checkLocalChanges = Boolean.TRUE.equals(plugin.getCheckLocalChanges());
         boolean updateDBMapping = Boolean.TRUE.equals(plugin.getUpdateDBMapping());
+        // Read here for the one plan the plan step seals itself - one with no groups, since no
+        // runner is started for it to seal instead.
+        boolean updateDBTestRunHistory = Boolean.TRUE.equals(plugin.getUpdateDBTestRunHistory());
         boolean tiaEnabled = Boolean.TRUE.equals(plugin.getEnabled());
         Set<Project> reactorProjects = plugin.getReactorProjects();
         DistributedRunConfig config;
@@ -134,7 +137,8 @@ public class TiaDistPlanTask extends DefaultTask {
                         () -> TestClassScanner.scanTestSuiteNames(plugin.resolveTestClassesDirsCsv());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
                         workspaceIdentity.getCommitValue(),
-                        updateDBMapping, System.currentTimeMillis(), seedTestSuiteProvider);
+                        updateDBMapping, updateDBTestRunHistory, System.currentTimeMillis(),
+                        seedTestSuiteProvider);
             } catch (IllegalStateException e) {
                 throw new GradleException("Failed to plan the distributed test run: " + e.getMessage(), e);
             }
