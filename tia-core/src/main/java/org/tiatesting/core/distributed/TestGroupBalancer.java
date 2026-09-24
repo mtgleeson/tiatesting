@@ -86,18 +86,33 @@ public final class TestGroupBalancer {
      * beyond the number of suites come back empty rather than being dropped, because the planner
      * turns every group into a runner and the pipeline was told to start that many.
      *
+     * <p>An empty selection is the one exception: it produces no groups at all, since a build with
+     * nothing to run needs no runner, and the planner seals such a plan itself - see {@link
+     * #noGroups()}.
+     *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
-     * @param groupCount how many groups to produce; must be at least 1
+     * @param groupCount how many groups to produce when there is at least one suite; must be at
+     *                   least 1
      * @param fixedOverheadMs the per-JVM cost in ms each group pays once, added to every group that
      *                        was given at least one suite; must not be negative
      * @return the grouping, always reporting the target as met and not clamped, since a fixed
-     *         group count has neither a target nor a ceiling
+     *         group count has neither a target nor a ceiling; zero groups when {@code
+     *         suiteWeightsMs} is empty
      * @throws IllegalArgumentException if {@code groupCount} is below 1 or {@code fixedOverheadMs}
      *                                  is negative
      */
     public static GroupingResult balanceIntoGroups(final Map<String, Long> suiteWeightsMs,
                                                    final int groupCount,
                                                    final long fixedOverheadMs) {
+        if (suiteWeightsMs.isEmpty()) {
+            // Validated anyway, so a misconfigured group count is reported on the build that
+            // happens to select nothing rather than waiting for the next one that selects anything.
+            requireGroupCountAtLeastOne(groupCount);
+            requireFixedOverheadNotNegative(fixedOverheadMs);
+            log.debug("Distributed run grouping (fixed count): nothing was selected, so the plan "
+                    + "has no groups.");
+            return noGroups();
+        }
         GroupingResult result = lptIntoGroups(suiteWeightsMs, groupCount, fixedOverheadMs);
         log.debug("Distributed run grouping (fixed count): balanced {} suite(s) into {} group(s) "
                         + "by longest-processing-time, heaviest group {}ms.",
@@ -122,9 +137,7 @@ public final class TestGroupBalancer {
     private static GroupingResult lptIntoGroups(final Map<String, Long> suiteWeightsMs,
                                                 final int groupCount,
                                                 final long fixedOverheadMs) {
-        if (groupCount < 1) {
-            throw new IllegalArgumentException("groupCount must be at least 1, was " + groupCount);
-        }
+        requireGroupCountAtLeastOne(groupCount);
         requireFixedOverheadNotNegative(fixedOverheadMs);
         requireNoNullWeights(suiteWeightsMs);
         List<List<String>> groupSuites = new ArrayList<>(groupCount);
@@ -182,7 +195,7 @@ public final class TestGroupBalancer {
      * @param fixedOverheadMs the per-JVM cost in ms each group pays once, before any suite runs;
      *                        must not be negative
      * @return the grouping, reporting whether the target was met and each of the three independent
-     *         reasons it might not have been
+     *         reasons it might not have been; zero groups when {@code suiteWeightsMs} is empty
      * @throws IllegalArgumentException if {@code targetRunTimeMs} or {@code fixedOverheadMs} is
      *                                  negative, or if {@code maxGroups} is non-null and below 1
      */
@@ -201,9 +214,9 @@ public final class TestGroupBalancer {
         requireNoNullWeights(suiteWeightsMs);
 
         if (suiteWeightsMs.isEmpty()) {
-            log.debug("Distributed run grouping (dynamic): nothing was selected, so the plan is a "
-                    + "single empty group.");
-            return lptIntoGroups(suiteWeightsMs, 1, fixedOverheadMs);
+            log.debug("Distributed run grouping (dynamic): nothing was selected, so the plan has "
+                    + "no groups.");
+            return noGroups();
         }
 
         long heaviestSuiteMs = 0L;
@@ -404,6 +417,31 @@ public final class TestGroupBalancer {
             groups.add(new SuiteGroup(i, groupSuites.get(i), estimatedMs));
         }
         return groups;
+    }
+
+    /**
+     * Build the result for a selection with nothing in it: no groups, and every target-related
+     * flag reporting success trivially, since a build that runs nothing cannot miss a target. The
+     * planner turns zero groups into a plan it seals itself, so the pipeline starts no runner jobs
+     * for a build that has nothing to run. See the distributed test runs chapter in {@code
+     * WIKI.md}.
+     *
+     * @return a {@link GroupingResult} with no groups
+     */
+    private static GroupingResult noGroups() {
+        return new GroupingResult(Collections.<SuiteGroup>emptyList(), true, false, false, false);
+    }
+
+    /**
+     * Reject a fixed group count below one, which could never hold a suite.
+     *
+     * @param groupCount the fixed group count to validate
+     * @throws IllegalArgumentException if {@code groupCount} is below 1
+     */
+    private static void requireGroupCountAtLeastOne(final int groupCount) {
+        if (groupCount < 1) {
+            throw new IllegalArgumentException("groupCount must be at least 1, was " + groupCount);
+        }
     }
 
     /**

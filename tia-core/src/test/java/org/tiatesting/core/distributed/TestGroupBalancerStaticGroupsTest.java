@@ -130,11 +130,12 @@ class TestGroupBalancerStaticGroupsTest {
     }
 
     /**
-     * Verify an empty selection produces the requested number of empty groups rather than
-     * failing. A build where Tia selects nothing is normal, not an error.
+     * Verify an empty selection produces no groups rather than the requested number of empty
+     * ones, or a failure. A build where Tia selects nothing is normal, and needs no runner at all:
+     * the planner seals a plan with no groups itself.
      */
     @Test
-    void shouldProduceEmptyGroupsForAnEmptySelection() {
+    void shouldProduceNoGroupsForAnEmptySelection() {
         // given
         Map<String, Long> suiteWeights = new HashMap<>();
 
@@ -142,7 +143,8 @@ class TestGroupBalancerStaticGroupsTest {
         GroupingResult result = TestGroupBalancer.balanceIntoGroups(suiteWeights, 2, 0L);
 
         // then
-        assertEquals(2, result.getGroupCount());
+        assertEquals(0, result.getGroupCount());
+        assertTrue(result.isTargetMet());
         assertEquals(0L, result.getTotalEstimatedMs());
         assertEquals(0L, result.getHeaviestGroupMs());
     }
@@ -219,6 +221,23 @@ class TestGroupBalancerStaticGroupsTest {
     void shouldRejectAGroupCountBelowOne() {
         // given
         Map<String, Long> suiteWeights = weights("A", 5);
+
+        // when
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> TestGroupBalancer.balanceIntoGroups(suiteWeights, 0, 0L));
+
+        // then
+        assertTrue(thrown.getMessage().contains("groupCount"), thrown.getMessage());
+    }
+
+    /**
+     * Verify a non-positive group count is rejected for an empty selection too, so a
+     * misconfiguration is not hidden by the no-groups result an empty selection returns.
+     */
+    @Test
+    void shouldRejectAGroupCountBelowOneEvenForAnEmptySelection() {
+        // given
+        Map<String, Long> suiteWeights = new HashMap<>();
 
         // when
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,

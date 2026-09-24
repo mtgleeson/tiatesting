@@ -3,9 +3,11 @@ package org.tiatesting.core.distributed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.persistence.BranchSchema;
 import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -16,6 +18,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -581,5 +584,63 @@ class DistributedRunStatusReportTest {
         Map<Integer, List<String>> suitesByGroup = new LinkedHashMap<>();
         suitesByGroup.put(0, suites);
         return suitesByGroup;
+    }
+
+    /**
+     * Verify a run planned with no groups - nothing was selected, so the plan step sealed it
+     * itself - reports that in place of the group table, names the plan step as the sealer rather
+     * than a runner key no runner ever held, and prints no empty table, legend or suite listing.
+     */
+    @Test
+    void aRunWithNoGroupsSaysThePlanStepSealedItAndPrintsNoGroupTable() {
+        // given
+        planNothingSelected("build-empty", "commit-1", NOW_MS - 120_000L);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-empty", true, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("Status:     SEALED"), report);
+        assertTrue(report.contains("Sealed:     by the plan step at "), report);
+        assertTrue(report.contains("Groups: none - nothing was selected to run"), report);
+        assertFalse(report.contains("Group | Status"), report);
+        assertFalse(report.contains("Assigned = suites"), report);
+        assertFalse(report.contains("Assigned suites:"), report);
+    }
+
+    /**
+     * Verify a run with no groups that was left unsealed - the plan step failed between writing
+     * the plan and sealing it - is still reported as stuck, since nothing else will seal it.
+     */
+    @Test
+    void anUnsealedRunWithNoGroupsIsReportedAsNotSealed() {
+        // given
+        persistPlan("build-empty-open", "commit-1", new HashMap<Integer, List<String>>(), false);
+
+        // when
+        String report = DistributedRunStatusReport.format(dataStore, "build-empty-open", false, NOW_MS, LINE_SEP);
+
+        // then
+        assertTrue(report.contains("Groups: none"), report);
+        assertTrue(report.contains("still OPEN"), report);
+        assertFalse(report.contains("Group | Status"), report);
+    }
+
+    /**
+     * Plan a nothing-selected build through the real planner, which gives it no groups and seals
+     * it at plan time - the only way such a run reaches the plan tables.
+     *
+     * @param runId the run identifier to plan under
+     * @param commitValue the VCS commit the plan is pinned to
+     * @param createdAtMs the epoch millis to record as the plan's creation and seal time
+     */
+    private void planNothingSelected(final String runId, final String commitValue,
+                                     final long createdAtMs) {
+        TestSelectorResult nothingSelected = new TestSelectorResult(Collections.<String>emptySet(),
+                Collections.<String>emptySet(), null, 0L, Collections.<String>emptySet(), 0L,
+                new HashMap<String, Long>(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null))
+                .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
+                        () -> Collections.<String>emptySet());
     }
 }

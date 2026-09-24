@@ -53,7 +53,7 @@ public class ReportUtils {
      *
      * @param durationMs the duration in ms
      * @param dropMs whether to suppress the {@code ms} component
-     * @return the formatted duration string
+     * @return the formatted duration string; {@code 0ms} when no component is non-zero
      */
     private static String formatDuration(long durationMs, boolean dropMs){
         Duration avgDuration = Duration.ofMillis(durationMs);
@@ -81,7 +81,9 @@ public class ReportUtils {
             text.append((text.length() > 0 ? " " : "") + ms + "ms");
         }
 
-        return text.toString();
+        // A zero duration has no component to print, and an empty cell reads as missing data
+        // rather than as a measured zero - a distributed build with no groups records exactly 0.
+        return text.length() == 0 ? "0ms" : text.toString();
     }
 
     /**

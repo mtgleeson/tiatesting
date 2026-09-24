@@ -101,10 +101,16 @@ public final class DistributedRunStatusReport {
         StringBuilder report = new StringBuilder();
         appendHeader(report, run, groups, assignedSuites, nowMs, lineSep);
         report.append(lineSep).append(lineSep);
-        appendGroupTable(report, run, groups, assignedSuites, nowMs, lineSep);
-        appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
-        if (includeSuiteNames) {
-            appendSuiteNames(report, run, groups, assignedSuites, lineSep);
+        if (groups.isEmpty()) {
+            // A plan with no groups selected nothing, so there is no table, progress or suite
+            // listing to show - an empty table and its legend would only read as missing data.
+            appendNoGroups(report, run, groups, assignedSuites, nowMs, lineSep);
+        } else {
+            appendGroupTable(report, run, groups, assignedSuites, nowMs, lineSep);
+            appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
+            if (includeSuiteNames) {
+                appendSuiteNames(report, run, groups, assignedSuites, lineSep);
+            }
         }
         if (allRuns.size() > 1 && isBlank(runId)) {
             report.append(lineSep).append(lineSep)
@@ -278,7 +284,9 @@ public final class DistributedRunStatusReport {
     /**
      * Describe the run's seal: who performed it and when, or that it has not happened. A sealed run
      * also reports how long after the plan the seal landed, which is the build's end-to-end
-     * distributed wall clock - the figure a pipeline's job timeout has to accommodate.
+     * distributed wall clock - the figure a pipeline's job timeout has to accommodate. A run with
+     * no groups names the plan step rather than its runner key, since the plan step sealed it
+     * itself and no runner was ever started.
      *
      * @param run the run being reported on
      * @param nowMs the epoch millis to measure an unsealed run's age against
@@ -290,7 +298,10 @@ public final class DistributedRunStatusReport {
             return openForMs <= 0 ? "not sealed"
                     : "not sealed (open for " + duration(openForMs) + ")";
         }
-        return "by runner '" + run.getSealedBy() + "' at " + timestamp(run.getSealedAtMs().longValue())
+        // Only the plan step seals a run with no groups - no runner was ever started for it.
+        String sealer = run.getGroupCount() == 0 ? "the plan step"
+                : "runner '" + run.getSealedBy() + "'";
+        return "by " + sealer + " at " + timestamp(run.getSealedAtMs().longValue())
                 + " (" + duration(run.getSealedAtMs().longValue() - run.getCreatedAtMs())
                 + " after the plan)";
     }
@@ -356,6 +367,29 @@ public final class DistributedRunStatusReport {
         }
         report.append("  Actual = measured test-execution time; Elapsed = wall clock since the ")
                 .append("group was claimed.");
+    }
+
+    /**
+     * Append the section a plan with no groups shows in place of the group table: nothing was
+     * selected, so no runner job was started and the plan step sealed the run itself. A run left
+     * unsealed - the plan step failed between writing the plan and sealing it - is reported by
+     * {@link #appendOutstanding} instead, which is what already describes a run whose every group
+     * (here, none) completed without a seal.
+     *
+     * @param report the buffer to append to
+     * @param run the run being reported on
+     * @param groups the run's groups; empty
+     * @param assignedSuites each group's assigned suite names; empty
+     * @param nowMs the epoch millis to measure an unsealed run's age against
+     * @param lineSep the line separator to join lines with
+     */
+    private static void appendNoGroups(final StringBuilder report, final DistributedRun run,
+                                       final List<DistributedRunGroup> groups,
+                                       final List<List<String>> assignedSuites, final long nowMs,
+                                       final String lineSep) {
+        report.append("Groups: none - nothing was selected to run, so no runner jobs were ")
+                .append("needed and the plan step seals the run itself.");
+        appendOutstanding(report, run, groups, assignedSuites, nowMs, lineSep);
     }
 
     /**
