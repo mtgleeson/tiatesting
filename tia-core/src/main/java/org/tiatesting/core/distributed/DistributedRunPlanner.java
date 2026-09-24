@@ -70,7 +70,14 @@ public final class DistributedRunPlanner {
      * the previous run's rows in the same transaction; (7) stages {@code selection}'s selection
      * breakdown under this run's id via {@link DataStore#persistDistributedRunSelectionDetails},
      * so the sealer can later copy it onto the build's single {@code tia_test_run_history} row;
-     * and (8) returns a summary of what was persisted.
+     * (8) when the plan has no groups, seals the run itself - see {@link #sealEmptyPlan}; and (9)
+     * returns a summary of what was persisted.
+     *
+     * <p>Step (8) exists because a selection that chose nothing needs no runner: the balancer
+     * gives it no groups, so the pipeline starts no runner jobs, and no runner is left to finish
+     * last and seal the build. Without the seal the stored commit would never move past a build
+     * that changed nothing tests cover, and the time Tia saved by running nothing would never
+     * reach the history. A seed run is never sealed here - it always has at least one group.
      *
      * <p>Step (5) is why the drain result matters here: {@code selection} was produced by a real
      * {@code TestSelector.selectTestsToIgnore} call, which has already drained the pending library
@@ -89,12 +96,18 @@ public final class DistributedRunPlanner {
      *                  drain result is stored on the run row for the stage that applies the cleanup
      * @param branch the VCS branch the run is planned against
      * @param commitValue the VCS commit the run is planned against
-     * @param collectingCoverage whether this run will collect coverage, and therefore pay the
-     *                           per-suite mapping overhead when weighting suites for balancing;
-     *                           also read by {@link #logSeedRun} to warn when a seed run will not
-     *                           actually record the mapping it exists to seed
-     * @param createdAtMs the UTC epoch millis to record as the plan's creation time; supplied by
-     *                    the caller rather than read from the clock here, so tests can assert the
+     * @param updateDBMapping whether this build owns mapping-DB updates, and therefore collects
+     *                        coverage and pays the per-suite mapping overhead when weighting suites
+     *                        for balancing; also read by {@link #logSeedRun} to warn when a seed run
+     *                        will not actually record the mapping it exists to seed, and by the
+     *                        plan-time seal of a plan with no groups to decide whether the stored
+     *                        commit may be advanced
+     * @param updateDBTestRunHistory whether the build writes its one {@code tia_test_run_history}
+     *                               row; only read when the plan has no groups and this method
+     *                               seals the run itself
+     * @param createdAtMs the UTC epoch millis to record as the plan's creation time, and as the
+     *                    seal time when a plan with no groups is sealed here; supplied by the
+     *                    caller rather than read from the clock here, so tests can assert the
      *                    persisted value exactly instead of tolerating whatever the clock said
      * @param seedTestSuiteProvider supplies the suite names found on disk for a seed run to split
      *                              across the configured groups; invoked only when {@code
@@ -111,17 +124,17 @@ public final class DistributedRunPlanner {
      *                                seedTestSuiteProvider}, not the selection
      */
     public DistributedRunPlanSummary plan(TestSelectorResult selection, String branch,
-                                           String commitValue, boolean collectingCoverage,
-                                           long createdAtMs,
+                                           String commitValue, boolean updateDBMapping,
+                                           boolean updateDBTestRunHistory, long createdAtMs,
                                            Supplier<Set<String>> seedTestSuiteProvider) {
         boolean seedRun = selection.isRunAllTests();
         if (seedRun) {
-            logSeedRun(collectingCoverage);
+            logSeedRun(updateDBMapping);
         }
 
         warnAboutIncompletePreviousRuns();
 
-        GroupingResult result = balance(selection, collectingCoverage, config.getGroupCount(),
+        GroupingResult result = balance(selection, updateDBMapping, config.getGroupCount(),
                 config.getTargetRunTimeMs(), config.getMaxGroups(), seedTestSuiteProvider);
         warnIfTargetMissed(result, config.getTargetRunTimeMs());
 
@@ -152,7 +165,13 @@ public final class DistributedRunPlanner {
         // output - this reaches whatever log a CI system actually keeps. A seed run has no run-time
         // data at all - see seedGroupingResult - so its ms figures are omitted entirely rather than
         // printed as zero, which would read as a measured (rather than absent) estimate.
-        if (seedRun) {
+        if (result.getGroupCount() == 0) {
+            log.info("Distributed run '{}' planned for branch '{}' at commit '{}': no suite was "
+                            + "selected, so the plan has no groups. Start no runner jobs - the "
+                            + "plan step seals the run itself.", config.getRunId(), branch,
+                    commitValue);
+            sealEmptyPlan(updateDBMapping, updateDBTestRunHistory, createdAtMs);
+        } else if (seedRun) {
             log.info("Distributed run '{}' planned for branch '{}' at commit '{}': {} suite(s) "
                             + "split across {} group(s) by even count - no run-time estimate yet "
                             + "(seed run). Start {} runner job(s).", config.getRunId(), branch,
@@ -170,6 +189,39 @@ public final class DistributedRunPlanner {
                 result.isClampedToMaxGroups(), result.isSingleSuiteExceedsTarget(),
                 result.isFixedOverheadExceedsTarget(), result.getTotalEstimatedMs(),
                 result.getHeaviestGroupMs(), selectedSuiteCount, seedRun);
+    }
+
+    /**
+     * Seal a just-persisted plan that has no groups, standing in for the runner that would
+     * otherwise finish last. Nothing was selected, so no runner job starts; this is the only place
+     * the build can be sealed. It goes through the same {@link DistributedRunSealer} a runner uses,
+     * so a build that ran nothing is recorded exactly as it would have been had a runner claimed an
+     * empty group and finished: the stored commit is advanced and the plan's library drain cleanup
+     * applied when {@code updateDBMapping} is set, the run stats are added, and one history row
+     * with no groups and no suites run is written, credited the full-suite baseline as savings.
+     *
+     * <p>The election cannot be lost: it only requires that no group of the run is short of
+     * {@code COMPLETED}, which holds trivially with no groups, and no runner exists to compete. A
+     * lost election would mean the invariant behind that is broken, so it is reported rather than
+     * ignored - an unsealed plan would leave the stored commit behind with nothing in the build
+     * output to say so.
+     *
+     * @param updateDBMapping whether this build owns mapping-DB updates, and so may advance the
+     *                        stored commit
+     * @param updateDBTestRunHistory whether the build writes its one history row
+     * @param sealedAtMs UTC epoch millis to record as the seal time
+     * @throws IllegalStateException if the plan step does not win the election to seal its own
+     *                                plan
+     */
+    private void sealEmptyPlan(boolean updateDBMapping, boolean updateDBTestRunHistory,
+                               long sealedAtMs) {
+        DistributedRunSealer sealer = new DistributedRunSealer(dataStore,
+                DistributedRunnerContext.forPlanner(config.getRunId()));
+        if (!sealer.sealIfElected(updateDBMapping, updateDBTestRunHistory, sealedAtMs)) {
+            throw new IllegalStateException("distributed run '" + config.getRunId()
+                    + "' has no groups but the plan step was not elected to seal it; the run is "
+                    + "left unsealed and the stored commit was not advanced");
+        }
     }
 
     /**
@@ -504,16 +556,22 @@ public final class DistributedRunPlanner {
      * <p>A fixed group count is its own answer. In target-run-time mode the configured maximum is
      * the pool, and with no maximum there is no pool to speak of, so the groups the plan used
      * stand in. The result never drops below the groups used, so a baseline can never be split
-     * across fewer machines than the build actually ran on. See the distributed test runs chapter
-     * in {@code WIKI.md}.
+     * across fewer machines than the build actually ran on, and never below one, since the
+     * wall-clock baseline is divided by it: a plan with no groups, in target-run-time mode with no
+     * maximum, is measured against the single machine an empty plan used to run on. See the
+     * distributed test runs chapter in {@code WIKI.md}.
      *
-     * @param plannedGroupCount the number of groups the balancer split this build into
+     * @param plannedGroupCount the number of groups the balancer split this build into; 0 when
+     *                          nothing was selected
      * @return the number of groups available to this build; at least {@code plannedGroupCount}
+     *         and at least 1
      */
     private int groupsAvailable(int plannedGroupCount) {
         Integer configured = config.getGroupCount() != null
                 ? config.getGroupCount() : config.getMaxGroups();
-        return configured == null ? plannedGroupCount : Math.max(configured, plannedGroupCount);
+        int available = configured == null
+                ? plannedGroupCount : Math.max(configured, plannedGroupCount);
+        return Math.max(1, available);
     }
 
     /**

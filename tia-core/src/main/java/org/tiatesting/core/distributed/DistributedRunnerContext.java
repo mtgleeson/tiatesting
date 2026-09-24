@@ -16,6 +16,10 @@ package org.tiatesting.core.distributed;
  * than the plan's group count produces surplus runners, which run nothing and have nothing to
  * complete. {@link #isClaimed()} is how a caller tells the two apart - callers branch on it rather
  * than null-checking {@link #getGroupNumber()}, mirroring {@link DistributedRunnerAssignment}.
+ *
+ * <p>The plan step holds a group-less context too, for the one case where it seals the run
+ * itself: a plan with no groups, because nothing was selected, has no runner to finish last. See
+ * {@link #forPlanner}.
  */
 public final class DistributedRunnerContext {
 
@@ -25,7 +29,7 @@ public final class DistributedRunnerContext {
 
     /**
      * Store the already-validated fields. Private so that the only ways to obtain a context are
-     * the two factories, which is what keeps "claimed a group" and "claimed nothing" the only two
+     * the factories, which is what keeps "claimed a group" and "claimed nothing" the only two
      * shapes that can exist.
      *
      * @param runId the distributed run's shared identifier
@@ -77,6 +81,22 @@ public final class DistributedRunnerContext {
     public static DistributedRunnerContext surplusRunner(final String runId, final String runnerKey) {
         return new DistributedRunnerContext(requireValue(runId, "tiaRunId"),
                 requireValue(runnerKey, "the distributed run runner key"), null);
+    }
+
+    /**
+     * Build the context the plan step seals under when its plan has no groups. Nothing was
+     * selected, so no runner job is started and no runner will ever finish last to seal the build;
+     * the plan step stands for election itself instead, under a runner key derived from the run id
+     * so the run row's {@code sealed_by} names the planner rather than a runner that never
+     * existed. It holds no group, so it has nothing to persist or complete.
+     *
+     * @param runId the distributed run's shared identifier; must not be null or blank
+     * @return a validated, group-less context whose runner key is {@code <runId>-planner}
+     * @throws IllegalArgumentException if {@code runId} is null or blank
+     */
+    public static DistributedRunnerContext forPlanner(final String runId) {
+        String validatedRunId = requireValue(runId, "tiaRunId");
+        return new DistributedRunnerContext(validatedRunId, validatedRunId + "-planner", null);
     }
 
     /**

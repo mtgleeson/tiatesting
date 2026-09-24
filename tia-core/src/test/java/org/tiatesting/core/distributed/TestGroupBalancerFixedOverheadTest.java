@@ -149,8 +149,8 @@ class TestGroupBalancerFixedOverheadTest {
     }
 
     /**
-     * An empty selection produces one empty group costing nothing at all, so a nothing-impacted
-     * build still reports an estimate of zero rather than the cost of a JVM it never starts.
+     * An empty selection produces no groups and costs nothing at all, so a nothing-impacted build
+     * reports an estimate of zero rather than the cost of a JVM it never starts.
      */
     @Test
     void anEmptySelectionCostsNothing() {
@@ -162,7 +162,7 @@ class TestGroupBalancerFixedOverheadTest {
                 null, 500L);
 
         // then
-        assertEquals(1, result.getGroupCount(), "an empty selection plans a single group");
+        assertEquals(0, result.getGroupCount(), "an empty selection plans no groups");
         assertEquals(0L, result.getHeaviestGroupMs(),
                 "a build with nothing to run must not be estimated at the cost of a JVM");
     }
