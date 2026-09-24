@@ -86,7 +86,9 @@ final class HtmlHistoryTimeline {
      * its interactions: hover/focus tooltip, click-through to each run's detail page (each bar is
      * an SVG anchor), the "show more" step, and a debounced redraw on resize. The chart shows the
      * most recent {@link #DEFAULT_VISIBLE} runs first and reveals {@link #SHOW_MORE_STEP} more per
-     * click. Durations are formatted to match {@code ReportUtils.prettyDuration(ms, true)} and
+     * click. The y-axis gutter is sized to the widest tick label (measured with a canvas, falling
+     * back to a per-character estimate) so long labels such as {@code 2h 46m 40s} are not clipped
+     * at the chart's left edge. Durations are formatted to match {@code ReportUtils.prettyDuration(ms, true)} and
      * timestamps localized with the same options as {@code HtmlLayout.localTimeRenderingScript} so
      * the chart reads identically to the table below it.
      *
@@ -114,20 +116,26 @@ final class HtmlHistoryTimeline {
                 + "{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}\n"
                 + "function niceMax(v){if(v<=0){return 1;}var p=Math.pow(10,Math.floor(Math.log10(v)));"
                 + "var n=v/p;var st=n<=1?1:n<=2?2:n<=5?5:10;return st*p;}\n"
+                + "var measureCtx=null;\n"
+                + "function labelWidth(txt){try{if(!measureCtx){measureCtx=document.createElement('canvas')"
+                + ".getContext('2d');measureCtx.font='11px '+getComputedStyle(chart).fontFamily;}"
+                + "return Math.ceil(measureCtx.measureText(txt).width);}catch(e){return Math.ceil(txt.length*6.6);}}\n"
                 + "function build(w,h){\n"
                 + "var runs=RUNS.slice(RUNS.length-visible);\n"
-                + "var padL=56,padR=16,padT=16,padB=36;\n"
-                + "var plotW=Math.max(10,w-padL-padR),plotH=Math.max(10,h-padT-padB);\n"
                 + "var maxD=0;for(var i=0;i<runs.length;i++){if(runs[i].d>maxD){maxD=runs[i].d;}}\n"
                 + "var yMax=niceMax(maxD);\n"
+                + "var ticks=4,labels=[],maxLabelW=0;\n"
+                + "for(var k=0;k<=ticks;k++){labels.push(pretty(yMax*k/ticks));"
+                + "maxLabelW=Math.max(maxLabelW,labelWidth(labels[k]));}\n"
+                + "var padL=Math.max(56,maxLabelW+16),padR=16,padT=16,padB=36;\n"
+                + "var plotW=Math.max(10,w-padL-padR),plotH=Math.max(10,h-padT-padB);\n"
                 + "var n=runs.length,band=plotW/n,barW=Math.min(band*0.62,46);\n"
                 + "var s='<svg viewBox=\"0 0 '+w+' '+h+'\" width=\"'+w+'\" height=\"'+h+'\" "
                 + "xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">';\n"
-                + "var ticks=4;\n"
                 + "for(var t=0;t<=ticks;t++){var val=yMax*t/ticks,y=padT+plotH-(val/yMax)*plotH;"
                 + "s+='<line class=\"tia-tl-grid\" x1=\"'+padL+'\" y1=\"'+y+'\" x2=\"'+(w-padR)+'\" y2=\"'+y+'\"/>';"
                 + "s+='<text class=\"tia-tl-ylabel\" x=\"'+(padL-8)+'\" y=\"'+(y+3)+'\" text-anchor=\"end\">'"
-                + "+esc(pretty(val))+'</text>';}\n"
+                + "+esc(labels[t])+'</text>';}\n"
                 + "s+='<line class=\"tia-tl-axis\" x1=\"'+padL+'\" y1=\"'+(padT+plotH)+'\" x2=\"'+(w-padR)"
                 + "+'\" y2=\"'+(padT+plotH)+'\"/>';\n"
                 + "for(var j=0;j<runs.length;j++){var r=runs[j];"
