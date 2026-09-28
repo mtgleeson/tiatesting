@@ -620,48 +620,38 @@ gradle tia-select-tests --debug
 
 ### Display the test-run history
 Prints the most recent rows from the `tia_test_run_history` table as a table — one row per run,
-with branch, 8-char commit, suite counts, wall clock, wall-clock savings, run origin, mapping
-flag, and 8-char id. Defaults to the
+with 8-char commit, suite counts, wall clock, wall-clock savings, run source, mapping flag, and
+8-char id (the id is what `history-details` takes). Defaults to the
 latest 20 runs; use `-DtiaHistoryLast=N` (Maven) or `--last=N` (Gradle) to change the cap.
 
 Example output:
 ```
 Displaying the latest 20 test runs from a total of 47
 
-Date/time            Branch        Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Mapping  Id
--------------------  ------------  --------  ---  -------  ------  ----------  -------  ---------  -------  --------
-2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s      5m 12s         79%  yes      550e8400
-2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s         -                -  no       7c3e1a09
+Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+----------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+2026-05-15 09:30  abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
+2026-05-14 14:22  9f8a1b2c   30        0       0  45s         -                -  LOCAL   no       7c3e1a09
 ```
+
+Times are local and shown to the minute. The branch, the host that ran each run and the time to the
+second are in the per-run detail output - a history is scoped to one branch, so a branch column
+would repeat the same value on every row.
 
 Every time on the table is **wall clock** - how long the run took end to end - and `Savings` is the wall-clock time Tia saved it. The serial duration and serial savings are in the per-run detail output.
 
 When any run in view was a [distributed build](#distributed-test-runs), a `Groups` column - how many groups the run was split across - appears after `Wall clock`:
 
 ```
-Date/time            Branch  Commit    Ran  Ignored  Failed  Wall clock  Groups  Savings  Savings %  Mapping  Id
--------------------  ------  --------  ---  -------  ------  ----------  ------  -------  ---------  -------  --------
-2026-08-17 22:35:46  main    6097d683    2        1       0  506ms            2  49ms            7%  yes      3fd70a70
-2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms            1  -                -  yes      17972bd5
+Date/time         Commit    Ran  Ignored  Failed  Wall clock  Groups  Savings  Savings %  Source  Mapping  Id
+----------------  --------  ---  -------  ------  ----------  ------  -------  ---------  ------  -------  --------
+2026-08-17 22:35  6097d683    2        1       0  506ms            2  49ms            7%  CI      yes      3fd70a70
+2026-08-17 20:50  51e8970a    3        0       0  664ms            1  -                -  CI      yes      17972bd5
 ```
 
 For a distributed build, `Wall clock` is its slowest group, and `Savings` is measured against the full suite spread across the groups the build had **available**, so it never credits Tia with the speed-up from distributing. A single-host run dashes `Groups`. See [Which time is which](#which-time-is-which).
 
-When any run in view recorded where it came from, two further columns appear after `Savings %`:
-
-```
-Date/time            Branch            Commit    Ran  Ignored  Failed  Duration  Savings  Savings %  Source  Host           Mapping  Id
--------------------  ----------------  --------  ---  -------  ------  --------  -------  ---------  ------  -------------  -------  --------
-2026-05-15 09:30:42  main              abc123de  420        0       0  15m 30s   -                -  CI      build-agent-3  yes      550e8400
-2026-05-14 18:06:40  feature/checkout  9911aabb   12      408       1  41s       14m 49s        95%  LOCAL   mgleeson-mbp   no       6f1a2b3c
-```
-
-- **`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration).
-- **`Host`** is the machine that ran it, rendered whole rather than truncated - unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes it: no single machine ran it.
-
-`Source` always renders - every recorded run resolves one. `Host` is omitted when no row in view names a machine, and dashed on a distributed build's row in a mixed history, since no single machine ran it.
-
-A history with no distributed run in view renders neither extra column, and single-host rows in a mixed history dash them.
+**`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration). The machine that ran each run is on the per-run detail output as `Host`, dashed for a distributed build since no single machine ran it.
 
 **Maven, Junit5 and Git**
 ```

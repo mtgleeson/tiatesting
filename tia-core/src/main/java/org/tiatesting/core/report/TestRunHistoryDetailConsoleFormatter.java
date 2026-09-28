@@ -21,6 +21,8 @@ import java.util.List;
  * Test run 550e8400-e29b-41d4-a716-446655440000
  * Branch:              main
  * Commit:              abc123def456
+ * Source:              CI
+ * Host:                build-agent-3
  * Date/time:           2026-05-15 09:30:42
  * Suites ran:          42
  * Suites ignored:      3
@@ -47,9 +49,9 @@ import java.util.List;
  *   (none)
  * </pre>
  *
- * <p>Timestamps are rendered in the JVM's local time zone with the same
- * {@code yyyy-MM-dd HH:mm:ss} pattern {@link TestRunHistoryConsoleFormatter} uses, so the two views
- * read consistently. Durations reuse {@link ReportUtils#prettyDuration} and savings {@link
+ * <p>The run's source and host are shown here rather than in the history table, which leaves them
+ * out to stay narrow. Timestamps are rendered in the JVM's local time zone as
+ * {@code yyyy-MM-dd HH:mm:ss} - the history table's format plus the seconds it drops. Durations reuse {@link ReportUtils#prettyDuration} and savings {@link
  * ReportUtils#savingsText}, which renders {@code "-"} when the entry recorded none. The wall clock
  * and wall-clock savings are what the history table shows; the serial duration and serial savings
  * measure the same run as total machine time. The two are equal for a single-host run, whose group
@@ -92,6 +94,11 @@ public final class TestRunHistoryDetailConsoleFormatter {
         sb.append("Test run ").append(nullSafe(entry.getId())).append(lineSep);
         sb.append("Branch:              ").append(nullSafe(entry.getBranch())).append(lineSep);
         sb.append("Commit:              ").append(nullSafe(entry.getCommit())).append(lineSep);
+        sb.append("Source:              ").append(orDash(entry.getRunOrigin().getRunSource()))
+                .append(lineSep);
+        // A distributed build spans several machines and names none, so it dashes.
+        sb.append("Host:                ").append(orDash(entry.getRunOrigin().getHostName()))
+                .append(lineSep);
         sb.append("Date/time:           ")
                 .append(Instant.ofEpochMilli(entry.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME))
                 .append(lineSep);
@@ -196,6 +203,17 @@ public final class TestRunHistoryDetailConsoleFormatter {
      */
     private static String orDash(Integer value) {
         return value == null ? NOT_APPLICABLE : value.toString();
+    }
+
+    /**
+     * Coalesce a null text value to the not-applicable dash - used for the run's host, which a
+     * distributed build does not record because no single machine ran it.
+     *
+     * @param value the possibly-null value
+     * @return {@code value}, or the dash placeholder when {@code value} is null
+     */
+    private static String orDash(String value) {
+        return value == null ? NOT_APPLICABLE : value;
     }
 
     /**

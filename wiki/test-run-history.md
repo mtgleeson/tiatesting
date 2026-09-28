@@ -104,15 +104,19 @@ Note which distributed shape can reach the sealer at all: the completion guard r
 
 ### Why timestamps are stored as UTC epoch ms
 
-Tia runs on developer laptops, CI runners, and shared workspaces in potentially different timezones. Storing a timezone-agnostic numeric value avoids any "what does this string mean in this DB" ambiguity. The HTML History page renders each row's timestamp in the viewer's **local** timezone via a small inline script that calls `new Date(ms).toLocaleString(...)` — no millisecond precision and no timezone marker in the displayed text.
+Tia runs on developer laptops, CI runners, and shared workspaces in potentially different timezones. Storing a timezone-agnostic numeric value avoids any "what does this string mean in this DB" ambiguity. The HTML History page renders each row's timestamp in the viewer's **local** timezone via a small inline script (`HtmlLayout.localTimeRenderingScript`) that joins the locale's date and time with a single space - no comma, no millisecond precision and no timezone marker in the displayed text. The History table renders to the minute (its `<time>` elements carry `data-no-seconds`); the run detail page keeps the seconds.
 
 ### The HTML report "History" tab
 
-`HtmlHistoryReport` reads `tiaData.getTestRunHistory()` and renders `history/tia-history.html`, linked from the top navigation as "History". The table uses `simple-datatables` for sort / filter / paginate, defaulting to date descending. Long values (entry id, commit hash) are truncated to 8 characters in the cell; the full value is on a hover `title` so it stays accessible without widening the column.
+`HtmlHistoryReport` reads `tiaData.getTestRunHistory()` and renders `history/tia-history.html`, linked from the top navigation as "History". The table uses `simple-datatables` for sort / filter / paginate, defaulting to date descending. The commit hash is truncated to 8 characters in the cell; the full value is on a hover `title` so it stays accessible without widening the column.
+
+**Every row is a link to its run's detail page** (`history/<id>.html`). The anchor lives in the Date / time cell, styled like plain text, and a click handler delegated from the table follows it from anywhere in the row (ctrl/cmd-click opens a new tab; a click that ends a text selection is ignored). Two `simple-datatables` behaviours shape this. It rebuilds rows from its own model on every sort, search and page change, so the link has to be cell content rather than an attribute on the `<tr>`. And it renders cell markup only for `html`-typed columns - a `number` column is reduced to its text - so the Date / time column is typed `html` and sorts its epoch-ms `data-order` as a string, which orders correctly because epoch-ms values stay 13 digits long (years 2001 to 2286). The same rebuild drops attributes on a `<th>`, so a header tooltip (the `Mapping` column's full question) sits on a `<span>` inside it.
+
+**The table is kept narrow enough to fit the page without scrolling sideways** at common desktop widths: header labels do not wrap, so the columns that repeat or rarely matter are left to the detail page - the branch (a history is scoped to one branch) and the host. A table that still outgrows the content column scrolls inside its own container rather than pushing the page sideways.
 
 **Every time on the table is wall-clock time.** `Wall clock` is how long each run took end to end - its duration on a single host, its slowest group on a distributed build - and `Savings` / `Savings %` are its wall-clock savings. The serial duration and serial savings are on the run's detail page, alongside the groups it used and the groups it had available (see [Run history details](run-history-details.md)). `Groups` appears only when some row is a distributed build, dashed on the single-host rows.
 
-`Source` and `Host` render there too, on the same "only when some row has one" rule the console table uses, and dashed rather than blank on a row that has none — an empty cell reads as a rendering slip, and a dash also sorts the unknown rows together.
+`Source` renders on every history, since every run resolves one. `Host` is on the detail page only, dashed for a distributed build - no single machine ran it.
 
 A subtlety worth knowing: the local-time-rendering script must run **before** the `simple-datatables` init, not after. `simple-datatables` captures cell text into its internal model at init time; if the localization runs later via `DOMContentLoaded`, the `<time>` elements have already been replaced by `simple-datatables`' render output and the swap finds nothing.
 
@@ -131,10 +135,10 @@ The HTML report is the rich view, but it requires a full `tia-html-report` invoc
 ```
 Displaying the latest 20 test runs from a total of 47
 
-Date/time            Branch        Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
--------------------  ------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
-2026-05-15 09:30:42  main          abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
-2026-05-14 14:22:01  feature/foo   9f8a1b2c   30        0       0  45s         -                -  LOCAL   no       7c3e1a09
+Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+----------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+2026-05-15 09:30  abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
+2026-05-14 14:22  9f8a1b2c   30        0       0  45s         -                -  LOCAL   no       7c3e1a09
 ```
 
 The number of rows is configurable: `mvn <plugin>:history -DtiaHistoryLast=N` for Maven, `./gradlew tia-history --last=N` for Gradle. The default is **20**, chosen so the output fits in a terminal screen without scrolling. Values `<= 0` (or non-numeric for `--last`) fail fast with a clear error.
@@ -145,10 +149,10 @@ duration and serial savings are in the per-run `history-details` output. When an
 distributed build, a `Groups` column - the groups the build used - appears after `Wall clock`:
 
 ```
-Date/time            Branch  Commit    Ran  Ignored  Failed  Wall clock  Groups  Savings  Savings %  Source  Mapping  Id
--------------------  ------  --------  ---  -------  ------  ----------  ------  -------  ---------  ------  -------  --------
-2026-08-17 22:35:46  main    6097d683    2        1       0  506ms            2  49ms            7%  CI      yes      3fd70a70
-2026-08-17 20:50:23  main    51e8970a    3        0       0  664ms            1  -                -  CI      yes      17972bd5
+Date/time         Commit    Ran  Ignored  Failed  Wall clock  Groups  Savings  Savings %  Source  Mapping  Id
+----------------  --------  ---  -------  ------  ----------  ------  -------  ---------  ------  -------  --------
+2026-08-17 22:35  6097d683    2        1       0  506ms            2  49ms            7%  CI      yes      3fd70a70
+2026-08-17 20:50  51e8970a    3        0       0  664ms            1  -                -  CI      yes      17972bd5
 ```
 
 A single-host row in a mixed history dashes `Groups` rather than showing a zero, which would read
@@ -157,11 +161,11 @@ column. See
 ["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row)
 for how the sealer computes the serial and wall-clock durations.
 
-Likewise, `Source` appears after `Savings %` on every history, since every run resolves one, while `Host` appears only when some run in view names a machine - a history made up entirely of distributed builds would otherwise carry a column of dashes. The host is deliberately **not** truncated the way commit and id are: it is read to tell machines apart, and a fixed-width prefix of several agents in one naming scheme would collapse them into one. A distributed build dashes the host - no single machine ran it.
+`Source` appears after `Savings %` on every history, since every run resolves one. As in the HTML table, the branch (a history is scoped to one branch) and the host are left to the `history-details` output to keep the table narrow; the `Id` column stays, since it is what `history-details` is given to look a run up.
 
-Both optional groups are assembled by filtering one list of column descriptors (header, alignment, cell accessor) rather than by selecting between hardcoded parallel arrays. With two independent toggles there are four layouts; held as three parallel arrays each, a header, an alignment flag and a cell that drifted out of step would produce a table that is quietly *wrong* rather than one that fails.
+The optional `Groups` column is assembled by filtering one list of column descriptors (header, alignment, cell accessor) rather than by selecting between hardcoded parallel arrays: held as three parallel arrays each, a header, an alignment flag and a cell that drifted out of step would produce a table that is quietly *wrong* rather than one that fails.
 
-Column widths are computed dynamically from the data so the table stays compact regardless of branch-name length. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered in the JVM's local timezone using `yyyy-MM-dd HH:mm:ss`. The mapping flag renders as `yes` / `no` - the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the wall-clock time that run saved versus running the full suite across the machines available, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
+Column widths are computed dynamically from the data so the table stays compact. Numeric columns right-align; commit and id are truncated to the first 8 characters (matching the HTML report's compact rendering). Date/time is rendered to the minute in the JVM's local timezone using `yyyy-MM-dd HH:mm`; `history-details` shows the seconds. The mapping flag renders as `yes` / `no` - the compact table form, not the HTML's "updated / not updated" wording. The `Savings` / `Savings %` columns show the wall-clock time that run saved versus running the full suite across the machines available, frozen at run time against the all-tests baseline then current; an all-tests run (and any run recorded before a baseline existed) shows `-`. When the history table is empty, the task prints `No Tia test run history recorded yet.` and exits cleanly.
 
 
 ---

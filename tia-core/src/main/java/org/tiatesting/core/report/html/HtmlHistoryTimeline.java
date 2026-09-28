@@ -99,8 +99,9 @@ final class HtmlHistoryTimeline {
      * {@link #MAX_Y_TICKS} intervals, and the axis top is rounded up to the next tick. The y-axis gutter is sized to the widest tick label (measured with a canvas, falling
      * back to a per-character estimate) so long labels such as {@code 2h 46m 40s} are not clipped
      * at the chart's left edge. Durations are formatted to match {@code ReportUtils.prettyDuration(ms, true)} and
-     * timestamps localized with the same options as {@code HtmlLayout.localTimeRenderingScript} so
-     * the chart reads identically to the table below it.
+     * timestamps localized in the same space-joined date and time format as
+     * {@code HtmlLayout.localTimeRenderingScript}, to the second, so the chart reads consistently
+     * with the table below it.
      *
      * @param runsJson the script-safe JSON array of runs (oldest-first) from {@link #buildRunsJson}
      * @return the inline script body
@@ -123,8 +124,9 @@ final class HtmlHistoryTimeline {
                 + "var h=Math.floor(ms/3600000),m=Math.floor(ms/60000)%60,s=Math.floor(ms/1000)%60,mil=ms%1000;"
                 + "if(ms>=1000){mil=0;}var o=[];if(h){o.push(h+'h');}if(m){o.push(m+'m');}"
                 + "if(s){o.push(s+'s');}if(mil){o.push(mil+'ms');}return o.length?o.join(' '):'0';}\n"
-                + "function fmtDate(ms){return new Date(ms).toLocaleString(undefined,"
-                + "{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}\n"
+                + "function fmtDate(ms){var d=new Date(ms);return d.toLocaleDateString(undefined,"
+                + "{year:'numeric',month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString(undefined,"
+                + "{hour:'2-digit',minute:'2-digit',second:'2-digit'});}\n"
                 + "var STEPS=[1,2,5,10,20,50,100,200,500,1e3,2e3,5e3,1e4,15e3,3e4,6e4,12e4,3e5,6e5,9e5,"
                 + "18e5,36e5,72e5,108e5,216e5,432e5,864e5];\n"
                 + "function niceStep(v){if(v<=0){return {step:1,count:1};}"
