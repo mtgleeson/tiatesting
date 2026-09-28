@@ -120,7 +120,7 @@ class DistributedRunCoordinatorTest {
      */
     private DistributedRunCoordinator coordinator(String runId, String runnerKey) {
         return new DistributedRunCoordinator(dataStore,
-                DistributedRunConfig.validated(runId, 2, null, null, runnerKey));
+                DistributedRunConfig.validated(runId, 2, null, null, runnerKey, null));
     }
 
     /**

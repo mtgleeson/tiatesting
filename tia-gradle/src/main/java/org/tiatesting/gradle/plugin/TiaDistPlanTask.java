@@ -96,7 +96,7 @@ public class TiaDistPlanTask extends DefaultTask {
                     plugin.getDbDialect(), checkLocalChanges, updateDBMapping);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
-                    plugin.getDistributedRunnerKey());
+                    plugin.getDistributedRunnerKey(), plugin.getRunSource());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new GradleException("Distributed run configuration is invalid: "
                     + withReactorProjectNamesIfRelevant(e.getMessage(), tiaEnabled, reactorProjects), e);

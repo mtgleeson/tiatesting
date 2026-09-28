@@ -3,7 +3,7 @@ package org.tiatesting.core.distributed;
 /**
  * An immutable, validated bundle of the settings that drive a distributed test run: splitting a
  * build's selected tests across CI runners that coordinate through a shared database. Built only
- * through {@link #validated(String, Integer, Long, Integer, String)}, so any {@code
+ * through {@link #validated(String, Integer, Long, Integer, String, String)}, so any {@code
  * DistributedRunConfig} in hand has already passed every rule below - callers never need to
  * re-check it.
  *
@@ -32,6 +32,10 @@ package org.tiatesting.core.distributed;
  * <p>{@code runnerKey} is optional and is not validated or interpreted by this class or by the
  * planner that consumes this config: it is a per-runner identity value that the claim protocol
  * reads, falling back to {@code runId + hostname + pid} when it is not supplied.
+ *
+ * <p>{@code runSource} is likewise optional and unvalidated: the declared {@code tiaRunSource}
+ * label for the build's history row, which the planner records on the run row in place of the
+ * source it would otherwise detect from the plan step's environment.
  */
 public final class DistributedRunConfig {
 
@@ -40,11 +44,12 @@ public final class DistributedRunConfig {
     private final Long targetRunTimeMs;
     private final Integer maxGroups;
     private final String runnerKey;
+    private final String runSource;
 
     /**
      * Store the already-validated fields. Private so that the only way to obtain an instance is
-     * through {@link #validated(String, Integer, Long, Integer, String)}, keeping every rule in
-     * one place.
+     * through {@link #validated(String, Integer, Long, Integer, String, String)}, keeping every
+     * rule in one place.
      *
      * @param runId the distributed run's shared identifier
      * @param groupCount the fixed number of groups to split into, or null in dynamic-groups mode
@@ -53,14 +58,16 @@ public final class DistributedRunConfig {
      *                  no ceiling
      * @param runnerKey an optional per-runner identity value, or null to let the claim protocol
      *                  derive one
+     * @param runSource the declared run source label, or null to let the planner detect one
      */
     private DistributedRunConfig(String runId, Integer groupCount, Long targetRunTimeMs,
-                                  Integer maxGroups, String runnerKey) {
+                                  Integer maxGroups, String runnerKey, String runSource) {
         this.runId = runId;
         this.groupCount = groupCount;
         this.targetRunTimeMs = targetRunTimeMs;
         this.maxGroups = maxGroups;
         this.runnerKey = runnerKey;
+        this.runSource = runSource;
     }
 
     /**
@@ -85,8 +92,12 @@ public final class DistributedRunConfig {
      * @param runnerKey an optional per-runner identity value ({@code tiaDistributedRunnerKey});
      *                  not validated or used by this class or by the planner, since it is read
      *                  only by the claim protocol
+     * @param runSource the declared run source label ({@code tiaRunSource}) for the build's
+     *                  history row, or null to let the planner detect it from the plan step's
+     *                  environment; not validated, since any label is allowed
      * @return a validated, immutable config bundle, with {@code runId} and (if supplied) {@code
-     *         runnerKey} trimmed of leading and trailing whitespace
+     *         runnerKey} trimmed of leading and trailing whitespace, and {@code runSource} trimmed
+     *         or, when blank, dropped to null
      * @throws IllegalArgumentException if {@code runId} is null or blank; if neither or both of
      *                                  {@code groupCount} and {@code targetRunTimeMs} are set; if
      *                                  {@code groupCount} is set and below 1; if {@code
@@ -96,16 +107,18 @@ public final class DistributedRunConfig {
      */
     public static DistributedRunConfig validated(String runId, Integer groupCount,
                                                    Long targetRunTimeMs, Integer maxGroups,
-                                                   String runnerKey) {
+                                                   String runnerKey, String runSource) {
         if (runId == null || runId.trim().isEmpty()) {
             throw new IllegalArgumentException("tiaRunId must be set");
         }
         runId = runId.trim();
         runnerKey = runnerKey == null ? null : runnerKey.trim();
+        runSource = runSource == null || runSource.trim().isEmpty() ? null : runSource.trim();
 
         validateGroupingShape(groupCount, targetRunTimeMs, maxGroups);
 
-        return new DistributedRunConfig(runId, groupCount, targetRunTimeMs, maxGroups, runnerKey);
+        return new DistributedRunConfig(runId, groupCount, targetRunTimeMs, maxGroups, runnerKey,
+                runSource);
     }
 
     /**
@@ -134,7 +147,7 @@ public final class DistributedRunConfig {
             throw new IllegalArgumentException("tiaRunId must be set");
         }
         return new DistributedRunConfig(runId.trim(), null, null, null,
-                runnerKey == null ? null : runnerKey.trim());
+                runnerKey == null ? null : runnerKey.trim(), null);
     }
 
     /**
@@ -209,6 +222,15 @@ public final class DistributedRunConfig {
 
     /** @return the optional per-runner identity value, or null if not supplied */
     public String getRunnerKey() { return runnerKey; }
+
+    /**
+     * The run source label the build declared for its history row, which the planner records on
+     * the run row in place of detecting one. Always null on a runner's config: the source is
+     * decided once, by the plan step.
+     *
+     * @return the declared run source, or null when none was declared
+     */
+    public String getRunSource() { return runSource; }
 
     /**
      * Report whether this config fixes the group count directly. Mutually exclusive with

@@ -153,7 +153,7 @@ class DistributedRunnerAssignmentTest {
      * @return a validated run configuration
      */
     private static DistributedRunConfig config(String runId, String runnerKey) {
-        return DistributedRunConfig.validated(runId, 2, null, null, runnerKey);
+        return DistributedRunConfig.validated(runId, 2, null, null, runnerKey, null);
     }
 
     /**
@@ -540,7 +540,7 @@ class DistributedRunnerAssignmentTest {
         TestSelectorResult nothingSelected = new TestSelectorResult(Collections.<String>emptySet(),
                 Collections.<String>emptySet(), null, 0L, Collections.<String>emptySet(), 0L,
                 new HashMap<String, Long>(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
-        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null))
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null, null))
                 .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
                         () -> Collections.<String>emptySet());
     }

@@ -27,7 +27,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated(runId, 4, null, null, null));
+                () -> DistributedRunConfig.validated(runId, 4, null, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaRunId"),
@@ -45,7 +45,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated(runId, 4, null, null, null));
+                () -> DistributedRunConfig.validated(runId, 4, null, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaRunId"),
@@ -62,7 +62,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", null, null, null, null));
+                () -> DistributedRunConfig.validated("run-1", null, null, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedGroupCount"),
@@ -82,7 +82,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", 4, 60000L, null, null));
+                () -> DistributedRunConfig.validated("run-1", 4, 60000L, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedGroupCount"),
@@ -102,7 +102,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", 0, null, null, null));
+                () -> DistributedRunConfig.validated("run-1", 0, null, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedGroupCount"),
@@ -120,7 +120,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", null, 0L, null, null));
+                () -> DistributedRunConfig.validated("run-1", null, 0L, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedTargetRunTime"),
@@ -137,7 +137,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", null, -1L, null, null));
+                () -> DistributedRunConfig.validated("run-1", null, -1L, null, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedTargetRunTime"),
@@ -155,7 +155,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", null, 60000L, 0, null));
+                () -> DistributedRunConfig.validated("run-1", null, 60000L, 0, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedMaxGroups"),
@@ -174,7 +174,7 @@ class DistributedRunConfigTest {
 
         // when
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", 4, null, 8, null));
+                () -> DistributedRunConfig.validated("run-1", 4, null, 8, null, null));
 
         // then
         assertTrue(ex.getMessage().contains("tiaDistributedMaxGroups"),
@@ -194,7 +194,7 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-1", 6, null, null, null);
+                DistributedRunConfig.validated("run-1", 6, null, null, null, null);
 
         // then
         assertEquals("run-1", config.getRunId());
@@ -215,7 +215,7 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-2", null, 300000L, null, null);
+                DistributedRunConfig.validated("run-2", null, 300000L, null, null, null);
 
         // then
         assertEquals("run-2", config.getRunId());
@@ -237,7 +237,7 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-3", null, 300000L, 10, null);
+                DistributedRunConfig.validated("run-3", null, 300000L, 10, null, null);
 
         // then
         assertEquals(Long.valueOf(300000L), config.getTargetRunTimeMs());
@@ -257,7 +257,7 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-4", 3, null, null, null);
+                DistributedRunConfig.validated("run-4", 3, null, null, null, null);
 
         // then
         assertNull(config.getRunnerKey(), "runnerKey should be null when not supplied");
@@ -273,7 +273,7 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-5", 3, null, null, "runner-abc-1234-99");
+                DistributedRunConfig.validated("run-5", 3, null, null, "runner-abc-1234-99", null);
 
         // then
         assertEquals("runner-abc-1234-99", config.getRunnerKey());
@@ -290,7 +290,7 @@ class DistributedRunConfigTest {
         String runId = "  gh-123  ";
 
         // when
-        DistributedRunConfig config = DistributedRunConfig.validated(runId, 3, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated(runId, 3, null, null, null, null);
 
         // then
         assertEquals("gh-123", config.getRunId());
@@ -308,10 +308,45 @@ class DistributedRunConfigTest {
 
         // when
         DistributedRunConfig config =
-                DistributedRunConfig.validated("run-6", 3, null, null, runnerKey);
+                DistributedRunConfig.validated("run-6", 3, null, null, runnerKey, null);
 
         // then
         assertEquals("runner-abc-1234-99", config.getRunnerKey());
+    }
+
+    /**
+     * Verifies that a declared run source is trimmed before being stored, so the label the planner
+     * records on the run row matches what the build declared without stray whitespace.
+     */
+    @Test
+    void validated_runSourceWithSurroundingWhitespace_isTrimmed() {
+        // given - a declared run source with leading and trailing spaces
+        String runSource = "  CI  ";
+
+        // when
+        DistributedRunConfig config =
+                DistributedRunConfig.validated("run-7", 3, null, null, null, runSource);
+
+        // then
+        assertEquals("CI", config.getRunSource());
+    }
+
+    /**
+     * Verifies that a blank declared run source is dropped to null, so the planner detects the
+     * source instead of recording an empty label - an exported-but-empty property is not a
+     * declaration.
+     */
+    @Test
+    void validated_blankRunSource_isNull() {
+        // given - a run source of only whitespace
+        String runSource = "   ";
+
+        // when
+        DistributedRunConfig config =
+                DistributedRunConfig.validated("run-8", 3, null, null, null, runSource);
+
+        // then
+        assertNull(config.getRunSource());
     }
 
     /**
@@ -336,7 +371,7 @@ class DistributedRunConfigTest {
         assertNull(config.getTargetRunTimeMs());
         assertNull(config.getMaxGroups());
         assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated(runId, null, null, null, "runner-7"));
+                () -> DistributedRunConfig.validated(runId, null, null, null, "runner-7", null));
     }
 
     /**

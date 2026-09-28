@@ -21,6 +21,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.RunEnvironment;
 
 import java.io.File;
 import java.lang.reflect.InvocationHandler;
@@ -256,7 +257,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldPersistAndReadBackAStaticGroupsPlan() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-static", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-static", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = threeSuiteSelection();
 
@@ -300,7 +301,7 @@ class DistributedRunPlannerTest {
         LibraryImpactDrainResult drainResult = new LibraryImpactDrainResult();
         drainResult.addDrainedBatch("com.example:lib", 4L);
         drainResult.setAppliedSeq("com.example:lib", 4L);
-        DistributedRunConfig config = DistributedRunConfig.validated("run-drain", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-drain", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -319,7 +320,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldPersistANullDrainResultWhenTheSelectionDrainedNothing() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-nodrain", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-nodrain", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -345,7 +346,7 @@ class DistributedRunPlannerTest {
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
                         "com.example.Foo.bar()V", 2)),
                 1, 2, 3, 4, 5);
-        DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -370,7 +371,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldUseBalancerChosenGroupCountAndStoreTargetForDynamicGroups() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-dynamic", null, 25000L, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-dynamic", null, 25000L, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = threeSuiteSelection();
 
@@ -392,7 +393,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldRecordTheFixedGroupCountAsTheGroupsAvailable() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-fixed", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-fixed", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -411,7 +412,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldRecordTheMaxGroupsAsTheGroupsAvailableWhenTheBalancerUsesFewer() {
         // given - a target the whole 60s selection fits under in one group, with six available
-        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-max", null, 120000L, 6, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-max", null, 120000L, 6, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -430,7 +431,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldRecordTheGroupsUsedAsTheGroupsAvailableWhenThereIsNoMaximum() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-nomax", null, 25000L, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-avail-nomax", null, 25000L, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -442,6 +443,45 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Verify that a declared run source is recorded on the run row as declared, so the sealer
+     * stamps the label the build asked for on its history row whichever runner seals.
+     */
+    @Test
+    void shouldRecordTheDeclaredRunSourceOnTheRunRow() {
+        // given - a label neither detection outcome could produce
+        DistributedRunConfig config =
+                DistributedRunConfig.validated("run-source-declared", 2, null, null, null, "NIGHTLY");
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 1L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-source-declared");
+        assertEquals("NIGHTLY", readRun.getRunSource());
+    }
+
+    /**
+     * Verify that with nothing declared the plan step records the source it detects from its own
+     * environment, rather than leaving it null for the sealer to detect from a runner's - the plan
+     * step runs on the CI agent, where the CI marker variables are visible.
+     */
+    @Test
+    void shouldRecordTheDetectedRunSourceWhenNoneIsDeclared() {
+        // given
+        DistributedRunConfig config =
+                DistributedRunConfig.validated("run-source-detected", 2, null, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+
+        // when
+        planner.plan(threeSuiteSelection(), "main", "commit-1", false, true, 1L, noSeedSuites());
+
+        // then
+        DistributedRun readRun = dataStore.readDistributedRun("run-source-detected");
+        assertEquals(RunEnvironment.runSource(), readRun.getRunSource());
+    }
+
+    /**
      * Verify that every selected suite appears exactly once in the persisted plan: the union of
      * suite names read back across every group equals {@code selection.getTestsToRun()} exactly.
      * This is the end-to-end assertion of the suite-conservation guard - it checks what actually
@@ -450,7 +490,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldConserveEverySelectedSuiteInThePersistedPlan() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-conserve", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-conserve", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = threeSuiteSelection();
 
@@ -479,7 +519,7 @@ class DistributedRunPlannerTest {
     @Test
     void shouldClearThePreviousRunAndLeaveOnlyTheNewOnePresent() throws Exception {
         // given
-        DistributedRunConfig firstConfig = DistributedRunConfig.validated("run-old", 2, null, null, null);
+        DistributedRunConfig firstConfig = DistributedRunConfig.validated("run-old", 2, null, null, null, null);
         DistributedRunPlanner firstPlanner = new DistributedRunPlanner(dataStore, firstConfig);
         firstPlanner.plan(threeSuiteSelection(), "main", "commit-old", false, true, 100L, noSeedSuites());
         try (Connection connection = connectionProvider.get();
@@ -492,7 +532,7 @@ class DistributedRunPlannerTest {
                     + "WHERE run_id = 'run-old' AND group_number = 0");
         }
 
-        DistributedRunConfig secondConfig = DistributedRunConfig.validated("run-new", 2, null, null, null);
+        DistributedRunConfig secondConfig = DistributedRunConfig.validated("run-new", 2, null, null, null, null);
         DistributedRunPlanner secondPlanner = new DistributedRunPlanner(dataStore, secondConfig);
 
         // when
@@ -516,8 +556,8 @@ class DistributedRunPlannerTest {
     @Test
     void shouldIncludeMappingOverheadInEstimatedTotalWhenCollectingCoverage() {
         // given
-        DistributedRunConfig configWithCoverage = DistributedRunConfig.validated("run-coverage", 2, null, null, null);
-        DistributedRunConfig configWithoutCoverage = DistributedRunConfig.validated("run-no-coverage", 2, null, null, null);
+        DistributedRunConfig configWithCoverage = DistributedRunConfig.validated("run-coverage", 2, null, null, null, null);
+        DistributedRunConfig configWithoutCoverage = DistributedRunConfig.validated("run-no-coverage", 2, null, null, null, null);
         TestSelectorResult selection = threeSuiteSelection();
 
         // when
@@ -545,7 +585,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_emptySelectionWithFixedGroupCount_plansNoGroupsAndSealsTheRun() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-empty", 3, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty", 3, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -572,7 +612,7 @@ class DistributedRunPlannerTest {
     void plan_emptySelectionWithTargetRunTime_plansNoGroupsAndSealsTheRun() {
         // given
         DistributedRunConfig config = DistributedRunConfig.validated("run-empty-target", null,
-                1_800_000L, null, null);
+                1_800_000L, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -601,7 +641,7 @@ class DistributedRunPlannerTest {
         seedCoreData("prior-commit", 60_000L);
         seedTrackedSuites("com.example.ATest", "com.example.BTest", "com.example.CTest",
                 "com.example.DTest");
-        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-seal", 3, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-seal", 3, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -634,7 +674,7 @@ class DistributedRunPlannerTest {
     void plan_emptySelectionNotOwningTheMapping_recordsHistoryButLeavesTheCommit() {
         // given
         seedCoreData("prior-commit", 60_000L);
-        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-readonly", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-readonly", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -657,7 +697,7 @@ class DistributedRunPlannerTest {
     void plan_emptySelectionWithHistoryOff_writesNoHistoryRow() {
         // given
         seedCoreData("prior-commit", 60_000L);
-        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-nohistory", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-empty-nohistory", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -678,7 +718,7 @@ class DistributedRunPlannerTest {
     void plan_selectionWithSuites_isNotSealedAtPlanTime() {
         // given
         seedCoreData("prior-commit", 60_000L);
-        DistributedRunConfig config = DistributedRunConfig.validated("run-with-groups", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-with-groups", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -701,7 +741,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_fixedGroupCountAboveTheSuiteCount_plansOneGroupPerSuite() {
         // given - three selected suites and five configured groups
-        DistributedRunConfig config = DistributedRunConfig.validated("run-capped", 5, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-capped", 5, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -726,7 +766,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionWithFewerScannedSuitesThanGroups_plansOneGroupPerSuite() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-capped", 4, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-capped", 4, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -750,7 +790,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionWithScannedSuites_splitsAcrossConfiguredGroups() {
         // given a 4-group config, a seed selection, and 8 suites found on disk
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-split", 4, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-split", 4, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
         Supplier<Set<String>> scan = seedSuites(
@@ -796,7 +836,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionWithEmptyScan_fallsBackToSingleEmptyGroup() {
         // given an 8-group config but a seed scan that finds no suites
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-empty", 8, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-empty", 8, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
         // when
@@ -817,7 +857,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionWithoutScannedSuites_plansOneEmptyGroup() {
         // given a config asking for 8 groups, but a seed selection and an empty disk scan
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed", 8, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed", 8, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
 
@@ -848,7 +888,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelection_plansExactlyOneGroupIgnoringConfiguredTargetRunTime() {
         // given a dynamic-groups config with a target so small it would normally force many groups
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target", null, 1000L, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target", null, 1000L, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
 
@@ -872,7 +912,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionTargetModeWithMaxGroups_splitsAcrossMaxGroups() {
         // given a target-run-time config with a max of 3 groups, a seed selection, and 6 scanned suites
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-max", null, 1000L, 3, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-max", null, 1000L, 3, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         Supplier<Set<String>> scan = seedSuites("a.T1", "a.T2", "a.T3", "a.T4", "a.T5", "a.T6");
 
@@ -900,7 +940,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelectionTargetModeNoMaxGroups_staysSingleGroupEvenWithScannedSuites() {
         // given a target-run-time config with no ceiling, a seed selection, and scanned suites
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-nomax", null, 1000L, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-target-nomax", null, 1000L, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         Supplier<Set<String>> scan = seedSuites("a.T1", "a.T2", "a.T3");
 
@@ -921,7 +961,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_nonSeedSelection_reportsSeedRunFalse() {
         // given an ordinary selection with a stored mapping
-        DistributedRunConfig config = DistributedRunConfig.validated("run-not-seed", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-not-seed", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = threeSuiteSelection();
 
@@ -941,7 +981,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_nonSeedSelection_neverInvokesTheSeedSuiteProvider() {
         // given a non-seed selection and a provider that fails the test if it is ever called
-        DistributedRunConfig config = DistributedRunConfig.validated("run-no-scan", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-no-scan", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         Supplier<Set<String>> throwingProvider = () -> {
             throw new AssertionError("the seed-suite provider must not be invoked on a non-seed plan");
@@ -963,7 +1003,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_seedSelection_jsonReportsSeedRunTrue() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-json", 5, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-json", 5, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
 
@@ -988,7 +1028,7 @@ class DistributedRunPlannerTest {
     void plan_seedSelectionWithoutCollectingCoverage_stillPersistsAValidSeedPlan() {
         // given a seed selection and collectingCoverage=false, the condition that triggers the
         // WARN naming tiaUpdateDBMapping
-        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-no-coverage", 3, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-seed-no-coverage", 3, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
         TestSelectorResult selection = runAllTestsSelection();
 
@@ -1191,7 +1231,7 @@ class DistributedRunPlannerTest {
         IllegalArgumentException fromBalance = assertThrows(IllegalArgumentException.class,
                 () -> DistributedRunPlanner.balance(selection, false, 4, 60000L, null, noSeedSuites()));
         IllegalArgumentException fromValidated = assertThrows(IllegalArgumentException.class,
-                () -> DistributedRunConfig.validated("run-1", 4, 60000L, null, null));
+                () -> DistributedRunConfig.validated("run-1", 4, 60000L, null, null, null));
 
         // then - both entry points produce the exact same message
         assertEquals(fromValidated.getMessage(), fromBalance.getMessage());
@@ -1213,7 +1253,7 @@ class DistributedRunPlannerTest {
     @Test
     void plan_readsAllDistributedRunsBeforePersisting() {
         // given
-        DistributedRunConfig config = DistributedRunConfig.validated("run-order", 2, null, null, null);
+        DistributedRunConfig config = DistributedRunConfig.validated("run-order", 2, null, null, null, null);
         List<String> callOrder = new ArrayList<>();
         DataStore recordingDataStore = recordingDataStore(dataStore, callOrder);
         DistributedRunPlanner planner = new DistributedRunPlanner(recordingDataStore, config);
