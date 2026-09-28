@@ -309,11 +309,63 @@ table th,
     text-align: left;
 }
 
+/* Keep each header label on one line; a wrapped label makes the header row two lines tall.
+   The column takes the label's width instead. */
+.datatable-table th {
+    white-space: nowrap;
+}
+
+/* A header needs no right padding of its own: its sorter button's right padding already keeps
+   the label clear of the next column, and dropping the doubled gap lets a many-column table fit
+   the content column without scrolling. The selector matches simple-datatables' own cell padding
+   rule so this one, loaded later, wins. */
+.datatable-table > thead > tr > th {
+    padding-right: 0;
+}
+
+/* With unwrapped headers a wide table can outgrow the page's content column; scroll the table
+   inside its simple-datatables container rather than pushing the whole page sideways. */
+.datatable-container {
+    overflow-x: auto;
+}
+
 .datatable-table th .datatable-sorter {
     display: block;
     width: 100%;
-    padding: 0;
+    /* Right padding keeps the label clear of the up/down sort arrows, which simple-datatables
+       absolutely positions 4px in from the button's right edge (8px wide); without it a narrow
+       column's last character sits under the arrows. Fixed px because the arrows do not scale
+       with Pico's responsive root font size. */
+    padding: 0 14px 0 0;
     margin: 0;
+}
+
+/* Zebra-stripe every simple-datatables table so rows are easier to follow across wide, long
+   tables. Pico's own stripe token is too faint to help here, so use a slightly stronger neutral
+   grey that reads in both the light and dark themes. nth-child counts the rendered rows, so the
+   striping stays correct after a sort, search or page change. */
+.datatable-table tbody tr:nth-child(even) td {
+    background-color: rgba(111, 120, 135, 0.07);
+}
+
+/* History table: each body row opens its run's detail page (see HtmlHistoryReport's row
+   click script), so signal that with a pointer and a hover tint across the whole row. The tint
+   is stronger than the stripe so a hovered even row still stands out. */
+table.tia-clickable-rows tbody tr {
+    cursor: pointer;
+}
+
+table.tia-clickable-rows tbody tr:hover td {
+    background-color: rgba(111, 120, 135, 0.16);
+}
+
+/* The row link in the Date / time cell exists for the click handler, keyboard focus and
+   middle-click; the whole row is the affordance, so render it like the plain text in the other
+   cells and keep the timestamp on one line. */
+a.tia-row-link {
+    color: inherit;
+    text-decoration: none;
+    white-space: nowrap;
 }
 
 /* Keep simple-datatables' "entries per page" label inline. Pico's classless rules make

@@ -145,13 +145,15 @@ public class HtmlHistoryDetailReport {
     }
 
     /**
-     * Build the summary block: the run's timestamp, branch, commit, suite counts, both its times and
+     * Build the summary block: the run's timestamp, branch, commit, origin (the run source and the
+     * host that ran it, which the History table leaves out), suite counts, both its times and
      * both its savings, and the groups it used and had available. The wall clock and wall-clock
      * savings are what the History table shows; the serial duration and serial savings are the same
      * run measured as total machine time, as if one machine had run it. The two are equal for a
-     * single-host run, whose group lines are dashed. The timestamp is rendered the same way as
+     * single-host run, whose group lines are dashed. The timestamp is rendered like
      * {@link HtmlHistoryReport}'s table rows - an HTML5 {@code <time>} element carrying the UTC
-     * epoch ms, localized client-side by {@link HtmlLayout#localTimeRenderingScript()}.
+     * epoch ms, localized client-side by {@link HtmlLayout#localTimeRenderingScript()} - but keeps
+     * its seconds, which the table drops.
      *
      * @param entry the history row this page describes
      * @return the summary block content
@@ -171,6 +173,10 @@ public class HtmlHistoryDetailReport {
                 span(rawHtml("Date / time: <time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>")), br(),
                 span("Branch: " + (entry.getBranch() == null ? "" : entry.getBranch())), br(),
                 span("Commit: " + (entry.getCommit() == null ? "" : entry.getCommit())), br(),
+                span("Source: " + entry.getRunOrigin().getRunSource()), br(),
+                // A distributed build spans several machines and names none, so it dashes.
+                span("Host: " + (entry.getRunOrigin().getHostName() == null
+                        ? "-" : entry.getRunOrigin().getHostName())), br(),
                 span("Suites ran: " + entry.getNumSuitesRan()
                         + ", ignored: " + entry.getNumSuitesIgnored()
                         + ", failed: " + entry.getNumSuitesFailed()), br(),

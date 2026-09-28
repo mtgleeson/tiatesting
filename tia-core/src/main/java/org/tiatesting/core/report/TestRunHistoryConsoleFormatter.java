@@ -1,6 +1,5 @@
 package org.tiatesting.core.report;
 
-import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 
 import java.time.Instant;
@@ -21,9 +20,9 @@ import java.util.List;
  * <pre>
  * Displaying the latest N test runs from a total of X
  *
- * Date/time            Branch  Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
- * -------------------  ------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
- * 2026-05-15 09:30:42  main    abc123de   42        3       1  1m 23s      45s            35%  CI      yes      550e8400
+ * Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+ * ----------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+ * 2026-05-15 09:30  abc123de   42        3       1  1m 23s      45s            35%  CI      yes      550e8400
  * ...
  * </pre>
  *
@@ -33,31 +32,25 @@ import java.util.List;
  * The serial duration and serial savings are on the per-run detail view, {@link
  * TestRunHistoryDetailConsoleFormatter}.
  *
- * <p><b>Two groups of columns appear only when they have something to say.</b> The table is already
- * wide, and a column that is a dash on every row costs width while telling the reader nothing:
- * <ul>
- *   <li>{@code Groups} appears when any row in view describes a distributed build; single-host
- *       rows in a mixed history dash it.</li>
- *   <li>{@code Source} is always rendered - every recorded run resolves one. {@code Host} appears
- *       only when some row in view names a machine, so a history made up entirely of distributed
- *       builds does not carry a column that could only ever be dashes.</li>
- * </ul>
+ * <p><b>The table is kept narrow.</b> The run's branch (the same on every row of a branch-scoped
+ * history) and host are left to the detail view, and {@code Groups} appears only when any row in
+ * view describes a distributed build - single-host rows in a mixed history dash it - since a
+ * column that is a dash on every row costs width while telling the reader nothing. The
+ * {@code Id} column stays: it is what the detail task is given to look a run up.
  *
  * <p>When the input list is empty, the formatter returns the single sentence
  * {@code "No Tia test run history recorded yet."} (no header, no table).
  *
  * <p>Column widths are computed dynamically (max of header width and longest cell value),
- * commit and id are truncated to 8 characters, and timestamps are rendered in the JVM's
- * local time zone with format {@code yyyy-MM-dd HH:mm:ss}. The host is deliberately not
- * truncated: unlike a commit hash it is read to tell machines apart, and a fixed-width prefix of
- * several agents in the same naming scheme would collapse them into one.
+ * commit and id are truncated to 8 characters, and timestamps are rendered to the minute in the
+ * JVM's local time zone with format {@code yyyy-MM-dd HH:mm}; the detail view keeps the seconds.
  */
 public final class TestRunHistoryConsoleFormatter {
 
     private static final String EMPTY_HISTORY_MESSAGE = "No Tia test run history recorded yet.";
     private static final int TRUNCATE_LEN = 8;
     private static final DateTimeFormatter LOCAL_DATE_TIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /** Rendered where a row has no value for a column the layout is showing. */
     private static final String NOT_APPLICABLE = "-";
@@ -120,7 +113,7 @@ public final class TestRunHistoryConsoleFormatter {
         int rowCount = Math.min(effectiveLimit, total);
         List<TestRunHistoryEntry> visible = entries.subList(0, rowCount);
 
-        List<Column> columns = layout(anyDistributed(visible), anyHost(visible));
+        List<Column> columns = layout(anyDistributed(visible));
 
         String[] headers = new String[columns.size()];
         boolean[] rightAlign = new boolean[columns.size()];
@@ -160,14 +153,12 @@ public final class TestRunHistoryConsoleFormatter {
      * view have something to put in it.
      *
      * @param showDistributed whether to include the group-count column
-     * @param showHost whether to include the host column
      * @return the columns in display order
      */
-    private static List<Column> layout(final boolean showDistributed, final boolean showHost) {
+    private static List<Column> layout(final boolean showDistributed) {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("Date/time", false, (e, zone) ->
                 Instant.ofEpochMilli(e.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME)));
-        columns.add(new Column("Branch", false, (e, zone) -> nullSafe(e.getBranch())));
         columns.add(new Column("Commit", false, (e, zone) ->
                 truncate(nullSafe(e.getCommit()), TRUNCATE_LEN)));
         columns.add(new Column("Ran", true, (e, zone) -> Integer.toString(e.getNumSuitesRan())));
@@ -190,12 +181,6 @@ public final class TestRunHistoryConsoleFormatter {
 
         columns.add(new Column("Source", false, (e, zone) ->
                 orNotApplicable(e.getRunOrigin().getRunSource())));
-        if (showHost) {
-            // Dashed for a distributed build in a mixed history: no single machine ran it, so
-            // there is no host to name.
-            columns.add(new Column("Host", false, (e, zone) ->
-                    orNotApplicable(e.getRunOrigin().getHostName())));
-        }
 
         columns.add(new Column("Mapping", false, (e, zone) -> e.isUpdatedDbMapping() ? "yes" : "no"));
         columns.add(new Column("Id", false, (e, zone) -> truncate(nullSafe(e.getId()), TRUNCATE_LEN)));
@@ -211,23 +196,6 @@ public final class TestRunHistoryConsoleFormatter {
     private static boolean anyDistributed(List<TestRunHistoryEntry> entries) {
         for (TestRunHistoryEntry entry : entries) {
             if (entry.getGroupCount() != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Report whether any visible row names the machine that ran it. A distributed build spans
-     * several machines and names none, so a history made up entirely of distributed builds would
-     * otherwise carry a Host column that could only ever be dashes.
-     *
-     * @param entries the rows about to be rendered
-     * @return true when at least one row carries a host
-     */
-    private static boolean anyHost(List<TestRunHistoryEntry> entries) {
-        for (TestRunHistoryEntry entry : entries) {
-            if (entry.getRunOrigin().getHostName() != null) {
                 return true;
             }
         }
