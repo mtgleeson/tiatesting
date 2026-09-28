@@ -535,7 +535,7 @@ public final class DistributedRunPlanner {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), groupsAvailable(result.getGroupCount()), targetRunTimeMs,
-                result.getTotalEstimatedMs(), createdAtMs, seedRun);
+                result.getTotalEstimatedMs(), createdAtMs, seedRun, null);
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
