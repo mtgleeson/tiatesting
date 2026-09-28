@@ -93,7 +93,7 @@ class DistributedRunCoordinatorTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), null,
-                1000L * groups.size(), 5000L, false);
+                1000L * groups.size(), 5000L, false, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
@@ -120,7 +120,7 @@ class DistributedRunCoordinatorTest {
      */
     private DistributedRunCoordinator coordinator(String runId, String runnerKey) {
         return new DistributedRunCoordinator(dataStore,
-                DistributedRunConfig.validated(runId, 2, null, null, runnerKey));
+                DistributedRunConfig.validated(runId, 2, null, null, runnerKey, null));
     }
 
     /**

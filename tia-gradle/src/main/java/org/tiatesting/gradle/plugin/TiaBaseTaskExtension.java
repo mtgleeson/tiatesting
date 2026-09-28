@@ -248,7 +248,12 @@ public class TiaBaseTaskExtension {
      * variables, which a forked test JVM inherits, so an ordinary CI job is already labelled
      * {@code CI} and a developer's machine {@code LOCAL} with nothing configured. Set it to
      * distinguish a build the detection cannot tell apart from any other - a nightly or a
-     * performance rig - or to label a CI system Tia does not recognise.
+     * performance rig - or to label a CI system Tia does not recognise - or when the tests run
+     * inside a container or hosted build service that does not pass those variables through.
+     *
+     * <p>The {@code tia-dist-plan} task records it (or, when unset, what it detects on the plan
+     * step's own machine) on the distributed run row, and the sealer stamps that onto the build's
+     * history row, so a distributed build only needs it declared where the plan runs.
      *
      * @return the declared run source, or null to let Tia detect it
      */

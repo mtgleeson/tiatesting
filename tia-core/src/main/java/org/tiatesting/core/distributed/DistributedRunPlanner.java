@@ -10,6 +10,7 @@ import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.testrunner.RunEnvironment;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -527,7 +528,10 @@ public final class DistributedRunPlanner {
      *                the seal cannot tell a seed run's plan from a nothing-impacted one by its
      *                shape - see {@code DistributedRunSealer.ignoredSuiteCount}
      * @return the validated plan, ready to persist, with the groups available recorded on its run
-     *         row - see {@link #groupsAvailable}
+     *         row - see {@link #groupsAvailable} - and the build's run source: the declared {@code
+     *         tiaRunSource} when set, else the one detected from this plan step's environment. The
+     *         sealer stamps it on the build's history row, since the runner that seals may be in a
+     *         container that cannot see the CI marker variables this step can
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
                                             long createdAtMs, LibraryImpactDrainResult drainResult,
@@ -535,7 +539,8 @@ public final class DistributedRunPlanner {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), groupsAvailable(result.getGroupCount()), targetRunTimeMs,
-                result.getTotalEstimatedMs(), createdAtMs, seedRun);
+                result.getTotalEstimatedMs(), createdAtMs, seedRun,
+                RunEnvironment.runSource(config.getRunSource()));
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();

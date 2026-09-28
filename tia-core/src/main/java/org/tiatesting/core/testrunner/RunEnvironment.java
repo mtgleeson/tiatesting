@@ -75,10 +75,18 @@ public final class RunEnvironment {
      * not - naming the machine that happened to seal last would read as "this build ran here", which
      * is exactly what a distributed build did not do.
      *
-     * @return the run source, with a null hostname
+     * <p>The source the plan step recorded wins over this JVM's own environment. The seal runs in
+     * whichever runner's test JVM finishes last - often inside a container that inherits none of
+     * the CI system's marker variables - while the plan step runs once, on the CI agent, where they
+     * are visible.
+     *
+     * @param plannedRunSource the run source recorded on the run row at plan time, or null for a
+     *                         run planned before the source was recorded
+     * @return the planned run source when set, else the one resolved from this JVM, with a null
+     *         hostname
      */
-    public static RunOrigin distributedRunOrigin() {
-        return RunOrigin.of(runSource(), null);
+    public static RunOrigin distributedRunOrigin(final String plannedRunSource) {
+        return RunOrigin.of(isSet(plannedRunSource) ? plannedRunSource.trim() : runSource(), null);
     }
 
     /**
@@ -89,6 +97,19 @@ public final class RunEnvironment {
      */
     public static String runSource() {
         return runSource(System.getProperty(PROP_RUN_SOURCE), System::getenv);
+    }
+
+    /**
+     * Resolve the run source for a step that has its own declared label in hand - the distributed
+     * plan step, which reads {@code tiaRunSource} from the build's configuration rather than from
+     * a forked JVM's system properties.
+     *
+     * @param declaredRunSource the run source the build declared, or null when none was declared
+     * @return the declared run source when set, otherwise the one {@link #runSource()} resolves
+     *         from this JVM's system properties and environment
+     */
+    public static String runSource(final String declaredRunSource) {
+        return isSet(declaredRunSource) ? declaredRunSource.trim() : runSource();
     }
 
     /**

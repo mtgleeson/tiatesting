@@ -65,7 +65,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
                     getTiaDBDialect(), isTiaCheckLocalChanges(), isTiaUpdateDBMapping());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
                     getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
-                    getTiaDistributedRunnerKey());
+                    getTiaDistributedRunnerKey(), getTiaRunSource());
         } catch (IllegalStateException | IllegalArgumentException e) {
             throw new MojoExecutionException("Distributed run configuration is invalid: "
                     + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);

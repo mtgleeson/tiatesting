@@ -902,6 +902,17 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
     }
 
     /**
+     * The run source label declared on the project's {@code tia} extension, which the {@code
+     * tia-dist-plan} task records on the distributed run row so the sealed build's history row
+     * carries it whichever runner seals.
+     *
+     * @return the declared run source, or {@code null} to let the planner detect it
+     */
+    public String getRunSource() {
+        return tiaTaskExtension.getRunSource();
+    }
+
+    /**
      * Resolve the directory the {@code tia-dist-plan} task writes {@code tia-run-plan.json} under.
      * Defaults to {@code <project build dir>/tia} - the Gradle analog of the Maven goal's {@code
      * tiaBuildDir} default of {@code ${project.build.directory}/tia} - but is overridable via the

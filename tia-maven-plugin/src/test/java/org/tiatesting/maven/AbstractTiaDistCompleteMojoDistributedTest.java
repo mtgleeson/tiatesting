@@ -101,7 +101,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
         try (DataStore dataStore = openStore()) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                     DistributedRun.open(runId, BRANCH, PLAN_COMMIT, groupCount, groupCount, null,
-                            1000L * groupCount, 1234L, false), groups, suites, null));
+                            1000L * groupCount, 1234L, false, null), groups, suites, null));
         }
     }
 

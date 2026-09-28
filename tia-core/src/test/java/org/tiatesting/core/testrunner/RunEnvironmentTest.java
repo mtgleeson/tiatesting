@@ -172,12 +172,78 @@ class RunEnvironmentTest {
         // nothing to arrange - reads this JVM's real environment
 
         // when
-        RunOrigin origin = RunEnvironment.distributedRunOrigin();
+        RunOrigin origin = RunEnvironment.distributedRunOrigin(null);
 
         // then
         assertEquals(null, origin.getHostName(),
                 "a distributed build must not be attributed to a single host");
         assertNotNull(origin.getRunSource(), "the run source still applies to a distributed build");
+    }
+
+    /**
+     * The seal runs in whichever runner's test JVM finishes last, often a container that cannot see
+     * the CI marker variables, so the source the plan step recorded must win over the sealing JVM's
+     * own detection.
+     */
+    @Test
+    void aDistributedRunOriginUsesThePlannedRunSource() {
+        // given - a label neither detection outcome could produce, so the assertion cannot pass by
+        // accident whatever environment this test runs in
+        String plannedRunSource = " NIGHTLY ";
+
+        // when
+        RunOrigin origin = RunEnvironment.distributedRunOrigin(plannedRunSource);
+
+        // then
+        assertEquals("NIGHTLY", origin.getRunSource());
+        assertEquals(null, origin.getHostName());
+    }
+
+    /**
+     * A run planned before the source was recorded reads back null, and a blank value is no label
+     * either; both must fall back to the sealing JVM's own detection rather than record nothing.
+     */
+    @Test
+    void aDistributedRunOriginFallsBackToDetectionWithoutAPlannedRunSource() {
+        // given
+        String blankPlannedRunSource = "   ";
+
+        // when
+        RunOrigin origin = RunEnvironment.distributedRunOrigin(blankPlannedRunSource);
+
+        // then
+        assertEquals(RunEnvironment.runSource(), origin.getRunSource());
+    }
+
+    /**
+     * The plan step reads {@code tiaRunSource} from the build's configuration, so a declared label
+     * must win over this JVM's detection, trimmed like every other override.
+     */
+    @Test
+    void aDeclaredRunSourceWinsOverDetection() {
+        // given
+        String declaredRunSource = " NIGHTLY ";
+
+        // when
+        String runSource = RunEnvironment.runSource(declaredRunSource);
+
+        // then
+        assertEquals("NIGHTLY", runSource);
+    }
+
+    /**
+     * With nothing declared the plan step detects the source exactly as any other step would.
+     */
+    @Test
+    void anUndeclaredRunSourceFallsBackToDetection() {
+        // given
+        String declaredRunSource = null;
+
+        // when
+        String runSource = RunEnvironment.runSource(declaredRunSource);
+
+        // then
+        assertEquals(RunEnvironment.runSource(), runSource);
     }
 
     @Test

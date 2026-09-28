@@ -20,6 +20,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 
@@ -235,8 +236,8 @@ class DistributedRunSealerStatsHistoryTest {
         // given - a 60s baseline, and a build that used 1 of 6 available groups for 2s
         seedAllTestsBaseline(60_000L);
         seedTrackedSuites(8, 0);
-        persistPlanWithGroupsAvailable(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)), 6,
-                false);
+        persistPlanWithRunDetails(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)), 6,
+                false, null);
         completeGroup(RUN_ID, 0, RUNNER_A, 2_000L, 1, 0);
 
         // when
@@ -249,6 +250,51 @@ class DistributedRunSealerStatsHistoryTest {
         assertEquals(58_000L, entry.getTimeSavingsMs(), "serial savings: 60s - 2s");
         assertEquals(8_000L, entry.getWallClockSavingsMs(), "wall-clock savings: 60s / 6 - 2s");
         assertEquals(80, entry.getWallClockSavingsPercent(), "8s of the 10s spread baseline");
+    }
+
+    /**
+     * The build's history row carries the run source the plan step recorded, not the one the
+     * sealing runner's JVM would detect. The seal runs wherever the last group finished - often a
+     * container that inherits none of the CI system's marker variables and would label a CI build
+     * LOCAL - while the plan step runs on the CI agent itself.
+     */
+    @Test
+    void theHistoryRowCarriesTheRunSourceThePlanRecorded() {
+        // given - a label neither detection outcome could produce
+        seedTrackedSuites(1, 0);
+        persistPlanWithRunDetails(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)), 1,
+                false, "NIGHTLY");
+        completeGroup(RUN_ID, 0, RUNNER_A, 2_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals("NIGHTLY", entry.getRunOrigin().getRunSource(),
+                "the planned run source must win over the sealing JVM's own detection");
+        assertNull(entry.getRunOrigin().getHostName(),
+                "a distributed build must not be attributed to the sealing host");
+    }
+
+    /**
+     * A run planned before the source was recorded has none on its row, and its history row falls
+     * back to the sealing JVM's own detection - the behaviour before the plan recorded it.
+     */
+    @Test
+    void theHistoryRowFallsBackToDetectionWhenThePlanRecordedNoRunSource() {
+        // given
+        seedTrackedSuites(1, 0);
+        persistPlanWithRunDetails(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)), 1,
+                false, null);
+        completeGroup(RUN_ID, 0, RUNNER_A, 2_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        TestRunHistoryEntry entry = dataStore.readTestRunHistory().get(0);
+        assertEquals(RunEnvironment.runSource(), entry.getRunOrigin().getRunSource());
     }
 
     /**
@@ -945,23 +991,26 @@ class DistributedRunSealerStatsHistoryTest {
      */
     private void persistPlanOfKind(final String runId, final List<List<String>> suitesByGroup,
                                    final boolean seedRun) {
-        persistPlanWithGroupsAvailable(runId, suitesByGroup, suitesByGroup.size(), seedRun);
+        persistPlanWithRunDetails(runId, suitesByGroup, suitesByGroup.size(), seedRun, null);
     }
 
     /**
      * Build and persist a distributed run plan whose groups are assigned the given suite names,
      * recording how many groups the build had available - which the wall-clock savings spread the
-     * baseline across - and whether the planner produced it as a seed run.
+     * baseline across - whether the planner produced it as a seed run, and the run source the plan
+     * step recorded.
      *
      * @param runId the run identifier to plan under
      * @param suitesByGroup the suite names to assign, one list per group, in group-number order
      * @param groupsAvailable the groups the run row records as available, at least the number of
      *                        groups in {@code suitesByGroup}
      * @param seedRun whether the run row records this plan as a seed run
+     * @param runSource the run source the run row records, or null for none
      */
-    private void persistPlanWithGroupsAvailable(final String runId,
-                                                final List<List<String>> suitesByGroup,
-                                                final int groupsAvailable, final boolean seedRun) {
+    private void persistPlanWithRunDetails(final String runId,
+                                           final List<List<String>> suitesByGroup,
+                                           final int groupsAvailable, final boolean seedRun,
+                                           final String runSource) {
         int groupCount = suitesByGroup.size();
         List<DistributedRunGroup> groups = new ArrayList<>();
         Map<Integer, List<String>> suites = new HashMap<>();
@@ -971,7 +1020,8 @@ class DistributedRunSealerStatsHistoryTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupsAvailable, null,
-                        1000L * groupCount, PLANNED_AT_MS, seedRun), groups, suites, null));
+                        1000L * groupCount, PLANNED_AT_MS, seedRun, runSource), groups, suites,
+                null));
     }
 
     /**
