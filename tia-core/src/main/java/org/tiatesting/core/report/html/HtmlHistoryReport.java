@@ -4,7 +4,6 @@ import j2html.rendering.FlatHtml;
 import j2html.tags.DomContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.ReportUtils;
@@ -24,11 +23,11 @@ import static j2html.TagCreator.each;
 import static j2html.TagCreator.html;
 import static j2html.TagCreator.main;
 import static j2html.TagCreator.rawHtml;
+import static j2html.TagCreator.script;
 import static j2html.TagCreator.span;
 import static j2html.TagCreator.table;
 import static j2html.TagCreator.tbody;
 import static j2html.TagCreator.td;
-import static j2html.TagCreator.text;
 import static j2html.TagCreator.th;
 import static j2html.TagCreator.thead;
 import static j2html.TagCreator.tr;
@@ -38,6 +37,7 @@ import static j2html.TagCreator.tr;
  * {@code tia_test_run_history}. Each row's timestamp is emitted as an HTML5 {@code <time>}
  * element carrying the UTC epoch ms in a {@code data-epoch-ms} attribute; the page-level
  * inline script swaps the displayed text for the viewer's local-time rendering on load.
+ * Every row is clickable and opens that run's detail page, {@code history/<id>.html}.
  *
  * <p>The page is a one-level-deep sibling of the other report pages (e.g. {@code test-suites/},
  * {@code libraries/}), at {@code history/tia-history.html}.
@@ -51,6 +51,10 @@ public class HtmlHistoryReport {
     private static final String ASSETS_REL = "../" + HtmlAssetCopier.ASSETS_DIR_NAME;
     /** Path back to the report root from a one-level-deep page. */
     private static final String ROOT_REL = "../";
+    /** Class on the history table marking its body rows as click-through links. */
+    private static final String CLICKABLE_ROWS_CLASS = "tia-clickable-rows";
+    /** Class on the per-row anchor the row click handler follows. */
+    private static final String ROW_LINK_CLASS = "tia-row-link";
 
     private final File reportOutputDir;
 
@@ -97,9 +101,6 @@ public class HtmlHistoryReport {
         // The Groups column only earns its place when the history has a distributed build in it;
         // otherwise every row would dash it.
         final boolean showDistributed = anyDistributed(history);
-        // Same rule for the run-origin pair: a history recorded entirely before those columns
-        // existed renders neither rather than dashing both on every row.
-        final boolean showHost = anyHost(history);
 
         try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             html(
@@ -114,9 +115,9 @@ public class HtmlHistoryReport {
                                     ),
                                     HtmlLayout.pageHeading(HtmlLayout.ICON_HISTORY, "Test Run History"),
                                     HtmlHistoryTimeline.render(history),
-                                    table(attrs("#tiaTable"),
-                                            thead(buildHeaderRow(numberDataType, showDistributed, showHost)),
-                                            tbody(each(history, entry -> buildRow(entry, showDistributed, showHost)))
+                                    table(attrs("#tiaTable." + CLICKABLE_ROWS_CLASS),
+                                            thead(buildHeaderRow(numberDataType, showDistributed)),
+                                            tbody(each(history, entry -> buildRow(entry, showDistributed)))
                                     )
                             ),
                             HtmlLayout.pageFooter(),
@@ -125,7 +126,8 @@ public class HtmlHistoryReport {
                             // simple-datatables rebuilds the DOM with the raw ISO fallback and
                             // the <time> elements no longer exist for the localizer to swap.
                             HtmlLayout.localTimeRenderingScript(),
-                            HtmlLayout.simpleDatatablesInit("#tiaTable", ASSETS_REL, 0, "desc")
+                            HtmlLayout.simpleDatatablesInit("#tiaTable", ASSETS_REL, 0, "desc"),
+                            rowClickScript()
                     )
             ).render(FlatHtml.into(writer, FastTextEscaper.reportConfig())).flush();
         } catch (IOException e) {
@@ -155,43 +157,25 @@ public class HtmlHistoryReport {
     }
 
     /**
-     * Report whether any row names the machine that ran it, which decides whether the Host column
-     * is rendered at all. A distributed build spans several machines and names none, so a history
-     * made up entirely of distributed builds would otherwise carry a column of dashes. The Source
-     * column needs no such gate - every recorded run resolves a source.
-     *
-     * @param history the history rows about to be rendered; may be null
-     * @return true when at least one row carries a host
-     */
-    private boolean anyHost(List<TestRunHistoryEntry> history) {
-        if (history == null) {
-            return false;
-        }
-        for (TestRunHistoryEntry entry : history) {
-            if (entry.getRunOrigin().getHostName() != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Build the table's header row for the layout in use. Every time on the table is wall-clock
      * time - how long the run took end to end, and how much end-to-end time Tia saved it - so the
      * table reads the same for single-host and distributed runs. The serial duration and serial
      * savings live on each run's detail page. See the "Test-run history log" chapter in {@code
-     * WIKI.md}.
+     * WIKI.md}. The table is kept narrow enough to fit the page without scrolling sideways, so
+     * the run's branch (the same on every row of a branch-scoped history) and host are left to its
+     * detail page.
      *
      * @param numberDataType the {@code data-type} attribute simple-datatables sorts numerically by
      * @param showDistributed whether the Groups column is being rendered
-     * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} of header cells
      */
-    private DomContent buildHeaderRow(String numberDataType, boolean showDistributed,
-                                      boolean showHost) {
+    private DomContent buildHeaderRow(String numberDataType, boolean showDistributed) {
         List<DomContent> cells = new ArrayList<>();
-        cells.add(th("Date / time (local)").attr(numberDataType));
-        cells.add(th("Branch"));
+        // "html" rather than "number": simple-datatables renders only an html column's cell markup
+        // and reduces every other type to text, which would strip the row link out of this cell.
+        // An html column sorts its data-order as a string, which still orders correctly because
+        // epoch ms values stay 13 digits long (years 2001 to 2286).
+        cells.add(th("Date / time (local)").attr("data-type=\"html\""));
         cells.add(th("Commit"));
         cells.add(th("Suites ran").attr(numberDataType));
         cells.add(th("Ignored").attr(numberDataType));
@@ -203,11 +187,10 @@ public class HtmlHistoryReport {
         cells.add(th("Savings").attr(numberDataType));
         cells.add(th("Savings %").attr(numberDataType));
         cells.add(th("Source").withStyle("width: 6em"));
-        if (showHost) {
-            cells.add(th("Host"));
-        }
-        cells.add(th("Updated Mapping?").withStyle("width: 8em"));
-        cells.add(th("Id"));
+        // Short label for the yes/no "did this run update the test mapping" column; the full
+        // question is the hover title, set on a span because simple-datatables drops the th's own
+        // attributes when it rebuilds the header.
+        cells.add(th(span("Mapping").attr("title", "Did this run update the test mapping?")));
         return tr(cells.toArray(new DomContent[0]));
     }
 
@@ -225,24 +208,30 @@ public class HtmlHistoryReport {
      *
      * @param entry the history entry to render as a row
      * @param showDistributed whether the Groups column is being rendered
-     * @param showHost whether the host column is being rendered
      * @return the {@code <tr>} content for this entry
      */
-    private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed,
-                                boolean showHost) {
+    private DomContent buildRow(TestRunHistoryEntry entry, boolean showDistributed) {
         long ms = entry.getRunTimestampMs();
         // Fallback text shown only when the localizer script doesn't run (JS disabled). Truncate
-        // to whole seconds and drop the UTC 'Z' so the displayed text matches the no-ms /
-        // no-tz formatting rule even in that edge case.
+        // to whole minutes and drop the UTC 'Z' so the displayed text matches the table's
+        // no-seconds / no-tz formatting rule even in that edge case.
         String fallback = Instant.ofEpochMilli(ms)
                 .atOffset(ZoneOffset.UTC)
                 .toLocalDateTime()
+                .withSecond(0)
                 .withNano(0)
                 .toString();
         List<DomContent> cells = new ArrayList<>();
-        cells.add(td(rawHtml("<time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>"))
+        // The anchor to the sibling detail page history/<id>.html (generated by
+        // HtmlHistoryDetailReport for every history entry) lives inside the cell so it survives
+        // simple-datatables re-rendering the row chrome on sort/page changes; the row click
+        // handler follows it, and it keeps the row reachable by keyboard and middle-click.
+        // data-no-seconds keeps the column narrow; the detail page shows the full time.
+        cells.add(td(a(rawHtml("<time data-epoch-ms=\"" + ms + "\" " + HtmlLayout.NO_SECONDS_ATTR
+                + ">" + fallback + "</time>"))
+                .withClass(ROW_LINK_CLASS)
+                .withHref(entry.getId() == null ? "#" : entry.getId() + ".html"))
                 .attr("data-order", String.valueOf(ms)));
-        cells.add(td(text(entry.getBranch() == null ? "" : entry.getBranch())));
         // title on a span inside the td so the tooltip survives simple-datatables
         // re-rendering the row chrome on sort/page changes.
         cells.add(td(span(firstEightChars(entry.getCommit()))
@@ -262,26 +251,40 @@ public class HtmlHistoryReport {
                 .attr("data-order", String.valueOf(savingsMs)));
         cells.add(td(savingsMs > 0 ? entry.getWallClockSavingsPercent() + "%" : "-")
                 .attr("data-order", String.valueOf(entry.getWallClockSavingsPercent())));
-        RunOrigin origin = entry.getRunOrigin();
-        cells.add(td(origin.getRunSource()));
-        if (showHost) {
-            // Dashed rather than blank so a distributed build's absent host reads as "no single
-            // machine" rather than as a rendering slip, and sorts those rows together.
-            cells.add(td(origin.getHostName() == null ? "-" : origin.getHostName()));
-        }
+        cells.add(td(entry.getRunOrigin().getRunSource()));
         cells.add(td(entry.isUpdatedDbMapping() ? "yes" : "no"));
-        // Linked to the sibling detail page history/<id>.html, generated by HtmlHistoryDetailReport
-        // for every history entry. Title on the anchor itself (the td's only child) so the tooltip
-        // survives simple-datatables re-rendering the row chrome on sort/page changes.
-        cells.add(td(a(text(firstEightChars(entry.getId())))
-                .withHref(entry.getId() == null ? "#" : entry.getId() + ".html")
-                .attr("title", entry.getId() == null ? "" : entry.getId())));
         return tr(cells.toArray(new DomContent[0]));
     }
 
     /**
-     * First 8 characters of a value, used to keep wide identifier columns (entry id, commit
-     * hash) compact in the table. The full value lives on the cell's hover {@code title}.
+     * Inline script that makes each history table row open its run's detail page when clicked
+     * anywhere. The handler is delegated from the table element, which simple-datatables keeps
+     * across sort/search/page re-renders, and follows the row's {@link #ROW_LINK_CLASS} anchor so
+     * the link target has a single source. Clicks on the anchor itself are left to the browser,
+     * a ctrl/cmd-click opens a new tab like a native link, and a click that ends a text selection
+     * is ignored so cell text can still be selected and copied.
+     *
+     * @return a script tag wiring the row click handler onto the history table
+     */
+    private static DomContent rowClickScript() {
+        return script(rawHtml("(function () {\n" +
+                "  var table = document.querySelector('table." + CLICKABLE_ROWS_CLASS + "');\n" +
+                "  if (!table) { return; }\n" +
+                "  table.addEventListener('click', function (e) {\n" +
+                "    if (e.target.closest('a')) { return; }\n" +
+                "    if (String(window.getSelection())) { return; }\n" +
+                "    var row = e.target.closest('tbody tr');\n" +
+                "    var link = row && row.querySelector('a." + ROW_LINK_CLASS + "');\n" +
+                "    if (!link) { return; }\n" +
+                "    if (e.ctrlKey || e.metaKey) { window.open(link.href, '_blank'); }\n" +
+                "    else { window.location.href = link.href; }\n" +
+                "  });\n" +
+                "})();"));
+    }
+
+    /**
+     * First 8 characters of a value, used to keep the wide commit hash column compact in the
+     * table. The full value lives on the cell's hover {@code title}.
      *
      * @param value the source value; may be {@code null} defensively
      * @return the first 8 characters of {@code value}, or the whole value if shorter, or

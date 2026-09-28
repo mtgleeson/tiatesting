@@ -73,7 +73,8 @@ class TestRunHistoryDetailConsoleFormatterTest {
 
     /**
      * A distributed run's summary shows both its times, both its savings and the groups it used
-     * against the groups it had available.
+     * against the groups it had available, plus its source with a dashed host - it ran on several
+     * machines and names none.
      */
     @Test
     void format_distributedRun_rendersBothTimesBothSavingsAndTheGroups() {
@@ -93,10 +94,13 @@ class TestRunHistoryDetailConsoleFormatterTest {
         assertTrue(output.contains("Groups available:    6" + LF), output);
         assertTrue(output.contains("Wall-clock savings:  8s (80%)" + LF), output);
         assertTrue(output.contains("Serial savings:      58s (97%)" + LF), output);
+        assertTrue(output.contains("Source:              " + RunOrigin.SOURCE_CI + LF), output);
+        assertTrue(output.contains("Host:                -" + LF), output);
     }
 
     /**
-     * A single-host run's two savings are the same figure, and it has no groups to show.
+     * A single-host run's two savings are the same figure, it has no groups to show, and it names
+     * its source and the machine that ran it (the history table leaves the host out).
      */
     @Test
     void format_singleHostRun_rendersEqualSavingsAndDashedGroups() {
@@ -115,6 +119,8 @@ class TestRunHistoryDetailConsoleFormatterTest {
         assertTrue(output.contains("Groups available:    -" + LF), output);
         assertTrue(output.contains("Wall-clock savings:  4s (25%)" + LF), output);
         assertTrue(output.contains("Serial savings:      4s (25%)" + LF), output);
+        assertTrue(output.contains("Source:              " + RunOrigin.SOURCE_LOCAL + LF), output);
+        assertTrue(output.contains("Host:                laptop" + LF), output);
     }
 
     /**

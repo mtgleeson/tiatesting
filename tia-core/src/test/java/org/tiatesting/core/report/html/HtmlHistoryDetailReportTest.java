@@ -71,7 +71,8 @@ class HtmlHistoryDetailReportTest {
 
     /**
      * A distributed run's summary shows both its times, both its savings and the groups it used
-     * against the groups it had available.
+     * against the groups it had available, plus its source with a dashed host - it ran on several
+     * machines and names none.
      *
      * @param tempDir JUnit-supplied directory the report is written into
      * @throws Exception if the page cannot be written or read back
@@ -96,10 +97,14 @@ class HtmlHistoryDetailReportTest {
                 "should show the wall-clock savings. Output:\n" + html);
         assertTrue(html.contains("Serial savings: 58s (97%)"),
                 "should show the serial savings. Output:\n" + html);
+        assertTrue(html.contains("Source: " + RunOrigin.SOURCE_CI), "should show the source. Output:\n" + html);
+        assertTrue(html.contains("Host: -"), "a distributed run names no host. Output:\n" + html);
     }
 
     /**
-     * A single-host run's two savings are the same figure, and it has no groups to show.
+     * A single-host run's two savings are the same figure, it has no groups to show, and its
+     * summary names its source and the machine that ran it (the History table leaves the host
+     * out).
      *
      * @param tempDir JUnit-supplied directory the report is written into
      * @throws Exception if the page cannot be written or read back
@@ -121,6 +126,8 @@ class HtmlHistoryDetailReportTest {
         assertTrue(html.contains("Groups available: -"), "no groups on a single host. Output:\n" + html);
         assertTrue(html.contains("Wall-clock savings: 4s (25%)"), "Output:\n" + html);
         assertTrue(html.contains("Serial savings: 4s (25%)"), "Output:\n" + html);
+        assertTrue(html.contains("Source: " + RunOrigin.SOURCE_LOCAL), "should show the source. Output:\n" + html);
+        assertTrue(html.contains("Host: laptop"), "should show the host. Output:\n" + html);
     }
 
     /**
