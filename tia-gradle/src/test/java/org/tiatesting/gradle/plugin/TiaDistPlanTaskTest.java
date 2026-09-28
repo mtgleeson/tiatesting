@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -196,6 +197,26 @@ class TiaDistPlanTaskTest {
         // then it fails with the missing-runId validation message
         GradleException e = assertThrows(GradleException.class, task::run);
         assertTrue(e.getMessage().contains("tiaRunId"));
+    }
+
+    /**
+     * Verify that the run source declared on the project's {@code tia} extension is what the
+     * plugin hands the {@code tia-dist-plan} task, which records it on the distributed run row so
+     * the sealed build's history row carries it whichever runner seals.
+     */
+    @Test
+    void pluginExposesTheDeclaredRunSourceToThePlanTask(@TempDir File projectDir) {
+        // given a project declaring a run source on its tia extension
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        TestPlugin plugin = project.getPlugins().apply(TestPlugin.class);
+        TiaBaseTaskExtension ext = project.getExtensions().getByType(TiaBaseTaskExtension.class);
+        ext.setRunSource("CI");
+
+        // when the plugin is asked for the run source
+        String runSource = plugin.getRunSource();
+
+        // then it is the declared value
+        assertEquals("CI", runSource);
     }
 
     /**

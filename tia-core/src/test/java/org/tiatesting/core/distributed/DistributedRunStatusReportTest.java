@@ -639,7 +639,7 @@ class DistributedRunStatusReportTest {
         TestSelectorResult nothingSelected = new TestSelectorResult(Collections.<String>emptySet(),
                 Collections.<String>emptySet(), null, 0L, Collections.<String>emptySet(), 0L,
                 new HashMap<String, Long>(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
-        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null))
+        new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null, null))
                 .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
                         () -> Collections.<String>emptySet());
     }

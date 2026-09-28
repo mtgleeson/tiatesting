@@ -638,7 +638,9 @@ planned), since the sealer never sees the configuration. See "Wall-clock savings
 [test-run history log](test-run-history.md) chapter.
 
 The row is stamped with the time the run was *planned*, since that is the one timestamp every runner
-in the build shares. See the [test-run history log](test-run-history.md) chapter for the table
+in the build shares. Its `run_source` is likewise the one the plan step recorded on the run row, not
+one the sealing runner detects - see "Run origin" in the [test-run history log](test-run-history.md)
+chapter. See the [test-run history log](test-run-history.md) chapter for the table
 itself, which shows the wall clock and wall-clock savings; the serial duration and savings are on
 each run's detail page.
 
