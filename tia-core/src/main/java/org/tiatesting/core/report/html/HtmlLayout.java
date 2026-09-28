@@ -214,27 +214,39 @@ final class HtmlLayout {
     }
 
     /**
+     * Attribute a {@code <time data-epoch-ms="…">} element carries to have
+     * {@link #localTimeRenderingScript()} render it to the minute, without seconds.
+     */
+    static final String NO_SECONDS_ATTR = "data-no-seconds";
+
+    /**
      * Inline script that swaps every {@code <time data-epoch-ms="…">} element's text for the
-     * viewer's local-time rendering via {@code Date.toLocaleString()}. Pages that emit
-     * UTC-stored timestamps (e.g. the History page) include this once so the audience sees
-     * times in their own timezone.
+     * viewer's local-time rendering. Pages that emit UTC-stored timestamps (e.g. the History
+     * page) include this once so the audience sees times in their own timezone. The date and time
+     * are joined by a single space rather than the locale's separator (a comma in many locales),
+     * and an element carrying {@link #NO_SECONDS_ATTR} is rendered to the minute.
      *
-     * @return a script tag that runs once on {@code DOMContentLoaded}
+     * @return a script tag that runs once, synchronously, where it is placed
      */
     static DomContent localTimeRenderingScript() {
         // Run synchronously at the position the script tag appears (placed before any datatable
         // init so the localized text becomes the table's authoritative cell content). Explicit
-        // options pin the format to {date, hour, minute, second} in the viewer's locale and
-        // timezone — no milliseconds, no timezone abbreviation. A DOMContentLoaded wrapper
+        // options pin the format to {date, hour, minute[, second]} in the viewer's locale and
+        // timezone - no milliseconds, no timezone abbreviation. A DOMContentLoaded wrapper
         // would defer until after simple-datatables has already captured the original cells,
         // so we deliberately don't use one.
         return script(rawHtml(
                 "(function () {\n" +
-                "  var opts = { year: 'numeric', month: '2-digit', day: '2-digit',\n" +
-                "               hour: '2-digit', minute: '2-digit', second: '2-digit' };\n" +
+                "  var dateOpts = { year: 'numeric', month: '2-digit', day: '2-digit' };\n" +
+                "  var timeOpts = { hour: '2-digit', minute: '2-digit', second: '2-digit' };\n" +
+                "  var minuteOpts = { hour: '2-digit', minute: '2-digit' };\n" +
                 "  document.querySelectorAll('time[data-epoch-ms]').forEach(function (el) {\n" +
                 "    var ms = Number(el.getAttribute('data-epoch-ms'));\n" +
-                "    if (!isNaN(ms)) { el.textContent = new Date(ms).toLocaleString(undefined, opts); }\n" +
+                "    if (isNaN(ms)) { return; }\n" +
+                "    var d = new Date(ms);\n" +
+                "    var t = el.hasAttribute('" + NO_SECONDS_ATTR + "') ? minuteOpts : timeOpts;\n" +
+                "    el.textContent = d.toLocaleDateString(undefined, dateOpts) + ' '\n" +
+                "        + d.toLocaleTimeString(undefined, t);\n" +
                 "  });\n" +
                 "})();"));
     }

@@ -19,13 +19,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Verifies {@link TestRunHistoryConsoleFormatter#formatHistory(List, int, String)}. Covers the
  * empty-history sentinel, header wording for the {@code limit} / total combinations, 8-char
- * commit + id truncation, dynamic column widths, and the duration / mapping cell renderings.
+ * commit + id truncation, dynamic column widths, the duration / mapping cell renderings, and the
+ * columns the table leaves to the detail view (branch and host).
  */
 class TestRunHistoryConsoleFormatterTest {
 
     private static final String LF = "\n";
     private static final DateTimeFormatter LOCAL_DATE_TIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
      * An empty history list should render the explicit sentinel message and skip the table -
@@ -68,7 +69,7 @@ class TestRunHistoryConsoleFormatterTest {
         assertEquals("", lines[1], "second line should be blank");
         assertTrue(lines[2].startsWith("Date/time"), "column header missing: " + lines[2]);
         assertTrue(lines[3].startsWith("---"), "separator line missing: " + lines[3]);
-        assertTrue(lines[4].contains("main"), "data row missing branch: " + lines[4]);
+        assertTrue(lines[4].contains("abc123de"), "data row missing commit: " + lines[4]);
     }
 
     /**
@@ -145,33 +146,50 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * The Branch column should widen to match the longest branch value present - dynamic-width
-     * is the difference between a readable table and one that either wraps or has huge gaps.
+     * A column should widen to match the longest value present - dynamic-width is the difference
+     * between a readable table and one that either wraps or has huge gaps. Exercised on the
+     * Savings column, whose values can be longer than its header.
      */
     @Test
-    void branchColumn_widthAdaptsToLongestValue() {
-        // given
-        String longBranch = "feature/very-long-branch-name-here";
-        TestRunHistoryEntry shortBranchEntry = entry(2026, 5, 15, 9, 30, 42, "main",
-                "abc", "id1", 1, 0, 0, 1000L, true);
-        TestRunHistoryEntry longBranchEntry = entry(2026, 5, 14, 9, 30, 42, longBranch,
-                "abc", "id2", 1, 0, 0, 1000L, true);
+    void savingsColumn_widthAdaptsToLongestValue() {
+        // given - 1h 23m 20s of savings, longer than the "Savings" header
+        TestRunHistoryEntry longSavings = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
+                8, 2, 0, 1000L, true, 5_000_000L, 80, 5_000_000L, 80, null, null, null, null,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
-                Arrays.asList(shortBranchEntry, longBranchEntry), 20, LF);
+                Collections.singletonList(longSavings), 20, LF);
 
-        // then - the header line's Branch label should be left-padded with enough trailing
-        // spaces that the column widens to match the long branch value.
-        String[] lines = output.split(LF, -1);
-        String columnHeader = lines[2];
-        int extraPadding = longBranch.length() - "Branch".length();
-        StringBuilder expectedPadding = new StringBuilder("Branch");
-        for (int i = 0; i < extraPadding; i++) {
+        // then - the header's Savings label is padded out to the width of the long value
+        String longValue = "1h 23m 20s";
+        String columnHeader = output.split(LF, -1)[2];
+        StringBuilder expectedPadding = new StringBuilder("Savings");
+        for (int i = 0; i < longValue.length() - "Savings".length(); i++) {
             expectedPadding.append(' ');
         }
-        assertTrue(columnHeader.contains(expectedPadding.toString()),
-                "Branch column should have widened to match the long branch. Header line:\n" + columnHeader);
+        assertTrue(output.contains(longValue), "Savings value missing. Output:\n" + output);
+        assertTrue(columnHeader.contains(expectedPadding.toString() + "  "),
+                "Savings column should have widened to match the long value. Header line:\n" + columnHeader);
+    }
+
+    /**
+     * The branch is not a table column: a history is scoped to one branch, so it would repeat the
+     * same value on every row. It is on the detail view.
+     */
+    @Test
+    void branch_isNotAColumn() {
+        // given
+        TestRunHistoryEntry entry = entry(2026, 5, 15, 9, 30, 42, "feature/some-branch",
+                "abc", "id1", 1, 0, 0, 1000L, true);
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Collections.singletonList(entry), 20, LF);
+
+        // then
+        assertFalse(output.contains("Branch"), output);
+        assertFalse(output.contains("feature/some-branch"), output);
     }
 
     /**
@@ -234,8 +252,8 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * Date/time should be rendered in the JVM's local time zone so users see times that match
-     * their wall clock. Asserted by computing the expected local-time string and checking the
+     * Date/time should be rendered to the minute in the JVM's local time zone so users see times
+     * that match their wall clock. Asserted by computing the expected local-time string and checking the
      * output contains it.
      */
     @Test
@@ -255,6 +273,10 @@ class TestRunHistoryConsoleFormatterTest {
         // then
         assertTrue(output.contains(expectedLocal),
                 "Expected local-time string '" + expectedLocal + "' in output:\n" + output);
+        String withSeconds = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        assertFalse(output.contains(withSeconds),
+                "The table renders to the minute; the seconds are on the detail view. Output:\n" + output);
     }
 
     /**
@@ -366,31 +388,11 @@ class TestRunHistoryConsoleFormatterTest {
     }
 
     /**
-     * Source is always rendered - every recorded run resolves one - but a history where no row
-     * names a machine drops Host. The table is already wide; a column that is a dash on every row
-     * costs width while telling the reader nothing.
+     * Source is always rendered - every recorded run resolves one - but the host never is, even
+     * when the row names one: it is on the detail view, which keeps the table narrow.
      */
     @Test
-    void aHistoryWhereNoRowNamesAHost_dropsOnlyTheHostColumn() {
-        // given
-        TestRunHistoryEntry entry = entry(2026, 5, 15, 9, 30, 42, "main", "abc123", "id-1",
-                42, 3, 1, 83_000L, true);
-
-        // when
-        String output = TestRunHistoryConsoleFormatter.formatHistory(
-                Collections.singletonList(entry), 20, LF);
-
-        // then
-        assertTrue(output.contains("Source"), output);
-        assertTrue(output.contains(RunOrigin.SOURCE_LOCAL), output);
-        assertFalse(output.contains("Host"), output);
-    }
-
-    /**
-     * Once any row knows where it came from, both columns appear and carry that row's values.
-     */
-    @Test
-    void historyWithARecordedOrigin_rendersTheSourceAndHost() {
+    void aRecordedOrigin_rendersTheSourceButNotTheHost() {
         // given
         TestRunHistoryEntry entry = entryWithOrigin(
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"));
@@ -401,14 +403,13 @@ class TestRunHistoryConsoleFormatterTest {
 
         // then
         assertTrue(output.contains("Source"), output);
-        assertTrue(output.contains("Host"), output);
         assertTrue(output.contains(RunOrigin.SOURCE_LOCAL), output);
-        assertTrue(output.contains("dev-laptop-7"), output);
+        assertFalse(output.contains("Host"), output);
+        assertFalse(output.contains("dev-laptop-7"), output);
     }
 
     /**
-     * A distributed build records a source but no host. The source still renders: gating it on the
-     * host would hide it entirely on a history made up of distributed builds.
+     * A distributed build records a source but no host. The source still renders.
      */
     @Test
     void aDistributedRunStillRendersItsSource() {
@@ -422,81 +423,6 @@ class TestRunHistoryConsoleFormatterTest {
         // then
         assertTrue(output.contains("Source"), output);
         assertTrue(output.contains(RunOrigin.SOURCE_CI), output);
-    }
-
-    /**
-     * Once some row names a host the column appears, and a row with no host - a distributed build,
-     * which no single machine ran - is dashed rather than blank, the same treatment a single-host
-     * row gets in the distributed layout. Its source still renders.
-     */
-    @Test
-    void aHostlessRowIsDashedWhenOtherRowsNameAHost() {
-        // given
-        List<TestRunHistoryEntry> entries = Arrays.asList(
-                entryWithOrigin(RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3")),
-                entry(2026, 5, 15, 9, 30, 42, "main", "abc123", "id-dist",
-                        42, 3, 1, 83_000L, true));
-
-        // when
-        String output = TestRunHistoryConsoleFormatter.formatHistory(entries, 20, LF);
-
-        // then - read the cells by column position rather than searching the row for a dash, which
-        // the date and the savings cells would satisfy on their own.
-        assertEquals("-", cellOf(output, "Host", "id-dist"), output);
-        assertEquals(RunOrigin.SOURCE_LOCAL, cellOf(output, "Source", "id-dist"), output);
-        assertEquals(RunOrigin.SOURCE_CI, cellOf(output, "Source", "build-agent-3"), output);
-        assertEquals("build-agent-3", cellOf(output, "Host", "build-agent-3"), output);
-    }
-
-    /**
-     * Read one cell out of the rendered table, by locating the column with the given header and the
-     * row containing the given marker. Cells are padded to their column width and separated by two
-     * spaces, so splitting both lines on runs of two-or-more spaces yields parallel field arrays.
-     *
-     * @param output the rendered table
-     * @param header the header label of the column to read
-     * @param rowMarker a value unique to the row to read
-     * @return the cell's trimmed text
-     */
-    private static String cellOf(String output, String header, String rowMarker) {
-        String[] lines = output.split(LF, -1);
-        String[] headerFields = null;
-        String[] rowFields = null;
-        for (String line : lines) {
-            if (headerFields == null && line.contains("Date/time")) {
-                headerFields = line.trim().split("\\s{2,}");
-            } else if (line.contains(rowMarker) && !line.startsWith("-")) {
-                rowFields = line.trim().split("\\s{2,}");
-            }
-        }
-        assertTrue(headerFields != null, "no header row found in:\n" + output);
-        assertTrue(rowFields != null, "no row containing '" + rowMarker + "' in:\n" + output);
-        assertEquals(headerFields.length, rowFields.length,
-                "header and row column counts differ in:\n" + output);
-        for (int i = 0; i < headerFields.length; i++) {
-            if (headerFields[i].equals(header)) {
-                return rowFields[i];
-            }
-        }
-        throw new AssertionError("no '" + header + "' column in:\n" + output);
-    }
-
-    /**
-     * The host is rendered whole. Unlike a commit hash it is read to tell machines apart, and a
-     * fixed-width prefix of several agents in one naming scheme would collapse them into one.
-     */
-    @Test
-    void theHostIsNotTruncated() {
-        // given
-        String longHost = "build-agent-42.ci.internal.example.com";
-        TestRunHistoryEntry entry = entryWithOrigin(RunOrigin.of(RunOrigin.SOURCE_CI, longHost));
-
-        // when
-        String output = TestRunHistoryConsoleFormatter.formatHistory(
-                Collections.singletonList(entry), 20, LF);
-
-        // then
-        assertTrue(output.contains(longHost), output);
     }
 
     /**

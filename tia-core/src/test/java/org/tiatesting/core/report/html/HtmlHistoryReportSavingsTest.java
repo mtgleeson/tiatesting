@@ -84,15 +84,16 @@ class HtmlHistoryReportSavingsTest {
     }
 
     /**
-     * Verifies the Id column's cell is a link to the row's detail page - a sibling file in the
-     * same {@code history/} folder named after the entry's full id - rather than plain text, and
-     * that the full id is still available as the anchor's hover title.
+     * Verifies each row links to its detail page - a sibling file in the same {@code history/}
+     * folder named after the entry's full id - through a row-link anchor in the Date / time cell,
+     * that the table is marked clickable and wired to the row click script, and that the old Id
+     * column is gone.
      *
      * @param tempDir a JUnit-managed temp directory the report is written into
      */
     @Test
-    void historyPage_idCellLinksToItsDetailPage(@TempDir File tempDir) throws Exception {
-        // given a single history entry with a full id longer than the 8-char display truncation
+    void historyPage_rowLinksToItsDetailPage(@TempDir File tempDir) throws Exception {
+        // given a single history entry with a full id longer than the old 8-char display truncation
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("a-full-history-id-1234", 1_700_000_000_000L, "main", "abc", 8, 2, 0,
@@ -105,10 +106,29 @@ class HtmlHistoryReportSavingsTest {
                 + "history" + File.separator + "tia-history.html");
         String html = new String(Files.readAllBytes(page.toPath()));
 
-        // then the anchor href is the full id, not the truncated display text
-        assertTrue(html.contains("href=\"a-full-history-id-1234.html\""),
-                "Id cell should link to the sibling detail page by the entry's full id. Output:\n" + html);
-        assertTrue(html.contains("title=\"a-full-history-id-1234\""),
-                "Id cell should keep the full id as the hover title. Output:\n" + html);
+        // then the Date / time cell wraps the timestamp in a row link to the full-id detail page
+        assertTrue(html.contains("<a class=\"tia-row-link\" href=\"a-full-history-id-1234.html\"><time"),
+                "Date cell should link to the sibling detail page by the entry's full id. Output:\n" + html);
+        // and the timestamp is marked to render without seconds, with a to-the-minute fallback
+        assertTrue(html.contains("<time data-epoch-ms=\"1700000000000\" data-no-seconds>2023-11-14T22:13</time>"),
+                "Table timestamp should be rendered to the minute. Output:\n" + html);
+        // and the mapping column uses its short header with the full question as the hover title
+        assertTrue(html.contains("<th><span title=\"Did this run update the test mapping?\">Mapping</span></th>"),
+                "Mapping column should use the short header. Output:\n" + html);
+        // and the Date / time column is typed "html" - simple-datatables reduces every other
+        // column type to its text on render, which would strip the row link out
+        assertTrue(html.contains("<th data-type=\"html\">Date / time (local)</th>"),
+                "Date column should be typed html so its link survives. Output:\n" + html);
+        // and the table is marked clickable with the row click script wired to it
+        assertTrue(html.contains("class=\"tia-clickable-rows\""),
+                "History table should carry the clickable-rows class. Output:\n" + html);
+        assertTrue(html.contains("table.tia-clickable-rows"),
+                "Page should include the row click script. Output:\n" + html);
+        // and the Branch column is left to the detail page
+        assertFalse(html.contains("<th>Branch</th>"), "Branch header should be removed. Output:\n" + html);
+        // and the Id column is no longer rendered
+        assertFalse(html.contains("<th>Id</th>"), "Id header should be removed. Output:\n" + html);
+        assertFalse(html.contains("title=\"a-full-history-id-1234\""),
+                "No cell should carry the id as a hover title. Output:\n" + html);
     }
 }
