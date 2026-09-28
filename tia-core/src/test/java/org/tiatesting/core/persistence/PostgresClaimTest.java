@@ -123,7 +123,7 @@ class PostgresClaimTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groupCount, groupCount, null,
-                1000L * groupCount, 1234L, false);
+                1000L * groupCount, 1234L, false, null);
         postgresStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

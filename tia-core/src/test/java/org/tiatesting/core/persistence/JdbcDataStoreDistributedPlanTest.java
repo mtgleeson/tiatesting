@@ -154,7 +154,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, false);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, false, null);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -357,7 +357,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid seed-run plan, unsaved
      */
     private static DistributedRunPlan seedRunPlan(String runId) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, true);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, true, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Collections.<String>emptyList());
         return new DistributedRunPlan(run,
@@ -416,7 +416,7 @@ class JdbcDataStoreDistributedPlanTest {
     void shouldRoundTripTheGroupsAvailable() {
         // given
         DistributedRun run = DistributedRun.open("run-avail", "main", "commit-1", 1, 6, 60000L,
-                10L, 7L, false);
+                10L, 7L, false, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -429,6 +429,98 @@ class JdbcDataStoreDistributedPlanTest {
         // then
         assertEquals(1, read.getGroupCount());
         assertEquals(6, read.getGroupsAvailable());
+    }
+
+    /**
+     * Build a one-group plan whose run row carries the given run source.
+     *
+     * @param runId the run identifier to plan under
+     * @param runSource the run source to record on the run row, or null for none
+     * @return a valid plan, unsaved
+     */
+    private static DistributedRunPlan planWithRunSource(String runId, String runSource) {
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 10L, 7L,
+                false, runSource);
+        Map<Integer, List<String>> suites = new HashMap<>();
+        suites.put(0, Arrays.asList("com.example.ATest"));
+        return new DistributedRunPlan(run,
+                Arrays.asList(DistributedRunGroup.pending(runId, 0, 10L)), suites, null);
+    }
+
+    /**
+     * Verify that the run source the plan step resolved survives the round trip into the run row,
+     * since the sealer reads it back to label the build's history row - it runs in a runner's test
+     * JVM that may not see the CI marker variables the plan step did.
+     */
+    @Test
+    void shouldRoundTripThePlannedRunSource() {
+        // given
+        DistributedRunPlan plan = planWithRunSource("run-ci", "CI");
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-ci");
+
+        // then
+        assertEquals("CI", read.getRunSource());
+    }
+
+    /**
+     * Verify that a plan recording no run source reads back as null rather than an empty string or
+     * a default label, so the sealer can tell "not recorded" apart and fall back to its own
+     * environment.
+     */
+    @Test
+    void shouldReadBackANullRunSourceWhenThePlanRecordedNone() {
+        // given
+        DistributedRunPlan plan = planWithRunSource("run-no-source", null);
+
+        // when
+        dataStore.persistDistributedRunPlan(plan);
+        DistributedRun read = dataStore.readDistributedRun("run-no-source");
+
+        // then
+        assertNull(read.getRunSource());
+    }
+
+    /**
+     * Verify that the {@code run_source} column is backfilled onto a run table created before the
+     * column existed, since the plan write names it and would otherwise fail with "column not
+     * found" on every database an earlier build created. Recreates the pre-migration table
+     * literally and writes through a second datastore instance, for the same reasons as {@link
+     * #shouldBackfillTheSeedRunColumnOntoARunTableThatPredatesIt}.
+     *
+     * @throws Exception if the pre-migration table cannot be recreated
+     */
+    @Test
+    void shouldBackfillTheRunSourceColumnOntoARunTableThatPredatesIt() throws Exception {
+        // given - the run table as it was before run_source was recorded
+        try (Connection connection = dataStore.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE tia_distributed_run");
+            statement.executeUpdate("CREATE TABLE tia_distributed_run ("
+                    + "run_id VARCHAR(255) NOT NULL PRIMARY KEY, branch VARCHAR(255) NOT NULL, "
+                    + "commit_value VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, "
+                    + "group_count INT NOT NULL, target_run_time_ms BIGINT, "
+                    + "estimated_total_ms BIGINT NOT NULL, created_at BIGINT NOT NULL, "
+                    + "sealed_by VARCHAR(255), sealed_at BIGINT, drain_result BLOB, "
+                    + "seed_run BOOLEAN DEFAULT FALSE, groups_available INT)");
+        }
+        JdbcDataStore migratedStore = new JdbcDataStore(new H2Dialect(),
+                new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
+                BranchSchema.schemaName("test", null));
+
+        try {
+            // when
+            migratedStore.persistDistributedRunPlan(planWithRunSource("run-migrated", "CI"));
+
+            // then
+            assertEquals("CI", migratedStore.readDistributedRun("run-migrated").getRunSource(),
+                    "the migration must add run_source to a table that predates it, and the plan "
+                            + "write must then store the source as usual");
+        } finally {
+            migratedStore.close();
+        }
     }
 
     /**
@@ -499,7 +591,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, false);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, false, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -618,7 +710,7 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, false);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, false, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

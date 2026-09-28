@@ -231,7 +231,7 @@ class TiaDistStatusTaskTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), groups.size(), null, 2000L,
-                System.currentTimeMillis(), false);
+                System.currentTimeMillis(), false, null);
 
         TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
         try (DataStore dataStore = plugin.buildDataStore(branch)) {
