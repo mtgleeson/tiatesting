@@ -293,7 +293,7 @@ class DistributedRunSealerEmptyBuildTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, PLANNED_AT_MS, seedRun), groups, suites, null));
+                        1000L * groupCount, PLANNED_AT_MS, seedRun, null), groups, suites, null));
     }
 
     /**

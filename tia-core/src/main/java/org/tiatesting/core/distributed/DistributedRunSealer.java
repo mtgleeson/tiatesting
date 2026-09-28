@@ -256,8 +256,8 @@ public final class DistributedRunSealer {
                     dataStore.readDistributedRunSelectionDetails(context.getRunId());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
-                    run.getGroupsAvailable(), run.getCreatedAtMs(), ranNoExpectedSuites,
-                    selectionDetails);
+                    run.getGroupsAvailable(), run.getCreatedAtMs(), run.getRunSource(),
+                    ranNoExpectedSuites, selectionDetails);
         }
     }
 
@@ -352,6 +352,10 @@ public final class DistributedRunSealer {
      * @param runTimestampMs UTC epoch millis when the run's plan was written, read from the same
      *                       run row {@link #recordBuild} already read the commit and branch from,
      *                       so the row is read once per seal rather than once per figure
+     * @param plannedRunSource the run source the plan step recorded on the run row, or null for a
+     *                         run planned before it was recorded; see {@link
+     *                         RunEnvironment#distributedRunOrigin(String)} for why it wins over
+     *                         this sealing JVM's own environment
      * @param ranNoExpectedSuites whether the build executed none of the suites its plan expected; such
      *                            a build still gets its row - a {@code ran=0} row is how it stays
      *                            visible - but is credited no savings, having finished early because
@@ -363,7 +367,7 @@ public final class DistributedRunSealer {
                                      final boolean updateDBMapping, final DistributedRunTotals totals,
                                      final int ignoredSuiteCount, final boolean allTestsRun,
                                      final long allTestsRunTimeMs, final int groupsAvailable,
-                                     final long runTimestampMs,
+                                     final long runTimestampMs, final String plannedRunSource,
                                      final boolean ranNoExpectedSuites,
                                      final TestRunSelectionDetails selectionDetails) {
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs,
@@ -381,7 +385,7 @@ public final class DistributedRunSealer {
                 totals.getSuitesFailed(), totals.getSerialDurationMs(), updateDBMapping,
                 timeSavingsMs, savingsPercent, wallClockSavingsMs, wallClockSavingsPercent,
                 totals.getWallClockMs(), totals.getGroupCount(), groupsAvailable,
-                RunEnvironment.distributedRunOrigin(), selectionDetails);
+                RunEnvironment.distributedRunOrigin(plannedRunSource), selectionDetails);
         dataStore.persistTestRunHistoryEntry(entry);
         // Best-effort: the row and its counters are already saved and the per-trigger rows are
         // diagnostic detail only, so a failure writing them (for example an overlong trigger name)

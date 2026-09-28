@@ -152,6 +152,7 @@ erDiagram
         BIGINT sealed_at
         BLOB drain_result
         BOOLEAN seed_run
+        VARCHAR run_source
     }
 
     tia_distributed_run_group {
@@ -268,7 +269,9 @@ rather than needing their own cleanup.)
   branch had no stored mapping yet - the seal reads it to tell that build (which ran everything and
   ignored nothing) from a nothing-impacted one, which has no groups at all and ignored every tracked
   suite. Nothing else in the row separates the two, which is why the planner's answer is stored
-  rather than re-derived.
+  rather than re-derived. `run_source` is the source the plan step resolved (declared or detected
+  on the CI agent), which the sealer stamps on the build's history row in place of detecting one in
+  the sealing runner's JVM; null on a run planned before the column existed.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
   figures each persist accumulates. `suites_observed` is the one the completeness guard reads -

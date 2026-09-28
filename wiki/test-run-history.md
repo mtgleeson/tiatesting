@@ -37,6 +37,16 @@ As plugin config it is the Maven `tiaRunSource` parameter and the Gradle `runSou
 
 Note that a bare `-DtiaRunSource=...` on the Maven command line sets the property on the *build* JVM, not the fork, so it has no effect on its own — use the plugin parameter (which the command-line property does feed, via `@Parameter(property = ...)`) or the environment variable.
 
+**A distributed build takes its source from the plan step.** The build's single history row is written by whichever runner seals it, and that runner's test JVM may see a different environment from the CI agent that started the build. So the planner resolves the source once - the declared `tiaRunSource` / `runSource` if set, else detection in the plan step's own JVM - and records it on the `tia_distributed_run` row. The sealer stamps that recorded value on the history row, and only falls back to detecting in its own JVM when the row has none (a run planned before the column existed). Declaring `tiaRunSource` on the plan step is therefore enough for a distributed build; the runners do not need it.
+
+**Containers and hosted build services.** Detection only sees the environment of the JVM it runs in. When a CI job hands the tests to a Docker container or a hosted build service (Google Cloud Build, for example), the CI system's marker variables stay on the agent: `docker run` passes nothing through unless told to with `-e` or `--env-file`, and Cloud Build exports no CI marker variable into its build steps. Every run inside is then labelled `LOCAL`. For a distributed build whose plan step runs on the CI agent itself this is already handled - see the paragraph above. For anything else - a single-host run inside a container, or a plan step that runs in one too - set the source explicitly where the tests run:
+
+- `docker run -e TIA_RUN_SOURCE=CI ...` (or forward the CI system's own marker, e.g. `-e BUILD_NUMBER`).
+- A Cloud Build step's `env: ['TIA_RUN_SOURCE=CI']`.
+- Or `tiaRunSource` / `runSource` in the build configuration of that job.
+
+The environment variable is the most robust of these: it reaches the forked test JVM by inheritance whatever the build tool does with system properties.
+
 **A null host means "no machine to name"**. The source is never null - `RunEnvironment` falls back to `LOCAL` when nothing marks the run as CI - so every run Tia records carries one. A run whose hostname will not resolve stores a null host rather than a placeholder — several unrelated runs would otherwise appear to share a machine called "unknown". And a distributed build stores its source but a **null host**: the row describes work several machines did between them, so naming the one that happened to seal last would read as "this build ran here", which is exactly what it did not do.
 
 ### Wall-clock savings

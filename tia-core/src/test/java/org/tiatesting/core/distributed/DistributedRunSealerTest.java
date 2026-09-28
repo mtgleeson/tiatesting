@@ -548,7 +548,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, false), groups, suites, drainResult));
+                        1000L * groupCount, 1234L, false, null), groups, suites, drainResult));
     }
 
     /**
@@ -571,7 +571,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, suitePerGroup.length, suitePerGroup.length, null,
-                        1000L * suitePerGroup.length, 1234L, false), groups, suites, null));
+                        1000L * suitePerGroup.length, 1234L, false, null), groups, suites, null));
     }
 
     /**
@@ -588,7 +588,7 @@ class DistributedRunSealerTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         suites.put(0, Arrays.asList("com.example.Suite0Test"));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, false),
+                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, false, null),
                 groups, suites, null));
     }
 

@@ -23,6 +23,7 @@ public final class DistributedRun implements Serializable {
     private final String sealedBy;
     private final Long sealedAtMs;
     private final boolean seedRun;
+    private final String runSource;
 
     /**
      * Full constructor, used by the read path so a persisted row round-trips exactly.
@@ -46,11 +47,14 @@ public final class DistributedRun implements Serializable {
      *                stored mapping yet, whose suites are discovered on disk and split across
      *                groups by even count, or collapsed to a single group when nothing is found on
      *                disk or no group count applies
+     * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
+     *                  LOCAL} or a declared label), or null for a run planned before the source
+     *                  was recorded - the sealer then falls back to its own environment
      */
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, int groupsAvailable,
                           Long targetRunTimeMs, long estimatedTotalMs, long createdAtMs,
-                          String sealedBy, Long sealedAtMs, boolean seedRun) {
+                          String sealedBy, Long sealedAtMs, boolean seedRun, String runSource) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
@@ -63,6 +67,7 @@ public final class DistributedRun implements Serializable {
         this.sealedBy = sealedBy;
         this.sealedAtMs = sealedAtMs;
         this.seedRun = seedRun;
+        this.runSource = runSource;
     }
 
     /**
@@ -84,14 +89,18 @@ public final class DistributedRun implements Serializable {
      *                stored mapping yet, whose suites are discovered on disk and split across
      *                groups by even count, or collapsed to a single group when nothing is found on
      *                disk or no group count applies
+     * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
+     *                  LOCAL} or a declared label), or null for a run planned before the source
+     *                  was recorded - the sealer then falls back to its own environment
      * @return an OPEN run with no seal recorded
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
                                       int groupCount, int groupsAvailable, Long targetRunTimeMs,
-                                      long estimatedTotalMs, long createdAtMs, boolean seedRun) {
+                                      long estimatedTotalMs, long createdAtMs, boolean seedRun,
+                                      String runSource) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
                 groupCount, groupsAvailable, targetRunTimeMs, estimatedTotalMs, createdAtMs, null,
-                null, seedRun);
+                null, seedRun, runSource);
     }
 
     /** @return the CI-supplied run identifier */
@@ -148,6 +157,17 @@ public final class DistributedRun implements Serializable {
     public boolean isSeedRun() { return seedRun; }
 
     /**
+     * The run source the plan step resolved for the build, which the sealer stamps on the build's
+     * history row. Recorded at plan time because the plan step runs once per build on the CI
+     * agent, while the seal runs in whichever runner's test JVM finishes last - often inside a
+     * container that inherits none of the CI system's marker variables, so detecting the source
+     * there labels a CI build {@code LOCAL}. See the "Test run history" chapter in {@code WIKI.md}.
+     *
+     * @return the planned run source, or null for a run planned before the source was recorded
+     */
+    public String getRunSource() { return runSource; }
+
+    /**
      * Value equality across every field, so a persisted row can be asserted equal to the object
      * it was written from.
      *
@@ -170,7 +190,8 @@ public final class DistributedRun implements Serializable {
                 && status == that.status
                 && Objects.equals(targetRunTimeMs, that.targetRunTimeMs)
                 && Objects.equals(sealedBy, that.sealedBy)
-                && Objects.equals(sealedAtMs, that.sealedAtMs);
+                && Objects.equals(sealedAtMs, that.sealedAtMs)
+                && Objects.equals(runSource, that.runSource);
     }
 
     /**
@@ -181,7 +202,8 @@ public final class DistributedRun implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(runId, branch, commitValue, status, groupCount, groupsAvailable,
-                targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun);
+                targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun,
+                runSource);
     }
 
     /**
@@ -193,6 +215,7 @@ public final class DistributedRun implements Serializable {
     public String toString() {
         return "DistributedRun{runId=" + runId + ", branch=" + branch + ", commit=" + commitValue
                 + ", status=" + status + ", groupCount=" + groupCount
-                + ", groupsAvailable=" + groupsAvailable + ", seedRun=" + seedRun + "}";
+                + ", groupsAvailable=" + groupsAvailable + ", seedRun=" + seedRun
+                + ", runSource=" + runSource + "}";
     }
 }
