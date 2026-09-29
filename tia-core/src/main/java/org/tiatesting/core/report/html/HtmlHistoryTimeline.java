@@ -71,7 +71,7 @@ final class HtmlHistoryTimeline {
         }
         String runsJson = buildRunsJson(runs);
         return div(attrs(".tia-timeline"),
-                HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Run wall clock timeline"),
+                HtmlLayout.sectionHeading(HtmlLayout.ICON_STATS, "Timeline"),
                 div(attrs("#tiaTimelineChart.tia-timeline-chart")),
                 div(attrs(".tia-timeline-legend"),
                         span(span(attrs(".swatch.pass")), text("Passed")),
