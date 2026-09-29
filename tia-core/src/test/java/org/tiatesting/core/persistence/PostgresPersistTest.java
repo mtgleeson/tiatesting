@@ -97,6 +97,32 @@ class PostgresPersistTest {
     }
 
     /**
+     * Runs the incremental failed-suite write against a real Postgres: adding a suite that is
+     * already stored goes through the key-only {@code ON CONFLICT ... DO NOTHING} branch, and must
+     * neither throw nor duplicate the row, and a clear removes only the named suite.
+     *
+     * @throws Exception if cleaning Postgres or building the store fails
+     */
+    @Test
+    void failedSuiteWriteIsIncrementalAndInsertIfAbsentOnPostgres() throws Exception {
+        // given
+        assumePg();
+        cleanPostgres();
+        postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        postgresStore.getTiaData(true);
+        postgresStore.persistTestSuitesFailed(Collections.emptySet(),
+                new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")));
+
+        // when
+        postgresStore.persistTestSuitesFailed(Collections.singleton("SuiteBar"),
+                new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBaz")));
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBaz")), postgresStore.getTestSuitesFailed());
+    }
+
+    /**
      * Build a three-suite mapping, each suite covering one class, so a second
      * {@code persistTestSuites} of the same map exercises the {@code tia_test_suite} DO-UPDATE
      * branch (and the {@code getGeneratedKeys} follow-up) for every row rather than inserting them.

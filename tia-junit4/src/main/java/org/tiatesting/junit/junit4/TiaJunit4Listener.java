@@ -82,6 +82,12 @@ public class TiaJunit4Listener extends RunListener {
     not the cumulative count carried across retries by testSuiteTrackers.
      */
     private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
+    /*
+    Per-attempt set of suite names that failed between testRunStarted and testRunFinished, cleared
+    in testRunStarted like suitesFinishedThisAttempt. Feeds the history row's failed count, so it
+    describes the same attempt as the row's ran count; testSuitesFailed is JVM-wide instead.
+     */
+    private final Set<String> suitesFailedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBTestRunHistory;
@@ -239,6 +245,7 @@ public class TiaJunit4Listener extends RunListener {
         // Surefire retries, so without this clear the history row's "Ran" count would
         // accumulate across attempts.
         suitesFinishedThisAttempt.clear();
+        suitesFailedThisAttempt.clear();
     }
 
     @Override
@@ -323,6 +330,14 @@ public class TiaJunit4Listener extends RunListener {
          */
     }
 
+    /**
+     * Record the failing test's suite as failed, both in the JVM-wide failed set (which a later
+     * re-run of the suite clears in {@link #testSuiteStarted}) and in this attempt's own set, and
+     * mark the suite's stats as a failed run. A failure reported against the class itself - a
+     * failing {@code @BeforeClass}, say - resolves to the same suite.
+     *
+     * @param failure the failure, whose description names the test or class that failed
+     */
     @Override
     public void testFailure(Failure failure) {
         if (!enabled){
@@ -330,6 +345,7 @@ public class TiaJunit4Listener extends RunListener {
         }
 
         this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
+        this.suitesFailedThisAttempt.add(getTestSuiteName(failure.getDescription()));
         updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
 
@@ -353,6 +369,15 @@ public class TiaJunit4Listener extends RunListener {
      */
     Set<String> getTestSuitesFailed() {
         return testSuitesFailed;
+    }
+
+    /**
+     * The suites that failed in this attempt only. Exposed for testing.
+     *
+     * @return the live, per-attempt set of failed suite names
+     */
+    Set<String> getSuitesFailedThisAttempt() {
+        return suitesFailedThisAttempt;
     }
 
     /**
@@ -420,7 +445,8 @@ public class TiaJunit4Listener extends RunListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
-                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), selectionDetails);
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
+                selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

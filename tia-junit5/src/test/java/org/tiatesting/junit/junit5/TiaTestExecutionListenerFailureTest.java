@@ -30,7 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers which JUnit Platform results the listener counts as a suite failure: a test or container
- * finishing {@code FAILED} anywhere within a suite fails it, and an assumption abort does not.
+ * finishing {@code FAILED} anywhere within a suite fails it, and an assumption abort does not. Also
+ * covers how the failed set carries across Surefire re-runs: it holds each suite's latest outcome in
+ * the JVM, whether a re-run gets a new listener instance (Surefire up to 3.5.3) or reuses one.
  *
  * <p>The listener runs with mapping off and the history log on - enabled, but with no JaCoCo client
  * to reach, since a suite's completion would otherwise open a socket to the coverage agent. The
@@ -46,6 +48,7 @@ class TiaTestExecutionListenerFailureTest {
 
     private static final String SUITE = "com.example.ATest";
     private static final String NESTED_SUITE = "com.example.ATest$Inner";
+    private static final String OTHER_SUITE = "com.example.BTest";
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
@@ -258,15 +261,115 @@ class TiaTestExecutionListenerFailureTest {
     }
 
     /**
+     * Verifies a suite that failed in the first attempt and was not re-run stays failed after a
+     * re-run of a different suite passes, when each attempt gets a new listener.
+     */
+    @Test
+    void rerun_newListenerPerAttempt_unretriedFailureStaysAndFlakyPassLeaves() {
+        // given
+        SharedTestRunData shared = new SharedTestRunData();
+        SimpleDescriptor other = container(engine, "other", ClassSource.from(OTHER_SUITE));
+        TiaTestExecutionListener firstAttempt = startedListener(shared);
+        runSuite(firstAttempt, suite, TestExecutionResult.failed(new AssertionError("boom")));
+        runSuite(firstAttempt, other, TestExecutionResult.failed(new AssertionError("flaky")));
+
+        // when
+        TiaTestExecutionListener retry = startedListener(shared);
+        runSuite(retry, other, TestExecutionResult.successful());
+
+        // then
+        assertEquals(Collections.singleton(SUITE), retry.getTestSuitesFailed());
+        assertTrue(retry.getSuitesFailedThisAttempt().isEmpty());
+    }
+
+    /**
+     * Verifies the same outcome when one listener instance is reused across attempts, as a Surefire
+     * that re-runs on the same launcher session would do.
+     */
+    @Test
+    void rerun_sameListenerReused_unretriedFailureStaysAndFlakyPassLeaves() {
+        // given
+        SimpleDescriptor other = container(engine, "other", ClassSource.from(OTHER_SUITE));
+        TiaTestExecutionListener listener = startedListener(new SharedTestRunData());
+        runSuite(listener, suite, TestExecutionResult.failed(new AssertionError("boom")));
+        runSuite(listener, other, TestExecutionResult.failed(new AssertionError("flaky")));
+
+        // when
+        listener.testPlanExecutionStarted(testPlan());
+        runSuite(listener, other, TestExecutionResult.successful());
+
+        // then
+        assertEquals(Collections.singleton(SUITE), listener.getTestSuitesFailed());
+        assertTrue(listener.getSuitesFailedThisAttempt().isEmpty());
+    }
+
+    /**
+     * Verifies a suite that fails again on its re-run stays failed, and counts as a failure of the
+     * re-run attempt too.
+     */
+    @Test
+    void rerun_suiteFailsAgain_staysFailed() {
+        // given
+        SharedTestRunData shared = new SharedTestRunData();
+        runSuite(startedListener(shared), suite, TestExecutionResult.failed(new AssertionError("boom")));
+
+        // when
+        TiaTestExecutionListener retry = startedListener(shared);
+        runSuite(retry, suite, TestExecutionResult.failed(new AssertionError("boom again")));
+
+        // then
+        assertEquals(Collections.singleton(SUITE), retry.getTestSuitesFailed());
+        assertEquals(Collections.singleton(SUITE), retry.getSuitesFailedThisAttempt());
+    }
+
+    /**
+     * Run one suite through the listener: start its container, finish one test in it with the given
+     * result, and finish the container.
+     *
+     * @param listener the listener
+     * @param suiteContainer the suite's class container
+     * @param testResult the result the suite's one test finishes with
+     */
+    private static void runSuite(final TiaTestExecutionListener listener, final SimpleDescriptor suiteContainer,
+                                 final TestExecutionResult testResult) {
+        String className = ((ClassSource) suiteContainer.getSource().get()).getClassName();
+        SimpleDescriptor test = suiteContainer.getChildren().isEmpty()
+                ? test(suiteContainer, "m1", MethodSource.from(className, "m1"))
+                : (SimpleDescriptor) suiteContainer.getChildren().iterator().next();
+        listener.executionStarted(id(suiteContainer));
+        listener.executionFinished(id(test), testResult);
+        listener.executionFinished(id(suiteContainer), TestExecutionResult.successful());
+    }
+
+    /**
+     * Build a listener over shared state and start its test plan, as a re-run's new session does.
+     *
+     * @param shared the JVM's shared state
+     * @return the started listener
+     */
+    private TiaTestExecutionListener startedListener(final SharedTestRunData shared) {
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared);
+        listener.testPlanExecutionStarted(testPlan());
+        return listener;
+    }
+
+    /**
+     * Build the test plan over the descriptors added so far.
+     *
+     * @return the test plan
+     */
+    private TestPlan testPlan() {
+        return TestPlan.from(Collections.singletonList(engine), new EmptyConfigurationParameters());
+    }
+
+    /**
      * Build a listener over the descriptors added so far and start its test plan, as the launcher
      * does before any execution event.
      *
      * @return the started listener
      */
     private TiaTestExecutionListener startedListener() {
-        TiaTestExecutionListener listener = new TiaTestExecutionListener(new SharedTestRunData());
-        listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine), new EmptyConfigurationParameters()));
-        return listener;
+        return startedListener(new SharedTestRunData());
     }
 
     /**

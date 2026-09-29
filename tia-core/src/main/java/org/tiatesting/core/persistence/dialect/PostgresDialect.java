@@ -47,7 +47,17 @@ public final class PostgresDialect implements SqlDialect {
                 + developerDisabledColumn + " = EXCLUDED." + developerDisabledColumn;
     }
 
-    /** {@inheritDoc} Postgres upsert via {@code INSERT ... ON CONFLICT (keys) DO UPDATE}. */
+    /**
+     * {@inheritDoc} Postgres upsert via {@code INSERT ... ON CONFLICT (keys) DO UPDATE}. When every
+     * column is a key column there is nothing to update, and {@code DO UPDATE SET} with an empty
+     * list is a syntax error, so the conflict action becomes {@code DO NOTHING} - an
+     * insert-if-absent, which is what an upsert of a key-only row means.
+     *
+     * @param table the target table
+     * @param columns all inserted columns, in bind order
+     * @param keyColumns the conflict key columns (subset of columns)
+     * @return the upsert SQL with one {@code ?} per column
+     */
     @Override
     public String upsert(String table, List<String> columns, List<String> keyColumns) {
         StringBuilder ph = new StringBuilder();
@@ -56,9 +66,9 @@ public final class PostgresDialect implements SqlDialect {
         for (String c : columns) {
             if (!keyColumns.contains(c)) { updates.add(c + " = EXCLUDED." + c); }
         }
+        String conflictAction = updates.isEmpty() ? "DO NOTHING" : "DO UPDATE SET " + String.join(", ", updates);
         return "INSERT INTO " + table + " (" + String.join(", ", columns) + ") VALUES (" + ph + ") "
-                + "ON CONFLICT (" + String.join(", ", keyColumns) + ") DO UPDATE SET "
-                + String.join(", ", updates);
+                + "ON CONFLICT (" + String.join(", ", keyColumns) + ") " + conflictAction;
     }
 
     /**
