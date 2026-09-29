@@ -333,14 +333,26 @@ public class TiaJunit4Listener extends RunListener {
         updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
     }
 
+    /**
+     * Called when a test's assumption is not met. This is deliberately not a failure: the build
+     * tool reports the test as skipped, so recording its suite as failed would force-run a passing
+     * suite on every later build and count a failed run in its stats. The suite's "assumed success"
+     * stats from {@link #testSuiteStarted} stand.
+     *
+     * @param failure the assumption failure, ignored for failure tracking
+     */
     @Override
     public void testAssumptionFailure(Failure failure) {
-        if (!enabled){
-            return;
-        }
+        // intentionally not a failure - see the javadoc
+    }
 
-        this.testSuitesFailed.add(getTestSuiteName(failure.getDescription()));
-        updateTrackerStatsForFailedRun(getTestSuiteName(failure.getDescription()));
+    /**
+     * The suites this listener has recorded as failed. Exposed for testing.
+     *
+     * @return the live set of failed suite names
+     */
+    Set<String> getTestSuitesFailed() {
+        return testSuitesFailed;
     }
 
     /**
