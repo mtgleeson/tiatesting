@@ -171,10 +171,22 @@ public class SerializedDataStore implements DataStore {
         log.debug("Time to save the Tia core data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * {@inheritDoc} The serialized store has no per-row write, so the update is applied to the
+     * in-memory failed set - the same remove-then-add the JDBC stores express as a targeted delete
+     * and insert - and the whole file is rewritten. The store is single-process, so there is no
+     * concurrent writer to protect against; the semantics are kept identical for parity.
+     *
+     * @param suitesToClear the suites whose stored failed state this run supersedes
+     * @param suitesFailed the suites whose latest execution in this run failed
+     */
     @Override
-    public void persistTestSuitesFailed(Set<String> testSuitesFailed) {
+    public void persistTestSuitesFailed(Set<String> suitesToClear, Set<String> suitesFailed) {
         TiaData tiaData = getTiaData(false);
-        tiaData.setTestSuitesFailed(testSuitesFailed);
+        Set<String> failed = new HashSet<>(tiaData.getTestSuitesFailed());
+        failed.removeAll(suitesToClear);
+        failed.addAll(suitesFailed);
+        tiaData.setTestSuitesFailed(failed);
         long startTime = System.currentTimeMillis();
         writeTiaDataToDisk(tiaData);
         log.info("Time to save the failed test suites data to disk (ms): " + (System.currentTimeMillis() - startTime));
@@ -277,12 +289,20 @@ public class SerializedDataStore implements DataStore {
         log.info("Time to save the test suites tracked data to disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * {@inheritDoc} Removes the suites and their failed-set entries from the in-memory data; the
+     * file is rewritten by the persist that follows.
+     *
+     * @param testSuites the test suites that should be deleted
+     */
     @Override
     public void deleteTestSuites(Set<String> testSuites) {
         // Was a no-op back when persistTestSuites received the whole map and a deletion showed up
         // as an absence from it. It receives only the touched suites now, so the removal has to
         // happen here; the file is rewritten by the persist that follows.
-        getTiaData(false).getTestSuitesTracked().keySet().removeAll(testSuites);
+        TiaData tiaData = getTiaData(false);
+        tiaData.getTestSuitesTracked().keySet().removeAll(testSuites);
+        tiaData.getTestSuitesFailed().removeAll(testSuites);
     }
 
     @Override

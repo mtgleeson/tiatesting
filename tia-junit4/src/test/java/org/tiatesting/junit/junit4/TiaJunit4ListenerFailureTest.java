@@ -19,7 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Covers which JUnit 4 notifications the listener counts as a suite failure: a failure fails the
  * suite, whether it is reported against a test or against the class itself, and an assumption
- * failure does not.
+ * failure does not. Also guards the re-run behaviour: Surefire reuses one JUnit 4 listener across
+ * re-runs, and the failed set holds each suite's latest outcome across them.
  *
  * <p>The listener runs with mapping off and the history log on - enabled, but with no JaCoCo client
  * to reach. The failed set is read straight off the listener, because with mapping off it is never
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TiaJunit4ListenerFailureTest {
 
     private static final String SUITE = SampleTest.class.getName();
+    private static final String OTHER_SUITE = OtherSampleTest.class.getName();
 
     private static final String[] MANAGED_PROPERTIES = {
             "tiaEnabled", "tiaUpdateDBMapping", "tiaUpdateDBTestRunHistory", "tiaBranch",
@@ -146,9 +148,80 @@ class TiaJunit4ListenerFailureTest {
     }
 
     /**
+     * Verifies that across a re-run on the same listener, a suite that failed in the first attempt
+     * and was not re-run stays failed, a suite that passes on its re-run leaves the failed set, and
+     * the re-run attempt counts no failures of its own.
+     *
+     * @throws Exception if the listener's run or suite callbacks throw
+     */
+    @Test
+    void rerun_unretriedFailureStaysAndFlakyPassLeaves() throws Exception {
+        // given
+        TiaJunit4Listener listener = new TiaJunit4Listener();
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, SampleTest.class, true);
+        runSuite(listener, OtherSampleTest.class, true);
+
+        // when
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, OtherSampleTest.class, false);
+
+        // then
+        assertEquals(Collections.singleton(SUITE), listener.getTestSuitesFailed());
+        assertTrue(listener.getSuitesFailedThisAttempt().isEmpty());
+    }
+
+    /**
+     * Verifies a suite that fails again on its re-run stays failed and counts as a failure of the
+     * re-run attempt.
+     *
+     * @throws Exception if the listener's run or suite callbacks throw
+     */
+    @Test
+    void rerun_suiteFailsAgain_staysFailed() throws Exception {
+        // given
+        TiaJunit4Listener listener = new TiaJunit4Listener();
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, OtherSampleTest.class, true);
+
+        // when
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, OtherSampleTest.class, true);
+
+        // then
+        assertEquals(Collections.singleton(OTHER_SUITE), listener.getTestSuitesFailed());
+        assertEquals(Collections.singleton(OTHER_SUITE), listener.getSuitesFailedThisAttempt());
+    }
+
+    /**
+     * Run one suite through the listener: start it, optionally fail one of its tests, and finish it.
+     *
+     * @param listener the listener
+     * @param suiteClass the suite's class
+     * @param fail whether the suite's test fails
+     * @throws Exception if the listener's suite callbacks throw
+     */
+    private static void runSuite(final TiaJunit4Listener listener, final Class<?> suiteClass,
+                                 final boolean fail) throws Exception {
+        Description suite = Description.createSuiteDescription(suiteClass);
+        listener.testSuiteStarted(suite);
+        if (fail) {
+            listener.testFailure(new Failure(Description.createTestDescription(suiteClass, "m1"),
+                    new AssertionError("boom")));
+        }
+        listener.testSuiteFinished(suite);
+    }
+
+    /**
      * A class to name in descriptions, so {@link Description#getTestClass()} resolves and the
      * listener treats it as an ordinary suite rather than a parameterized one.
      */
     static final class SampleTest {
+    }
+
+    /**
+     * A second suite class, for re-run cases that need two suites.
+     */
+    static final class OtherSampleTest {
     }
 }

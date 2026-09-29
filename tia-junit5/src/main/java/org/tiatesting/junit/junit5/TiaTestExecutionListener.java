@@ -42,7 +42,9 @@ import java.util.stream.Stream;
 /**
  * Notes:
  * 1. unlike Junit4 where the same instance of RunListener is used for failed re-runs,
- * each re-run in Junit5 will create a new instance of this class.
+ * each re-run in Junit5 creates a new instance of this class - true up to Surefire 3.5.3, where each re-run
+ * opens a new launcher session. The listener does not rely on it: state that must span re-runs lives in
+ * {@link SharedTestRunData}, and per-attempt state is cleared when each test plan starts.
  * <p>
  * 2. testPlanExecutionStarted and testPlanExecutionFinished are always called from the same thread and it's safe to
  * assume there's at most one TestPlan at a time. All other methods could be called from different threads concurrently
@@ -58,7 +60,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final String branch;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
+    /*
+    The suites whose latest execution in this JVM failed - the JVM-wide set shared across re-runs
+    via sharedTestRunData. See SharedTestRunData#getTestSuitesFailed.
+     */
     private final Set<String> testSuitesFailed;
+    /*
+    The suites that failed in this attempt only, cleared when each test plan starts. Feeds the
+    history row's failed count, so it pairs with suitesFinishedThisAttempt on the same row.
+     */
+    private final Set<String> suitesFailedThisAttempt = ConcurrentHashMap.newKeySet();
     private final String testClassesDirs;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
@@ -89,10 +100,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
     /*
-    Per-listener-instance set of suite names that finished in this attempt only. NOT sourced
-    from `sharedTestRunData` - a fresh set is created per re-run so the history row's "Ran"
-    count reflects what this attempt ran, not the cumulative count carried across retries by
-    the shared testSuiteTrackers map.
+    The suite names that finished in this attempt only, cleared when each test plan starts. NOT
+    sourced from `sharedTestRunData`, so the history row's "Ran" count reflects what this attempt
+    ran, not the cumulative count carried across retries by the shared testSuiteTrackers map.
      */
     private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
@@ -148,7 +158,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         this.testSuiteTrackers = sharedTestRunData.getTestSuiteTrackers();
-        this.testSuitesFailed = ConcurrentHashMap.newKeySet();
+        this.testSuitesFailed = sharedTestRunData.getTestSuitesFailed();
         this.runnerTestSuites = sharedTestRunData.getRunnerTestSuites();
         this.suitesObserved = sharedTestRunData.getSuitesObserved();
         this.testRunStats = sharedTestRunData.getTestRunStats();
@@ -245,7 +255,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
 
     /**
      * This is executed only once for all tests in the session/run/test plan.
-     * For re-runs, this will be run again with the new TestExecutionListener instance.
+     * For re-runs, this will be run again - with a new TestExecutionListener instance up to Surefire
+     * 3.5.3. The per-attempt sets are cleared here so each attempt's history row counts only that
+     * attempt, whether or not the instance is new.
      *
      * @param testPlan The test plan being executed.
      */
@@ -256,6 +268,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
         this.testPlan = testPlan;
         testRunStartTime = System.currentTimeMillis();
+        suitesFinishedThisAttempt.clear();
+        suitesFailedThisAttempt.clear();
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.
@@ -284,12 +298,21 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
     }
 
+    /**
+     * Record that a suite has started: create its tracker on its first execution in this JVM, assume
+     * it will succeed until a failure says otherwise, and clear any failure an earlier attempt
+     * recorded for it, since this execution's outcome is now the one that counts.
+     *
+     * @param testIdentifier the class container that started
+     */
     private void testSuiteStarted(TestIdentifier testIdentifier){
         if (!enabled){
             return;
         }
 
         String testSuiteName = getTestSuiteName(testIdentifier);
+        // The latest execution decides: a re-run that passes must leave the failed set.
+        this.testSuitesFailed.remove(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         // check if this is the first run for the test suite
@@ -383,16 +406,27 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
         this.testSuitesFailed.add(testSuiteName);
+        this.suitesFailedThisAttempt.add(testSuiteName);
         updateTrackerStatsForFailedRun(testSuiteName);
     }
 
     /**
-     * The suites this listener has recorded as failed in its test plan. Exposed for testing.
+     * The suites whose latest execution in this JVM failed, across every test plan. Exposed for
+     * testing.
      *
-     * @return the live set of failed suite names
+     * @return the live, JVM-wide set of failed suite names
      */
     Set<String> getTestSuitesFailed() {
         return testSuitesFailed;
+    }
+
+    /**
+     * The suites that failed in this attempt only. Exposed for testing.
+     *
+     * @return the live, per-attempt set of failed suite names
+     */
+    Set<String> getSuitesFailedThisAttempt() {
+        return suitesFailedThisAttempt;
     }
 
     /**
@@ -454,7 +488,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
-                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), selectionDetails);
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
+                selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

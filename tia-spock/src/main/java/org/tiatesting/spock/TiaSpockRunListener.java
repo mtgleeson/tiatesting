@@ -230,10 +230,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // Spock is not affected by the JUnit5/JUnit4 retry-inflation bug: finishAllTests fires
         // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
         // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
-        // per-attempt count - there's no separate counter to thread through.
+        // per-attempt count - there's no separate counter to thread through. The same holds for the
+        // failed set: with one persist per JVM, the JVM-wide set is the attempt's own.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size(), selectionDetails);
+                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

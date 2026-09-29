@@ -10,13 +10,16 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * This encapsulates test run data that needs to be shared between test runs/sessions.
  * When a user executes the tests, a session is created along with a TestExecutionListener. This TestExecutionListener
- * should execute all tests. But in the case of a re-run by Surefire or Failsafe, a new test run/session is created
- * along with a new TestExecutionListener.
+ * should execute all tests. But in the case of a re-run by Surefire or Failsafe (up to Surefire 3.5.3 at least), a
+ * new test run/session is created along with a new TestExecutionListener.
  * We need the ability to share data from the initial session with any subsequent re-runs.
  * <p>
  * TestExecutionListener should be used by 1 test plan at a time for executing all tests.
  * The tests can be executed concurrently (if configured).
- * But, when Surefire is configured to re-run failed tests, it will create a new Test Plan, new Session and new
+ * <p>
+ * Nothing here depends on a re-run getting a new listener: a later Surefire that re-runs on the same launcher
+ * session, and so the same listener, reads and writes this same shared state. The listener keeps its per-attempt
+ * state in sets it clears when each test plan starts, so it behaves the same under either model.
  */
 public class SharedTestRunData {
 
@@ -53,11 +56,23 @@ public class SharedTestRunData {
      */
     private final TestStats testRunStats;
 
+    /*
+     * The suites whose latest execution in this JVM failed, across every test plan. A suite is removed when it
+     * starts - in any attempt - and added back if it fails in that execution, so a flaky suite that passes on a
+     * re-run leaves the set, while a suite that failed in an earlier attempt and was not re-run stays in it. It
+     * lives here rather than on the listener so that holds across re-runs that get a new listener instance.
+     */
+    private final Set<String> testSuitesFailed;
+
+    /**
+     * Create empty shared state for a new test JVM, before its first test plan.
+     */
     public SharedTestRunData() {
         this.runnerTestSuites = ConcurrentHashMap.newKeySet();
         this.suitesObserved = ConcurrentHashMap.newKeySet();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
         this.testRunStats = new TestStats();
+        this.testSuitesFailed = ConcurrentHashMap.newKeySet();
     }
 
     public Set<String> getRunnerTestSuites() {
@@ -78,5 +93,13 @@ public class SharedTestRunData {
 
     public TestStats getTestRunStats() {
         return testRunStats;
+    }
+
+    /**
+     * @return the mutable, shared set of suites whose latest execution in this JVM failed,
+     *         maintained across every test plan (including Surefire re-runs) the JVM makes
+     */
+    public Set<String> getTestSuitesFailed() {
+        return testSuitesFailed;
     }
 }

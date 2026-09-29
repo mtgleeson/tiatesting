@@ -83,7 +83,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.ATest", "com.example.BTest", "com.example.CTest", "com.example.DTest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4, 0,
                 TestRunSelectionDetails.empty());
 
         // when - persist with history enabled
@@ -121,7 +121,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
                 "com.example.UserDisabledD", "com.example.UserDisabledE", "com.example.UserDisabledF"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4, 0,
                 TestRunSelectionDetails.empty());
 
         // when
@@ -145,7 +145,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         // given - no trackers, no runner suites, selector ignored nothing
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0, 0,
                 TestRunSelectionDetails.empty());
 
         // when
@@ -180,7 +180,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         trackers.put("com.example.RetriedB", new TestSuiteTracker("com.example.RetriedB"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0,
                 TestRunSelectionDetails.empty());
 
         // when
@@ -209,7 +209,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         }
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5, 0,
                 TestRunSelectionDetails.empty());
 
         // when

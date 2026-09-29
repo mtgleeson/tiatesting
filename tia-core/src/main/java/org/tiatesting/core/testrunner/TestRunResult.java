@@ -20,6 +20,7 @@ public class TestRunResult {
     final LibraryImpactDrainResult libraryImpactDrainResult;
     final int ignoredTestSuiteCount;
     final int suitesRanThisAttempt;
+    final int suitesFailedThisAttempt;
     final TestRunSelectionDetails selectionDetails;
 
     /**
@@ -29,7 +30,13 @@ public class TestRunResult {
      *                                   On Surefire retry of failed tests this map accumulates across attempts -
      *                                   the mapping path needs the cumulative coverage. For the history "Ran"
      *                                   column use {@code suitesRanThisAttempt} instead.
-     * @param testSuitesFailed           names of suites that failed
+     * @param testSuitesFailed           the suites whose <b>latest</b> execution in this JVM failed, across
+     *                                   every test plan the JVM has made (Surefire retries included): a
+     *                                   suite that fails and then passes on a retry is not in it, and a
+     *                                   suite that failed in an earlier attempt but was not retried still
+     *                                   is. This is the set the failed-suite write and the distributed
+     *                                   group's {@code suites_failed} are fed from. Every suite in it has an
+     *                                   entry in {@code testSuiteTrackers}.
      * @param runnerTestSuites           every suite name Tia still considers to exist for this project - the
      *                                   project-wide set when the build tool provides a directory scan (Maven's
      *                                   {@code testClassesDir}), otherwise the suites this JVM observed. Used
@@ -58,6 +65,11 @@ public class TestRunResult {
      *                                   not the cumulative count across Surefire retries. Persisted to
      *                                   {@code tia_test_run_history.num_suites_ran} so each retry row reports
      *                                   what that retry actually ran.
+     * @param suitesFailedThisAttempt    the count of test suites that failed in this listener attempt only,
+     *                                   the failure counterpart of {@code suitesRanThisAttempt}. Persisted
+     *                                   to {@code tia_test_run_history.num_suites_failed} so a retry row's
+     *                                   failed count describes the same attempt as its ran count, rather
+     *                                   than counting a failure in a suite that attempt never ran.
      * @param selectionDetails           the per-run breakdown of what drove test selection (the per-method
      *                                   and per-rule triggers plus the scalar source counts), or {@code null}
      *                                   when the caller has not populated it yet - {@link #getSelectionDetails()}
@@ -74,6 +86,7 @@ public class TestRunResult {
                          LibraryImpactDrainResult libraryImpactDrainResult,
                          int ignoredTestSuiteCount,
                          int suitesRanThisAttempt,
+                         int suitesFailedThisAttempt,
                          TestRunSelectionDetails selectionDetails) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
@@ -85,13 +98,24 @@ public class TestRunResult {
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.ignoredTestSuiteCount = ignoredTestSuiteCount;
         this.suitesRanThisAttempt = suitesRanThisAttempt;
+        this.suitesFailedThisAttempt = suitesFailedThisAttempt;
         this.selectionDetails = selectionDetails;
     }
 
+    /**
+     * @return the per-suite trackers, one entry for every suite that executed in this JVM across
+     *         all its test plans. A tracker is created only when a suite starts, never for a
+     *         skipped one, so the key set is exactly "the suites this JVM executed" - which is what
+     *         the failed-suite write clears before adding back this JVM's failures.
+     */
     public Map<String, TestSuiteTracker> getTestSuiteTrackers() {
         return testSuiteTrackers;
     }
 
+    /**
+     * @return the suites whose latest execution in this JVM failed, across every test plan the JVM
+     *         has made - see the constructor's {@code testSuitesFailed} parameter
+     */
     public Set<String> getTestSuitesFailed() {
         return testSuitesFailed;
     }
@@ -185,6 +209,16 @@ public class TestRunResult {
      */
     public int getSuitesRanThisAttempt() {
         return suitesRanThisAttempt;
+    }
+
+    /**
+     * @return the count of test suites that failed in this listener attempt only - unlike
+     *         {@link #getTestSuitesFailed()}, which is JVM-wide. This is the value persisted to
+     *         {@code tia_test_run_history.num_suites_failed}, so it pairs with
+     *         {@link #getSuitesRanThisAttempt()} on the same row.
+     */
+    public int getSuitesFailedThisAttempt() {
+        return suitesFailedThisAttempt;
     }
 
     /**
