@@ -70,7 +70,7 @@ class TableExistsWildcardCollisionTest {
         DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_SEEDED, null);
         try {
             seededStore.getTiaData(true);
-            seededStore.persistTestSuitesFailed(new HashSet<>(Collections.singleton("seeded_only")));
+            seededStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(Collections.singleton("seeded_only")));
         } finally {
             seededStore.close();
         }
@@ -80,7 +80,7 @@ class TableExistsWildcardCollisionTest {
         DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_FRESH, null);
         try {
             freshStore.getTiaData(true);
-            freshStore.persistTestSuitesFailed(new HashSet<>(SUITES_FRESH));
+            freshStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_FRESH));
 
             // then the fresh store was not fooled into believing it was already migrated by the
             // seeded sibling's tables: it created its own tables and reads back only its own data

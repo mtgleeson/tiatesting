@@ -123,7 +123,7 @@ public class TestRunnerService {
         if (updateDBMapping){
             // 2. The failed set is incremental and safe to be ahead of the commit; over-inclusion
             //    only force-runs extra suites next time.
-            updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+            updateTestSuitesFailed(tiaData, testRunResult);
         }
 
         // 3. The seal bundle: catalogue, library drain cleanup and the commit value, written in
@@ -257,9 +257,10 @@ public class TestRunnerService {
         }
 
         if (updateDBMapping && !ranNoExpectedSuites){
-            // 2. The failed set is incremental, so several runners updating it concurrently is
-            //    exactly what it was built for.
-            updateTestSuitesFailed(tiaData, testRunResult.getSelectedTests(), testRunResult.getTestSuitesFailed());
+            // 2. The failed set is written incrementally - each runner deletes and inserts only
+            //    the rows of suites it executed - so runners persisting concurrently for their
+            //    disjoint groups cannot discard each other's rows.
+            updateTestSuitesFailed(tiaData, testRunResult);
 
             // 3. Staging replaces the catalogue write a single-host run makes here. Method ids hash
             //    the class, method and descriptor only, so the ids this runner staged stay valid
@@ -580,8 +581,9 @@ public class TestRunnerService {
                                        final boolean ranNoExpectedSuites) {
         int ran = Math.max(0, testRunResult.getSuitesRanThisAttempt());
         int ignored = Math.max(0, testRunResult.getIgnoredTestSuiteCount());
-        int failed = testRunResult.getTestSuitesFailed() != null
-                ? testRunResult.getTestSuitesFailed().size() : 0;
+        // Per-attempt, to pair with the per-attempt ran count on the same row: the JVM-wide failed
+        // set would charge a retry row with failures in suites that retry never ran.
+        int failed = Math.max(0, testRunResult.getSuitesFailedThisAttempt());
 
         // Freeze the savings for this run: 0 for an all-tests run (ignored == 0), for a run that
         // executed none of the suites it was expected to, or when no baseline exists; else the
@@ -784,19 +786,51 @@ public class TestRunnerService {
     }
 
     /**
-     *  The list of failed tests is updated on each test run (not rebuilt from scratch). This accounts for
-     *  scenarios where the test suite is split across multiple hosts which can be updating the stored TIA DB.
-     *  First, remove all the existing test suites that were selected for this run, and then add back any that failed.
+     * Update the stored failed-suite set for what this JVM learned: a suite's failed state is the
+     * outcome of its latest execution. The update is incremental - the data store touches only the
+     * suites named here, never the whole set - so the runners of a distributed build, each
+     * persisting for its own disjoint group, cannot discard one another's entries.
      *
-     * @param tiaData the Tia DB
-     * @param selectedTests the tests selected to run by Tia
-     * @param testSuitesFailed the list of test suites that contained a failure or error
+     * <p>The suites cleared are the ones this JVM <b>executed</b> (the tracker map's keys), not the
+     * ones Tia selected. A selected suite that never executed - filtered out by the build tool, say
+     * - has told this run nothing about whether it still fails, so its stored entry stands. The one
+     * exception is a selected suite now flagged developer-disabled (selected, discovered, did not
+     * execute): Tia can show it will not run, so keeping it force-selected would gain nothing, and
+     * if it is re-enabled it simply executes and is judged again. The failures added back are this
+     * JVM's latest-outcome failures, which a flaky suite that passed on a Surefire retry is not in.
+     * See the "Failed-suite tracking" chapter in {@code WIKI.md}.
+     *
+     * @param tiaData the Tia DB, whose tracked suites carry the developer-disabled flag as updated
+     *                earlier in this persist
+     * @param testRunResult the run's result, carrying the executed suites, the selection and the
+     *                      failures
      */
-    private void updateTestSuitesFailed(final TiaData tiaData, final Set<String> selectedTests, final Set<String> testSuitesFailed){
-        tiaData.setTestSuitesFailed(dataStore.getTestSuitesFailed());
-        tiaData.getTestSuitesFailed().removeAll(selectedTests);
-        tiaData.getTestSuitesFailed().addAll(testSuitesFailed);
-        dataStore.persistTestSuitesFailed(tiaData.getTestSuitesFailed());
+    private void updateTestSuitesFailed(final TiaData tiaData, final TestRunResult testRunResult){
+        Set<String> suitesToClear = new HashSet<>(testRunResult.getTestSuiteTrackers().keySet());
+        suitesToClear.addAll(selectedDeveloperDisabledSuites(tiaData.getTestSuitesTracked(),
+                testRunResult.getSelectedTests()));
+        dataStore.persistTestSuitesFailed(suitesToClear, testRunResult.getTestSuitesFailed());
+    }
+
+    /**
+     * Find the selected suites that are flagged developer-disabled - the ones Tia chose to run but
+     * that the build did not execute, and which therefore will not run while that stays true.
+     *
+     * @param trackedSuites the tracked suites keyed by name, with the flag already maintained for
+     *                      this run
+     * @param selectedTests the suites Tia selected to run
+     * @return the selected suites currently flagged developer-disabled
+     */
+    static Set<String> selectedDeveloperDisabledSuites(final Map<String, TestSuiteTracker> trackedSuites,
+                                                       final Set<String> selectedTests){
+        Set<String> disabled = new HashSet<>();
+        for (String suiteName : selectedTests){
+            TestSuiteTracker tracker = trackedSuites.get(suiteName);
+            if (tracker != null && tracker.isDeveloperDisabled()){
+                disabled.add(suiteName);
+            }
+        }
+        return disabled;
     }
 
     /**

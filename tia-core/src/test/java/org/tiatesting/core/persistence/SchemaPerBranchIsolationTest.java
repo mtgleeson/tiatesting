@@ -90,9 +90,9 @@ class SchemaPerBranchIsolationTest {
         try {
             // when a distinct failed-suite set is persisted into each branch's schema
             storeA.getTiaData(true);
-            storeA.persistTestSuitesFailed(new HashSet<>(SUITES_A));
+            storeA.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_A));
             storeB.getTiaData(true);
-            storeB.persistTestSuitesFailed(new HashSet<>(SUITES_B));
+            storeB.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_B));
 
             // then each store reads back exactly its own branch's data, never the other's
             assertEquals(SUITES_A, storeA.getTestSuitesFailed(), "branchA should see only its own failed suites");

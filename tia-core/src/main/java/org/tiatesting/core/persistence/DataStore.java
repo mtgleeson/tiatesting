@@ -133,11 +133,24 @@ public interface DataStore extends AutoCloseable {
     void persistCoreData(final TiaData tiaData);
 
     /**
-     * Persist the failed test suites data to disk.
+     * Update the stored failed-suite set incrementally for the suites one test JVM has something to
+     * say about: remove every suite in {@code suitesToClear}, then add every suite in {@code
+     * suitesFailed}, atomically. Suites in neither set are left exactly as stored.
      *
-     * @param testSuitesFailed the test suites that were not successful in the test run.
+     * <p>This is deliberately not a replace of the whole set. The runners of a distributed build
+     * persist concurrently against one database, each for its own disjoint group of suites, and a
+     * read-modify-write of the whole set would let one runner's write discard another's. Touching
+     * only the named suites means concurrent writers for different suites never interfere. Adding a
+     * suite that is already stored is a no-op rather than an error. See the "Failed-suite tracking"
+     * chapter in {@code WIKI.md}.
+     *
+     * @param suitesToClear the suites whose stored failed state this run supersedes - those it
+     *                      executed, plus any it can show will not run
+     * @param suitesFailed the suites whose latest execution in this run failed; expected to be a
+     *                     subset of {@code suitesToClear} when called from a test run, but any
+     *                     suite may be added
      */
-    void persistTestSuitesFailed(final Set<String> testSuitesFailed);
+    void persistTestSuitesFailed(final Set<String> suitesToClear, final Set<String> suitesFailed);
 
     /**
      * Clear the unsealed flag from every flagged test suite. Called as part of the seal, once the
@@ -187,7 +200,9 @@ public interface DataStore extends AutoCloseable {
     void persistTestSuites(final Map<String, TestSuiteTracker> testSuites);
 
     /**
-     * Delete the given test suites from disk.
+     * Delete the given test suites from disk, together with any failed-suite entry each one has, in
+     * one transaction. A deleted suite never executes again, so nothing else would ever clear its
+     * failed entry - left behind, it would be force-selected on every later build.
      *
      * @param testSuites the test suites that should be deleted from disk.
      */

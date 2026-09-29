@@ -325,7 +325,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, 1, TestRunSelectionDetails.empty());
+                null, 1, 1, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -350,7 +350,7 @@ class DistributedRunWiringEndToEndTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), discoveredSuites(), discoveredSuites(),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 1, 2, TestRunSelectionDetails.empty());
+                null, 1, 2, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -548,7 +548,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)),
                 new HashSet<>(Collections.singletonList(SUITE_A)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), methodTrackers, new TestStats(),
-                null, 0, 1, TestRunSelectionDetails.empty());
+                null, 0, 1, 0, TestRunSelectionDetails.empty());
 
         // when - the one test plan this JVM manages persists its partial share, and the build tool
         //        then makes its explicit completion
@@ -612,7 +612,7 @@ class DistributedRunWiringEndToEndTest {
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)),
                 new HashSet<>(Arrays.asList(SUITE_A, SUITE_RETRY)), methodTrackers, new TestStats(),
-                null, 0, 2, TestRunSelectionDetails.empty());
+                null, 0, 2, 1, TestRunSelectionDetails.empty());
 
         // when - the one test plan persists, and the build tool completes the group once no more
         //        retries arrive - the retry that would have run again never got the chance to persist

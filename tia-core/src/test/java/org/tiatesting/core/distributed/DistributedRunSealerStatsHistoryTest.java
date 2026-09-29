@@ -1236,7 +1236,7 @@ class DistributedRunSealerStatsHistoryTest {
         stats.setNumRuns(1);
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, stats,
-                null, 1, 1, TestRunSelectionDetails.empty());
+                null, 1, 1, 0, TestRunSelectionDetails.empty());
     }
 
     /**

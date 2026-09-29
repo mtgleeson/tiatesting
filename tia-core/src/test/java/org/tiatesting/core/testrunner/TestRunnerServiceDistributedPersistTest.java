@@ -313,6 +313,31 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * The group's {@code suites_failed} is the JVM-wide count of suites whose latest execution
+     * failed, not the attempt's own count. A retry attempt that ran only a different suite, which
+     * passed, has no failures of its own, but a suite that failed in an earlier attempt and was not
+     * retried is still failing, and the group must still say so.
+     */
+    @Test
+    void groupSuitesFailedIsTheJvmWideCountNotTheAttempts() {
+        // given
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        TestRunResult retry = makeResult();
+        TestRunResult retryWithNoFailuresOfItsOwn = new TestRunResult(retry.getTestSuiteTrackers(),
+                retry.getTestSuitesFailed(), retry.getRunnerTestSuites(), retry.getSuitesObserved(),
+                retry.getSelectedTests(), retry.getMethodTrackersFromTestRun(), retry.getTestStats(), null,
+                retry.getIgnoredTestSuiteCount(), 1, 0, TestRunSelectionDetails.empty());
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                retryWithNoFailuresOfItsOwn, context);
+
+        // then
+        assertEquals(1, readGroup(RUN_ID, 0).getSuitesFailed());
+    }
+
+    /**
      * The group also records how much of that duration went on named suites, summed from the run
      * result's own trackers rather than passed in as a number. That split is what lets the sealer
      * charge each runner's fixed per-JVM overhead once for the build instead of once per group; see
@@ -497,7 +522,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, TestRunSelectionDetails.empty());
+                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -566,7 +591,7 @@ class TestRunnerServiceDistributedPersistTest {
     void aRunnerThatRanNoneOfItsAssignedSuitesLeavesTheFailedSetAlone() {
         // given - a suite that failed on an earlier build and is in this runner's selection again
         seedTrackedSuites("com.example.SomeTest", "com.example.FailedTest");
-        dataStore.persistTestSuitesFailed(new HashSet<>(Arrays.asList("com.example.FailedTest")));
+        dataStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(Arrays.asList("com.example.FailedTest")));
         persistPlan(RUN_ID, 1);
         DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
 
@@ -616,7 +641,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerTestSuites, new HashSet<String>(), selected,
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0,
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0, 0,
                 TestRunSelectionDetails.empty());
     }
 
@@ -736,7 +761,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
 
         return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
-                methodTrackers, new TestStats(), null, 3, 2, TestRunSelectionDetails.empty());
+                methodTrackers, new TestStats(), null, 3, 2, failed.size(), TestRunSelectionDetails.empty());
     }
 
     /**
@@ -760,7 +785,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), suiteNames, suiteNames, suiteNames,
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0,
-                suiteRunTimesMs.length, TestRunSelectionDetails.empty());
+                suiteRunTimesMs.length, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -771,7 +796,7 @@ class TestRunnerServiceDistributedPersistTest {
     private TestRunResult makeEmptyResult() {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
-                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0,
+                new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0, 0,
                 TestRunSelectionDetails.empty());
     }
 
@@ -792,7 +817,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, TestRunSelectionDetails.empty());
+                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -845,9 +870,9 @@ class TestRunnerServiceDistributedPersistTest {
          * @param testSuitesFailed the failed suite names to store
          */
         @Override
-        public void persistTestSuitesFailed(final Set<String> testSuitesFailed) {
+        public void persistTestSuitesFailed(final Set<String> suitesToClear, final Set<String> suitesFailed) {
             callOrder.add("persistTestSuitesFailed");
-            super.persistTestSuitesFailed(testSuitesFailed);
+            super.persistTestSuitesFailed(suitesToClear, suitesFailed);
         }
 
         /**

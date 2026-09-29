@@ -25,6 +25,24 @@ class PostgresDialectTest {
                 + "ON CONFLICT (name) DO UPDATE SET num_runs = EXCLUDED.num_runs", sql);
     }
 
+    /**
+     * Verifies an upsert whose only column is the key becomes an insert-if-absent, since there is
+     * nothing to update and an empty {@code DO UPDATE SET} list is a syntax error.
+     */
+    @Test
+    void upsertOfKeyOnlyRowUsesOnConflictDoNothing() {
+        // given
+        PostgresDialect dialect = new PostgresDialect();
+
+        // when
+        String sql = dialect.upsert("tia_test_suites_failed",
+                Arrays.asList("test_suite_name"), Arrays.asList("test_suite_name"));
+
+        // then
+        assertEquals("INSERT INTO tia_test_suites_failed (test_suite_name) VALUES (?) "
+                + "ON CONFLICT (test_suite_name) DO NOTHING", sql);
+    }
+
     @Test
     void idIsPostgres() {
         // given / when / then
