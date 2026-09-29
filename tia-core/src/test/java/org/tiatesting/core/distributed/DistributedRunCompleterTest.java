@@ -347,7 +347,7 @@ class DistributedRunCompleterTest {
         observed.addAll(failed);
 
         return new TestRunResult(trackers, failed, observed, observed, new HashSet<>(observed),
-                methodTrackers, new TestStats(), null, 1, suitesRan, TestRunSelectionDetails.empty());
+                methodTrackers, new TestStats(), null, 1, suitesRan, failed.size(), TestRunSelectionDetails.empty());
     }
 
     /**

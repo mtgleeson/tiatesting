@@ -80,7 +80,7 @@ class TestRunnerServiceHistorySavingsTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
-                ignoredTestSuiteCount, 1, TestRunSelectionDetails.empty());
+                ignoredTestSuiteCount, 1, 0, TestRunSelectionDetails.empty());
     }
 
     /**

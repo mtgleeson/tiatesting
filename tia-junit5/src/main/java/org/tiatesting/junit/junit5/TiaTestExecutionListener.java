@@ -1,6 +1,7 @@
 package org.tiatesting.junit.junit5;
 
 import org.junit.platform.engine.TestExecutionResult;
+import org.junit.platform.engine.TestSource;
 import org.junit.platform.engine.support.descriptor.ClassSource;
 import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.launcher.TestExecutionListener;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -40,7 +42,9 @@ import java.util.stream.Stream;
 /**
  * Notes:
  * 1. unlike Junit4 where the same instance of RunListener is used for failed re-runs,
- * each re-run in Junit5 will create a new instance of this class.
+ * each re-run in Junit5 creates a new instance of this class - true up to Surefire 3.5.3, where each re-run
+ * opens a new launcher session. The listener does not rely on it: state that must span re-runs lives in
+ * {@link SharedTestRunData}, and per-attempt state is cleared when each test plan starts.
  * <p>
  * 2. testPlanExecutionStarted and testPlanExecutionFinished are always called from the same thread and it's safe to
  * assume there's at most one TestPlan at a time. All other methods could be called from different threads concurrently
@@ -56,7 +60,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private final String branch;
     private final Map<String, TestSuiteTracker> testSuiteTrackers;
     private final Map<Integer, MethodImpactTracker> testRunMethodsImpacted;
+    /*
+    The suites whose latest execution in this JVM failed - the JVM-wide set shared across re-runs
+    via sharedTestRunData. See SharedTestRunData#getTestSuitesFailed.
+     */
     private final Set<String> testSuitesFailed;
+    /*
+    The suites that failed in this attempt only, cleared when each test plan starts. Feeds the
+    history row's failed count, so it pairs with suitesFinishedThisAttempt on the same row.
+     */
+    private final Set<String> suitesFailedThisAttempt = ConcurrentHashMap.newKeySet();
     private final String testClassesDirs;
     /*
     Track all the test suites that were executed by the test runner. This includes those that were skipped/ignored.
@@ -87,10 +100,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
     /*
-    Per-listener-instance set of suite names that finished in this attempt only. NOT sourced
-    from `sharedTestRunData` - a fresh set is created per re-run so the history row's "Ran"
-    count reflects what this attempt ran, not the cumulative count carried across retries by
-    the shared testSuiteTrackers map.
+    The suite names that finished in this attempt only, cleared when each test plan starts. NOT
+    sourced from `sharedTestRunData`, so the history row's "Ran" count reflects what this attempt
+    ran, not the cumulative count carried across retries by the shared testSuiteTrackers map.
      */
     private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
@@ -105,6 +117,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     runner identity and group its first attempt claimed.
      */
     private final DistributedRunnerContext distributedRunnerContext;
+    /*
+    The test plan currently executing, captured in testPlanExecutionStarted. Used only to walk up
+    from a failed test or container to the suite that owns it, when the failed node's own source
+    does not name a class (e.g. a dynamic test). Volatile because the execution callbacks that read
+    it can run on engine worker threads.
+     */
+    private volatile TestPlan testPlan;
 
     /**
      * Build the listener for this test JVM: read the update flags and the selected/ignored suite
@@ -139,7 +158,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         this.testSuiteTrackers = sharedTestRunData.getTestSuiteTrackers();
-        this.testSuitesFailed = ConcurrentHashMap.newKeySet();
+        this.testSuitesFailed = sharedTestRunData.getTestSuitesFailed();
         this.runnerTestSuites = sharedTestRunData.getRunnerTestSuites();
         this.suitesObserved = sharedTestRunData.getSuitesObserved();
         this.testRunStats = sharedTestRunData.getTestRunStats();
@@ -236,7 +255,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
 
     /**
      * This is executed only once for all tests in the session/run/test plan.
-     * For re-runs, this will be run again with the new TestExecutionListener instance.
+     * For re-runs, this will be run again - with a new TestExecutionListener instance up to Surefire
+     * 3.5.3. The per-attempt sets are cleared here so each attempt's history row counts only that
+     * attempt, whether or not the instance is new.
      *
      * @param testPlan The test plan being executed.
      */
@@ -245,7 +266,10 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         if (!enabled){
             return;
         }
+        this.testPlan = testPlan;
         testRunStartTime = System.currentTimeMillis();
+        suitesFinishedThisAttempt.clear();
+        suitesFailedThisAttempt.clear();
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.
@@ -274,12 +298,21 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
     }
 
+    /**
+     * Record that a suite has started: create its tracker on its first execution in this JVM, assume
+     * it will succeed until a failure says otherwise, and clear any failure an earlier attempt
+     * recorded for it, since this execution's outcome is now the one that counts.
+     *
+     * @param testIdentifier the class container that started
+     */
     private void testSuiteStarted(TestIdentifier testIdentifier){
         if (!enabled){
             return;
         }
 
         String testSuiteName = getTestSuiteName(testIdentifier);
+        // The latest execution decides: a re-run that passes must leave the failed set.
+        this.testSuitesFailed.remove(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
 
         // check if this is the first run for the test suite
@@ -333,7 +366,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * been executed, and when individual tests execution is complete.
      * This can be called concurrently if tests are being executed concurrently.
      *
+     * <p>A suite fails when any test or container within it finishes {@code FAILED}. That includes
+     * the class container itself (a failing {@code @BeforeAll} / {@code @AfterAll} reports no child
+     * tests) and method-level containers such as a parameterized or factory method whose argument
+     * source or factory throws. {@code ABORTED} - an assumption that was not met - is not a failure,
+     * matching the build tool, which reports it as skipped. The failure is recorded before the
+     * suite's own completion bookkeeping, so a failed class container is still finished normally.
+     *
      * @param testIdentifier The identifier for the item being executed.
+     * @param testExecutionResult The result of the execution, whose status decides whether the
+     *                            owning suite is recorded as failed.
      */
     @Override
     public void executionFinished(TestIdentifier testIdentifier, TestExecutionResult testExecutionResult) {
@@ -341,19 +383,50 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
 
-        if (isExecutionForTest(testIdentifier)){
-            if (testExecutionResult.getStatus() != TestExecutionResult.Status.SUCCESSFUL){
-                testFailure(testIdentifier);
-            }
-        } else if (isExecutionForTestSuite(testIdentifier)) {
+        if (testExecutionResult.getStatus() == TestExecutionResult.Status.FAILED){
+            testFailure(testIdentifier);
+        }
+
+        if (isExecutionForTestSuite(testIdentifier)) {
             testSuiteFinished(testIdentifier);
         }
     }
 
+    /**
+     * Record the suite owning a failed test or container as failed for this run: add it to the
+     * failed set and mark its stats as a failed run. A failed node that belongs to no suite - the
+     * engine's own root container - is ignored, since there is no suite to force-run next time.
+     *
+     * @param testIdentifier the test or container that finished {@code FAILED}
+     */
     private void testFailure(TestIdentifier testIdentifier) {
         String testSuiteName = getTestSuiteName(testIdentifier);
+        if (testSuiteName == null){
+            log.debug("Ignoring a failure with no owning test suite: {}", testIdentifier.getUniqueId());
+            return;
+        }
         this.testSuitesFailed.add(testSuiteName);
+        this.suitesFailedThisAttempt.add(testSuiteName);
         updateTrackerStatsForFailedRun(testSuiteName);
+    }
+
+    /**
+     * The suites whose latest execution in this JVM failed, across every test plan. Exposed for
+     * testing.
+     *
+     * @return the live, JVM-wide set of failed suite names
+     */
+    Set<String> getTestSuitesFailed() {
+        return testSuitesFailed;
+    }
+
+    /**
+     * The suites that failed in this attempt only. Exposed for testing.
+     *
+     * @return the live, per-attempt set of failed suite names
+     */
+    Set<String> getSuitesFailedThisAttempt() {
+        return suitesFailedThisAttempt;
     }
 
     /**
@@ -415,7 +488,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
                 System.getProperty("tiaDrainResultFile"));
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
-                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), selectionDetails);
+                ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
+                selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last
@@ -493,13 +567,37 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
     }
 
+    /**
+     * Resolve the name of the test suite (class) a test or container belongs to.
+     *
+     * <p>A node whose own source names a class - a class container's {@link ClassSource}, or a test
+     * or method-level container's {@link MethodSource} - answers directly, which covers every node
+     * on the passing path without touching the test plan. Anything else, such as a dynamic test
+     * whose source is absent or a URI, is resolved by walking up the test plan to the nearest
+     * ancestor that does name a class. For a {@code @Nested} class that is the nested class, the
+     * same suite its own tests are recorded under.
+     *
+     * @param testIdentifier the test or container to resolve
+     * @return the owning suite's class name, or {@code null} when no node on the path to the root
+     *         names a class (e.g. the engine container), or no test plan is available to walk
+     */
     private String getTestSuiteName(TestIdentifier testIdentifier){
-        if (isExecutionForTestSuite(testIdentifier)){
-            return ((ClassSource) testIdentifier.getSource().get()).getClassName();
-        } else if (isExecutionForTest(testIdentifier)){
-            return ((MethodSource) testIdentifier.getSource().get()).getClassName();
+        Optional<TestSource> source = testIdentifier.getSource();
+        if (source.isPresent()){
+            if (source.get() instanceof ClassSource){
+                return ((ClassSource) source.get()).getClassName();
+            }
+            if (source.get() instanceof MethodSource){
+                return ((MethodSource) source.get()).getClassName();
+            }
         }
-        return null;
+
+        TestPlan currentTestPlan = this.testPlan;
+        if (currentTestPlan == null){
+            return null;
+        }
+        Optional<TestIdentifier> parent = currentTestPlan.getParent(testIdentifier);
+        return parent.isPresent() ? getTestSuiteName(parent.get()) : null;
     }
 
     /**
@@ -523,9 +621,19 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         return testRunnerService.getTestClassesFromDirs(testClassesDirs);
     }
 
+    /**
+     * Mark a suite's stats for this run as one failed run and no successful one, overriding the
+     * "assumed success" set when the suite started. A no-op when mapping and stats are not being
+     * updated, or when the suite has no tracker because it never started in this JVM.
+     *
+     * @param testSuiteName the suite that failed
+     */
     private void updateTrackerStatsForFailedRun(String testSuiteName) {
         if (updateDBMapping) {
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
+            if (testSuiteTracker == null){
+                return;
+            }
             testSuiteTracker.getTestStats().setNumSuccessRuns(0);
             testSuiteTracker.getTestStats().setNumFailRuns(1);
         }
@@ -548,10 +656,6 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     private boolean isExecutionForTestSuite(TestIdentifier testIdentifier) {
         return testIdentifier.isContainer() && testIdentifier.getSource().isPresent()
                 && testIdentifier.getSource().get() instanceof ClassSource;
-    }
-
-    private boolean isExecutionForTest(TestIdentifier testIdentifier) {
-        return testIdentifier.isTest();
     }
 
 }

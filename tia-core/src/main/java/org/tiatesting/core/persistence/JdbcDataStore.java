@@ -620,13 +620,20 @@ public class JdbcDataStore implements DataStore {
         log.debug("Time to persist the sealed run data (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * {@inheritDoc} Opens a connection and delegates to {@link #persistTestSuitesFailed(Connection,
+     * Set, Set)}, which owns the transaction.
+     *
+     * @param suitesToClear the suites whose stored failed state this run supersedes
+     * @param suitesFailed the suites whose latest execution in this run failed
+     */
     @Override
-    public void persistTestSuitesFailed(final Set<String> testSuitesFailed){
+    public void persistTestSuitesFailed(final Set<String> suitesToClear, final Set<String> suitesFailed){
         long startTime = System.currentTimeMillis();
         Connection connection = getConnection();
 
         try {
-            persistTestSuitesFailed(connection, testSuitesFailed);
+            persistTestSuitesFailed(connection, suitesToClear, suitesFailed);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }finally {
@@ -2883,14 +2890,46 @@ public class JdbcDataStore implements DataStore {
         return new ArrayList<>(batchMap.values());
     }
 
+    /**
+     * Delete the given suites' {@code tia_test_suite} rows and their {@code tia_test_suites_failed}
+     * rows on a caller-supplied connection, in one transaction. The failed rows have to go too:
+     * the failed set only ever loses a suite when that suite executes, which a deleted suite never
+     * will, so a failed row left behind would force-select the suite on every later build. Doing
+     * both in one transaction means a crash cannot leave the failed row without the suite row that
+     * the next run's deletion check would find and retry.
+     *
+     * @param connection the connection to delete on; owns and commits/rolls back its own transaction
+     * @param testSuites the suites to delete
+     * @throws SQLException if either delete fails, after rolling back both
+     */
     private void deleteTestSuites(Connection connection, final Set<String> testSuites) throws SQLException {
-        Statement statement = connection.createStatement();
+        boolean previousAutoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
 
-        for (String testSuite : testSuites){
-            String deleteTestSuiteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = '" + testSuite +"'";
-            log.debug("Deleting test suite: {}", deleteTestSuiteSql);
-
-            statement.executeUpdate(deleteTestSuiteSql);
+        try (PreparedStatement deleteSuite = connection.prepareStatement(
+                "DELETE FROM " + TABLE_TIA_TEST_SUITE + " WHERE " + COL_NAME + " = ?")) {
+            for (String testSuite : testSuites){
+                log.debug("Deleting test suite: {}", testSuite);
+                deleteSuite.setString(1, testSuite);
+                deleteSuite.addBatch();
+            }
+            deleteSuite.executeBatch();
+            deleteTestSuitesFailed(connection, testSuites);
+            connection.commit();
+        } catch (Exception e) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                e.addSuppressed(rollbackEx);
+            }
+            throw e;
+        } finally {
+            try {
+                connection.setAutoCommit(previousAutoCommit);
+            } catch (SQLException restoreEx) {
+                // best-effort restore - the connection is about to be closed by the caller
+                log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
         }
     }
 
@@ -3463,54 +3502,53 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Rewrite {@code tia_test_suites_failed} on a caller-supplied connection: clear the previous
-     * failed-suite set and insert the new one in one transaction, so a failure partway through the
-     * insert leaves the previously persisted rows intact rather than half-written. The clear-out
-     * uses {@link SqlDialect#clearTableTransactionallySql} so the statement stays transactional on
-     * whichever vendor the datastore is configured for - see the pluggable-datastore WIKI chapter.
+     * Apply an incremental failed-suite update on a caller-supplied connection, in one
+     * transaction: delete the stored row of every suite in {@code suitesToClear}, then insert every
+     * suite in {@code suitesFailed} that is not already stored. Only the named suites' rows are
+     * touched, so two runners of a distributed build writing for disjoint groups at the same time
+     * cannot discard each other's rows - the whole-table clear-and-rewrite this replaces could. Both
+     * statements bind the suite names as parameters, in chunks of {@value #IN_CLAUSE_CHUNK_SIZE}.
+     *
+     * <p>The insert goes through {@link SqlDialect#upsert} keyed on the suite name, which for this
+     * key-only table is an insert-if-absent on both vendors. A plain {@code INSERT} would turn a
+     * name another writer had just stored into a primary-key violation and fail the persist.
      *
      * @param connection the connection to write on; owns and commits/rolls back its own transaction
-     * @param testSuitesFailed the full set of currently-failed test suite names to persist; a null
-     *                         set is a no-op
-     * @throws SQLException if the clear-out or the insert fails
+     * @param suitesToClear the suites whose stored rows are deleted; may be empty
+     * @param suitesFailed the suites to store as failed; may be empty
+     * @throws SQLException if the delete or the insert fails, after rolling back both
      */
-    private void persistTestSuitesFailed(Connection connection, Set<String> testSuitesFailed) throws SQLException {
-        if (testSuitesFailed == null){
+    private void persistTestSuitesFailed(final Connection connection, final Set<String> suitesToClear,
+                                         final Set<String> suitesFailed) throws SQLException {
+        if (suitesToClear.isEmpty() && suitesFailed.isEmpty()){
             return;
         }
 
-        // The clear-out and the INSERT must end up in the same transaction; dialect.clearTableTransactionallySql
-        // gives a statement that is guaranteed to roll back with the rest of the transaction on
-        // whichever vendor this datastore is configured for. Same pattern as writeSourceMethods.
         boolean previousAutoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
 
-        try (Statement statement = connection.createStatement()) {
-            String clearSql = dialect.clearTableTransactionallySql(TABLE_TIA_TEST_SUITES_FAILED);
-            log.debug("Clearing failed test suites: {}", clearSql);
-            statement.executeUpdate(clearSql);
+        try {
+            deleteTestSuitesFailed(connection, suitesToClear);
 
-            if (testSuitesFailed.isEmpty()){
-                connection.commit();
-                return;
+            if (!suitesFailed.isEmpty()){
+                String insertSql = dialect.upsert(TABLE_TIA_TEST_SUITES_FAILED,
+                        Collections.singletonList(COL_TEST_SUITE_NAME), Collections.singletonList(COL_TEST_SUITE_NAME));
+                log.debug("Persisting failed test suites {}: {}", suitesFailed, insertSql);
+                try (PreparedStatement insert = connection.prepareStatement(insertSql)) {
+                    for (String suite : suitesFailed){
+                        insert.setString(1, suite);
+                        insert.addBatch();
+                    }
+                    insert.executeBatch();
+                }
             }
-
-            StringBuilder insertSqlBuilder = new StringBuilder("INSERT INTO " + TABLE_TIA_TEST_SUITES_FAILED + " (" + COL_TEST_SUITE_NAME + ") values ");
-            for (String testSuite : testSuitesFailed){
-                insertSqlBuilder.append("('" + testSuite + "'),");
-            }
-            String insertSql = insertSqlBuilder.toString();
-            insertSql = insertSql.substring(0, insertSql.length()-1);
-
-            log.debug("Persisting failed test suites: {}", insertSql);
-            statement.executeUpdate(insertSql);
 
             connection.commit();
         } catch (Exception e) {
-            // Catch Exception (not just SQLException) so any failure in this block - including
-            // an NPE while building the insert SQL - still triggers the rollback. Tia treats
-            // any exception in this class as a stop-the-world condition: roll back, then
-            // re-throw so the failure bubbles up rather than continuing with a half-written DB.
+            // Catch Exception (not just SQLException) so any failure in this block still triggers
+            // the rollback. Tia treats any exception in this class as a stop-the-world condition:
+            // roll back, then re-throw so the failure bubbles up rather than continuing with a
+            // half-written DB.
             try {
                 connection.rollback();
             } catch (SQLException rollbackEx) {
@@ -3523,6 +3561,30 @@ public class JdbcDataStore implements DataStore {
             } catch (SQLException restoreEx) {
                 // best-effort restore - the connection is about to be closed by the caller
                 log.debug("Failed to restore autoCommit on connection: {}", restoreEx.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Delete the {@code tia_test_suites_failed} rows of the given suites on a caller-supplied
+     * connection, joining whatever transaction the caller has open. Issues one {@code DELETE ...
+     * IN (...)} per {@value #IN_CLAUSE_CHUNK_SIZE} names.
+     *
+     * @param connection the connection to delete on; the caller owns the transaction
+     * @param suites the suites whose failed rows to delete; a no-op when empty
+     * @throws SQLException if a delete fails
+     */
+    private void deleteTestSuitesFailed(final Connection connection, final Set<String> suites) throws SQLException {
+        List<String> names = new ArrayList<>(suites);
+        for (int from = 0; from < names.size(); from += IN_CLAUSE_CHUNK_SIZE){
+            List<String> chunk = names.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, names.size()));
+            String deleteSql = "DELETE FROM " + TABLE_TIA_TEST_SUITES_FAILED + " WHERE " + COL_TEST_SUITE_NAME
+                    + " IN (" + String.join(", ", Collections.nCopies(chunk.size(), "?")) + ")";
+            try (PreparedStatement delete = connection.prepareStatement(deleteSql)) {
+                for (int i = 0; i < chunk.size(); i++){
+                    delete.setString(i + 1, chunk.get(i));
+                }
+                delete.executeUpdate();
             }
         }
     }

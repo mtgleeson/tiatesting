@@ -483,7 +483,9 @@ The figures it carries fall into three kinds that must not be treated alike, and
   before it.
 - `suites_failed` is **current state**: a plain `= ?`, because a suite that passes on retry must be
   able to leave the failed set. Accumulating it would leave a fixed suite recorded as permanently
-  failed.
+  failed. The value is the JVM-wide count of suites whose latest execution failed, not the
+  attempt's own failures: a retry that ran only a different suite still reports a suite that failed
+  earlier and was not retried. See [Failed-suite tracking](failed-suite-tracking.md).
 - `suites_observed` is written as `GREATEST(COALESCE(column, 0), ?)` - not accumulated, because the
   set it comes from is *already* cumulative across every test plan in the JVM, so summing would
   double-count. `GREATEST` rather than a plain replace is what stops a later, smaller report from
@@ -1252,4 +1254,4 @@ test-fork configuration into a build JVM that is not a fork.
 
 ---
 
-Prev: [Persist flow and crash safety](persist-flow-and-crash-safety.md) | [Back to the Wiki index](../WIKI.md) | Next: [Embedded vs server-mode H2 connections](h2-connection-modes.md)
+Prev: [Failed-suite tracking](failed-suite-tracking.md) | [Back to the Wiki index](../WIKI.md) | Next: [Embedded vs server-mode H2 connections](h2-connection-modes.md)

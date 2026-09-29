@@ -111,7 +111,7 @@ class TestRunnerServiceHistoryRunOriginTest {
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 3, 1,
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 3, 1, 0,
                 TestRunSelectionDetails.empty());
     }
 }

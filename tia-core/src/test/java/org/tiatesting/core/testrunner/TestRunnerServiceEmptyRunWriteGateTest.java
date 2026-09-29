@@ -19,6 +19,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import java.io.File;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -105,7 +106,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         runStats.setNumSuccessRuns(1);
 
         return new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected, selected,
-                new HashMap<>(), runStats, null, 3, 0, TestRunSelectionDetails.empty());
+                new HashMap<>(), runStats, null, 3, 0, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -126,14 +127,14 @@ class TestRunnerServiceEmptyRunWriteGateTest {
     }
 
     /**
-     * A previously-failed suite stays in the force-run set. The failed set is maintained by removing
-     * the run's selection and adding back what failed, and an empty run failed nothing only because
-     * it ran nothing.
+     * A previously-failed suite stays in the force-run set. The failed set is maintained by clearing
+     * the suites a run executed and adding back what failed, and an empty run failed nothing only
+     * because it ran nothing - nor may it read its unexecuted selection as developer-disabled.
      */
     @Test
     void emptyRun_leavesThePreviouslyFailedSetAlone() {
         // given - suite A failed on an earlier run and is selected again now
-        dataStore.persistTestSuitesFailed(new HashSet<>(Arrays.asList(SUITE_A)));
+        dataStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(Arrays.asList(SUITE_A)));
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), emptyRun(), null);
@@ -153,7 +154,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         // given - an empty run whose runner set is empty, as it is with no directory scan configured
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), new HashMap<>(),
-                new TestStats(), null, 3, 0, TestRunSelectionDetails.empty());
+                new TestStats(), null, 3, 0, 0, TestRunSelectionDetails.empty());
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);
@@ -200,7 +201,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
 
         Set<String> selected = new HashSet<>(Arrays.asList(SUITE_A, SUITE_B));
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected,
-                selected, new HashMap<>(), new TestStats(), drainResult, 3, 0,
+                selected, new HashMap<>(), new TestStats(), drainResult, 3, 0, 0,
                 TestRunSelectionDetails.empty());
 
         // when

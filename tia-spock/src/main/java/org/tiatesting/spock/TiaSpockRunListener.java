@@ -133,12 +133,34 @@ public class TiaSpockRunListener extends AbstractRunListener {
         }
     }
 
+    /**
+     * Record the spec an error belongs to as failed for this run. Spock does not call this for an
+     * assumption abort ({@code TestAbortedException}), so every call is a real failure.
+     *
+     * <p>The spec is resolved from the failing method's parent rather than its feature, because
+     * only feature methods have a feature: an error from {@code setup}, {@code cleanup}, {@code
+     * setupSpec}, {@code cleanupSpec}, a field initializer or a {@code where:} data provider carries
+     * a method whose feature is null. A method's parent is the spec that <em>declares</em> it, which
+     * for an inherited feature or fixture is a base class, so the bottom spec - the one actually
+     * running, and the one {@link #beforeSpec} tracked - is taken from there.
+     *
+     * @param error the failing method and the exception it threw
+     */
     @Override
     public void error(ErrorInfo error) {
-        SpecInfo spec = error.getMethod().getFeature().getSpec();
+        SpecInfo spec = error.getMethod().getParent().getBottomSpec();
         String specName = specificationUtil.getSpecName(spec);
         this.testSuitesFailed.add(specName);
         updateTrackerStatsForFailedRun(specName);
+    }
+
+    /**
+     * The specs this listener has recorded as failed. Exposed for testing.
+     *
+     * @return the live set of failed spec names
+     */
+    Set<String> getTestSuitesFailed() {
+        return testSuitesFailed;
     }
 
     /**
@@ -208,10 +230,11 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // Spock is not affected by the JUnit5/JUnit4 retry-inflation bug: finishAllTests fires
         // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
         // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
-        // per-attempt count - there's no separate counter to thread through.
+        // per-attempt count - there's no separate counter to thread through. The same holds for the
+        // failed set: with one persist per JVM, the JVM-wide set is the attempt's own.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size(), selectionDetails);
+                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last
@@ -242,10 +265,20 @@ public class TiaSpockRunListener extends AbstractRunListener {
         return System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
     }
 
+    /**
+     * Mark a spec's stats for this run as one failed run and no successful one, overriding the
+     * "assumed success" set in {@link #beforeSpec}. A no-op when mapping and stats are not being
+     * updated, or when the spec has no tracker because {@link #beforeSpec} has not run for it.
+     *
+     * @param specName the spec that failed
+     */
     private void updateTrackerStatsForFailedRun(String specName) {
         if (updateDBMapping) {
             // reset the stats - the tests wasn't run
             TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(specName);
+            if (testSuiteTracker == null) {
+                return;
+            }
             testSuiteTracker.getTestStats().setNumSuccessRuns(0);
             testSuiteTracker.getTestStats().setNumFailRuns(1);
         }

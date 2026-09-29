@@ -232,8 +232,10 @@ rather than needing their own cleanup.)
 - **tia_source_class_method** - the join table holding the coverage **edges** (which methods each
   tracked source-class row covers). This is the bulk of the database - millions of rows on a large
   project.
-- **tia_test_suites_failed** - the set of suites with a pending failure, force-re-run on the next
-  selection ("Running previously failed tests").
+- **tia_test_suites_failed** - the set of suites with a pending failure - a suite whose latest
+  execution failed; an assumption abort does not count - force-re-run on the next selection
+  ("Running previously failed tests"). Written incrementally, one executed suite at a time, and
+  cleared for a suite when it is deleted. See [Failed-suite tracking](failed-suite-tracking.md).
 - **tia_test_run_history** - audit log: one row per run (timestamp, branch, commit, ran/ignored/
   failed counts, duration, frozen per-run savings). Drives the `history` task and HTML History tab.
   Also carries five nullable selection-source counters (`num_modified_test_files`,

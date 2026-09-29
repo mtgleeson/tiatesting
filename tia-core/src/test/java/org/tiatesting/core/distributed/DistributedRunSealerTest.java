@@ -707,7 +707,7 @@ class DistributedRunSealerTest {
         Set<String> runnerSuites = new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest"));
         return new TestRunResult(trackers, new HashSet<String>(), runnerSuites, runnerSuites,
                 new HashSet<>(Collections.singletonList(suiteName)), methodTrackers, new TestStats(),
-                null, 1, 1, TestRunSelectionDetails.empty());
+                null, 1, 1, 0, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -789,9 +789,9 @@ class DistributedRunSealerTest {
          * @param testSuitesFailed the failed suite names to store
          */
         @Override
-        public void persistTestSuitesFailed(final Set<String> testSuitesFailed) {
+        public void persistTestSuitesFailed(final Set<String> suitesToClear, final Set<String> suitesFailed) {
             callOrder.add("persistTestSuitesFailed");
-            super.persistTestSuitesFailed(testSuitesFailed);
+            super.persistTestSuitesFailed(suitesToClear, suitesFailed);
         }
 
         /**
