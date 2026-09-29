@@ -141,8 +141,8 @@ public interface DataStore extends AutoCloseable {
      * persist concurrently against one database, each for its own disjoint group of suites, and a
      * read-modify-write of the whole set would let one runner's write discard another's. Touching
      * only the named suites means concurrent writers for different suites never interfere. Adding a
-     * suite that is already stored is a no-op rather than an error. See the "Persist flow and crash
-     * safety" chapter in {@code WIKI.md}.
+     * suite that is already stored is a no-op rather than an error. See the "Failed-suite tracking"
+     * chapter in {@code WIKI.md}.
      *
      * @param suitesToClear the suites whose stored failed state this run supersedes - those it
      *                      executed, plus any it can show will not run
