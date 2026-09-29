@@ -60,7 +60,8 @@ public class SharedTestRunData {
      * The suites whose latest execution in this JVM failed, across every test plan. A suite is removed when it
      * starts - in any attempt - and added back if it fails in that execution, so a flaky suite that passes on a
      * re-run leaves the set, while a suite that failed in an earlier attempt and was not re-run stays in it. It
-     * lives here rather than on the listener so that holds across re-runs that get a new listener instance.
+     * lives here rather than on the listener so that holds across re-runs that get a new listener instance. See
+     * the "Failed-suite tracking" chapter in WIKI.md.
      */
     private final Set<String> testSuitesFailed;
 

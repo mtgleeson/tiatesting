@@ -798,6 +798,7 @@ public class TestRunnerService {
      * execute): Tia can show it will not run, so keeping it force-selected would gain nothing, and
      * if it is re-enabled it simply executes and is judged again. The failures added back are this
      * JVM's latest-outcome failures, which a flaky suite that passed on a Surefire retry is not in.
+     * See the "Failed-suite tracking" chapter in {@code WIKI.md}.
      *
      * @param tiaData the Tia DB, whose tracked suites carry the developer-disabled flag as updated
      *                earlier in this persist
