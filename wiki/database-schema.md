@@ -100,6 +100,7 @@ erDiagram
         INT num_previously_failed
         INT num_unsealed_mapping
         INT num_pending_library
+        BOOLEAN rerun
     }
 
     tia_test_run_history_trigger {
@@ -241,7 +242,9 @@ rather than needing their own cleanup.)
   Also carries five nullable selection-source counters (`num_modified_test_files`,
   `num_new_test_files`, `num_previously_failed`, `num_unsealed_mapping`, `num_pending_library`) -
   null means "not recorded" rather than zero. See the
-  [Run history details](run-history-details.md) chapter.
+  [Run history details](run-history-details.md) chapter. `rerun` flags a retry of failed tests (a
+  Surefire rerun or a Gradle test-retry round), which is credited no savings - see
+  [Test-run history log](test-run-history.md).
 - **tia_test_run_history_trigger** - the per-changed-method and per-static-rule selection triggers
   behind one history row's counters, each with a suite count; FK to `tia_test_run_history.id`,
   `ON DELETE CASCADE`. Loaded only on demand - by the per-run detail page and the history-details

@@ -109,13 +109,17 @@ public final class SummaryStats {
      * @param numTestSuites the number of test classes with mappings
      * @param numSourceMethods the number of source methods tracked for tests
      * @param stats the Tia-level run statistics
+     * <p>Rerun rows - retries of failed tests - are left out of every figure derived from the
+     * history. A rerun runs only the failures, so its short wall clock would pull the average run
+     * time down and, through it, push the average savings up, although the build took no less
+     * time. Its savings are recorded as zero, so leaving it out of the totals changes nothing.
+     *
      * @param history the recorded test-run history; may be null
      * @return the sections in display order
      */
     public static List<Section> build(int numTestSuites, int numSourceMethods, TestStats stats,
                                       List<TestRunHistoryEntry> history) {
-        List<TestRunHistoryEntry> runs = history == null
-                ? Collections.<TestRunHistoryEntry>emptyList() : history;
+        List<TestRunHistoryEntry> runs = withoutReruns(history);
         int allTestsGroups = ReportUtils.lastAllTestsRunGroupCount(runs);
         long allTestsWallClockMs = ReportUtils.wallClockAllTestsRunTimeMs(
                 stats.getAllTestsRunTime(), allTestsGroups);
@@ -200,6 +204,24 @@ public final class SummaryStats {
                 ReportUtils.prettyDurationDropMsAboveMinute(stats.getAllTestsRunTime()) + " (1 group)",
                 "The average time an all-tests run takes on one machine."));
         return new Section("All Tests", null, 1, lines);
+    }
+
+    /**
+     * Drop the rerun rows from the history, keeping each test task's real run.
+     *
+     * @param history the recorded test-run history; may be null
+     * @return the non-rerun rows, in their original order; empty when {@code history} is null
+     */
+    private static List<TestRunHistoryEntry> withoutReruns(List<TestRunHistoryEntry> history) {
+        List<TestRunHistoryEntry> runs = new ArrayList<>();
+        if (history != null) {
+            for (TestRunHistoryEntry entry : history) {
+                if (!entry.isRerun()) {
+                    runs.add(entry);
+                }
+            }
+        }
+        return runs;
     }
 
     /**

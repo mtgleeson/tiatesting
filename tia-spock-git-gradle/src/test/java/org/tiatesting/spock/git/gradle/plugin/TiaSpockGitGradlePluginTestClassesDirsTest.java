@@ -7,10 +7,12 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.testrunner.TestJvmSequence;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.io.File;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -73,6 +75,32 @@ class TiaSpockGitGradlePluginTestClassesDirsTest {
         assertTrue(forwarded.contains(","), forwarded);
         assertTrue(forwarded.contains("java"), forwarded);
         assertTrue(forwarded.contains("groovy"), forwarded);
+    }
+
+    /**
+     * The task action resets the test JVM counter for this execution and forwards its path, so a
+     * test-retry round's fresh JVM can tell it is not the real run - even when a previous execution
+     * of the task left the counter at a later round.
+     *
+     * @param projectDir a temporary directory to root the Gradle project at
+     * @throws Exception if the counter file cannot be written or read
+     */
+    @org.junit.jupiter.api.Test
+    void theTestJvmCounterIsResetAndForwardedToTheFork(@TempDir File projectDir) throws Exception {
+        // given
+        Test testTask = testTaskWithTiaApplied(projectDir);
+        enableTia(projectExtension(testTask), projectDir);
+        File counter = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
+        java.nio.file.Files.write(counter.toPath(), "3".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        assertEquals(counter.getAbsolutePath(),
+                testTask.getSystemProperties().get(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE));
+        assertEquals("0", new String(java.nio.file.Files.readAllBytes(counter.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /**

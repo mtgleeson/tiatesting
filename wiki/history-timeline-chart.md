@@ -19,6 +19,10 @@ proportion to elapsed time".
   ["Reporting: two durations, one history row"](distributed-test-runs.md#reporting-two-durations-one-history-row).
 - **Colour is pass/fail** - green when the run had no failed suites, red when `num_suites_failed`
   is greater than zero. This is the one thing the eye should catch without hovering.
+- **A rerun is drawn faded with a dashed outline**, keeping its pass/fail colour, so a retry of
+  failed tests reads as belonging to the bar before it rather than as a run of its own; the legend
+  names it, and its tooltip and `aria-label` read "rerun" in place of a savings figure (a rerun is
+  credited none - see "Rerun rows" in [Test-run history log](test-run-history.md)).
 - **A bar is a link.** Each bar is a real SVG anchor pointing at that run's `history/<id>.html`
   detail page - the same page the table's Id cell links to (see
   [Run history details](run-history-details.md)). Being an anchor rather than a scripted click
@@ -59,8 +63,8 @@ The Java side (`HtmlHistoryTimeline`) does only data preparation, and is unit-te
 - `selectTimelineRuns` sorts the history oldest-first and keeps the most recent
   `MAX_TIMELINE_RUNS`.
 - `buildRunsJson` serialises those runs to a compact, `<script>`-safe JSON array - one small
-  object per run carrying `id`, `t` (timestamp), `d` (wall clock), `s` (wall-clock savings percent) and `f`
-  (1 when the run had any failed suite, else 0). String values go through
+  object per run carrying `id`, `t` (timestamp), `d` (wall clock), `s` (wall-clock savings percent), `f`
+  (1 when the run had any failed suite, else 0) and `r` (1 for a rerun of failed tests, else 0). String values go through
   `ScriptSafeJson.appendString`, which unicode-escapes `< > &` so the embedded data can never
   terminate the surrounding `<script>` element - the same helper (and the same reason) the Source
   Methods index uses to embed its rows.

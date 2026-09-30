@@ -295,6 +295,26 @@ public class SerializedDataStore implements DataStore {
      *
      * @param testSuites the test suites that should be deleted
      */
+    /**
+     * {@inheritDoc} Read from the in-memory tracked suites, which the serialized store always
+     * holds in full.
+     *
+     * @param suiteNames the suites whose coverage to read
+     * @return each named suite's stored class trackers, keyed by suite name
+     */
+    @Override
+    public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) {
+        Map<String, List<ClassImpactTracker>> coverage = new HashMap<>();
+        Map<String, TestSuiteTracker> tracked = getTiaData(false).getTestSuitesTracked();
+        for (String suiteName : suiteNames) {
+            TestSuiteTracker tracker = tracked.get(suiteName);
+            if (tracker != null && tracker.getClassesImpacted() != null && !tracker.getClassesImpacted().isEmpty()) {
+                coverage.put(suiteName, new ArrayList<>(tracker.getClassesImpacted()));
+            }
+        }
+        return coverage;
+    }
+
     @Override
     public void deleteTestSuites(Set<String> testSuites) {
         // Was a no-op back when persistTestSuites received the whole map and a deletion showed up

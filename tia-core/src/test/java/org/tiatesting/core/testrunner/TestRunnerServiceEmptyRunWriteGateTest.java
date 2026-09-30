@@ -106,7 +106,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         runStats.setNumSuccessRuns(1);
 
         return new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected, selected,
-                new HashMap<>(), runStats, null, 3, 0, 0, TestRunSelectionDetails.empty());
+                new HashMap<>(), runStats, null, 3, 0, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -154,7 +154,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         // given - an empty run whose runner set is empty, as it is with no directory scan configured
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashSet<>(Arrays.asList(SUITE_A, SUITE_B)), new HashMap<>(),
-                new TestStats(), null, 3, 0, 0, TestRunSelectionDetails.empty());
+                new TestStats(), null, 3, 0, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);
@@ -202,7 +202,7 @@ class TestRunnerServiceEmptyRunWriteGateTest {
         Set<String> selected = new HashSet<>(Arrays.asList(SUITE_A, SUITE_B));
         TestRunResult result = new TestRunResult(new HashMap<>(), new HashSet<>(), selected, selected,
                 selected, new HashMap<>(), new TestStats(), drainResult, 3, 0, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(true, false, "commit-1", "main", System.currentTimeMillis(), result, null);

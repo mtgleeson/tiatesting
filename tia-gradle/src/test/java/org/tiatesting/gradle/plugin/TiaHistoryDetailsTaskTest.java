@@ -109,7 +109,7 @@ class TiaHistoryDetailsTaskTest {
     private static TestRunHistoryEntry seedHistoryEntry(final File projectDir, final String branch) {
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(branch, "abc123", System.currentTimeMillis(),
                 5, 1, 0, 1000L, true, 200L, 10,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host1"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host1"), null, false);
         List<TestRunTrigger> triggers = Collections.singletonList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", 3));
 

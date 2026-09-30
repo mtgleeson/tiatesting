@@ -25,6 +25,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.RunAttempt;
 
 import java.io.File;
 import java.time.Instant;
@@ -157,7 +158,7 @@ class TiaSpockRunListenerDistributedTest {
     private TiaSpockRunListener listenerFor(final DistributedRunnerContext distributedRunnerContext) {
         return new TiaSpockRunListener(BRANCH, PLAN_COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                TestRunSelectionDetails.empty(), distributedRunnerContext);
+                TestRunSelectionDetails.empty(), distributedRunnerContext, RunAttempt.FIRST);
     }
 
     /**

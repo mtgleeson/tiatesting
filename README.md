@@ -653,6 +653,15 @@ For a distributed build, `Wall clock` is its slowest group, and `Savings` is mea
 
 **`Source`** is `CI` or `LOCAL`, detected from the CI marker environment variables a forked test JVM inherits, or whatever `tiaRunSource` / `runSource` declared. See [configuration](#configuration). The machine that ran each run is on the per-run detail output as `Host`, dashed for a distributed build since no single machine ran it.
 
+**Retries of failed tests** - a Surefire rerun (`rerunFailingTestsCount`) or a Gradle [`test-retry`](https://github.com/gradle/test-retry-gradle-plugin) round - each write their own row. A retry row shows `rerun` in the `Savings` column and is credited no savings, since it ran only the failures of a run whose savings are already on the row before it; the per-run detail output says `Rerun: yes`. Both retry mechanisms are supported on builds that update the mapping: a retry adds its coverage to what the first attempt recorded rather than replacing it.
+
+```
+Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
+----------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
+2026-05-15 09:32  abc123de    1       44       0  4s          rerun            -  CI      yes      7c1e2f90
+2026-05-15 09:30  abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
+```
+
 **Maven, Junit5 and Git**
 ```
 tia-junit5-git:history

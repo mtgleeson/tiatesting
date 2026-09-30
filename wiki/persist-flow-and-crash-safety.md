@@ -19,7 +19,7 @@ A Tia-instrumented test run accumulates state in-process (suite trackers, method
 - **JUnit 4**: `TiaJunit4Listener.testRunFinished`.
 - **Spock**: `TiaSpockRunListener.finishAllTests`, called from the global extension's `stop()` once per JVM.
 
-On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 / JUnit 4 (each retry's listener writes its own row). Spock collapses retries naturally - one call per JVM. See the "Test-run history log" chapter for the per-attempt counters that decouple retry semantics from the mapping accumulator.
+On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 / JUnit 4 (each retry's listener writes its own row). Spock collapses retries within a JVM - one call per JVM - but a Gradle test-retry round is a fresh JVM and persists again. Every retry persist is told it is one (`RunAttempt`), and a fresh-JVM round adds to what the first attempt stored rather than replacing it; see "Retries" in [Failed-suite tracking](failed-suite-tracking.md). See the "Test-run history log" chapter for the per-attempt counters that decouple retry semantics from the mapping accumulator.
 
 ### Write sequence: the seal-last invariant
 

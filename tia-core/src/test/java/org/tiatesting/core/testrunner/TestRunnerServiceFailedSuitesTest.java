@@ -239,7 +239,7 @@ class TestRunnerServiceFailedSuitesTest {
         }
         return new TestRunResult(trackers, failed, ALL_SUITES, executed, selected, new HashMap<>(),
                 new TestStats(), null, ALL_SUITES.size() - selected.size(), executed.size(),
-                failedThisAttempt, TestRunSelectionDetails.empty());
+                failedThisAttempt, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**

@@ -23,6 +23,7 @@ import java.util.List;
  * Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %  Source  Mapping  Id
  * ----------------  --------  ---  -------  ------  ----------  -------  ---------  ------  -------  --------
  * 2026-05-15 09:30  abc123de   42        3       1  1m 23s      45s            35%  CI      yes      550e8400
+ * 2026-05-15 09:32  abc123de    1        3       0  4s          rerun            -  CI      yes      7c1e2f90
  * ...
  * </pre>
  *
@@ -54,6 +55,9 @@ public final class TestRunHistoryConsoleFormatter {
 
     /** Rendered where a row has no value for a column the layout is showing. */
     private static final String NOT_APPLICABLE = "-";
+
+    /** Rendered in the Savings column of a rerun row, which is credited no savings. */
+    private static final String RERUN = "rerun";
 
     private TestRunHistoryConsoleFormatter() { }
 
@@ -152,6 +156,10 @@ public final class TestRunHistoryConsoleFormatter {
      * Assemble the columns for this render, including each optional group only when the rows in
      * view have something to put in it.
      *
+     * <p>A rerun of failed tests shows {@code rerun} in the Savings column rather than a dash. It is
+     * credited no savings, and saying why in the cell that would otherwise be blank marks the row
+     * without adding a column to an already wide table.
+     *
      * @param showDistributed whether to include the group-count column
      * @return the columns in display order
      */
@@ -174,7 +182,8 @@ public final class TestRunHistoryConsoleFormatter {
                     ? e.getGroupCount().toString() : NOT_APPLICABLE));
         }
 
-        columns.add(new Column("Savings", false, (e, zone) -> e.getWallClockSavingsMs() > 0
+        columns.add(new Column("Savings", false, (e, zone) -> e.isRerun() ? RERUN
+                : e.getWallClockSavingsMs() > 0
                 ? ReportUtils.prettyDuration(e.getWallClockSavingsMs(), true) : NOT_APPLICABLE));
         columns.add(new Column("Savings %", true, (e, zone) -> e.getWallClockSavingsMs() > 0
                 ? e.getWallClockSavingsPercent() + "%" : NOT_APPLICABLE));
