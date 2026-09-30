@@ -14,6 +14,7 @@ Every Tia-enabled test run logs one row to a `tia_test_run_history` table in the
 - `run_id`, `wall_clock_ms`, `group_count`, `groups_available` - distributed builds only; null on a single-host row. `group_count` is the groups the build used, `groups_available` the pool it could have used.
 - `updated_db_mapping` — whether this run also persisted updates to the suite-to-method mapping.
 - `run_source`, `host_name` — where the run came from and which machine executed it. See "Run origin" below.
+- `rerun` - true when the row records a retry of failed tests rather than the test task's real run: a Surefire rerun, or a Gradle test-retry round. See "Rerun rows" below.
 
 The table is append-mostly; an index on `run_timestamp` backs the report's default "most-recent first" sort. There's currently no retention policy — the rows are tiny and the table grows slowly enough not to need pruning in practice.
 
@@ -101,6 +102,18 @@ The executed-suite count is the per-attempt figure (`suitesRanThisAttempt`), so 
 Note which distributed shape can reach the sealer at all: the completion guard reads each group's **observed** suites, not its executed ones, so a runner that saw every assigned suite get skipped completes its group and the build seals normally with `suites_ran = 0` - that is the shape the build-level guard catches. A runner that observed nothing at all never closes its group, so the barrier simply holds and the next build's plan write clears the open run.
 
 **Which is why each runner is gated too, not only the seal.** A runner writes its own suites' mapping rows before any barrier, so the build-level guard is too late for them and, in the shape that matters most, never runs at all. `persistDistributedRunnerData` therefore applies the same `ranNoExpectedSuites()` test to the runner's own share: a runner that executed none of its assigned suites writes no mapping rows, no failed-set update and no staged method trackers. It **does** still report its group's progress - those counters and its duration are facts about the runner whatever it ran, and reporting them is what lets the barrier release so the build can reach the sealer at all. The two writes this gate prevents are the ones with no other line of defence: with no `tiaTestClassesDirs` configured the runner's observed set is empty, so `removeDeletedTestSuites` would delete the project's whole mapping; with one configured, every suite the runner was assigned would be flagged developer-disabled off a single build.
+
+### Rerun rows
+
+A build tool that retries failed tests persists once per attempt, so one test-task execution can leave several rows: the real run, then a row per Surefire rerun (`rerunFailingTestsCount`) or per Gradle `test-retry` round. A retry runs only the failures, ignores everything else and finishes in seconds, so as an ordinary row it would be credited nearly the whole full-suite baseline as time saved - the same build's savings counted again. A retry row is therefore flagged `rerun = true` and credited **zero** serial and wall-clock savings, and `SummaryStats` leaves rerun rows out of every history-derived figure: a rerun's short wall clock would pull the average run time down and push the average savings up although the build took no less time. Totals are unaffected, since a rerun row contributes zero. `ReportUtils.lastAllTestsRunGroupCount` skips rerun rows too - a rerun of an all-tests run keeps its zero ignored count but ran only the failures. How a retry is detected, and what else it persists differently, is in [Failed-suite tracking](failed-suite-tracking.md).
+
+The flag was added by migration (`BOOLEAN DEFAULT FALSE`). Rows written before it read as not reruns - nothing told retries apart then - so an older Maven retry row keeps the savings it was credited.
+
+Where it shows:
+
+- **Run detail page and `history-details` task output** - a `Rerun: yes/no` line.
+- **History table and `history` task output** - `rerun` in the Savings cell, where the row would otherwise show a dash, with a hover hint on the HTML page. This marks the row without adding a column to a table kept narrow enough not to scroll sideways.
+- **Timeline chart** - a rerun bar keeps its pass/fail colour but is drawn faded with a dashed outline, with a Rerun legend entry; see [History timeline chart](history-timeline-chart.md).
 
 ### Why timestamps are stored as UTC epoch ms
 

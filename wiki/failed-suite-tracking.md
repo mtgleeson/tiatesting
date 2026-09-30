@@ -60,7 +60,9 @@ How each listener gets there:
   suite's failing methods still starts its class container, so the suite is judged on the retry.
 - **JUnit 4.** Surefire reuses one listener instance for retries, so its failed set already spans
   attempts. `testSuiteStarted` removes a suite being run again, and `testFailure` adds it back.
-- **Spock.** `finishAllTests` persists once per JVM, so there is only one attempt to track.
+- **Spock.** `finishAllTests` persists once per JVM, so there is only one attempt per JVM to
+  track. A Gradle test-retry round is a fresh JVM that persists after the previous one, so the
+  latest outcome still wins across rounds - see "Retries" below.
 
 ### Writing the failed set
 
@@ -117,31 +119,73 @@ find and retry.
   failed count is per-attempt too. The same retry row reads "ran 1, failed 0", not "ran 1, failed
   1" with a failure in a suite that attempt never ran.
 
-### Gradle test-retry
+### Retries: Surefire reruns and Gradle test-retry rounds
 
-The `org.gradle.test-retry` plugin re-runs failed tests in rounds, and each round is a **fresh test
-JVM** with the same Tia agent arguments (each round is a separate `delegate.execute`, which starts
-and stops its own worker processes). Tia therefore persists once per round, with no knowledge of
-earlier rounds. A round only happens when every failure of the previous round is retryable, so
-each round re-runs every earlier failure.
+A build tool can retry failed tests after the test task's first run, and each retry persists on its
+own. `TestRunResult` carries which attempt a persist describes, as a `RunAttempt`:
 
-The failed set comes out right: each round clears and re-adds only the suites it executed, and the
-rounds run one after another, so the latest outcome wins across rounds. A distributed group's
-`suites_failed` is right too, because the last round re-ran every suite still failing.
+- `FIRST` - the test task's real run.
+- `RERUN_SAME_JVM` - a Surefire rerun (`rerunFailingTestsCount`). It runs in the first attempt's
+  JVM, so the listener's trackers already carry every attempt's coverage and suites. JUnit 5 numbers
+  test plans in `SharedTestRunData`; JUnit 4 numbers `testRunStarted` calls on its reused listener.
+- `RERUN_NEW_JVM` - a Gradle `org.gradle.test-retry` round. Each round is a **fresh test JVM**
+  (a separate `delegate.execute`, which starts and stops its own worker processes) with the same
+  system properties, knowing only what it ran itself. A round only happens when every failure of
+  the previous round is retryable, so each round re-runs every earlier failure.
 
-The rest of the persist is not safe with `updateDBMapping` under test-retry, and it is not
-supported for mapping builds:
+**Detecting a Gradle round.** Nothing a round's JVM is handed says which round it is, so the Tia
+Gradle plugin numbers the JVMs itself (`TestJvmSequence`): the test task's `doFirst`, which runs
+once per task execution before any round, resets a counter file in the task's temporary directory
+and forwards its path as `tiaTestJvmSequenceFile`; the Spock extension increments it once per JVM,
+under a file lock, and caches the answer. 1 is the real run, 2 or more a round. It relies on one
+test JVM per round - the single-fork requirement - and on nothing internal to Gradle or the
+test-retry plugin. With no counter (Maven, or a build without the plugin) a JVM is `FIRST`.
+Rejected: telling a round by its narrowed test plan, which a tag or `groups` filter produces too,
+and inspecting Gradle's filter object in the worker, which is a Gradle internal.
 
-- **Mapping under-selection.** A round captures coverage for only the retried features, and the
-  suite write replaces a suite's edges with this run's capture. A retried spec's mapping shrinks to
-  those features, so later builds can skip it when code only its other features cover changes.
-  Maven retries avoid this because the JVM-shared tracker merges coverage across attempts.
-- **Baseline pollution.** On a run that ignored nothing, `ignoredTestSuiteCount == 0` again in the
-  retry round, so the round counts as an all-tests run and its short duration folds into
-  `all_tests_run_time`.
-- **Developer-disabled misflagging.** A round gets the full selection but executes only the retried
-  specs, so every selected spec that passed in the first round and was not retried reads as
-  "selected, discovered, did not execute" and is flagged developer-disabled until it next executes.
+**What a retry does differently:**
+
+| | `FIRST` | `RERUN_SAME_JVM` | `RERUN_NEW_JVM` |
+|---|---|---|---|
+| History row `rerun` | false | true | true |
+| Savings (serial and wall clock) | as computed | 0 | 0 |
+| Tia-level stats | contributed | none | none |
+| Per-suite stats | counted | the rerun is counted: a flaky suite shows a fail then a pass | the same, with the suite's stored average run time, so the weighted mean does not move |
+| Coverage edges | replaced by this run's capture | replaced, but the capture is already the union of every attempt | the stored edges of the retried suites are read (`DataStore.readTestSuiteCoverage`) and unioned with the round's capture first |
+| Developer-disabled flag | maintained | maintained | left as stored |
+| Failed set | as above | as above | as above |
+
+Why each difference matters on a Gradle round, which knows nothing of the first attempt:
+
+- **Coverage.** A round captures coverage for only the retried features, and the suite write
+  replaces a suite's edges with the run's capture. Without the union a retried spec's mapping
+  would shrink to those features, and later builds could skip it when code only its other features
+  reach changes. The unsealed flag would not catch it, because the round seals too.
+- **Run times.** A round times only the retried features. Its run is counted, with its own
+  outcome, as a Surefire rerun's is, but its partial duration would pull the spec's average - and
+  with it the run-time estimate and distributed group packing - down, so it carries the stored
+  average instead. The seal takes no Tia-level stats from any retry: the first attempt already
+  counted the run.
+- **Developer-disabled flags - distributed builds.** A distributed runner re-derives its whole
+  group in every round but runs only the retried specs, so every other spec of the group would read
+  as "selected, discovered, did not execute" and be flagged. A single-host round does not have this
+  problem: its selection runs in the test JVM, against the state the first round just sealed, so it
+  selects only the previous failures.
+- **Savings.** A single-host round selects only the previous failures and runs for seconds, so it
+  would otherwise be credited nearly the whole baseline as time saved. A Surefire rerun has the same
+  shape. Every rerun row is credited zero instead, and left out of the summary averages; see
+  [Test-run history log](test-run-history.md).
+
+The failed set needs nothing special: each round clears and re-adds only the suites it executed,
+and the rounds run one after another, so the latest outcome wins across rounds. A distributed
+group's `suites_failed` is right too, because the last round re-ran every suite still failing.
+
+**The plugin used to fail at configuration with test-retry applied.** Gradle refuses
+`Project#afterEvaluate` inside a `configureEach` action ("cannot be executed in the current
+context"), which is where the Tia plugin wired its `tia-dist-complete` finalizer - and applying
+`org.gradle.test-retry`, in either order, put Tia's action in that context. The hook is now
+registered once from the plugin's `apply` (`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizers`)
+and wires every Tia-applied test task after evaluation.
 
 ---
 
