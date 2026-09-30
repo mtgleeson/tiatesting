@@ -34,7 +34,7 @@ class HtmlHistoryTimelineTest {
                                              int savingsPercent, int numFailed) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 5, 0, numFailed, durationMs,
                 true, 0L, savingsPercent, 0L, savingsPercent, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
     }
 
     /**
@@ -142,7 +142,7 @@ class HtmlHistoryTimelineTest {
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("dist", 1000L, "main", "abc", 5, 0,
                 0, 20_000L, true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
                 Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
-                null, null, null, null, null);
+                null, null, null, null, null, false);
 
         // when
         String json = HtmlHistoryTimeline.buildRunsJson(Collections.singletonList(distributed));
@@ -167,6 +167,27 @@ class HtmlHistoryTimelineTest {
         // when / then
         assertTrue(passed.contains("\"f\":0"), "a run with no failures is flagged 0: " + passed);
         assertTrue(failed.contains("\"f\":1"), "a run with failures is flagged 1: " + failed);
+    }
+
+    /**
+     * The rerun flag is 1 for a rerun of failed tests and 0 for a real run, so the client can draw
+     * the rerun bar faded and outlined.
+     */
+    @Test
+    void buildRunsJsonEncodesRerunFlag() {
+        // given
+        TestRunHistoryEntry rerun = new TestRunHistoryEntry("rerun", 2000L, "main", "abc", 1, 4, 0, 10L,
+                true, 0L, 0, 0L, 0, null, null, null, null,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true);
+
+        // when
+        String real = HtmlHistoryTimeline.buildRunsJson(
+                Collections.singletonList(entry("ok", 1000L, 10L, 0, 0)));
+        String retried = HtmlHistoryTimeline.buildRunsJson(Collections.singletonList(rerun));
+
+        // then
+        assertTrue(real.contains("\"r\":0"), "a real run is flagged 0: " + real);
+        assertTrue(retried.contains("\"r\":1"), "a rerun is flagged 1: " + retried);
     }
 
     /**

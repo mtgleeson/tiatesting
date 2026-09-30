@@ -1,6 +1,7 @@
 package org.tiatesting.core.persistence;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
@@ -59,6 +60,18 @@ public interface DataStore extends AutoCloseable {
      * @return the test suites tracked by Tia
      */
     Map<String, TestSuiteTracker> getTestSuitesTracked();
+
+    /**
+     * Read the stored coverage of just the named suites: the source classes each one covers and,
+     * per class, the method ids. A targeted read for a handful of suites, not a load of the whole
+     * mapping, used when a run captured only part of a suite's coverage and must add to what is
+     * stored rather than replace it (a Gradle test-retry round).
+     *
+     * @param suiteNames the suites whose coverage to read
+     * @return each named suite's stored class trackers, keyed by suite name; a suite with no stored
+     *         coverage (or not tracked at all) is absent from the map
+     */
+    Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames);
 
     /**
      * Retrieve the persisted indexed tracked source methods.

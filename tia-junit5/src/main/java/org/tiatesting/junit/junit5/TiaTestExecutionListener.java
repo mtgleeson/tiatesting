@@ -22,6 +22,7 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.RunSelectionDetailsCodec;
@@ -124,6 +125,15 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     it can run on engine worker threads.
      */
     private volatile TestPlan testPlan;
+    /*
+    The JVM shared state, kept to number each test plan this listener starts - see
+    SharedTestRunData#nextTestPlanNumber.
+     */
+    private final SharedTestRunData sharedTestRunData;
+    /*
+    Which attempt the current test plan is: the real run, or a Surefire re-run in this JVM.
+     */
+    private volatile RunAttempt runAttempt = RunAttempt.FIRST;
 
     /**
      * Build the listener for this test JVM: read the update flags and the selected/ignored suite
@@ -157,6 +167,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             this.coverageClient.initialize();
         }
 
+        this.sharedTestRunData = sharedTestRunData;
         this.testSuiteTrackers = sharedTestRunData.getTestSuiteTrackers();
         this.testSuitesFailed = sharedTestRunData.getTestSuitesFailed();
         this.runnerTestSuites = sharedTestRunData.getRunnerTestSuites();
@@ -257,7 +268,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * This is executed only once for all tests in the session/run/test plan.
      * For re-runs, this will be run again - with a new TestExecutionListener instance up to Surefire
      * 3.5.3. The per-attempt sets are cleared here so each attempt's history row counts only that
-     * attempt, whether or not the instance is new.
+     * attempt, whether or not the instance is new, and the attempt is numbered so a re-run's row is
+     * flagged as a rerun.
      *
      * @param testPlan The test plan being executed.
      */
@@ -267,6 +279,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
         this.testPlan = testPlan;
+        this.runAttempt = sharedTestRunData.nextTestPlanNumber() == 1 ? RunAttempt.FIRST : RunAttempt.RERUN_SAME_JVM;
         testRunStartTime = System.currentTimeMillis();
         suitesFinishedThisAttempt.clear();
         suitesFailedThisAttempt.clear();
@@ -489,7 +502,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
                 ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
-                selectionDetails);
+                selectionDetails, runAttempt);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

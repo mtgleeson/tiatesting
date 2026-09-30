@@ -43,6 +43,7 @@ public final class TestRunHistoryEntry implements Serializable {
     private final Integer numPreviouslyFailed;
     private final Integer numUnsealedMapping;
     private final Integer numPendingLibrary;
+    private final boolean rerun;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
@@ -103,6 +104,9 @@ public final class TestRunHistoryEntry implements Serializable {
      *                           recorded
      * @param numPendingLibrary count of suites selected from pending library changes, or null when
      *                          not recorded
+     * @param rerun true when the row records a retry of failed tests (a Surefire rerun or a Gradle
+     *              test-retry round) rather than the test task's real run; such a row is credited
+     *              no savings
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
@@ -113,7 +117,8 @@ public final class TestRunHistoryEntry implements Serializable {
                                Integer groupsAvailable, RunOrigin runOrigin,
                                Integer numModifiedTestFiles,
                                Integer numNewTestFiles, Integer numPreviouslyFailed,
-                               Integer numUnsealedMapping, Integer numPendingLibrary) {
+                               Integer numUnsealedMapping, Integer numPendingLibrary,
+                               boolean rerun) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -137,6 +142,7 @@ public final class TestRunHistoryEntry implements Serializable {
         this.numPreviouslyFailed = numPreviouslyFailed;
         this.numUnsealedMapping = numUnsealedMapping;
         this.numPendingLibrary = numPendingLibrary;
+        this.rerun = rerun;
     }
 
     /**
@@ -161,6 +167,8 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param selectionDetails  the per-run breakdown of what drove test selection, used to
      *                          populate the five selection-counter fields; null leaves all five
      *                          null (not recorded) rather than defaulting to zero
+     * @param rerun             true when the row records a retry of failed tests rather than the
+     *                          test task's real run
      * @return a new entry with a deterministic id and no distributed-run fields
      */
     public static TestRunHistoryEntry create(String branch, String commit, long runTimestampMs,
@@ -168,7 +176,8 @@ public final class TestRunHistoryEntry implements Serializable {
                                              int numSuitesFailed, long durationMs,
                                              boolean updatedDbMapping, long timeSavingsMs,
                                              int savingsPercent, RunOrigin runOrigin,
-                                             TestRunSelectionDetails selectionDetails) {
+                                             TestRunSelectionDetails selectionDetails,
+                                             boolean rerun) {
         String id = deriveId(branch, commit, runTimestampMs);
         return new TestRunHistoryEntry(id, runTimestampMs, branch, commit, numSuitesRan,
                 numSuitesIgnored, numSuitesFailed, durationMs, updatedDbMapping, timeSavingsMs,
@@ -177,7 +186,8 @@ public final class TestRunHistoryEntry implements Serializable {
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
-                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary));
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
+                rerun);
     }
 
     /**
@@ -245,7 +255,8 @@ public final class TestRunHistoryEntry implements Serializable {
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumNewTestFiles),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
-                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary));
+                counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
+                false);
     }
 
     /**
@@ -431,6 +442,13 @@ public final class TestRunHistoryEntry implements Serializable {
      *         A single-host run records the actual count, zero included
      */
     public Integer getNumPendingLibrary() { return numPendingLibrary; }
+
+    /**
+     * @return true when the row records a retry of failed tests rather than the test task's real
+     *         run. A rerun row is credited no savings. Always false for a distributed build's row,
+     *         since its runners write no history rows of their own
+     */
+    public boolean isRerun() { return rerun; }
 
     @Override
     public boolean equals(Object o) {

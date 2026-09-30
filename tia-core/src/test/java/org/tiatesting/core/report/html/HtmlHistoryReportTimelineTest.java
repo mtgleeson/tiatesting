@@ -34,7 +34,7 @@ class HtmlHistoryReportTimelineTest {
     private static TestRunHistoryEntry entry(String id, long timestampMs, long durationMs, int numFailed) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 5, 0, numFailed, durationMs,
                 true, 1000L, 25, 1000L, 25, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
     }
 
     /**
@@ -71,7 +71,8 @@ class HtmlHistoryReportTimelineTest {
         assertTrue(html.contains("id=\"tiaTimelineChart\""), "chart host missing");
         assertTrue(html.contains("Timeline"), "chart heading missing");
         assertTrue(html.contains("id=\"tiaTimelineMore\""), "show-more control missing");
-        assertTrue(html.contains(">Passed<") && html.contains(">Failed<"), "legend labels missing");
+        assertTrue(html.contains(">Passed<") && html.contains(">Failed<") && html.contains(">Rerun<"),
+                "legend labels missing");
         assertTrue(html.contains("var RUNS=["), "embedded run data missing");
         assertTrue(html.contains("\"id\":\"run-pass-1\"") && html.contains("\"id\":\"run-fail-2\""),
                 "run ids should be embedded in the chart data");

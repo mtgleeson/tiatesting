@@ -396,7 +396,7 @@ class DatastoreEquivalenceTest {
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
                 1, 2, 3, 4, 5);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "equiv-c1", 1000L,
-                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details);
+                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 
         // when
         store.persistTestRunHistoryEntry(entry);

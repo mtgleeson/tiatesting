@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,7 +64,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -98,7 +99,7 @@ class JdbcDataStoreTestRunHistoryTest {
                 "dist-id", 1_700_000_000_000L, "main", "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80, 4_000L, 80,
                 "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null);
+                null, null, null, null, null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -123,7 +124,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -152,9 +153,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void multipleEntriesReturnedMostRecentFirst() {
         // given three runs at distinct timestamps, inserted out of order
-        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
-        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
-        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry oldest = TestRunHistoryEntry.create("main", "c1", 1_000L, 1, 0, 0, 10L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry newest = TestRunHistoryEntry.create("main", "c3", 3_000L, 3, 0, 0, 30L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+        TestRunHistoryEntry middle = TestRunHistoryEntry.create("main", "c2", 2_000L, 2, 0, 0, 20L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(middle);
@@ -172,9 +173,9 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void persistSameLogicalRunTwiceIsIdempotent() {
         // given two persists of the same (branch, commit, timestamp) triple
-        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry first = TestRunHistoryEntry.create("main", "abc", 5_000L, 5, 0, 0, 50L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
         TestRunHistoryEntry secondWithDifferentCounts = TestRunHistoryEntry.create(
-                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                "main", "abc", 5_000L, 99, 99, 99, 999L, false, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(first);
@@ -190,7 +191,7 @@ class JdbcDataStoreTestRunHistoryTest {
     @Test
     void tiaDataLoadIncludesTestRunHistory() {
         // given a persisted entry
-        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1L, 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
         dataStore.persistTestRunHistoryEntry(entry);
 
         // when
@@ -212,7 +213,7 @@ class JdbcDataStoreTestRunHistoryTest {
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
                 10, 2, 1, 5_000L, false, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "dev-laptop-7"), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -235,7 +236,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, false, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -303,7 +304,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 44,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -327,7 +328,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // against the same file.
         dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create(
                 "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null));
+                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, false));
 
         try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
                 settings.getUsername(), settings.getPassword());
@@ -353,6 +354,54 @@ class JdbcDataStoreTestRunHistoryTest {
     }
 
     /**
+     * The rerun flag round-trips: a row recorded for a retry of failed tests reads back as a rerun.
+     */
+    @Test
+    void persistAndReadRoundTripsTheRerunFlag() {
+        // given
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create(
+                "main", "abc123", 1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, true);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(rerun);
+        List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).isRerun());
+    }
+
+    /**
+     * A history table predating the rerun column gains it via migration on next contact, and the
+     * pre-existing rows read back as not being reruns.
+     *
+     * @throws Exception if the raw JDBC connection used to drop the column fails
+     */
+    @Test
+    void migrationAddsTheRerunColumnAndOldRowsReadAsNotReruns() throws Exception {
+        // given
+        dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create(
+                "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, false));
+        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
+                settings.getUsername(), settings.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
+            statement.executeUpdate("ALTER TABLE tia_test_run_history DROP COLUMN rerun");
+        }
+
+        // when
+        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
+        List<TestRunHistoryEntry> result = migrated.readTestRunHistory();
+        migrated.close();
+
+        // then
+        assertEquals(1, result.size());
+        assertFalse(result.get(0).isRerun());
+    }
+
+    /**
      * The selection-breakdown counters and the per-trigger rows both round-trip: the five
      * {@code TestRunHistoryEntry} counters read back what was persisted, and the triggers persisted
      * separately via {@link JdbcDataStore#persistTestRunTriggers} come back ordered by suite count
@@ -366,7 +415,7 @@ class JdbcDataStoreTestRunHistoryTest {
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
                 1, 2, 3, 4, 5);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
-                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details);
+                10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
@@ -393,7 +442,7 @@ class JdbcDataStoreTestRunHistoryTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
                 1, 0, 0, 1L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"),
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), false);
         dataStore.persistTestRunHistoryEntry(entry);
         List<TestRunTrigger> triggers = Collections.singletonList(
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 7));

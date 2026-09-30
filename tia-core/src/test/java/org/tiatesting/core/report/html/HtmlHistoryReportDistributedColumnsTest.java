@@ -38,7 +38,7 @@ class HtmlHistoryReportDistributedColumnsTest {
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 20_000L,
                         true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
                         Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                        null, null, null, null, null)));
+                        null, null, null, null, null, false)));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
@@ -69,7 +69,7 @@ class HtmlHistoryReportDistributedColumnsTest {
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L,
                         true, 4000L, 80, 4000L, 80, null, null, null, null,
-                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
+                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false)));
 
         // when
         String html = generateAndRead(tiaData, tempDir);
@@ -96,10 +96,10 @@ class HtmlHistoryReportDistributedColumnsTest {
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 20_000L,
                         true, 4000L, 80, 4000L, 80, "run-1", Long.valueOf(8_000L), Integer.valueOf(3),
                         Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                        null, null, null, null, null),
+                        null, null, null, null, null, false),
                 new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L,
                         true, 0L, 0, 0L, 0, null, null, null, null,
-                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null)));
+                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false)));
 
         // when
         String html = generateAndRead(tiaData, tempDir);

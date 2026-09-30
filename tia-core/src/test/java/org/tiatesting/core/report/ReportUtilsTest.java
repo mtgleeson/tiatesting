@@ -23,7 +23,7 @@ class ReportUtilsTest {
      */
     private static TestRunHistoryEntry historyEntry(long timeSavingsMs){
         return new TestRunHistoryEntry("id", 0L, "main", "commit", 1, 1, 0, 0L, false, timeSavingsMs, 0, timeSavingsMs, 0,
-                null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null);
+                null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
     }
 
     /**
@@ -138,7 +138,7 @@ class ReportUtilsTest {
                 new TestRunHistoryEntry("d", 2L, "main", "commit", 1, 7, 0, 2_000L, true, 58_000L,
                         97, 8_000L, 80, "run-1", Long.valueOf(2_000L), Integer.valueOf(1),
                         Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
-                        null, null, null, null, null));
+                        null, null, null, null, null, false));
 
         // when
         long savings = ReportUtils.totalWallClockSavingsMs(history);
@@ -160,7 +160,7 @@ class ReportUtilsTest {
         return new TestRunHistoryEntry("all-" + timestampMs, timestampMs, "main", "commit", 10, 0, 0,
                 60_000L, updatedDbMapping, 0L, 0, 0L, 0, groupCount == null ? null : "run-" + timestampMs,
                 groupCount == null ? null : Long.valueOf(10_000L), groupCount, groupCount,
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null, false);
     }
 
     /**
@@ -175,6 +175,25 @@ class ReportUtilsTest {
                 allTestsRunEntry(3_000L, false, null),
                 historyEntry(4000L),
                 allTestsRunEntry(2_000L, true, Integer.valueOf(6)));
+
+        // when
+        int groups = ReportUtils.lastAllTestsRunGroupCount(history);
+
+        // then
+        assertEquals(6, groups);
+    }
+
+    /**
+     * A rerun of failed tests is never the latest all-tests run, although it carries its first
+     * attempt's zero ignored count: it ran only the failures.
+     */
+    @Test
+    void lastAllTestsRunGroupCount_skipsARerunOfAnAllTestsRun(){
+        // given - a 6-group all-tests run, then a later single-host rerun with zero ignored
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "commit", 5_000L, 1, 0, 0,
+                4_000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                allTestsRunEntry(1_000L, true, Integer.valueOf(6)), rerun);
 
         // when
         int groups = ReportUtils.lastAllTestsRunGroupCount(history);

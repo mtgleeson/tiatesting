@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -123,6 +124,32 @@ class PostgresPersistTest {
     }
 
     /**
+     * Runs the targeted suite-coverage read against a real Postgres: the three-table join by suite
+     * name returns each named suite's classes and method ids, and nothing for an unnamed suite.
+     *
+     * @throws Exception if cleaning Postgres or building the store fails
+     */
+    @Test
+    void readTestSuiteCoverageReturnsTheNamedSuitesOnPostgres() throws Exception {
+        // given
+        assumePg();
+        cleanPostgres();
+        postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        postgresStore.getTiaData(true);
+        postgresStore.persistTestSuites(buildSuites());
+
+        // when
+        Map<String, List<ClassImpactTracker>> coverage =
+                postgresStore.readTestSuiteCoverage(new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")));
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")), coverage.keySet());
+        assertEquals("com/example/pgpersist/Foo.java", coverage.get("SuiteFoo").get(0).getSourceFilename());
+        assertTrue(coverage.get("SuiteFoo").get(0).getMethodsImpacted().contains(101));
+    }
+
+    /**
      * Build a three-suite mapping, each suite covering one class, so a second
      * {@code persistTestSuites} of the same map exercises the {@code tia_test_suite} DO-UPDATE
      * branch (and the {@code getGeneratedKeys} follow-up) for every row rather than inserting them.
@@ -187,13 +214,15 @@ class PostgresPersistTest {
 
         // when a test-run-history entry is persisted
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, true);
         postgresStore.persistTestRunHistoryEntry(entry);
 
-        // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert
+        // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert, rerun flag
+        // included
         List<TestRunHistoryEntry> history = postgresStore.readTestRunHistory();
         assertEquals(1, history.size());
         assertEquals(entry.getId(), history.get(0).getId());
+        assertTrue(history.get(0).isRerun());
 
         // when pending library impacted methods are persisted
         Set<Integer> methodIds = new HashSet<>(Arrays.asList(10, 20, 30));

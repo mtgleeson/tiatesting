@@ -146,7 +146,8 @@ public class HtmlHistoryDetailReport {
 
     /**
      * Build the summary block: the run's timestamp, branch, commit, origin (the run source and the
-     * host that ran it, which the History table leaves out), suite counts, both its times and
+     * host that ran it, which the History table leaves out), whether it was a rerun of failed tests
+     * (credited no savings), suite counts, both its times and
      * both its savings, and the groups it used and had available. The wall clock and wall-clock
      * savings are what the History table shows; the serial duration and serial savings are the same
      * run measured as total machine time, as if one machine had run it. The two are equal for a
@@ -177,6 +178,8 @@ public class HtmlHistoryDetailReport {
                 // A distributed build spans several machines and names none, so it dashes.
                 span("Host: " + (entry.getRunOrigin().getHostName() == null
                         ? "-" : entry.getRunOrigin().getHostName())), br(),
+                // A retry of failed tests, credited no savings - see TestRunHistoryEntry#isRerun.
+                span("Rerun: " + (entry.isRerun() ? "yes" : "no")), br(),
                 span("Suites ran: " + entry.getNumSuitesRan()
                         + ", ignored: " + entry.getNumSuitesIgnored()
                         + ", failed: " + entry.getNumSuitesFailed()), br(),

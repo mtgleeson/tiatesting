@@ -105,7 +105,7 @@ class TestRunnerServiceEmptyRunStatsGuardTest {
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
                 runStats, null, ignoredTestSuiteCount, suitesRanThisAttempt, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     private Set<String> suiteNames(String... names) {

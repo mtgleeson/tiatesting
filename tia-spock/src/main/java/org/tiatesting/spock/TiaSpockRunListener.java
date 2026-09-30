@@ -14,6 +14,7 @@ import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 
@@ -57,6 +58,10 @@ public class TiaSpockRunListener extends AbstractRunListener {
     private final LibraryImpactDrainResult libraryImpactDrainResult;
     private final TestRunSelectionDetails selectionDetails;
     private final DistributedRunnerContext distributedRunnerContext;
+    /*
+    Which attempt at the test task's run this JVM is: the real run, or a Gradle test-retry round.
+     */
+    private final RunAttempt runAttempt;
     private boolean stopStepRan;
 
     /**
@@ -85,6 +90,9 @@ public class TiaSpockRunListener extends AbstractRunListener {
      * @param distributedRunnerContext the run id, runner identity and claimed group when this build
      *                                 is one runner of a distributed run, or {@code null} for an
      *                                 ordinary single-host build
+     * @param runAttempt               which attempt at the test task's run this JVM is - the real
+     *                                 run, or a Gradle test-retry round, which persists as an
+     *                                 addition to the first attempt and is flagged as a rerun
      */
     public TiaSpockRunListener(final String branch, final String headCommit,
                                final DataStore dataStore, Set<String> selectedTests,
@@ -93,7 +101,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
                                final boolean updateDBTestRunHistory,
                                final LibraryImpactDrainResult libraryImpactDrainResult,
                                final TestRunSelectionDetails selectionDetails,
-                               final DistributedRunnerContext distributedRunnerContext){
+                               final DistributedRunnerContext distributedRunnerContext,
+                               final RunAttempt runAttempt){
         this.testRunnerService = new TestRunnerService(dataStore);
         this.coverageClient = new JacocoClient();
         this.testSuiteTrackers = new ConcurrentHashMap<>();
@@ -110,6 +119,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         this.libraryImpactDrainResult = libraryImpactDrainResult;
         this.selectionDetails = selectionDetails;
         this.distributedRunnerContext = distributedRunnerContext;
+        this.runAttempt = runAttempt;
         this.headCommit = headCommit;
         this.branch = branch;
 
@@ -234,7 +244,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // failed set: with one persist per JVM, the JVM-wide set is the attempt's own.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails);
+                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails,
+                runAttempt);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

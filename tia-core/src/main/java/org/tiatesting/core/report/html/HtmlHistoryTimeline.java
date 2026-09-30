@@ -56,7 +56,7 @@ final class HtmlHistoryTimeline {
 
     /**
      * Build the timeline chart block for the History page: the heading, the chart host the inline
-     * script draws the SVG into, the pass/fail legend, the caption and "show more" control, the
+     * script draws the SVG into, the pass/fail/rerun legend, the caption and "show more" control, the
      * hover tooltip element, and the inline rendering script carrying the embedded run data. When
      * there is no history the chart is omitted entirely (returns empty content) so the page falls
      * straight through to its table.
@@ -75,7 +75,8 @@ final class HtmlHistoryTimeline {
                 div(attrs("#tiaTimelineChart.tia-timeline-chart")),
                 div(attrs(".tia-timeline-legend"),
                         span(span(attrs(".swatch.pass")), text("Passed")),
-                        span(span(attrs(".swatch.fail")), text("Failed"))
+                        span(span(attrs(".swatch.fail")), text("Failed")),
+                        span(span(attrs(".swatch.rerun")), text("Rerun"))
                 ),
                 div(attrs(".tia-timeline-controls"),
                         span(attrs("#tiaTimelineCaption.tia-timeline-caption")),
@@ -91,7 +92,9 @@ final class HtmlHistoryTimeline {
     /**
      * Build the inline JavaScript that draws the timeline SVG from the embedded run data and wires
      * its interactions: hover/focus tooltip, click-through to each run's detail page (each bar is
-     * an SVG anchor), the "show more" step, and a debounced redraw on resize. The chart shows the
+     * an SVG anchor), the "show more" step, and a debounced redraw on resize. A rerun of failed
+     * tests keeps its pass/fail colour but gets the {@code rerun} class, drawn faded with a dashed
+     * outline, and its tooltip and label read "rerun" in place of its savings. The chart shows the
      * most recent {@link #DEFAULT_VISIBLE} runs first and reveals {@link #SHOW_MORE_STEP} more per
      * click. Y-axis ticks fall on round durations: the step is the smallest entry in a ladder of
      * round times (1/2/5 ms multiples, then 1s, 2s, 5s, 10s, 15s, 30s, 1m, 2m, 5m, 10m, 15m, 30m,
@@ -158,10 +161,13 @@ final class HtmlHistoryTimeline {
                 + "+'\" y2=\"'+(padT+plotH)+'\"/>';\n"
                 + "for(var j=0;j<runs.length;j++){var r=runs[j];"
                 + "var bx=padL+band*j+(band-barW)/2;var bh=(r.d/yMax)*plotH;if(bh<1){bh=1;}"
-                + "var by=padT+plotH-bh;var cls=r.f?'tia-bar fail':'tia-bar pass';var href=esc(r.id)+'.html';"
+                + "var by=padT+plotH-bh;var cls=(r.f?'tia-bar fail':'tia-bar pass')+(r.r?' rerun':'');"
+                + "var href=esc(r.id)+'.html';"
                 + "s+='<a class=\"tia-tl-band\" href=\"'+href+'\" xlink:href=\"'+href+'\" tabindex=\"0\" '"
-                + "+'data-t=\"'+r.t+'\" data-d=\"'+r.d+'\" data-s=\"'+r.s+'\" data-id=\"'+esc(r.id)+'\" '"
-                + "+'aria-label=\"'+esc(fmtDate(r.t)+', '+pretty(r.d)+(r.s>0?', '+r.s+'% saved':''))+'\">';"
+                + "+'data-t=\"'+r.t+'\" data-d=\"'+r.d+'\" data-s=\"'+r.s+'\" data-r=\"'+r.r+'\" '"
+                + "+'data-id=\"'+esc(r.id)+'\" '"
+                + "+'aria-label=\"'+esc(fmtDate(r.t)+', '+pretty(r.d)+(r.r?', rerun':(r.s>0?', '+r.s+'% saved':'')))"
+                + "+'\">';"
                 + "s+='<rect class=\"tia-tl-hit\" x=\"'+(padL+band*j)+'\" y=\"'+padT+'\" width=\"'+band"
                 + "+'\" height=\"'+plotH+'\"/>';"
                 + "s+='<rect class=\"'+cls+'\" x=\"'+bx+'\" y=\"'+by+'\" width=\"'+barW+'\" height=\"'+bh"
@@ -172,7 +178,7 @@ final class HtmlHistoryTimeline {
                 + "function showTip(b){var sv=+b.getAttribute('data-s');"
                 + "tip.innerHTML='<strong>'+esc(fmtDate(+b.getAttribute('data-t')))+'</strong>'"
                 + "+'<div>Wall clock: '+esc(pretty(+b.getAttribute('data-d')))+'</div>'"
-                + "+'<div>Savings: '+(sv>0?sv+'%':'-')+'</div>'"
+                + "+'<div>Savings: '+(b.getAttribute('data-r')==='1'?'rerun':(sv>0?sv+'%':'-'))+'</div>'"
                 + "+'<div class=\"tia-tl-tip-id\">'+esc(String(b.getAttribute('data-id')).slice(0,8))+'</div>';"
                 + "tip.style.display='block';}\n"
                 + "function moveTip(x,y){var tw=tip.offsetWidth,vw=window.innerWidth;var left=x+14;"
@@ -227,8 +233,10 @@ final class HtmlHistoryTimeline {
      * {@code <script>}. Each element carries only what the chart draws: {@code id} (the run's full
      * id, used for the bar's {@code history/<id>.html} link), {@code t} (run timestamp in UTC
      * millis, shown localized on hover), {@code d} (the run's wall clock, the bar height), {@code s}
-     * ({@code wallClockSavingsPercent}, shown on hover) and {@code f} (1 when the run had any failed suite,
-     * else 0, deciding the bar colour). The array preserves the given order.
+     * ({@code wallClockSavingsPercent}, shown on hover), {@code f} (1 when the run had any failed suite,
+     * else 0, deciding the bar colour) and {@code r} (1 when the run is a rerun of failed tests, else
+     * 0, drawing the bar faded with a dashed outline and its savings as "rerun"). The array preserves
+     * the given order.
      *
      * @param runs the runs to serialise, already ordered oldest-first
      * @return a script-safe JSON array-of-objects literal
@@ -248,6 +256,7 @@ final class HtmlHistoryTimeline {
                     .append(",\"d\":").append(run.getRunWallClockMs())
                     .append(",\"s\":").append(run.getWallClockSavingsPercent())
                     .append(",\"f\":").append(run.getNumSuitesFailed() > 0 ? 1 : 0)
+                    .append(",\"r\":").append(run.isRerun() ? 1 : 0)
                     .append('}');
         }
         sb.append(']');

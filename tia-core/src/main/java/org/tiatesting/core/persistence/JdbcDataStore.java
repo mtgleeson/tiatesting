@@ -100,6 +100,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
     private static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
     private static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
+    private static final String COL_RERUN = "rerun";
     private static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
     private static final String COL_HISTORY_ID = "history_id";
     private static final String COL_TRIGGER_TYPE = "trigger_type";
@@ -254,6 +255,61 @@ public class JdbcDataStore implements DataStore {
         }
 
         return testSuitesTracked;
+    }
+
+    /**
+     * {@inheritDoc} One indexed join per {@value #IN_CLAUSE_CHUNK_SIZE} suite names - suite by
+     * name, its class rows by suite id, their edges by class id - so the cost scales with the
+     * named suites' coverage, not the size of the mapping.
+     *
+     * @param suiteNames the suites whose coverage to read
+     * @return each named suite's stored class trackers, keyed by suite name
+     */
+    @Override
+    public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(final Set<String> suiteNames){
+        Map<String, Map<String, ClassImpactTracker>> classesBySuite = new HashMap<>();
+        if (suiteNames.isEmpty()){
+            return new HashMap<>();
+        }
+
+        Connection connection = getConnection();
+        try {
+            List<String> names = new ArrayList<>(suiteNames);
+            for (int from = 0; from < names.size(); from += IN_CLAUSE_CHUNK_SIZE){
+                List<String> chunk = names.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, names.size()));
+                String sql = "SELECT s." + COL_NAME + " AS suite_name, c." + COL_SOURCE_FILENAME
+                        + " AS class_source_filename, cm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id"
+                        + " FROM " + TABLE_TIA_TEST_SUITE + " s"
+                        + " JOIN " + TABLE_TIA_SOURCE_CLASS + " c ON c." + COL_TIA_TEST_SUITE_ID + " = s." + COL_ID
+                        + " JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " cm ON cm." + COL_TIA_SOURCE_CLASS_ID + " = c." + COL_ID
+                        + " WHERE s." + COL_NAME + " IN (" + String.join(", ", Collections.nCopies(chunk.size(), "?")) + ")";
+                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                    for (int i = 0; i < chunk.size(); i++){
+                        ps.setString(i + 1, chunk.get(i));
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()){
+                            String filename = rs.getString("class_source_filename");
+                            classesBySuite.computeIfAbsent(rs.getString("suite_name"), k -> new HashMap<>())
+                                    .computeIfAbsent(filename, k -> new ClassImpactTracker(k, new MethodIdSet()))
+                                    .getMethodsImpacted().add(rs.getInt("method_id"));
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        Map<String, List<ClassImpactTracker>> coverage = new HashMap<>();
+        classesBySuite.forEach((suite, classes) -> coverage.put(suite, new ArrayList<>(classes.values())));
+        return coverage;
     }
 
     @Override
@@ -1408,7 +1464,7 @@ public class JdbcDataStore implements DataStore {
                             COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
                             COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY),
+                            COL_NUM_PENDING_LIBRARY, COL_RERUN),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1442,6 +1498,7 @@ public class JdbcDataStore implements DataStore {
             setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
             setNullableInt(ps, 23, entry.getNumUnsealedMapping());
             setNullableInt(ps, 24, entry.getNumPendingLibrary());
+            ps.setBoolean(25, entry.isRerun());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1495,7 +1552,8 @@ public class JdbcDataStore implements DataStore {
                         getNullableInt(resultSet, COL_NUM_NEW_TEST_FILES),
                         getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
                         getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
-                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY)));
+                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),
+                        resultSet.getBoolean(COL_RERUN)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -4212,7 +4270,10 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_NEW_TEST_FILES + " INT, "
                 + COL_NUM_PREVIOUSLY_FAILED + " INT, "
                 + COL_NUM_UNSEALED_MAPPING + " INT, "
-                + COL_NUM_PENDING_LIBRARY + " INT)";
+                + COL_NUM_PENDING_LIBRARY + " INT, "
+                // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
+                // which is credited no savings.
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE)";
     }
 
     /**
@@ -4280,6 +4341,10 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_UNSEALED_MAPPING + " INT");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_NUM_PENDING_LIBRARY + " INT");
+        // Migration: add the rerun flag. Old rows default to false - reruns were not told apart
+        // before this column, so each old row is read as the run it was recorded as.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE");
         ensureTestRunHistoryTriggerTableExists(connection);
     }
 
