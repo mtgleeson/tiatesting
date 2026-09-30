@@ -285,7 +285,9 @@ class TestRunnerServiceDistributedPersistTest {
 
     /**
      * The completed group carries the measurements the sealer aggregates into the build's single
-     * history row: this runner's test-execution duration and its ran / failed suite counters.
+     * history row: this runner's test-execution duration and its ran / failed suite counters. The
+     * ran count is the distinct suites the runner executed - its tracker map - not the attempt's
+     * own count, so a retry cannot count a suite twice.
      */
     @Test
     void completedGroupRecordsTheRunnersDurationAndCounters() {
@@ -308,8 +310,39 @@ class TestRunnerServiceDistributedPersistTest {
         assertTrue(group.getActualDurationMs() >= 4000L,
                 "the recorded duration must be this runner's test-execution time, was "
                         + group.getActualDurationMs());
-        assertEquals(2, group.getSuitesRan(), "the group must record the suites this runner ran");
+        assertEquals(1, group.getSuitesRan(),
+                "the group must record the distinct suites this runner executed - its one tracker");
         assertEquals(1, group.getSuitesFailed(), "the group must record this runner's failed suites");
+    }
+
+    /**
+     * A suite that fails its first attempt and its Surefire retry is one suite that ran and one that
+     * failed, on the group and so on the build's one history row: a retry counts the suite neither
+     * twice as run nor twice as failed.
+     */
+    @Test
+    void aSuiteRetriedInTheSameJvmCountsOnceAsRunAndOnceAsFailed() {
+        // given
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+        TestRunResult firstAttempt = makeResult();
+        TestRunResult retry = new TestRunResult(firstAttempt.getTestSuiteTrackers(),
+                firstAttempt.getTestSuitesFailed(), firstAttempt.getRunnerTestSuites(),
+                firstAttempt.getSuitesObserved(), firstAttempt.getSelectedTests(),
+                firstAttempt.getMethodTrackersFromTestRun(), firstAttempt.getTestStats(), null,
+                firstAttempt.getIgnoredTestSuiteCount(), 1, 1, TestRunSelectionDetails.empty(),
+                RunAttempt.RERUN_SAME_JVM);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                firstAttempt, context);
+        service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
+                retry, context);
+
+        // then
+        DistributedRunGroup group = readGroup(RUN_ID, 0);
+        assertEquals(1, group.getSuitesRan(), "the retried suite must count once as run");
+        assertEquals(1, group.getSuitesFailed(), "and once as failed");
     }
 
     /**

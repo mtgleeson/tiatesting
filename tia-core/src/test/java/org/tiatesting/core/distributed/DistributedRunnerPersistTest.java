@@ -315,33 +315,32 @@ class DistributedRunnerPersistTest {
 
     /**
      * The accumulation contract, exercised through the persist wrapper: two progress reports
-     * in the same JVM - the second reporting fewer suites ran than the first, as a Surefire retry of
-     * a smaller failing subset would - sum the ran counter and the duration. The failed set is
-     * replaced outright by the later report, since it is current state. The observed count is not
-     * replaced outright - it is written as the greater of the stored value and this report's value
-     * ({@code GREATEST}, see {@link DataStore#reportGroupProgress}) - because the set it is drawn
-     * from is already cumulative per JVM, so summing it here would double-count, while a plain
-     * replace would risk a late-arriving smaller report regressing it below an earlier, more-complete
-     * one. The ran and observed totals are deliberately kept different numbers below (52 vs 53) so a
-     * getter/column transposition between the two would fail this test - a shared value could not
-     * tell them apart.
+     * in the same JVM - the second reporting fewer distinct suites ran than the first, as a Gradle
+     * test-retry round's fresh JVM would - sum the duration but keep the greater ran count: the ran
+     * count is the distinct suites the runner executed, so a retry can re-report the same suites or
+     * fewer but never adds new executions of them. The failed set is replaced outright by the later
+     * report, since it is current state. The observed count is written the same way as the ran count
+     * ({@code GREATEST}, see {@link DataStore#reportGroupProgress}), because the set it is drawn from
+     * is already cumulative per JVM. The ran and observed totals are deliberately kept different
+     * numbers below (50 vs 53) so a getter/column transposition between the two would fail this test
+     * - a shared value could not tell them apart.
      */
     @Test
-    void reportGroupProgressAccumulatesCountersReplacesFailedAndTakesTheGreaterObservedCount() {
+    void reportGroupProgressSumsDurationReplacesFailedAndTakesTheGreaterRanAndObservedCounts() {
         // given
         persistPlan(RUN_ID, 1);
         dataStore.claimNextPendingGroup(RUN_ID, RUNNER_KEY, 5000L);
         DistributedRunnerPersist runnerPersist = persistFor(0);
 
-        // when - the first test plan reports 50 suites run (all 50 observed) with 3 failures; the
-        // retry reports only 2 of its 3 remaining suites finishing (2 ran) while the observed count -
-        // the JVM's cumulative total, not this call's own contribution - reaches 53
+        // when - the first test plan reports 50 distinct suites run (all 50 observed) with 3
+        // failures; the retry reports the 2 suites it re-ran while the observed count - the JVM's
+        // cumulative total, not this call's own contribution - reaches 53
         assertTrue(runnerPersist.reportGroupProgress(4000L, 50, 3, 50, 0L));
         assertTrue(runnerPersist.reportGroupProgress(500L, 2, 0, 53, 0L));
 
         // then
         DistributedRunGroup group = readGroup(RUN_ID, 0);
-        assertEquals(52, group.getSuitesRan(), "the ran counter must sum across both reports (50 + 2)");
+        assertEquals(50, group.getSuitesRan(), "a retry's smaller distinct count must not replace or add to the first");
         assertEquals(4500L, group.getActualDurationMs().longValue(),
                 "the duration must sum across both reports");
         assertEquals(0, group.getSuitesFailed(),

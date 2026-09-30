@@ -536,14 +536,16 @@ public interface DataStore extends AutoCloseable {
      * kinds that must not be treated alike:
      *
      * <ul>
-     *   <li>{@code actualDurationMs} and {@code suitesRan} are counters: this call adds to
-     *       whatever is already stored, so several test plans within one JVM sum to the JVM's
-     *       total instead of the last one's figure silently overwriting the ones before it. This
-     *       is what makes retried suites count correctly toward the group's totals - see the
-     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.
-     *       {@code suitesRan} counts only suites that <b>finished</b>, and it is what the sealer
-     *       later aggregates into the build's one history row, where {@code ignoredSuiteCount} and
-     *       {@code allTestsRun} depend on it meaning exactly that.</li>
+     *   <li>{@code actualDurationMs} is a counter: this call adds to whatever is already stored,
+     *       so several test plans within one JVM sum to the JVM's total instead of the last one's
+     *       figure silently overwriting the ones before it - a retry's time is real time. See the
+     *       "Suite retries" material in the distributed test runs chapter of {@code WIKI.md}.</li>
+     *   <li>{@code suitesRan} is the number of <b>distinct</b> suites the runner has executed, and
+     *       is written as {@code GREATEST(COALESCE(stored, 0), value)}: the caller draws it from
+     *       the JVM's tracker map, already cumulative across every test plan, so a retry re-reports
+     *       the same suites rather than adding to them. It is what the sealer aggregates into the
+     *       build's one history row, next to {@code suitesFailed}, which counts each failing suite
+     *       once however often it was retried - so a retried suite counts once on both.</li>
      *   <li>{@code suitesFailed} is current state, not a counter: it is replaced outright, because
      *       a suite that passes on retry must legitimately leave the failed set, and accumulating
      *       it would instead leave a fixed suite recorded as permanently failed.</li>
@@ -600,8 +602,8 @@ public interface DataStore extends AutoCloseable {
      *                  group or nothing is written
      * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
      *                         duration is already stored for the group
-     * @param suitesRan the number of suites this call's test plan executed, added to whatever
-     *                  count is already stored for the group
+     * @param suitesRan the number of distinct suites the runner has executed so far, written as
+     *                  the greatest of this value and whatever was already stored
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
      * @param suitesObserved the number of suites the runner has observed so far (finished or
      *                       skipped), written as the greatest of this value and whatever was
