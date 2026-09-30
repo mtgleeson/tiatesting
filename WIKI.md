@@ -37,8 +37,8 @@ wiki can also be read front to back.
   and the failure-mode taxonomy that keeps crashes self-correcting.
 - [Failed-suite tracking](wiki/failed-suite-tracking.md) - what counts as a suite failure per test
   framework, how a suite's latest outcome carries across Surefire retries, the incremental failed-set
-  write that keeps concurrent distributed runners from discarding each other's entries, and why
-  Gradle test-retry is not supported for mapping builds.
+  write that keeps concurrent distributed runners from discarding each other's entries, and how a
+  Surefire rerun or a Gradle test-retry round is detected and persisted as a retry.
 - [Distributed test runs (group assignment and the run lifecycle)](wiki/distributed-test-runs.md) -
   how one logical build is split across CI runners: the plan, the claim protocol, the completion
   barrier and the sealer election, plus what a pipeline has to run.
