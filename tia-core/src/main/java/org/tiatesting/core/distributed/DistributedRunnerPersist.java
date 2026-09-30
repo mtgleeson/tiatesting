@@ -140,11 +140,12 @@ public final class DistributedRunnerPersist {
     /**
      * Report this test plan's progress on the runner's group, without releasing the barrier. Called
      * on every persist - potentially several times per JVM, once per Surefire retry - so {@code
-     * actualDurationMs} and {@code suitesRan} accumulate onto whatever is already stored while
-     * {@code suitesFailed} replaces it outright and {@code suitesObserved} is written via {@code
+     * actualDurationMs} accumulates onto whatever is already stored while {@code suitesFailed}
+     * replaces it outright and {@code suitesRan} and {@code suitesObserved} are written via {@code
      * GREATEST}, exactly as {@link DataStore#reportGroupProgress} documents - though for different
-     * reasons: {@code suitesFailed} because it is current state, {@code suitesObserved} because the
-     * set it comes from is already cumulative per JVM, so summing it here would double-count (and a
+     * reasons: {@code suitesFailed} because it is current state, {@code suitesRan} and {@code
+     * suitesObserved} because the sets they come from are already cumulative per JVM, so summing
+     * them here would double-count (and a
      * plain replace would risk a late-arriving smaller report regressing it - see
      * {@link DataStore#reportGroupProgress} for the multi-JVM caveat this does not fully solve). This
      * is what {@link #completeGroup(long)}'s completeness guard later reads back to decide whether
@@ -161,7 +162,8 @@ public final class DistributedRunnerPersist {
      * @param actualDurationMs this call's measured test-execution time, in ms, on the same clock a
      *                         single-host run records its duration on, so the sealer's aggregate
      *                         stays comparable with non-distributed history
-     * @param suitesRan the number of suites this call's test plan executed
+     * @param suitesRan the number of distinct suites this runner has executed so far, cumulative
+     *                  across every test plan in this JVM
      * @param suitesFailed the number of this runner's suites currently failing
      * @param suitesObserved the number of suites this runner has observed so far (finished or
      *                       skipped) that are also assigned to this group, cumulative across every

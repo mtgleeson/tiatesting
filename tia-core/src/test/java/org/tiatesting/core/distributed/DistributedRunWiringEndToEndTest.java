@@ -442,10 +442,10 @@ class DistributedRunWiringEndToEndTest {
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
         assertEquals(1, history.size(), "one distributed build produces one history row: " + history);
         assertEquals(RUN_ID, history.get(0).getRunId());
-        assertEquals(4, history.get(0).getNumSuitesRan(),
-                "the row must count what both groups ran, summing the first group's two test plans "
-                        + "(1 + 2) with the second group's 1, rather than the first group's last test "
-                        + "plan replacing its first");
+        assertEquals(3, history.get(0).getNumSuitesRan(),
+                "the row must count the distinct suites both groups ran - the first group's two test "
+                        + "plans executed 2 distinct suites between them, the second group 1 - rather than "
+                        + "counting the suite the first group's retry re-ran a second time");
         assertEquals(Integer.valueOf(2), history.get(0).getGroupCount());
 
         // then - the method reachable only from the group that finished last survives

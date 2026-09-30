@@ -190,8 +190,8 @@ public final class DistributedRunSealer {
         // The ignored half of it comes from what the plan assigned the groups, never from
         // totals.getSuitesRan() - see ignoredSuiteCount for why the obvious
         // "selectableSuites - suitesRan" simplification is wrong. The liveness half does read
-        // suitesRan, and safely: retry inflation can only make an already non-zero counter larger,
-        // never make a zero one non-zero, and a build in which no group ran anything must be
+        // suitesRan, and safely: it counts the distinct suites the groups executed, so it is zero
+        // exactly when no group ran anything, and a build in which no group ran anything must be
         // excluded because folding it into the full-suite baseline would drive that baseline, and
         // every later savings figure, towards nothing.
         boolean allTestsRun = totals.getSuitesRan() > 0 && ignoredSuiteCount == 0;
@@ -506,15 +506,16 @@ public final class DistributedRunSealer {
      *
      * <p><b>Read from the plan's assignment, not from the execution counter.</b> The obvious
      * simplification - tracked selectable suites minus {@code DistributedRunTotals.getSuitesRan()} -
-     * is wrong, and wrong in the silent direction. {@code suites_ran} is deliberately an
-     * accumulating counter of <em>executions</em>: {@link DataStore#reportGroupProgress} adds to it
-     * on every persist, so a Surefire retry within one runner's JVM legitimately sums into it. A
-     * partial build with enough reruns therefore drives a difference-based ignored count to zero and
-     * flips {@code allTestsRun} to {@code true}, which folds the partial build's duration into the
-     * all-tests baseline permanently and advances every tracked library's mapping baseline commit as
-     * though every suite had just been re-covered - an under-selection path, and the exact failure
-     * class the distributed feature exists to close off. What the plan assigned each group cannot be
-     * moved by any number of retries, so it is what this counts against.
+     * is wrong, and wrong in the silent direction. {@code suites_ran} is what the runners
+     * <em>executed</em>, which is not Tia's selection decision: it once accumulated every retry's
+     * executions, and a partial build with enough reruns then drove a difference-based ignored count
+     * to zero and flipped {@code allTestsRun} to {@code true} - folding the partial build's duration
+     * into the all-tests baseline permanently and advancing every tracked library's mapping baseline
+     * commit as though every suite had just been re-covered, an under-selection path and the exact
+     * failure class the distributed feature exists to close off. It now counts distinct suites (see
+     * {@link DataStore#reportGroupProgress}), but an execution count still includes suites nobody
+     * planned - see the stray-suite case below. What the plan assigned each group cannot be moved by
+     * any number of retries or strays, so it is what this counts against.
      *
      * <p><b>A seed run returns zero up front.</b> A seed run runs every test, so it ignores nothing.
      * Its assignment shape does not matter: a fanned-out seed carries disk-scanned suite names and a
