@@ -12,6 +12,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.testrunner.RunAttempt;
 
 import java.io.File;
 import java.time.Instant;
@@ -20,6 +21,8 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
@@ -108,7 +111,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4);
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                details, null);
+                details, null, RunAttempt.FIRST);
 
         // when - the one spec this JVM ran finishes, then the run is persisted
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
@@ -143,7 +146,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         // extension produces on the distributed path
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
-                TestRunSelectionDetails.empty(), null);
+                TestRunSelectionDetails.empty(), null, RunAttempt.FIRST);
 
         // when
         listener.finishAllTests(Collections.singleton("com.example.ATest"), System.currentTimeMillis());
@@ -154,5 +157,32 @@ class TiaSpockRunListenerHistoryDetailTest {
         TestRunHistoryEntry row = history.get(0);
         assertEquals(Integer.valueOf(0), row.getNumModifiedTestFiles());
         assertEquals(0, dataStore.readTestRunTriggers(row.getId()).size());
+    }
+
+    /**
+     * A listener in a Gradle test-retry round - a fresh JVM the extension resolved as a rerun -
+     * persists its history row flagged as a rerun and credited no savings, while the real run's
+     * listener does not.
+     */
+    @Test
+    void finishAllTests_inATestRetryRound_persistsARerunRow() {
+        // given
+        TiaSpockRunListener firstAttempt = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
+                Collections.singleton("com.example.ATest"), 3, false, true, null,
+                TestRunSelectionDetails.empty(), null, RunAttempt.FIRST);
+        firstAttempt.finishAllTests(Collections.singleton("com.example.ATest"), 1_000L);
+        TiaSpockRunListener retryRound = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
+                Collections.singleton("com.example.ATest"), 3, false, true, null,
+                TestRunSelectionDetails.empty(), null, RunAttempt.RERUN_NEW_JVM);
+
+        // when
+        retryRound.finishAllTests(Collections.singleton("com.example.ATest"), 2_000L);
+
+        // then
+        List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+        assertEquals(2, history.size());
+        assertTrue(history.get(0).isRerun(), "the retry round's row, most recent first");
+        assertEquals(0L, history.get(0).getTimeSavingsMs());
+        assertFalse(history.get(1).isRerun(), "the real run's row");
     }
 }
