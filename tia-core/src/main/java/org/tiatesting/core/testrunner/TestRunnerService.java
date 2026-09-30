@@ -275,11 +275,13 @@ public class TestRunnerService {
         //    row and one set of Tia-level stats, both written by the sealer from the figures every
         //    group recorded, rather than one of each per runner.
 
-        // 5. Report this test plan's progress. suitesRan and the duration accumulate onto whatever
-        //    is already stored for the group, so a Surefire retry within this JVM sums correctly
-        //    instead of this retry's per-attempt count overwriting the ones before it; suitesFailed
+        // 5. Report this test plan's progress. The duration accumulates onto whatever is already
+        //    stored for the group, so a Surefire retry's time adds to the runner's; suitesFailed
         //    replaces what was stored, since it is current state and a passing retry must be able
-        //    to shrink it back to zero. suitesDurationMs - the part of the duration attributable to
+        //    to shrink it back to zero. suitesRan is the distinct suites this JVM has executed -
+        //    the tracker map, cumulative across every test plan - written via GREATEST, so a
+        //    retried suite counts once, as it does in suitesFailed, on the build's one history row;
+        //    a Gradle test-retry round, which executed only the retried suites, cannot shrink it. suitesDurationMs - the part of the duration attributable to
         //    a named suite, which is what lets the sealer charge each runner's fixed JVM overhead
         //    once for the build rather than once per group - is written via GREATEST rather than
         //    accumulated, for the reason sumMeasuredSuiteRunTimes explains. suitesObserved also
@@ -305,7 +307,7 @@ public class TestRunnerService {
         //    while this runner is still executing tests. It is made instead by the build tool step
         //    that runs once every retry has finished - see DistributedRunCompleter - since knowing
         //    that no more retries are coming is a fact only the build tool has, not this fork.
-        int suitesRan = Math.max(0, testRunResult.getSuitesRanThisAttempt());
+        int suitesRan = testRunResult.getTestSuiteTrackers().size();
         int suitesFailed = testRunResult.getTestSuitesFailed() != null
                 ? testRunResult.getTestSuitesFailed().size() : 0;
         int suitesObserved = countObservedSuitesInGroup(testRunResult.getSuitesObserved(),

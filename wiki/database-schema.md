@@ -279,7 +279,7 @@ rather than needing their own cleanup.)
   the sealing runner's JVM; null on a run planned before the column existed.
 - **tia_distributed_run_group** - one row per group: its `status` (`PENDING` / `CLAIMED` /
   `COMPLETED`), the `runner_key` that claimed it, the planner's `estimated_ms`, and the progress
-  figures each persist accumulates. `suites_observed` is the one the completeness guard reads -
+  figures each persist reports (`suites_ran` is the distinct suites executed, not a sum per retry). `suites_observed` is the one the completeness guard reads -
   see the "Distributed test runs" chapter for why it is not `suites_ran`. `suites_duration_ms` is
   the share of `actual_duration_ms` that went on named suites; the remainder is the runner's fixed
   per-JVM overhead, which the sealer charges once for the build rather than once per group. Indexed

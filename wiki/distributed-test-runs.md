@@ -478,9 +478,16 @@ once per finished test plan - which means several times per JVM when Surefire re
 The figures it carries fall into three kinds that must not be treated alike, and
 `JdbcDataStore.reportGroupProgress` writes each differently:
 
-- `actual_duration_ms` and `suites_ran` are **counters**: `COALESCE(column, 0) + ?`, so several test
-  plans in one JVM sum to the JVM's total instead of the last one silently overwriting the ones
-  before it.
+- `actual_duration_ms` is a **counter**: `COALESCE(column, 0) + ?`, so several test plans in one
+  JVM sum to the JVM's total instead of the last one silently overwriting the ones before it - a
+  retry's time is real time.
+- `suites_ran` counts the **distinct suites** the runner executed, drawn from the JVM's tracker map
+  (already cumulative across its test plans) and written as `GREATEST(COALESCE(column, 0), ?)`. A
+  retry re-reports the same suites, and a Gradle test-retry round - a fresh JVM that ran only the
+  retried suites - reports fewer, so neither adds to it. A distributed build has one history row and
+  no rerun rows, and `suites_failed` counts each failing suite once however often it was retried; a
+  summed `suites_ran` counted it once per attempt, so a suite failing its first run and both retries
+  read "ran 3, failed 1". It now reads "ran 1, failed 1".
 - `suites_failed` is **current state**: a plain `= ?`, because a suite that passes on retry must be
   able to leave the failed set. Accumulating it would leave a fixed suite recorded as permanently
   failed. The value is the JVM-wide count of suites whose latest execution failed, not the
@@ -738,8 +745,10 @@ advances that baseline only when it ignored zero suites, and no runner in a spli
 so the sealer asks the question of the groups together (`suitesRan > 0` and zero ignored), which is
 what keeps the baseline moving once a project distributes its tests.
 
-The ignored half of that comes from what the plan **assigned** the groups, never from the
-accumulating `suites_ran` counter, which a retry within one JVM legitimately inflates. Where the
+The ignored half of that comes from what the plan **assigned** the groups, never from `suites_ran`.
+That counter once accumulated every retry's executions, which let a partial build with enough
+reruns look like it ran everything; it now counts distinct suites, but an execution count is still
+not Tia's selection decision - it includes suites nobody planned. Where the
 assignment is empty it is answered from the run row's `seed_run` flag rather than from the plan's
 shape: a seed run that fell back to a single group carries no suite names and ignored nothing, a
 nothing-impacted build has no groups at all and ignored every tracked suite, and by seal
@@ -784,10 +793,9 @@ serial-equivalent duration; `DistributedRunOverheadModel` combines the same numb
 The solve runs at seal time and folds its answer into rolling averages on `tia_core`
 (`fixed_overhead_ms`, `capture_overhead_per_suite_ms`, `num_overhead_measurements`).
 
-**A group's suite count comes from the plan, not from `suites_ran`.** That counter accumulates
-executions, so a Surefire retry inside a runner's JVM sums into it - and here it would inflate the
-suite count on exactly the group whose overhead the retry also inflated, corrupting both sides of the
-equation at once. What the plan assigned a group cannot be moved by any number of retries.
+**A group's suite count comes from the plan, not from `suites_ran`.** That figure is what the
+runner executed, which can include suites the plan never assigned, so it is not what the group was
+sized from. What the plan assigned a group cannot be moved by any number of retries.
 
 **A seed run is excluded, whether it fell back to a single group or was split.** The `seed_run` flag
 decides this outright, not the shape of the assignment: a single-group seed run is assigned no suite

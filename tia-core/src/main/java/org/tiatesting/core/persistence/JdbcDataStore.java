@@ -2422,18 +2422,20 @@ public class JdbcDataStore implements DataStore {
      *
      * <p>One guarded single-row {@code UPDATE ... WHERE run_id = ? AND group_number = ? AND status
      * = 'CLAIMED' AND runner_key = ?}, the same straggler-protection predicate {@link
-     * #completeGroup} is guarded on. {@code actual_duration_ms} and {@code suites_ran} are written
-     * as {@code COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry)
-     * sum instead of the last one overwriting the ones before it. Only {@code actual_duration_ms}
-     * genuinely needs the {@code COALESCE}: the plan write binds it with {@link #setNullableLong}
-     * as SQL {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column.
-     * {@code suites_ran}'s DDL is {@code INT DEFAULT 0} and the plan write binds it with a primitive
-     * {@code setInt}, so it is never actually {@code NULL} - its {@code COALESCE} is defensive
-     * rather than load-bearing, kept for symmetry and to protect against a future change to the
-     * plan write. {@code suites_failed} is written as a plain {@code = ?}, since it is current
-     * state rather than a counter and a passing retry must be able to shrink it back to zero.
-     * {@code suites_observed} is written as {@code GREATEST(COALESCE(column, 0), ?)}: unlike
-     * {@code suites_ran}, it does not accumulate here, because the set it is drawn from ({@link
+     * #completeGroup} is guarded on. {@code actual_duration_ms} is written as {@code
+     * COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry) sum
+     * instead of the last one overwriting the ones before it - retry time is real time. The {@code
+     * COALESCE} is load-bearing: the plan write binds it with {@link #setNullableLong} as SQL
+     * {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column. {@code
+     * suites_failed} is written as a plain {@code = ?}, since it is current state rather than a
+     * counter and a passing retry must be able to shrink it back to zero. {@code suites_ran} is
+     * written as {@code GREATEST(COALESCE(column, 0), ?)}: it counts the <em>distinct</em> suites
+     * the runner executed, which the caller draws from the JVM's shared tracker map - already
+     * cumulative across every test plan - so a retry re-reports the same suites rather than adding
+     * new ones, and a Gradle test-retry round, a fresh JVM that ran only the retried suites,
+     * reports fewer. Summing would count a retried suite once per attempt, where the build's one
+     * history row counts its failed suites once. {@code suites_observed} is written the same way
+     * and for the same reason: the set it is drawn from ({@link
      * org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()}) is already cumulative
      * per JVM - summing it across retries would double-count. {@code GREATEST} rather than a plain
      * {@code = ?} replace is what keeps a same-JVM retry's report from ever regressing the stored
@@ -2455,8 +2457,8 @@ public class JdbcDataStore implements DataStore {
      * @param runnerKey the calling runner's stable identity
      * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
      *                         is already stored
-     * @param suitesRan the number of suites this call's test plan executed, added to whatever is
-     *                  already stored
+     * @param suitesRan the number of distinct suites the runner has executed so far, written as
+     *                  the greater of this value and whatever was already stored
      * @param suitesFailed the number of suites currently failing, replacing whatever was stored
      * @param suitesObserved the number of suites the runner has observed so far (finished or
      *                       skipped), written as the greater of this value and whatever was already
@@ -2474,8 +2476,8 @@ public class JdbcDataStore implements DataStore {
                                        final int suitesFailed, final int suitesObserved,
                                        final long suitesDurationMs) {
         String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
-                + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = COALESCE("
-                + COL_SUITES_RAN + ", 0) + ?, " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_OBSERVED
+                + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = GREATEST(COALESCE("
+                + COL_SUITES_RAN + ", 0), ?), " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_OBSERVED
                 + " = GREATEST(COALESCE(" + COL_SUITES_OBSERVED + ", 0), ?), " + COL_SUITES_DURATION_MS
                 + " = GREATEST(COALESCE(" + COL_SUITES_DURATION_MS + ", 0), ?) WHERE " + COL_RUN_ID + " = ? AND "
                 + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
