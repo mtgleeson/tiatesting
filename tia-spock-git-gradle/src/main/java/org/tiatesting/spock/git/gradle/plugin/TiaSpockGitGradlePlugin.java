@@ -69,7 +69,15 @@ public class TiaSpockGitGradlePlugin extends TiaBasePlugin {
         applyToDefaultTasks(tiaTestExtension);
     }
 
+    /**
+     * Apply Tia to every test task, and register the once-per-project hook that wires each one's
+     * {@code tia-dist-complete} finalizer after evaluation - from here, where the project may still
+     * be mutated, rather than from inside the per-task configureEach action.
+     *
+     * @param extension the Tia test extension that configures each test task
+     */
     private void applyToDefaultTasks(TiaSpockGitGradlePluginTestExtension extension) {
         project.getTasks().withType(Test.class).configureEach(extension::applyTo);
+        extension.wireDistCompleteFinalizers(project);
     }
 }

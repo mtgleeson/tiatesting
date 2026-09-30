@@ -2,6 +2,7 @@ package org.tiatesting.spock.git.gradle.plugin;
 
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
+import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
 import org.gradle.api.logging.Logging;
@@ -24,6 +25,7 @@ import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
+import org.tiatesting.core.testrunner.TestJvmSequence;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
@@ -57,20 +59,9 @@ public class TiaSpockGitGradlePluginTestExtension {
         TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
         JacocoTaskExtension jacocoTaskExtension = task.getExtensions().findByType(JacocoTaskExtension.class);
 
-        // Wired at configuration time, not inside the doFirst action below: the task graph (and
-        // therefore any finalizedBy wiring) is built before execution, so the finalizer must exist
-        // before the doFirst action runs. See wireDistCompleteFinalizer for why this needs its own,
-        // narrower resolution of the "distributed" flag rather than reusing populateTestTaskExtension.
-        //
-        // Depends on this method being reached while the project is still evaluating, because
-        // Project.afterEvaluate throws InvalidUserCodeException once evaluation is over. That holds
-        // today only because TiaSpockGitGradlePlugin.apply iterates project.getTasks().withType(
-        // Test.class) with a plain for-loop before it wires applyToDefaultTasks, which realizes
-        // every Test task during evaluation and so makes the configureEach action behind this call
-        // run then rather than later. Making that iteration lazy, or a Test task registered by a
-        // plugin applied after Tia, would push this past evaluation and break the build. The
-        // ProjectBuilder tests create their tasks eagerly and cannot catch it.
-        task.getProject().afterEvaluate(p -> wireDistCompleteFinalizer(task, tiaProjectExtension, tiaTaskExtension));
+        // The tia-dist-complete finalizer is not wired here: this method runs as a configureEach
+        // action, where Gradle disallows Project#afterEvaluate. It is wired once per project by
+        // wireDistCompleteFinalizers, registered from the plugin's apply.
 
         Action<Task> action = new Action<Task>() {
             @Override
@@ -141,6 +132,15 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+                    // Number this task execution's test JVMs. The test-retry plugin re-runs failed
+                    // tests in fresh JVMs inside this same task action, each with these same
+                    // properties, so a counter reset here - once per execution, before any JVM
+                    // starts - is what lets a retry round know it is not the real run and persist
+                    // as an addition to it rather than overwrite it. See TestJvmSequence.
+                    File testJvmSequenceFile = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
+                    TestJvmSequence.reset(testJvmSequenceFile);
+                    testTask.systemProperty(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE,
+                            testJvmSequenceFile.getAbsolutePath());
                     // The compiled test classes this task owns. They tell the forked JVM which
                     // suites still exist in the project, so a suite it did not run is not mistaken
                     // for one deleted from the repository - which is what a run split across JVMs
@@ -192,6 +192,34 @@ public class TiaSpockGitGradlePluginTestExtension {
         };
 
         task.doFirst(action);
+    }
+
+    /**
+     * Register, once per project, the hook that wires a {@code tia-dist-complete} finalizer onto
+     * every test task Tia was applied to, when the project finishes evaluating.
+     *
+     * <p>The wiring has to happen at configuration time rather than in the test task's {@code
+     * doFirst}: the task graph, and with it any {@code finalizedBy}, is built before execution. It
+     * is registered here, from the plugin's {@code apply}, rather than from {@link #applyTo}: that
+     * method runs as a {@code configureEach} action, and Gradle refuses {@code
+     * Project#afterEvaluate} inside one ("cannot be executed in the current context") - which it
+     * did as soon as another plugin, such as {@code org.gradle.test-retry}, also configured the
+     * test tasks. A test task without Tia's {@code tia} extension is skipped. See {@link
+     * #wireDistCompleteFinalizer} for why each task needs its own, narrower resolution of the
+     * "distributed" flag.
+     *
+     * @param project the project whose test tasks to finalize once it is evaluated
+     */
+    public void wireDistCompleteFinalizers(final Project project) {
+        project.afterEvaluate(p -> {
+            TiaBaseTaskExtension tiaProjectExtension = p.getExtensions().findByType(TiaBaseTaskExtension.class);
+            for (Test testTask : p.getTasks().withType(Test.class)) {
+                Object tiaTaskExtension = testTask.getExtensions().findByName("tia");
+                if (tiaTaskExtension instanceof TiaBaseTaskExtension) {
+                    wireDistCompleteFinalizer(testTask, tiaProjectExtension, (TiaBaseTaskExtension) tiaTaskExtension);
+                }
+            }
+        });
     }
 
     /**

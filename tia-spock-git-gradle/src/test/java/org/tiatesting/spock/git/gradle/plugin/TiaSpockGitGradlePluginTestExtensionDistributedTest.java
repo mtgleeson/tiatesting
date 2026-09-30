@@ -222,7 +222,10 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
         plugin.setDbDir(dbDir);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        TiaSpockGitGradlePluginTestExtension extension = new TiaSpockGitGradlePluginTestExtension();
+        extension.applyTo(testTask);
+        // once per project, as the plugin's apply does - it covers every test task Tia is applied to
+        extension.wireDistCompleteFinalizers(project);
         return testTask;
     }
 
@@ -827,8 +830,8 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     /**
      * Force the project's queued {@code afterEvaluate} blocks to run, the way a real Gradle
      * invocation would once the build script finishes - including the {@code
-     * tia-dist-complete}-wiring block {@link TiaSpockGitGradlePluginTestExtension#applyTo}
-     * registers. {@link ProjectBuilder}-built projects never reach this point on their own, since
+     * tia-dist-complete}-wiring block {@link
+     * TiaSpockGitGradlePluginTestExtension#wireDistCompleteFinalizers} registers. {@link ProjectBuilder}-built projects never reach this point on their own, since
      * nothing in these tests runs a real build; the cast to {@link ProjectInternal} is what exposes
      * {@code evaluate()} - not part of the public {@link Project} API - to trigger it directly.
      *
@@ -893,9 +896,11 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         // when the project's afterEvaluate blocks run, wiring a finalizer for each test task
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> evaluate(firstTestTask));
 
-        // then the failure explains the rule rather than reporting a duplicate task name
+        // then the failure explains the rule rather than reporting a duplicate task name. It names
+        // whichever task the hook reaches second - the hook walks the task container, which Gradle
+        // keeps in name order - so either task may be the one named
         String message = rootCauseMessage(thrown);
-        assertTrue(message.contains(secondTestTask.getPath()), message);
+        assertTrue(message.contains(secondTestTask.getPath()) || message.contains(firstTestTask.getPath()), message);
         assertTrue(message.contains("exactly one test task per runner"), message);
     }
 
