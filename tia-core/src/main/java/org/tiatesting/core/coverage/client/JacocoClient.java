@@ -130,6 +130,8 @@ public class JacocoClient {
         bundleCoverage.getPackages().forEach( bundlePackage -> {
 
             if (containsLineCoverage(bundlePackage.getLineCounter())){
+                Map<String, List<IClassCoverage>> classesBySourceFile = groupClassesBySourceFile(bundlePackage);
+
                 bundlePackage.getClasses().forEach( bundleClass -> {
 
                     if (containsLineCoverage(bundleClass.getLineCounter())){
@@ -147,7 +149,12 @@ public class JacocoClient {
 
                         bundleClass.getMethods().forEach( method -> {
                             String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
-                            MethodImpactTracker methodTracker = new MethodImpactTracker(methodName,  method.getFirstLine(), method.getLastLine());
+                            int[] lineRanges = InitializerLineRanges.isInitializer(method.getName())
+                                    ? InitializerLineRanges.compute(method, bundleClass.getMethods(),
+                                            methodsOfOtherClasses(classesBySourceFile, bundleClass))
+                                    : null;
+                            MethodImpactTracker methodTracker = new MethodImpactTracker(methodName,
+                                    method.getFirstLine(), method.getLastLine(), lineRanges);
                             coverageResult.getAllMethodsClassesInvoked().put(methodTracker.hashCode(), methodTracker);
 
                             if (containsLineCoverage(method.getLineCounter())){
@@ -164,6 +171,45 @@ public class JacocoClient {
         coverageResult.getClassesInvoked().addAll(classImpactTrackers.values());
 
         return coverageResult;
+    }
+
+    /**
+     * Group a package's classes by the source file they were compiled from, so a constructor's line
+     * ranges can account for the nested, inner and anonymous classes declared in the same file.
+     *
+     * @param bundlePackage the package coverage node
+     * @return the package's classes keyed by source file name
+     */
+    private Map<String, List<IClassCoverage>> groupClassesBySourceFile(IPackageCoverage bundlePackage){
+        Map<String, List<IClassCoverage>> classesBySourceFile = new HashMap<>();
+        for (IClassCoverage bundleClass : bundlePackage.getClasses()){
+            classesBySourceFile.computeIfAbsent(String.valueOf(bundleClass.getSourceFileName()), k -> new ArrayList<>())
+                    .add(bundleClass);
+        }
+        return classesBySourceFile;
+    }
+
+    /**
+     * Collect the methods of every class compiled from the same source file as the given class,
+     * excluding the class itself.
+     *
+     * @param classesBySourceFile the package's classes keyed by source file name
+     * @param ownerClass the class whose source-file siblings are wanted
+     * @return the sibling classes' methods, empty when the class is alone in its source file
+     */
+    private List<IMethodCoverage> methodsOfOtherClasses(Map<String, List<IClassCoverage>> classesBySourceFile,
+                                                        IClassCoverage ownerClass){
+        List<IClassCoverage> classesInFile = classesBySourceFile.get(String.valueOf(ownerClass.getSourceFileName()));
+        if (classesInFile == null || classesInFile.size() == 1){
+            return Collections.emptyList();
+        }
+        List<IMethodCoverage> methods = new ArrayList<>();
+        for (IClassCoverage classInFile : classesInFile){
+            if (classInFile != ownerClass){
+                methods.addAll(classInFile.getMethods());
+            }
+        }
+        return methods;
     }
 
     private boolean containsLineCoverage(ICounter counter){

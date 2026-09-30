@@ -30,6 +30,8 @@ import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -40,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JacocoClientTest {
 
     private static final String TARGET_VM_NAME = "org/tiatesting/core/coverage/client/CoverageSampleTarget";
+    private static final String LATE_FIELD_VM_NAME = "org/tiatesting/core/coverage/client/CoverageSampleLateField";
     private static final String OTHER_SOURCE = "org/tiatesting/core/coverage/client/CoverageSampleOther.java";
     private static final String TARGET_SOURCE = "org/tiatesting/core/coverage/client/CoverageSampleTarget.java";
 
@@ -69,7 +72,7 @@ class JacocoClientTest {
     void analyzeRecordsOnlyTheExecutedClass() throws Exception {
         // given
         JacocoClient client = clientIndexedOnTestClasses();
-        ExecutionDataStore executionData = executeAndCollect();
+        ExecutionDataStore executionData = executeAndCollect(TARGET_VM_NAME, "covered");
 
         // when
         IBundleCoverage bundle = client.analyze(executionData);
@@ -93,7 +96,7 @@ class JacocoClientTest {
     void analyzeFlagsCoveredMethodButNotUncoveredOne() throws Exception {
         // given
         JacocoClient client = clientIndexedOnTestClasses();
-        ExecutionDataStore executionData = executeAndCollect();
+        ExecutionDataStore executionData = executeAndCollect(TARGET_VM_NAME, "covered");
 
         // when
         CoverageResult result = client.collectMethodsCalled(client.analyze(executionData));
@@ -108,6 +111,40 @@ class JacocoClientTest {
                 "the executed method should be flagged as impacted");
         assertFalse(target.getMethodsImpacted().contains(notCovered.get().hashCode()),
                 "a method with no line coverage should not be flagged as impacted");
+    }
+
+    /**
+     * A field declared after a method stretches the constructor's start-end range over that method.
+     * The constructor's line ranges must leave the method's lines out, while still covering the late
+     * field's line (the constructor's last line).
+     *
+     * @throws Exception if instrumentation, class loading, or analysis fails
+     */
+    @Test
+    void lateFieldConstructorGetsLineRangesExcludingTheLaterMethod() throws Exception {
+        // given
+        JacocoClient client = clientIndexedOnTestClasses();
+        ExecutionDataStore executionData = executeAndCollect(LATE_FIELD_VM_NAME, "laterMethod");
+
+        // when
+        CoverageResult result = client.collectMethodsCalled(client.analyze(executionData));
+
+        // then
+        MethodImpactTracker constructor = findMethod(result, "<init>").get();
+        MethodImpactTracker laterMethod = findMethod(result, "laterMethod").get();
+        int[] ranges = constructor.getLineRanges();
+        assertNotNull(ranges, "the late field should split the constructor's range");
+        assertTrue(constructor.getLineNumberStart() < laterMethod.getLineNumberStart()
+                        && constructor.getLineNumberEnd() > laterMethod.getLineNumberEnd(),
+                "the constructor's start-end range should span the later method");
+        for (int i = 0; i < ranges.length; i += 2) {
+            boolean overlapsLaterMethod = ranges[i] <= laterMethod.getLineNumberEnd()
+                    && ranges[i + 1] >= laterMethod.getLineNumberStart();
+            assertFalse(overlapsLaterMethod, "the constructor's ranges must not include the later method");
+        }
+        assertTrue(rangesContain(ranges, constructor.getLineNumberEnd()),
+                "the constructor's ranges should include the late field's line");
+        assertNull(laterMethod.getLineRanges(), "a plain method keeps start-end matching");
     }
 
     /**
@@ -219,28 +256,30 @@ class JacocoClientTest {
     }
 
     /**
-     * Instruments {@link CoverageSampleTarget}, loads the instrumented bytes in an isolated class
-     * loader, invokes {@code covered()} to generate real line coverage, and collects the resulting
-     * execution data.
+     * Instruments a fixture class, loads the instrumented bytes in an isolated class loader, creates
+     * an instance and invokes one of its no-arg methods to generate real line coverage, and collects
+     * the resulting execution data.
      *
-     * @return an execution data store containing one entry for the executed target class
+     * @param vmName the fixture's VM class name (e.g. {@code org/foo/Bar})
+     * @param methodName the no-arg method to invoke on the new instance
+     * @return an execution data store containing one entry for the executed fixture class
      * @throws Exception if instrumentation, loading, or invocation fails
      */
-    private ExecutionDataStore executeAndCollect() throws Exception {
+    private ExecutionDataStore executeAndCollect(String vmName, String methodName) throws Exception {
         IRuntime runtime = new LoggerRuntime();
         RuntimeData data = new RuntimeData();
         runtime.startup(data);
         try {
             Instrumenter instrumenter = new Instrumenter(runtime);
-            byte[] original = readClassBytes(TARGET_VM_NAME + ".class");
-            byte[] instrumented = instrumenter.instrument(original, TARGET_VM_NAME);
+            byte[] original = readClassBytes(vmName + ".class");
+            byte[] instrumented = instrumenter.instrument(original, vmName);
 
             MemoryClassLoader classLoader = new MemoryClassLoader();
-            String binaryName = TARGET_VM_NAME.replace('/', '.');
+            String binaryName = vmName.replace('/', '.');
             classLoader.addDefinition(binaryName, instrumented);
             Class<?> targetClass = classLoader.loadClass(binaryName);
             Object instance = targetClass.getDeclaredConstructor().newInstance();
-            targetClass.getMethod("covered").invoke(instance);
+            targetClass.getMethod(methodName).invoke(instance);
 
             ExecutionDataStore executionData = new ExecutionDataStore();
             data.collect(executionData, new SessionInfoStore(), false);
@@ -261,6 +300,22 @@ class JacocoClientTest {
         return result.getAllMethodsClassesInvoked().values().stream()
                 .filter(m -> m.getMethodName().contains("." + simpleMethodName + "."))
                 .findFirst();
+    }
+
+    /**
+     * Check whether a source line falls inside any of a set of flat inclusive start/end pairs.
+     *
+     * @param ranges flat inclusive {@code [start, end, ...]} pairs
+     * @param line the source line to look for
+     * @return true when some range contains the line
+     */
+    private boolean rangesContain(int[] ranges, int line) {
+        for (int i = 0; i < ranges.length; i += 2) {
+            if (ranges[i] <= line && line <= ranges[i + 1]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
