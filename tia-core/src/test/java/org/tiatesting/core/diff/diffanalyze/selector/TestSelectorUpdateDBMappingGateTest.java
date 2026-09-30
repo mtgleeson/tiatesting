@@ -374,6 +374,7 @@ class TestSelectorUpdateDBMappingGateTest {
         @Override public TiaData getTiaData(boolean readFromDisk) { return delegate.getTiaData(readFromDisk); }
         @Override public TiaData getTiaCore() { return delegate.getTiaCore(); }
         @Override public Map<String, TestSuiteTracker> getTestSuitesTracked() { return delegate.getTestSuitesTracked(); }
+        @Override public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) { return delegate.readTestSuiteCoverage(suiteNames); }
         @Override public Map<Integer, MethodImpactTracker> getMethodsTracked() { return delegate.getMethodsTracked(); }
         @Override public Set<Integer> getUniqueMethodIdsTracked() { return delegate.getUniqueMethodIdsTracked(); }
         @Override public Map<String, Map<Integer, MethodImpactTracker>> getMethodsTrackedForFiles(Set<String> sourceFilenames) { return delegate.getMethodsTrackedForFiles(sourceFilenames); }

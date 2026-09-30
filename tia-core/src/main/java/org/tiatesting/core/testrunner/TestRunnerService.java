@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.distributed.DistributedRunnerPersist;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -20,8 +21,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -112,7 +115,7 @@ public class TestRunnerService {
         // 1. Suite mapping rows first. These are safe to be ahead of the stored commit - they
         //    carry no line coordinates, and they are marked unsealed until the seal clears them.
         updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
-                testRunResult.getSelectedTests(), updateDBMapping);
+                testRunResult.getSelectedTests(), updateDBMapping, testRunResult.getRunAttempt());
 
         // A run where Tia ignored zero suites is an all-tests run (seed run, or every suite
         // selected). getIgnoredTestSuiteCount() already excludes developer-disabled suites,
@@ -253,7 +256,7 @@ public class TestRunnerService {
             // 1. Suite mapping rows first, exactly as on the single-host path - they carry no line
             //    coordinates, so they are safe to be ahead of the commit the sealer will store.
             updateTestSuiteMapping(tiaData, testRunResult.getTestSuiteTrackers(), testRunResult.getRunnerTestSuites(),
-                    testRunResult.getSelectedTests(), updateDBMapping);
+                    testRunResult.getSelectedTests(), updateDBMapping, testRunResult.getRunAttempt());
         }
 
         if (updateDBMapping && !ranNoExpectedSuites){
@@ -387,7 +390,8 @@ public class TestRunnerService {
      * one bundle and written in a single transaction via {@link DataStore#persistSealedRunData}.
      * A run that does not own mapping updates writes nothing here at all: it has no commit to
      * stamp, no catalogue to rebuild, and - since stats follow the mapping - no stats to
-     * contribute either.
+     * contribute either. A rerun of failed tests seals as usual but contributes no Tia-level stats,
+     * whether it ran in the first attempt's JVM or a fresh one.
      *
      * @param tiaData the core data read at the start of the persist, mutated with the new commit
      *                and stats before being written
@@ -414,11 +418,16 @@ public class TestRunnerService {
 
         // The stats go to the seal as a delta rather than merged onto tiaData here: the store
         // accumulates them against the row's value at write time, so an increment from a build that
-        // committed during this run's persist is not overwritten. See CoreStatsIncrement.
+        // committed during this run's persist is not overwritten. See CoreStatsIncrement. A rerun
+        // of failed tests contributes none: the first attempt already counted the run, and a
+        // retry's short duration would drag the run-time averages down.
+        CoreStatsIncrement statsIncrement = testRunResult.getRunAttempt().isRerun()
+                ? CoreStatsIncrement.of(null, allTestsRun)
+                : CoreStatsIncrement.of(testRunResult.getTestStats(), allTestsRun);
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 testRunResult.getMethodTrackersFromTestRun(),
                 testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
-                CoreStatsIncrement.of(testRunResult.getTestStats(), allTestsRun)));
+                statsIncrement));
     }
 
     /**
@@ -658,16 +667,26 @@ public class TestRunnerService {
      * @param selectedTests the suites Tia selected to run, used to maintain the developer-disabled flag
      * @param updateDBMapping should the test suite to source code mapping and stats be updated for
      *                        the test run
+     * @param runAttempt which attempt at the test task's run this is. A retry in a fresh JVM (a
+     *                   Gradle test-retry round) ran only the failed tests, knowing nothing of the
+     *                   first attempt: its coverage is added to each suite's stored coverage rather
+     *                   than replacing it, its suites' run times leave the stored averages as they
+     *                   are, and it does not re-derive the developer-disabled flag
      */
     private void updateTestSuiteMapping(final TiaData tiaData, final Map<String, TestSuiteTracker> testSuiteTrackers,
                                         final Set<String> runnerTestSuites, final Set<String> selectedTests,
-                                        final boolean updateDBMapping){
+                                        final boolean updateDBMapping, final RunAttempt runAttempt){
 
         if (!updateDBMapping) {
             return;
         }
 
         Map<String, TestSuiteTracker> testSuiteTrackersOnDisk = dataStore.getTestSuitesTracked();
+        boolean freshJvmRetry = runAttempt == RunAttempt.RERUN_NEW_JVM;
+        if (freshJvmRetry) {
+            addStoredCoverage(testSuiteTrackers);
+            keepStoredAverageRunTimes(testSuiteTrackers, testSuiteTrackersOnDisk);
+        }
         Map<String, TestSuiteTracker> mergedTestSuiteTrackers = mergeTestMappingMaps(testSuiteTrackersOnDisk, testSuiteTrackers);
         tiaData.setTestSuitesTracked(mergedTestSuiteTrackers);
 
@@ -675,9 +694,13 @@ public class TestRunnerService {
         removeDeletedTestSuites(tiaData.getTestSuitesTracked(), runnerTestSuites);
 
         // Maintain the developer-disabled flag before persisting the mapping rows - the flag is
-        // mapping metadata written by persistTestSuites.
-        Set<String> flagChangedSuites = updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(),
-                selectedTests, runnerTestSuites, testSuiteTrackers.keySet());
+        // mapping metadata written by persistTestSuites. A fresh-JVM retry is told the whole
+        // selection but runs only the failures, so every other selected suite would read as
+        // "selected, discovered, did not execute" and be flagged; it says nothing about whether
+        // they are disabled in source, so the flags are left as stored.
+        Set<String> flagChangedSuites = freshJvmRetry ? new HashSet<>()
+                : updateDeveloperDisabledFlags(tiaData.getTestSuitesTracked(),
+                        selectedTests, runnerTestSuites, testSuiteTrackers.keySet());
 
         tiaData.setTestSuitesTracked(
                 mergeTestMappingStats(tiaData.getTestSuitesTracked(), testSuiteTrackers));
@@ -740,6 +763,61 @@ public class TestRunnerService {
                 + "whose developer-disabled flag changed.", toPersist.size(), trackedSuites.size(),
                 runTestSuiteTrackers.size(), flagChangedSuites.size());
         return toPersist;
+    }
+
+    /**
+     * Add each suite's stored coverage to the coverage this run captured for it, in place. A
+     * fresh-JVM retry runs only a suite's failed tests, so its capture covers only what those tests
+     * reached; the suite write replaces a suite's edges with the run's capture, so without this the
+     * suite's mapping would shrink to the retried tests' coverage and later builds could skip it
+     * when code only its other tests reach changes. The union is what a same-JVM retry already
+     * holds in memory. Only the retried suites' coverage is read.
+     *
+     * @param runTestSuiteTrackers the trackers this run produced, whose class lists are extended
+     */
+    private void addStoredCoverage(final Map<String, TestSuiteTracker> runTestSuiteTrackers) {
+        Map<String, List<ClassImpactTracker>> storedCoverage =
+                dataStore.readTestSuiteCoverage(runTestSuiteTrackers.keySet());
+        storedCoverage.forEach((suiteName, storedClasses) -> {
+            TestSuiteTracker runTracker = runTestSuiteTrackers.get(suiteName);
+            Map<String, ClassImpactTracker> classesByFile = new HashMap<>();
+            List<ClassImpactTracker> union = new ArrayList<>();
+            if (runTracker.getClassesImpacted() != null) {
+                for (ClassImpactTracker runClass : runTracker.getClassesImpacted()) {
+                    classesByFile.put(runClass.getSourceFilename(), runClass);
+                    union.add(runClass);
+                }
+            }
+            for (ClassImpactTracker storedClass : storedClasses) {
+                ClassImpactTracker runClass = classesByFile.get(storedClass.getSourceFilename());
+                if (runClass == null) {
+                    union.add(storedClass);
+                } else {
+                    runClass.getMethodsImpacted().addAll(storedClass.getMethodsImpacted());
+                }
+            }
+            runTracker.setClassesImpacted(union);
+        });
+    }
+
+    /**
+     * Give each suite's run-time contribution its stored average, in place, so the store's weighted
+     * mean does not move. A fresh-JVM retry times only the retried tests, which would pull a
+     * suite's average - and with it the run-time estimate and distributed group packing - down.
+     * The run itself still counts, with its own pass or fail, as a same-JVM retry does. A suite
+     * with no stored runs keeps its measured time, since there is no average to protect.
+     *
+     * @param runTestSuiteTrackers the trackers this run produced, whose average run time is replaced
+     * @param storedTestSuiteTrackers the stored suites, carrying their current average run times
+     */
+    private static void keepStoredAverageRunTimes(final Map<String, TestSuiteTracker> runTestSuiteTrackers,
+                                                  final Map<String, TestSuiteTracker> storedTestSuiteTrackers) {
+        runTestSuiteTrackers.forEach((suiteName, runTracker) -> {
+            TestSuiteTracker stored = storedTestSuiteTrackers.get(suiteName);
+            if (stored != null && stored.getTestStats().getNumRuns() > 0) {
+                runTracker.getTestStats().setAvgRunTime(stored.getTestStats().getAvgRunTime());
+            }
+        });
     }
 
     /**

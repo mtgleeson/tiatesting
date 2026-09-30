@@ -124,6 +124,32 @@ class PostgresPersistTest {
     }
 
     /**
+     * Runs the targeted suite-coverage read against a real Postgres: the three-table join by suite
+     * name returns each named suite's classes and method ids, and nothing for an unnamed suite.
+     *
+     * @throws Exception if cleaning Postgres or building the store fails
+     */
+    @Test
+    void readTestSuiteCoverageReturnsTheNamedSuitesOnPostgres() throws Exception {
+        // given
+        assumePg();
+        cleanPostgres();
+        postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
+                null, BRANCH, null);
+        postgresStore.getTiaData(true);
+        postgresStore.persistTestSuites(buildSuites());
+
+        // when
+        Map<String, List<ClassImpactTracker>> coverage =
+                postgresStore.readTestSuiteCoverage(new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")));
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")), coverage.keySet());
+        assertEquals("com/example/pgpersist/Foo.java", coverage.get("SuiteFoo").get(0).getSourceFilename());
+        assertTrue(coverage.get("SuiteFoo").get(0).getMethodsImpacted().contains(101));
+    }
+
+    /**
      * Build a three-suite mapping, each suite covering one class, so a second
      * {@code persistTestSuites} of the same map exercises the {@code tia_test_suite} DO-UPDATE
      * branch (and the {@code getGeneratedKeys} follow-up) for every row rather than inserting them.
