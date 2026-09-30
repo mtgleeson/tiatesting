@@ -15,17 +15,22 @@ import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.engine.support.descriptor.UriSource;
 import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
+import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
 import java.net.URI;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -320,6 +325,40 @@ class TiaTestExecutionListenerFailureTest {
         // then
         assertEquals(Collections.singleton(SUITE), retry.getTestSuitesFailed());
         assertEquals(Collections.singleton(SUITE), retry.getSuitesFailedThisAttempt());
+    }
+
+    /**
+     * Verifies the JVM's first test plan persists a history row that is not a rerun, and a Surefire
+     * re-run's test plan - a new listener over the same shared state - persists one flagged as a
+     * rerun.
+     *
+     * @throws Exception if the pause between the two test plans is interrupted
+     */
+    @Test
+    void rerun_secondTestPlansHistoryRowIsFlaggedAsARerun() throws Exception {
+        // given
+        SharedTestRunData shared = new SharedTestRunData();
+        TiaTestExecutionListener firstAttempt = startedListener(shared);
+        runSuite(firstAttempt, suite, TestExecutionResult.failed(new AssertionError("flaky")));
+        firstAttempt.testPlanExecutionFinished(testPlan());
+        // the row id derives from the start time, so the two attempts must not share a millisecond
+        Thread.sleep(5);
+
+        // when
+        TiaTestExecutionListener retry = startedListener(shared);
+        runSuite(retry, suite, TestExecutionResult.successful());
+        retry.testPlanExecutionFinished(testPlan());
+
+        // then
+        DataStore dataStore = DataStoreFactory.fromSystemProperties("main");
+        try {
+            List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+            assertEquals(2, history.size());
+            assertTrue(history.get(0).isRerun(), "the re-run's row, most recent first");
+            assertFalse(history.get(1).isRerun(), "the first attempt's row");
+        } finally {
+            dataStore.close();
+        }
     }
 
     /**

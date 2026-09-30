@@ -44,7 +44,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 4, 0, 6);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
                 1_700_000_000_000L, 42, 3, 1, 83_000L, true, 45_000L, 54,
-                RunOrigin.of("local", "host"), details);
+                RunOrigin.of("local", "host"), details, false);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(entry, triggers, LF);
@@ -107,7 +107,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
 
         // when
         String output = TestRunHistoryDetailConsoleFormatter.format(
@@ -121,6 +121,25 @@ class TestRunHistoryDetailConsoleFormatterTest {
         assertTrue(output.contains("Serial savings:      4s (25%)" + LF), output);
         assertTrue(output.contains("Source:              " + RunOrigin.SOURCE_LOCAL + LF), output);
         assertTrue(output.contains("Host:                laptop" + LF), output);
+        assertTrue(output.contains("Rerun:               no" + LF), output);
+    }
+
+    /**
+     * A rerun of failed tests says so, next to its zero savings.
+     */
+    @Test
+    void format_rerun_rendersRerunYes() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+
+        // when
+        String output = TestRunHistoryDetailConsoleFormatter.format(
+                entry, Collections.<TestRunTrigger>emptyList(), LF);
+
+        // then
+        assertTrue(output.contains("Rerun:               yes" + LF), output);
     }
 
     /**
@@ -133,7 +152,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
                 1_700_000_000_000L, 10, 0, 0, 5_000L, true, 0L, 0,
-                RunOrigin.of("local", "host"), null);
+                RunOrigin.of("local", "host"), null, false);
         List<TestRunTrigger> triggers = Collections.emptyList();
 
         // when

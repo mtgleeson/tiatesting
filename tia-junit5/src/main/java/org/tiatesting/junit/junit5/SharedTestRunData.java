@@ -6,6 +6,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This encapsulates test run data that needs to be shared between test runs/sessions.
@@ -65,6 +66,12 @@ public class SharedTestRunData {
      */
     private final Set<String> testSuitesFailed;
 
+    /*
+     * How many test plans this JVM has started. The first is the real run; every later one is a Surefire re-run of
+     * failed tests, whose history row is flagged as a rerun and credited no savings.
+     */
+    private final AtomicInteger testPlansStarted = new AtomicInteger();
+
     /**
      * Create empty shared state for a new test JVM, before its first test plan.
      */
@@ -102,5 +109,14 @@ public class SharedTestRunData {
      */
     public Set<String> getTestSuitesFailed() {
         return testSuitesFailed;
+    }
+
+    /**
+     * Record that a test plan has started in this JVM and return its position.
+     *
+     * @return 1 for the JVM's first test plan (the real run), 2 or more for each re-run after it
+     */
+    public int nextTestPlanNumber() {
+        return testPlansStarted.incrementAndGet();
     }
 }

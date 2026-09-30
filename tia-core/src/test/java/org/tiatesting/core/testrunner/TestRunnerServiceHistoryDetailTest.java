@@ -91,7 +91,7 @@ class TestRunnerServiceHistoryDetailTest {
 
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0, details);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0, details, RunAttempt.FIRST);
 
         // when - persist with history enabled for a single-host run
         long runStart = System.currentTimeMillis();
@@ -149,7 +149,7 @@ class TestRunnerServiceHistoryDetailTest {
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 1));
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0);
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
-                runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, details);
+                runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, details, RunAttempt.FIRST);
 
         // when - the internal trigger write throws
         assertDoesNotThrow(() -> throwingService.persistTestRunData(false, true, "boom-commit",
@@ -181,7 +181,7 @@ class TestRunnerServiceHistoryDetailTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList("com.example.ATest"));
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
-                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, null);
+                new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, null, RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(false, true, "no-detail-commit", "main",

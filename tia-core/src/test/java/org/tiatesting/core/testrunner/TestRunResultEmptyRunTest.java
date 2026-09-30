@@ -35,7 +35,7 @@ class TestRunResultEmptyRunTest {
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, selectedTests, new HashMap<>(),
                 new TestStats(), null, ignoredTestSuiteCount, suitesRanThisAttempt, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**

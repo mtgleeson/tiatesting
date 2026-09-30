@@ -199,7 +199,7 @@ class TestRunnerServiceForkedSuiteDeletionTest {
 
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
                 runnerTestSuites, executedSuites, new HashMap<>(), new TestStats(), null, 1,
-                executedSuites.size(), 0, TestRunSelectionDetails.empty());
+                executedSuites.size(), 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
         new TestRunnerService(dataStore).persistTestRunData(true, false, "commit-1", "main",
                 System.currentTimeMillis(), result, null);
     }

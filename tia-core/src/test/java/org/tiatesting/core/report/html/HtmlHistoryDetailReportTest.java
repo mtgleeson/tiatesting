@@ -38,7 +38,7 @@ class HtmlHistoryDetailReportTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12345L, true, 4000L, 40,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details, false);
 
         // when
         new HtmlHistoryDetailReport("html", tempDir).generateReport(entry, triggers, 3);
@@ -115,7 +115,7 @@ class HtmlHistoryDetailReportTest {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12_000L, true, 4_000L, 25,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"), null, false);
 
         // when
         String html = generateAndRead(entry, tempDir);
@@ -128,6 +128,27 @@ class HtmlHistoryDetailReportTest {
         assertTrue(html.contains("Serial savings: 4s (25%)"), "Output:\n" + html);
         assertTrue(html.contains("Source: " + RunOrigin.SOURCE_LOCAL), "should show the source. Output:\n" + html);
         assertTrue(html.contains("Host: laptop"), "should show the host. Output:\n" + html);
+        assertTrue(html.contains("Rerun: no"), "the real run is not a rerun. Output:\n" + html);
+    }
+
+    /**
+     * A rerun of failed tests says so in its summary.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_rerun_rendersRerunYes(@TempDir File tempDir) throws Exception {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+
+        // when
+        String html = generateAndRead(entry, tempDir);
+
+        // then
+        assertTrue(html.contains("Rerun: yes"), "Output:\n" + html);
     }
 
     /**
@@ -151,7 +172,7 @@ class HtmlHistoryDetailReportTest {
         // given - an entry with no triggers and no selection counters recorded at all
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "def456",
                 1_700_000_500_000L, 5, 0, 0, 6789L, false, 0L, 0,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), null);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), null, false);
 
         // when
         new HtmlHistoryDetailReport("html", tempDir).generateReport(entry, Collections.<TestRunTrigger>emptyList(), 0);

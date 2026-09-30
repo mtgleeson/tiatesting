@@ -84,7 +84,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 7, 4, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when - persist with history enabled
         long runStart = System.currentTimeMillis();
@@ -122,7 +122,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 4, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(false, true, "abc123", "main", System.currentTimeMillis(), testRunResult, null);
@@ -146,7 +146,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         TestRunResult testRunResult = new TestRunResult(
                 new HashMap<>(), new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 0, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(false, true, "first-run-commit", "main",
@@ -181,7 +181,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 2, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(false, true, "retry-commit", "main",
@@ -210,7 +210,7 @@ class TestRunnerServiceHistoryIgnoredCountTest {
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 5, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(false, true, "first-attempt-commit", "main",

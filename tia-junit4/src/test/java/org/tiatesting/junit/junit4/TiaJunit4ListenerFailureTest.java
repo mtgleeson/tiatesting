@@ -5,15 +5,21 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.runner.Description;
+import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
+import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -191,6 +197,39 @@ class TiaJunit4ListenerFailureTest {
         // then
         assertEquals(Collections.singleton(OTHER_SUITE), listener.getTestSuitesFailed());
         assertEquals(Collections.singleton(OTHER_SUITE), listener.getSuitesFailedThisAttempt());
+    }
+
+    /**
+     * Verifies the first test run persists a history row that is not a rerun, and a Surefire re-run
+     * on the same listener persists one flagged as a rerun.
+     *
+     * @throws Exception if the listener's run or suite callbacks throw, or the pause is interrupted
+     */
+    @Test
+    void rerun_secondTestRunsHistoryRowIsFlaggedAsARerun() throws Exception {
+        // given
+        TiaJunit4Listener listener = new TiaJunit4Listener();
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, SampleTest.class, true);
+        listener.testRunFinished(new Result());
+        // the row id derives from the start time, so the two attempts must not share a millisecond
+        Thread.sleep(5);
+
+        // when
+        listener.testRunStarted(Description.EMPTY);
+        runSuite(listener, SampleTest.class, false);
+        listener.testRunFinished(new Result());
+
+        // then
+        DataStore dataStore = DataStoreFactory.fromSystemProperties("main");
+        try {
+            List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
+            assertEquals(2, history.size());
+            assertTrue(history.get(0).isRerun(), "the re-run's row, most recent first");
+            assertFalse(history.get(1).isRerun(), "the first attempt's row");
+        } finally {
+            dataStore.close();
+        }
     }
 
     /**

@@ -168,7 +168,7 @@ class HtmlReportGeneratorSmokeTest {
         tiaData.setPendingLibraryImpactedMethods(Collections.emptyList());
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
         dataStore.persistTestRunHistoryEntry(entry);
         dataStore.persistTestRunTriggers(entry.getId(),
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 3)));
@@ -235,7 +235,7 @@ class HtmlReportGeneratorSmokeTest {
         tiaData.setPendingLibraryImpactedMethods(pendingList);
 
         TestRunHistoryEntry historyEntry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
         tiaData.setTestRunHistory(Collections.singletonList(historyEntry));
 
         return tiaData;

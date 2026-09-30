@@ -554,7 +554,10 @@ public class TestRunnerService {
      * from the {@code tiaIgnoredTestSuiteCount} system property). Engine-level skips that Tia
      * did not cause (user {@code @Disabled}, surefire {@code groups} filters, etc.) are
      * deliberately excluded so the history column reflects Tia's selection decision only.
-     * {@code failed} is the failed-suite set size. {@code durationMs} is the test-execution wall
+     * {@code failed} is this attempt's own failed-suite count. A retry of failed tests - a Surefire
+     * rerun or a Gradle test-retry round - is flagged as a rerun and credited no savings: it ran
+     * only the failures, so crediting the skipped remainder as time Tia saved would count the same
+     * run's savings again. {@code durationMs} is the test-execution wall
      * clock captured by the caller before its DB persist work, so it excludes Tia's own
      * mapping/seal overhead and stays comparable to the savings baseline.
      *
@@ -586,21 +589,22 @@ public class TestRunnerService {
         int failed = Math.max(0, testRunResult.getSuitesFailedThisAttempt());
 
         // Freeze the savings for this run: 0 for an all-tests run (ignored == 0), for a run that
-        // executed none of the suites it was expected to, or when no baseline exists; else the
-        // baseline minus this run's duration.
+        // executed none of the suites it was expected to, for a rerun of failed tests, or when no
+        // baseline exists; else the baseline minus this run's duration.
+        boolean rerun = testRunResult.getRunAttempt().isRerun();
         long timeSavingsMs = ReportUtils.runSavingsMs(allTestsRunTimeMs, durationMs,
-                ignored == 0 || ranNoExpectedSuites);
+                ignored == 0 || ranNoExpectedSuites || rerun);
         int savingsPercent = (int) ReportUtils.percentOfTotal(timeSavingsMs, allTestsRunTimeMs);
 
         TestRunSelectionDetails details = testRunResult.getSelectionDetails();
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
                 branch, commitValue, runStartTimestampMs, ran, ignored, failed, durationMs,
                 updateDBMapping, timeSavingsMs, savingsPercent, RunEnvironment.currentRunOrigin(),
-                details);
+                details, rerun);
         dataStore.persistTestRunHistoryEntry(entry);
         persistSelectionTriggersBestEffort(entry.getId(), details);
-        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={})",
-                entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent);
+        log.debug("Persisted test run history entry {} (ran={}, ignored={}, failed={}, durationMs={}, savingsMs={}, savings%={}, rerun={})",
+                entry.getId(), ran, ignored, failed, durationMs, timeSavingsMs, savingsPercent, rerun);
     }
 
     /**

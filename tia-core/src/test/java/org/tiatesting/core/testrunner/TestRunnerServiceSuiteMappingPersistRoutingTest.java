@@ -134,7 +134,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, suiteNames.length, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**

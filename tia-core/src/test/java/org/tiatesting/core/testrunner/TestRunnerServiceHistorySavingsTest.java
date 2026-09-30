@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -70,9 +71,24 @@ class TestRunnerServiceHistorySavingsTest {
     }
 
     /**
-     * Build a history-only {@link TestRunResult} with the given selector ignore count.
+     * Build a history-only {@link TestRunResult} for the real run, with the given selector ignore
+     * count.
+     *
+     * @param ignoredTestSuiteCount the count of suites Tia ignored
+     * @return the result
      */
     private TestRunResult runResult(int ignoredTestSuiteCount){
+        return runResult(ignoredTestSuiteCount, RunAttempt.FIRST);
+    }
+
+    /**
+     * Build a history-only {@link TestRunResult} with the given selector ignore count and attempt.
+     *
+     * @param ignoredTestSuiteCount the count of suites Tia ignored
+     * @param runAttempt which attempt at the test task's run the result describes
+     * @return the result
+     */
+    private TestRunResult runResult(int ignoredTestSuiteCount, RunAttempt runAttempt){
         TestStats runStats = new TestStats();
         runStats.setNumRuns(1);
         runStats.setAvgRunTime(100L);
@@ -80,7 +96,7 @@ class TestRunnerServiceHistorySavingsTest {
         Map<String, TestSuiteTracker> trackers = new HashMap<>();
         Set<String> empty = new HashSet<>();
         return new TestRunResult(trackers, empty, empty, empty, empty, new HashMap<>(), runStats, null,
-                ignoredTestSuiteCount, 1, 0, TestRunSelectionDetails.empty());
+                ignoredTestSuiteCount, 1, 0, TestRunSelectionDetails.empty(), runAttempt);
     }
 
     /**
@@ -169,6 +185,43 @@ class TestRunnerServiceHistorySavingsTest {
         assertEquals(1, history.size());
         assertEquals(0L, history.get(0).getTimeSavingsMs());
         assertEquals(0, history.get(0).getSavingsPercent());
+    }
+
+    /**
+     * A rerun of failed tests - a Surefire rerun in the same JVM or a Gradle test-retry round in a
+     * fresh one - is flagged as a rerun and credited no savings, although it ignored suites and ran
+     * for a fraction of the baseline.
+     */
+    @Test
+    void rerun_isFlaggedAndRecordsZeroSavings() {
+        for (RunAttempt rerun : new RunAttempt[]{RunAttempt.RERUN_SAME_JVM, RunAttempt.RERUN_NEW_JVM}) {
+            // given
+            long runStart = System.currentTimeMillis() + rerun.ordinal();
+
+            // when
+            service.persistTestRunData(false, true, "abc123", "main", runStart, runResult(2, rerun), null);
+
+            // then
+            TestRunHistoryEntry row = dataStore.readTestRunHistory().get(0);
+            assertTrue(row.isRerun(), rerun + " must be flagged as a rerun");
+            assertEquals(0L, row.getTimeSavingsMs(), rerun + " must record no serial savings");
+            assertEquals(0L, row.getWallClockSavingsMs(), rerun + " must record no wall-clock savings");
+        }
+    }
+
+    /**
+     * The real run of a partial selection is not flagged as a rerun.
+     */
+    @Test
+    void firstAttempt_isNotFlaggedAsARerun() {
+        // given
+        long runStart = System.currentTimeMillis();
+
+        // when
+        service.persistTestRunData(false, true, "abc123", "main", runStart, runResult(2), null);
+
+        // then
+        assertFalse(dataStore.readTestRunHistory().get(0).isRerun());
     }
 
     /**

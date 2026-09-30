@@ -22,6 +22,7 @@ public class TestRunResult {
     final int suitesRanThisAttempt;
     final int suitesFailedThisAttempt;
     final TestRunSelectionDetails selectionDetails;
+    final RunAttempt runAttempt;
 
     /**
      * Construct the collected result of a Tia-instrumented test run.
@@ -75,6 +76,10 @@ public class TestRunResult {
      *                                   when the caller has not populated it yet - {@link #getSelectionDetails()}
      *                                   substitutes {@link TestRunSelectionDetails#empty()} in that case so
      *                                   callers never see null
+     * @param runAttempt                 which attempt at the test task's run this result describes -
+     *                                   the first run, or a retry of failed tests in the same or a
+     *                                   fresh JVM. A retry's history row is flagged as a rerun and
+     *                                   credited no savings.
      */
     public TestRunResult(Map<String, TestSuiteTracker> testSuiteTrackers,
                          Set<String> testSuitesFailed,
@@ -87,7 +92,8 @@ public class TestRunResult {
                          int ignoredTestSuiteCount,
                          int suitesRanThisAttempt,
                          int suitesFailedThisAttempt,
-                         TestRunSelectionDetails selectionDetails) {
+                         TestRunSelectionDetails selectionDetails,
+                         RunAttempt runAttempt) {
         this.testSuiteTrackers = testSuiteTrackers;
         this.testSuitesFailed = testSuitesFailed;
         this.runnerTestSuites = runnerTestSuites;
@@ -100,6 +106,7 @@ public class TestRunResult {
         this.suitesRanThisAttempt = suitesRanThisAttempt;
         this.suitesFailedThisAttempt = suitesFailedThisAttempt;
         this.selectionDetails = selectionDetails;
+        this.runAttempt = runAttempt;
     }
 
     /**
@@ -229,5 +236,12 @@ public class TestRunResult {
      */
     public TestRunSelectionDetails getSelectionDetails() {
         return selectionDetails == null ? TestRunSelectionDetails.empty() : selectionDetails;
+    }
+
+    /**
+     * @return which attempt at the test task's run this result describes
+     */
+    public RunAttempt getRunAttempt() {
+        return runAttempt;
     }
 }
