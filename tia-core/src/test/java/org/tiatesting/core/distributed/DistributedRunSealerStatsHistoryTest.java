@@ -604,16 +604,15 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
-     * <b>A retry must not turn a partial build into an all-tests build.</b> {@code suites_ran} is an
-     * accumulating counter of executions - {@code reportGroupProgress} adds to it on every persist,
-     * so a Surefire retry within one runner's JVM legitimately sums into it. Deriving the ignored
-     * count by subtracting that counter from the tracked suite count therefore lets a partial build
-     * with enough reruns reach zero ignored suites and claim to have run everything, which folds its
-     * duration into the full-suite baseline permanently and advances every tracked library's mapping
-     * baseline as though every suite had been re-covered. The second of those is an under-selection
-     * path: the library's next build diffs from a commit whose suites it never actually ran.
-     *
-     * <p>The ignored count comes from what the plan assigned instead, which no retry can move.
+     * <b>A retry must not turn a partial build into an all-tests build.</b> {@code suites_ran} counts
+     * the distinct suites a runner executed, written with {@code GREATEST}, so a retry within one
+     * runner's JVM re-reports the same suites rather than adding to them. It once accumulated
+     * executions instead, and deriving the ignored count by subtracting it from the tracked suite
+     * count let a partial build with enough reruns reach zero ignored suites and claim to have run
+     * everything - folding its duration into the full-suite baseline permanently and advancing every
+     * tracked library's mapping baseline as though every suite had been re-covered, an
+     * under-selection path. This test pins both halves: the retry does not inflate the counter, and
+     * the ignored count still comes from what the plan assigned, which no retry can move.
      */
     @Test
     void aRetriedGroupDoesNotInflateTheBuildIntoAnAllTestsRun() {
@@ -624,8 +623,8 @@ class DistributedRunSealerStatsHistoryTest {
         assertNotNull(dataStore.claimNextPendingGroup(RUN_ID, RUNNER_A, 5000L),
                 "test setup expects a group to be available to claim");
 
-        // when - the runner reports twice for its one group, as a retried JVM does, taking the
-        // accumulated suites_ran to 4 - the tracked suite count - on a build that only ever covered 2
+        // when - the runner reports twice for its one group, as a retried JVM does, each time with
+        // the 2 distinct suites it has executed
         assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 3_000L, 2, 1, 2, 0L),
                 "test setup expects the first attempt's report to be accepted");
         assertTrue(dataStore.reportGroupProgress(RUN_ID, 0, RUNNER_A, 1_000L, 2, 0, 2, 0L),
@@ -635,8 +634,8 @@ class DistributedRunSealerStatsHistoryTest {
         sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
 
         // then
-        assertEquals(4, dataStore.readDistributedRunGroups(RUN_ID).get(0).getSuitesRan(),
-                "the retry really did accumulate the execution counter past the suites covered");
+        assertEquals(2, dataStore.readDistributedRunGroups(RUN_ID).get(0).getSuitesRan(),
+                "the retry must not count the group's suites a second time");
         assertEquals(2, dataStore.readTestRunHistory().get(0).getNumSuitesIgnored(),
                 "the ignored count must come from the plan's assignment, which the retry cannot move");
         TestStats stats = dataStore.getTiaCore().getTestStats();

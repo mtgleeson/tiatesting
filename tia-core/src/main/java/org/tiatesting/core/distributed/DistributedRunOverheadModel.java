@@ -53,13 +53,13 @@ import java.util.Map;
  * minimum - or it would subtract time that was never there and claim savings the build did not
  * earn. This class is producing a forecast, and a forecast wants the expected value, not a floor.
  *
- * <p><b>The group's suite count comes from the plan, not from {@code suitesRan}.</b> That counter
- * accumulates <em>executions</em>, so a Surefire retry inside a runner's JVM legitimately sums into
- * it - the same trap documented on {@code DistributedRunSealer.ignoredSuiteCount}. Here it would
- * inflate the suite count on the group whose overhead the retry also inflated, corrupting both
- * sides of the equation at once. What the plan assigned a group cannot be moved by any number of
- * retries, and a group only completes once it has observed everything assigned to it, so the two
- * agree by the time the sealer reads them.
+ * <p><b>The group's suite count comes from the plan, not from {@code suitesRan}.</b> That figure
+ * is what the runner executed - once an accumulating count of every retry's executions, now the
+ * distinct suites it ran - and an execution count is not what the group was sized from: it can
+ * include suites the plan never assigned, the same trap documented on {@code
+ * DistributedRunSealer.ignoredSuiteCount}. What the plan assigned a group cannot be moved by any
+ * number of retries, and a group only completes once it has observed everything assigned to it, so
+ * the two agree by the time the sealer reads them.
  *
  * <p>Every failure to solve is a skip, never a guess: an unsolved model leaves the stored rolling
  * averages exactly as they were, so a project falls back to the single-number behaviour that

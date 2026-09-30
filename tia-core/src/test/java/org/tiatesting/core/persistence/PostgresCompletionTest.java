@@ -232,16 +232,16 @@ class PostgresCompletionTest {
      * Verify the accumulate-versus-replace split executes correctly on Postgres, where both the
      * {@code COALESCE(column, 0) + ?} and {@code GREATEST(COALESCE(column, 0), ?)} arithmetic are
      * new SQL rather than a new parameter. Two reports stand for two test plans in one JVM - an
-     * attempt and its Surefire retry - and the second reports fewer suites than the first: the
-     * duration and the executed count must sum, while the failed count and the observed count both
-     * reflect only the later report, but for two different reasons that must not be conflated: the
-     * failed count is replaced outright because it is current state (a passing retry must be able to
-     * shrink it back to zero), while the observed count is written via {@code GREATEST} because its
-     * <em>source</em> - the caller's own observed set - is already cumulative across the JVM's test
-     * plans, so summing it here would double-count.
+     * attempt and its retry - and the second reports fewer suites than the first: the duration must
+     * sum, while the failed, ran and observed counts must not, for two different reasons that must
+     * not be conflated: the failed count is replaced outright because it is current state (a passing
+     * retry must be able to shrink it back to zero), while the ran and observed counts are written
+     * via {@code GREATEST} because their <em>source</em> - the caller's distinct executed and
+     * observed sets - is already cumulative across the JVM's test plans, so summing would
+     * double-count and a smaller report must not regress them.
      */
     @Test
-    void shouldAccumulateCountersAcrossTwoProgressReportsOnPostgres() {
+    void shouldSumDurationAndKeepTheGreaterCountsAcrossTwoProgressReportsOnPostgres() {
         // given - attempt 1 runs 30 of 40 observed suites with 3 failures
         persistPlanWithOneGroupOfSuites("pg-progress-1", 40);
         postgresStore.claimNextPendingGroup("pg-progress-1", "runner-a", 5000L);
@@ -254,8 +254,8 @@ class PostgresCompletionTest {
         DistributedRunGroup stored = storedGroup("pg-progress-1", 0);
         assertEquals(Long.valueOf(25_000L), stored.getActualDurationMs(),
                 "actual_duration_ms is a counter and must sum across the JVM's test plans");
-        assertEquals(33, stored.getSuitesRan(),
-                "suites_ran is a counter and must sum across the JVM's test plans");
+        assertEquals(30, stored.getSuitesRan(),
+                "suites_ran counts distinct suites, so the retry's 3 must neither add to nor replace the 30");
         assertEquals(0, stored.getSuitesFailed(),
                 "suites_failed is current state, so a passing retry must shrink it back to zero");
         assertEquals(40, stored.getSuitesObserved(),
