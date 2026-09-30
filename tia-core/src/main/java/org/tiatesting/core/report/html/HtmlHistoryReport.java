@@ -55,6 +55,8 @@ public class HtmlHistoryReport {
     private static final String CLICKABLE_ROWS_CLASS = "tia-clickable-rows";
     /** Class on the per-row anchor the row click handler follows. */
     private static final String ROW_LINK_CLASS = "tia-row-link";
+    /** Hover text on a rerun row's Savings cell, saying why it shows no savings. */
+    private static final String RERUN_HINT = "A rerun of failed tests - credited no savings";
 
     private final File reportOutputDir;
 
@@ -206,6 +208,9 @@ public class HtmlHistoryReport {
      * <p>A single-host row rendered in a mixed history dashes the Groups cell rather than showing a
      * zero, which would read as a build that used no groups.
      *
+     * <p>A rerun of failed tests shows {@code rerun} in the Savings cell, with a hover hint, rather
+     * than a dash: it is credited no savings, and this marks the row without adding a column.
+     *
      * @param entry the history entry to render as a row
      * @param showDistributed whether the Groups column is being rendered
      * @return the {@code <tr>} content for this entry
@@ -247,8 +252,12 @@ public class HtmlHistoryReport {
                             ? "0" : entry.getGroupCount().toString()));
         }
         long savingsMs = entry.getWallClockSavingsMs();
-        cells.add(td(savingsMs > 0 ? ReportUtils.prettyDuration(savingsMs, true) : "-")
-                .attr("data-order", String.valueOf(savingsMs)));
+        // A rerun of failed tests is credited no savings; naming it in the cell that would
+        // otherwise dash marks the row without widening the table.
+        cells.add(entry.isRerun()
+                ? td("rerun").attr("title", RERUN_HINT).attr("data-order", "0")
+                : td(savingsMs > 0 ? ReportUtils.prettyDuration(savingsMs, true) : "-")
+                        .attr("data-order", String.valueOf(savingsMs)));
         cells.add(td(savingsMs > 0 ? entry.getWallClockSavingsPercent() + "%" : "-")
                 .attr("data-order", String.valueOf(entry.getWallClockSavingsPercent())));
         cells.add(td(entry.getRunOrigin().getRunSource()));

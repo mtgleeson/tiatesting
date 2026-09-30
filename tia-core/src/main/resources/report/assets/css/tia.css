@@ -217,6 +217,16 @@ footer.tia-footer {
 .tia-bar.pass { fill: var(--tia-pass); }
 .tia-bar.fail { fill: var(--tia-fail); }
 
+/* A rerun of failed tests keeps its pass/fail colour but is drawn faded with a dashed outline, so
+   it reads as a retry of the bar before it rather than as a run of its own. */
+.tia-bar.rerun {
+    fill-opacity: 0.4;
+    stroke-width: 1.5;
+    stroke-dasharray: 3 2;
+}
+.tia-bar.rerun.pass { stroke: var(--tia-pass); }
+.tia-bar.rerun.fail { stroke: var(--tia-fail); }
+
 .tia-tl-hit { fill: transparent; }
 
 .tia-tl-band { cursor: pointer; }
@@ -251,6 +261,10 @@ footer.tia-footer {
 
 .tia-timeline-legend .swatch.pass { background: var(--tia-pass); }
 .tia-timeline-legend .swatch.fail { background: var(--tia-fail); }
+.tia-timeline-legend .swatch.rerun {
+    background: transparent;
+    border: 1.5px dashed var(--pico-muted-color);
+}
 
 .tia-timeline-controls {
     display: flex;

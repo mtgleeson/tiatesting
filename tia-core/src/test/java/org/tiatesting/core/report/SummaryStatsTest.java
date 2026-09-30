@@ -58,7 +58,7 @@ class SummaryStatsTest {
         return new TestRunHistoryEntry("d" + timestampMs, timestampMs, "main", "c", 5, ignored, 0,
                 wallClockMs * groupsUsed, true, 0L, 0, wallClockSavingsMs, 0, "run-" + timestampMs,
                 Long.valueOf(wallClockMs), Integer.valueOf(groupsUsed), Integer.valueOf(groupsAvailable),
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null, false);
     }
 
     /**
@@ -73,7 +73,7 @@ class SummaryStatsTest {
     private static TestRunHistoryEntry singleHost(long timestampMs, int ignored, long durationMs,
                                                   long savingsMs) {
         return TestRunHistoryEntry.create("main", "c", timestampMs, 5, ignored, 0, durationMs, true,
-                savingsMs, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null);
+                savingsMs, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, false);
     }
 
     /**
@@ -193,6 +193,32 @@ class SummaryStatsTest {
         assertNull(line(sections, "Run time (distributed)"));
         assertNull(line(sections, "Group savings"));
         assertNull(line(sections, "Groups used"));
+    }
+
+    /**
+     * A rerun of failed tests is left out of the history-derived figures. Its short wall clock would
+     * otherwise pull the average run time down and push the average savings up, although the build
+     * took no less time.
+     */
+    @Test
+    void build_rerunRows_areLeftOutOfTheAverages() {
+        // given
+        TestRunHistoryEntry rerun = TestRunHistoryEntry.create("main", "c", 3L, 1, 4, 0, 60_000L, true,
+                0L, 0, RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), null, true);
+        List<TestRunHistoryEntry> history = Arrays.asList(
+                singleHost(1L, 0, 3_600_000L, 0L),
+                singleHost(2L, 3, 1_200_000L, 2_400_000L),
+                rerun);
+
+        // when
+        List<SummaryStats.Section> sections = SummaryStats.build(0, 0, stats(), history);
+
+        // then - the same figures as the history without the rerun row
+        assertEquals("40m (67%)",
+                lineIn(sections, "Test Run Duration", "Average run time").getValue());
+        assertEquals("20m (33%)",
+                lineIn(sections, "Partial Test Runs", "Average run time").getValue());
+        assertEquals("33%", line(sections, "Average test run savings").getValue());
     }
 
     /**

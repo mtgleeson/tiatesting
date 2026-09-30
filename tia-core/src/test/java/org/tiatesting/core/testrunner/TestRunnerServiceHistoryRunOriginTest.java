@@ -112,6 +112,6 @@ class TestRunnerServiceHistoryRunOriginTest {
         return new TestRunResult(
                 trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), new TestStats(), null, 3, 1, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 }

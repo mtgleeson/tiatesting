@@ -19,6 +19,7 @@ import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestRunnerService;
@@ -88,6 +89,12 @@ public class TiaJunit4Listener extends RunListener {
     describes the same attempt as the row's ran count; testSuitesFailed is JVM-wide instead.
      */
     private final Set<String> suitesFailedThisAttempt = ConcurrentHashMap.newKeySet();
+    /*
+    How many test runs this listener has started. Surefire reuses the listener for re-runs, so the
+    first is the real run and every later one is a re-run of failed tests, whose history row is
+    flagged as a rerun and credited no savings.
+     */
+    private int testRunsStarted;
     private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBTestRunHistory;
@@ -231,6 +238,9 @@ public class TiaJunit4Listener extends RunListener {
      * This method gets called once for all tests. But on re-runs, sometime this won't get called again,
      * the retry of the failed tests will happen all within 1 run.
      * I've als seen retries of failed tests happen in separate runs.
+     * <p>
+     * Each call is numbered, so a run after the first - a re-run of failed tests on this reused
+     * listener - persists its history row flagged as a rerun and credited no savings.
      *
      * @param description The test run description.
      * @throws Exception The exception thrown by the test runner.
@@ -246,6 +256,7 @@ public class TiaJunit4Listener extends RunListener {
         // accumulate across attempts.
         suitesFinishedThisAttempt.clear();
         suitesFailedThisAttempt.clear();
+        testRunsStarted++;
     }
 
     @Override
@@ -446,7 +457,7 @@ public class TiaJunit4Listener extends RunListener {
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, drainResult,
                 ignoredTestSuiteCount, suitesFinishedThisAttempt.size(), suitesFailedThisAttempt.size(),
-                selectionDetails);
+                selectionDetails, testRunsStarted > 1 ? RunAttempt.RERUN_SAME_JVM : RunAttempt.FIRST);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

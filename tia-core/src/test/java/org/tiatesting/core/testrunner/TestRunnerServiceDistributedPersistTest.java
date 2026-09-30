@@ -327,7 +327,7 @@ class TestRunnerServiceDistributedPersistTest {
         TestRunResult retryWithNoFailuresOfItsOwn = new TestRunResult(retry.getTestSuiteTrackers(),
                 retry.getTestSuitesFailed(), retry.getRunnerTestSuites(), retry.getSuitesObserved(),
                 retry.getSelectedTests(), retry.getMethodTrackersFromTestRun(), retry.getTestStats(), null,
-                retry.getIgnoredTestSuiteCount(), 1, 0, TestRunSelectionDetails.empty());
+                retry.getIgnoredTestSuiteCount(), 1, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
 
         // when
         service.persistTestRunData(true, true, "new-commit", "main", System.currentTimeMillis(),
@@ -522,7 +522,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty());
+                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -642,7 +642,7 @@ class TestRunnerServiceDistributedPersistTest {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerTestSuites, new HashSet<String>(), selected,
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 3, 0, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -761,7 +761,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "com.example.FailedTest"));
 
         return new TestRunResult(trackers, failed, runnerSuites, runnerSuites, selected,
-                methodTrackers, new TestStats(), null, 3, 2, failed.size(), TestRunSelectionDetails.empty());
+                methodTrackers, new TestStats(), null, 3, 2, failed.size(), TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -785,7 +785,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(trackers, new HashSet<String>(), suiteNames, suiteNames, suiteNames,
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0,
-                suiteRunTimesMs.length, 0, TestRunSelectionDetails.empty());
+                suiteRunTimesMs.length, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -797,7 +797,7 @@ class TestRunnerServiceDistributedPersistTest {
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 new HashSet<String>(), new HashSet<String>(), new HashSet<String>(),
                 new HashMap<Integer, MethodImpactTracker>(), new TestStats(), null, 0, 0, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**
@@ -817,7 +817,7 @@ class TestRunnerServiceDistributedPersistTest {
 
         return new TestRunResult(new HashMap<String, TestSuiteTracker>(), new HashSet<String>(),
                 runnerSuites, observed, observed, new HashMap<Integer, MethodImpactTracker>(),
-                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty());
+                new TestStats(), null, 0, 2, 0, TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**

@@ -24,6 +24,7 @@ import java.util.List;
  * Source:              CI
  * Host:                build-agent-3
  * Date/time:           2026-05-15 09:30:42
+ * Rerun:               no
  * Suites ran:          42
  * Suites ignored:      3
  * Suites failed:       1
@@ -73,7 +74,8 @@ public final class TestRunHistoryDetailConsoleFormatter {
 
     /**
      * Render one run's full selection breakdown: a header/summary section (id, branch, commit,
-     * timestamp, suite counts, wall clock and serial duration, groups used and available, wall-clock
+     * timestamp, whether it was a rerun of failed tests, suite counts, wall clock and serial
+     * duration, groups used and available, wall-clock
      * and serial savings), a "Selection sources" section with the five
      * scalar counters, and "Source method changes" / "Static rules" sections listing the run's
      * triggers ranked by the number of suites each accounts for.
@@ -102,6 +104,7 @@ public final class TestRunHistoryDetailConsoleFormatter {
         sb.append("Date/time:           ")
                 .append(Instant.ofEpochMilli(entry.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME))
                 .append(lineSep);
+        sb.append("Rerun:               ").append(entry.isRerun() ? "yes" : "no").append(lineSep);
         sb.append("Suites ran:          ").append(entry.getNumSuitesRan()).append(lineSep);
         sb.append("Suites ignored:      ").append(entry.getNumSuitesIgnored()).append(lineSep);
         sb.append("Suites failed:       ").append(entry.getNumSuitesFailed()).append(lineSep);

@@ -274,7 +274,7 @@ class TestRunnerServiceConcurrentStatsTest {
         trackers.put("com.example.SomeTest", new TestSuiteTracker("com.example.SomeTest"));
         return new TestRunResult(trackers, new HashSet<>(), new HashSet<>(), new HashSet<>(),
                 new HashSet<>(), new HashMap<>(), runStats, null, ignoredTestSuiteCount, 1, 0,
-                TestRunSelectionDetails.empty());
+                TestRunSelectionDetails.empty(), RunAttempt.FIRST);
     }
 
     /**

@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -187,13 +188,15 @@ class PostgresPersistTest {
 
         // when a test-run-history entry is persisted
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "abc123", 1_700_000_000_000L,
-                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null);
+                10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, true);
         postgresStore.persistTestRunHistoryEntry(entry);
 
-        // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert
+        // then it round-trips through tia_test_run_history's ON CONFLICT (id) upsert, rerun flag
+        // included
         List<TestRunHistoryEntry> history = postgresStore.readTestRunHistory();
         assertEquals(1, history.size());
         assertEquals(entry.getId(), history.get(0).getId());
+        assertTrue(history.get(0).isRerun());
 
         // when pending library impacted methods are persisted
         Set<Integer> methodIds = new HashSet<>(Arrays.asList(10, 20, 30));

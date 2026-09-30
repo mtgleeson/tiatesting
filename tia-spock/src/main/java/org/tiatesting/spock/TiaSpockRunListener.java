@@ -14,6 +14,7 @@ import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.model.TestStats;
+import org.tiatesting.core.testrunner.RunAttempt;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.testrunner.TestRunnerService;
 
@@ -234,7 +235,8 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // failed set: with one persist per JVM, the JVM-wide set is the attempt's own.
         TestRunResult testRunResult = new TestRunResult(testSuiteTrackers, testSuitesFailed, runnerTestSuites,
                 suitesObserved, selectedTests, testRunMethodsImpacted, testStats, libraryImpactDrainResult,
-                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails);
+                ignoredTestSuiteCount, testSuiteTrackers.size(), testSuitesFailed.size(), selectionDetails,
+                RunAttempt.FIRST);
         // Null context on an ordinary build, which persists as a single host - suite mapping,
         // failed set, seal and history row. A distributed runner instead persists only its own
         // share and completes its group, and seals the build only if it turns out to be the last

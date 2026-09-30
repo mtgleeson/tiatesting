@@ -100,6 +100,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
     private static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
     private static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
+    private static final String COL_RERUN = "rerun";
     private static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
     private static final String COL_HISTORY_ID = "history_id";
     private static final String COL_TRIGGER_TYPE = "trigger_type";
@@ -1408,7 +1409,7 @@ public class JdbcDataStore implements DataStore {
                             COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
                             COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY),
+                            COL_NUM_PENDING_LIBRARY, COL_RERUN),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1442,6 +1443,7 @@ public class JdbcDataStore implements DataStore {
             setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
             setNullableInt(ps, 23, entry.getNumUnsealedMapping());
             setNullableInt(ps, 24, entry.getNumPendingLibrary());
+            ps.setBoolean(25, entry.isRerun());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1495,7 +1497,8 @@ public class JdbcDataStore implements DataStore {
                         getNullableInt(resultSet, COL_NUM_NEW_TEST_FILES),
                         getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
                         getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
-                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY)));
+                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),
+                        resultSet.getBoolean(COL_RERUN)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -4212,7 +4215,10 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_NEW_TEST_FILES + " INT, "
                 + COL_NUM_PREVIOUSLY_FAILED + " INT, "
                 + COL_NUM_UNSEALED_MAPPING + " INT, "
-                + COL_NUM_PENDING_LIBRARY + " INT)";
+                + COL_NUM_PENDING_LIBRARY + " INT, "
+                // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
+                // which is credited no savings.
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE)";
     }
 
     /**
@@ -4280,6 +4286,10 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_UNSEALED_MAPPING + " INT");
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_NUM_PENDING_LIBRARY + " INT");
+        // Migration: add the rerun flag. Old rows default to false - reruns were not told apart
+        // before this column, so each old row is read as the run it was recorded as.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE");
         ensureTestRunHistoryTriggerTableExists(connection);
     }
 

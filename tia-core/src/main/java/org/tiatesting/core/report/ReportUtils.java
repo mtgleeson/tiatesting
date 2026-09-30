@@ -102,8 +102,9 @@ public class ReportUtils {
      * @param allTestsRunTimeMs the full-suite baseline current at the time of the run (ms)
      * @param durationMs the run's actual wall-clock duration (ms)
      * @param savedNothing {@code true} when this run cannot have saved anything - it executed the
-     *                     full suite, or it executed none of the suites it was expected to, which is
-     *                     a broken build finishing early rather than a Tia win
+     *                     full suite, it executed none of the suites it was expected to (a broken
+     *                     build finishing early rather than a Tia win), or it is a rerun of failed
+     *                     tests whose run's savings were already credited to the first attempt
      * @return the time saved on this run (ms), never negative
      */
     public static long runSavingsMs(long allTestsRunTimeMs, long durationMs, boolean savedNothing){
@@ -166,7 +167,9 @@ public class ReportUtils {
      * The number of groups the most recent all-tests run in the history was split across: its
      * group count for a distributed build, 1 for a single-host run. Only runs that owned the
      * mapping count, since they are the only ones that move the full-suite baseline; a local
-     * all-tests run on a laptop says nothing about how the baseline was measured.
+     * all-tests run on a laptop says nothing about how the baseline was measured. A rerun of failed
+     * tests never counts, even though it carries its first attempt's zero ignored count, since it
+     * ran only the failures.
      *
      * @param history the run history to scan; may be null or empty
      * @return the most recent all-tests run's group count, or 1 when the history holds none
@@ -178,7 +181,7 @@ public class ReportUtils {
         TestRunHistoryEntry latest = null;
         for (TestRunHistoryEntry entry : history){
             boolean allTestsRun = entry.isUpdatedDbMapping() && entry.getNumSuitesIgnored() == 0
-                    && entry.getNumSuitesRan() > 0;
+                    && entry.getNumSuitesRan() > 0 && !entry.isRerun();
             if (allTestsRun && (latest == null
                     || entry.getRunTimestampMs() > latest.getRunTimestampMs())){
                 latest = entry;

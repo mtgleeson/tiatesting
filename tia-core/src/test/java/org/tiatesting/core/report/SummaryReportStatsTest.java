@@ -41,11 +41,11 @@ class SummaryReportStatsTest {
         return Arrays.asList(
                 new TestRunHistoryEntry("1", 1_000L, "main", "c1", 10, 0, 0, 3_600_000L, true, 0L, 0,
                         0L, 0, "run-1", Long.valueOf(600_000L), Integer.valueOf(6), Integer.valueOf(6),
-                        RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null),
+                        RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null, false),
                 new TestRunHistoryEntry("2", 2_000L, "main", "c2", 1, 9, 0, 120_000L, true, 3_480_000L,
                         97, 480_000L, 80, "run-2", Long.valueOf(120_000L), Integer.valueOf(1),
                         Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
-                        null, null, null, null, null));
+                        null, null, null, null, null, false));
     }
 
     /**
