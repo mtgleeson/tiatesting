@@ -356,6 +356,8 @@ class TestRunnerServiceSealOrderTest {
         @Override
         public Map<String, TestSuiteTracker> getTestSuitesTracked() { return delegate.getTestSuitesTracked(); }
         @Override
+        public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) { return delegate.readTestSuiteCoverage(suiteNames); }
+        @Override
         public Map<Integer, MethodImpactTracker> getMethodsTracked() { return delegate.getMethodsTracked(); }
         @Override
         public Set<Integer> getUniqueMethodIdsTracked() { return delegate.getUniqueMethodIdsTracked(); }

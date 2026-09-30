@@ -257,6 +257,61 @@ public class JdbcDataStore implements DataStore {
         return testSuitesTracked;
     }
 
+    /**
+     * {@inheritDoc} One indexed join per {@value #IN_CLAUSE_CHUNK_SIZE} suite names - suite by
+     * name, its class rows by suite id, their edges by class id - so the cost scales with the
+     * named suites' coverage, not the size of the mapping.
+     *
+     * @param suiteNames the suites whose coverage to read
+     * @return each named suite's stored class trackers, keyed by suite name
+     */
+    @Override
+    public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(final Set<String> suiteNames){
+        Map<String, Map<String, ClassImpactTracker>> classesBySuite = new HashMap<>();
+        if (suiteNames.isEmpty()){
+            return new HashMap<>();
+        }
+
+        Connection connection = getConnection();
+        try {
+            List<String> names = new ArrayList<>(suiteNames);
+            for (int from = 0; from < names.size(); from += IN_CLAUSE_CHUNK_SIZE){
+                List<String> chunk = names.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, names.size()));
+                String sql = "SELECT s." + COL_NAME + " AS suite_name, c." + COL_SOURCE_FILENAME
+                        + " AS class_source_filename, cm." + COL_TIA_SOURCE_METHOD_ID + " AS method_id"
+                        + " FROM " + TABLE_TIA_TEST_SUITE + " s"
+                        + " JOIN " + TABLE_TIA_SOURCE_CLASS + " c ON c." + COL_TIA_TEST_SUITE_ID + " = s." + COL_ID
+                        + " JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " cm ON cm." + COL_TIA_SOURCE_CLASS_ID + " = c." + COL_ID
+                        + " WHERE s." + COL_NAME + " IN (" + String.join(", ", Collections.nCopies(chunk.size(), "?")) + ")";
+                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                    for (int i = 0; i < chunk.size(); i++){
+                        ps.setString(i + 1, chunk.get(i));
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()){
+                            String filename = rs.getString("class_source_filename");
+                            classesBySuite.computeIfAbsent(rs.getString("suite_name"), k -> new HashMap<>())
+                                    .computeIfAbsent(filename, k -> new ClassImpactTracker(k, new MethodIdSet()))
+                                    .getMethodsImpacted().add(rs.getInt("method_id"));
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        } finally {
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                throw new TiaPersistenceException(e);
+            }
+        }
+
+        Map<String, List<ClassImpactTracker>> coverage = new HashMap<>();
+        classesBySuite.forEach((suite, classes) -> coverage.put(suite, new ArrayList<>(classes.values())));
+        return coverage;
+    }
+
     @Override
     public Map<Integer, MethodImpactTracker> getMethodsTracked(){
         Map<Integer, MethodImpactTracker> methodsTracked;
