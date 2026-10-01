@@ -72,6 +72,7 @@ erDiagram
         VARCHAR method_name
         INT line_number_start
         INT line_number_end
+        VARCHAR line_ranges
     }
 
     tia_source_class_method {
@@ -183,6 +184,7 @@ erDiagram
         VARCHAR method_name
         INT line_number_start
         INT line_number_end
+        VARCHAR line_ranges
     }
 
     tia_distributed_run_selection {
@@ -229,7 +231,9 @@ rather than needing their own cleanup.)
 - **tia_source_class** - the source classes a given suite exercises; the first hop of the
   suite -> class -> method coverage mapping (`tia_test_suite_id` points back to the suite).
 - **tia_source_method** - catalogue of every tracked source method with its line range; the unit of
-  change-impact analysis.
+  change-impact analysis. `line_ranges` is null except for a constructor or static initializer
+  whose range is split by other members - see
+  [Constructor and static initializer line ranges](initializer-line-ranges.md).
 - **tia_source_class_method** - the join table holding the coverage **edges** (which methods each
   tracked source-class row covers). This is the bulk of the database - millions of rows on a large
   project.

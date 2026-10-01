@@ -1,0 +1,75 @@
+package com.example;
+
+import com.example.lib.battery.Battery;
+
+public class CarService {
+
+    private int a;
+    private int b = 1;
+    private int c = 2;
+
+    public CarService(){
+        System.out.println("Constructor 1");
+    }
+
+    private int d = 4;
+
+    public CarService(Integer a){
+        System.out.println("Constructor a 1");
+    }
+
+
+    private void cleanCar(){
+        int a = 1;
+    }
+
+    public void fixCar(IBrand brand){
+        System.out.println("fixing the car 95");
+        DoorService doorService = new DoorService();
+        doorService.fixDoor();
+        cleanCar();
+        washCar();
+        brand.getName();
+    }
+
+    public void checkBrakes(){
+        new BrakePad().checkBrakePads();
+        System.out.println("check brakes 13");
+    }
+
+    public String getDoorHandleModel(long year){
+        int a = 2;
+        return new DoorService().getDoorHandleModel(year);
+    }
+
+    public void checkBattery(){
+        Battery battery = new Battery();
+        battery.charge();
+    }
+
+    private void washCar(){
+        int b = 6;
+    }
+
+    private void temp100(){
+        System.out.println("temp 12");
+    }
+
+    private void temp(){
+        System.out.println("temp 0");
+        System.out.println("temp 0");
+    }
+    private void temp20(){
+        System.out.println("temp 20");
+        System.out.println("temp 21");
+    }
+
+    private void temp3(){
+        System.out.println("temp 3!");
+    }
+
+    private void temp4(){
+        System.out.println("temp 4!");
+    }
+    private int e = 5;
+}
