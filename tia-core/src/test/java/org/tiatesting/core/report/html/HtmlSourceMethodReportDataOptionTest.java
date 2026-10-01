@@ -57,8 +57,8 @@ class HtmlSourceMethodReportDataOptionTest {
 
         // the link target still points at the per-method drill-down page
         assertTrue(html.contains("42.html"), "row should link to the per-method page");
-        // and the row carries the metric values [numSuites, lineStart, lineEnd, matchedLines]
-        assertTrue(html.contains("1,10,20,\"\"]"), "row should carry the method's metric values");
+        // and the row carries the metric values [numSuites, lineStart, lineEnd]
+        assertTrue(html.contains("1,10,20]"), "row should carry the method's metric values");
 
         // the anchor markup is unicode-escaped in the script (cannot terminate <script>)
         assertTrue(html.contains("\\u003ca href="), "anchor '<' should be unicode-escaped");
@@ -109,8 +109,8 @@ class HtmlSourceMethodReportDataOptionTest {
     }
 
     /**
-     * A constructor whose range is split by a late field shows its matched lines in the index
-     * row's last column and on its detail page, with the explanation.
+     * A constructor whose range is split by a late field shows its matched lines, with the
+     * explanation, on its detail page only - the index keeps just its start and end line.
      *
      * @param tempDir a JUnit-provided temporary report output directory
      * @throws IOException if a generated page can't be read
@@ -127,12 +127,15 @@ class HtmlSourceMethodReportDataOptionTest {
 
         // then
         String index = read(new File(tempDir.toFile(), "html/branch/methods/tia-source-methods.html"));
-        assertTrue(index.contains("<th>Matched lines</th>"), "index should have a matched lines column");
-        assertTrue(index.contains("1,8,74,\"7-16,25,74-75\"]"), "row should carry the matched lines");
+        assertFalse(index.contains("Matched lines"), "the index should have no matched lines column");
+        assertTrue(index.contains("1,8,74]"), "the index row should carry only start and end");
+        assertFalse(index.contains("7-16"), "the index should not carry the matched lines");
         String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
         assertTrue(detail.contains("Matched lines: 7-16,25,74-75"), "detail page should show the matched lines");
         assertTrue(detail.contains("only matches source changes against the matched lines"),
                 "detail page should explain the matched lines");
+        assertTrue(detail.contains("the line before the first code line and the line after the last"),
+                "detail page should explain the one-line allowance either side");
     }
 
     /**
@@ -153,6 +156,8 @@ class HtmlSourceMethodReportDataOptionTest {
         String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
         assertTrue(detail.contains("Line end: 20"), "detail page should show the end line");
         assertFalse(detail.contains("Matched lines"), "an unsplit method should show no matched lines");
+        assertFalse(detail.contains("only matches source changes against the matched lines"),
+                "an unsplit method should show no matched lines explanation");
     }
 
     /**
