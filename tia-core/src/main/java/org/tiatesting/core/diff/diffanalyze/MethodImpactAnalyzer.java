@@ -140,8 +140,11 @@ public class MethodImpactAnalyzer {
                 continue;
             }
 
-            int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line
-            int methodLineEnd = methodImpactTracker.getLineNumberEnd() + 1; // add 1 to catch changes made to the end of the method (previously closing brace)
+            // start-end widened by one line either side, to catch changes to the method name line and
+            // the closing brace
+            int[] matchedLineRange = methodImpactTracker.getMatchedLineRanges();
+            int methodLineBegin = matchedLineRange[0];
+            int methodLineEnd = matchedLineRange[1];
             log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
 
             boolean diffBeginIsWithinMethod = diffLineBegin >= methodLineBegin && diffLineBegin <= methodLineEnd;
