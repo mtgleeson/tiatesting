@@ -109,8 +109,9 @@ class HtmlSourceMethodReportDataOptionTest {
     }
 
     /**
-     * A constructor whose range is split by a late field shows its matched lines, with the
-     * explanation, on its detail page only - the index keeps just its start and end line.
+     * A constructor whose range is split by a late field shows its stored line ranges as its lines
+     * matched for changes, with the split explanation, on its detail page only - the index keeps
+     * just its start and end line.
      *
      * @param tempDir a JUnit-provided temporary report output directory
      * @throws IOException if a generated page can't be read
@@ -131,21 +132,25 @@ class HtmlSourceMethodReportDataOptionTest {
         assertTrue(index.contains("1,8,74]"), "the index row should carry only start and end");
         assertFalse(index.contains("7-16"), "the index should not carry the matched lines");
         String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
-        assertTrue(detail.contains("Matched lines: 7-16,25,74-75"), "detail page should show the matched lines");
-        assertTrue(detail.contains("only matches source changes against the matched lines"),
-                "detail page should explain the matched lines");
-        assertTrue(detail.contains("the line before the first code line and the line after the last"),
+        assertTrue(detail.contains("First code line: 8"), "detail page should show the first code line");
+        assertTrue(detail.contains("Last code line: 74"), "detail page should show the last code line");
+        assertTrue(detail.contains("Lines matched for changes: 7-16,25,74-75"),
+                "detail page should show the stored line ranges as the lines matched");
+        assertTrue(detail.contains("the line before the first and the line after the last"),
                 "detail page should explain the one-line allowance either side");
+        assertTrue(detail.contains("so the lines matched for changes skip those members"),
+                "detail page should explain why the initializer's lines are split");
     }
 
     /**
-     * An ordinary method's detail page shows only its start and end line.
+     * An ordinary method's detail page shows its code lines and its lines matched for changes (the
+     * code lines plus one either side), without the split initializer explanation.
      *
      * @param tempDir a JUnit-provided temporary report output directory
      * @throws IOException if a generated page can't be read
      */
     @Test
-    void ordinaryMethodDetailPageHasNoMatchedLines(@TempDir Path tempDir) throws IOException {
+    void ordinaryMethodDetailPageShowsLinesMatchedWithAllowance(@TempDir Path tempDir) throws IOException {
         // given
         TiaData tiaData = buildTiaDataWithOneConstructorMethod();
 
@@ -154,10 +159,14 @@ class HtmlSourceMethodReportDataOptionTest {
 
         // then
         String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
-        assertTrue(detail.contains("Line end: 20"), "detail page should show the end line");
-        assertFalse(detail.contains("Matched lines"), "an unsplit method should show no matched lines");
-        assertFalse(detail.contains("only matches source changes against the matched lines"),
-                "an unsplit method should show no matched lines explanation");
+        assertTrue(detail.contains("First code line: 10"), "detail page should show the first code line");
+        assertTrue(detail.contains("Last code line: 20"), "detail page should show the last code line");
+        assertTrue(detail.contains("Lines matched for changes: 9-21"),
+                "an ordinary method's lines matched should be its code lines plus one either side");
+        assertTrue(detail.contains("the line before the first and the line after the last"),
+                "every detail page should explain the one-line allowance either side");
+        assertFalse(detail.contains("skip those members"),
+                "an unsplit method should show no split initializer explanation");
     }
 
     /**

@@ -79,6 +79,18 @@ public class MethodImpactTracker implements Serializable {
     }
 
     /**
+     * The lines a source change must touch to impact this method. For a method with exact line
+     * ranges (see {@link #lineRanges}) that is those ranges. Otherwise it is the method's first to
+     * last code line widened by one line either side, so edits to its signature line and closing
+     * brace also count - the allowance the diff matcher has always applied to start-end matching.
+     *
+     * @return flat inclusive {@code [start, end, ...]} pairs in ascending order; never {@code null}
+     */
+    public int[] getMatchedLineRanges() {
+        return lineRanges != null ? lineRanges : new int[]{lineNumberStart - 1, lineNumberEnd + 1};
+    }
+
+    /**
      * The full method name rendered for display, with the internal {@code /} package separators
      * turned into {@code .}. Uses {@link String#replace(char, char)} (a single-pass char scan)
      * rather than {@code replaceAll}, which compiled a regex {@link java.util.regex.Pattern} on

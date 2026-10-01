@@ -88,6 +88,10 @@ field (or initializer block) after another member.
 
 `MethodImpactAnalyzer.findTrackedMethodsForSourceDiff` matches a method that has line ranges against
 those ranges instead of its start-end range, with no extra padding (the ranges already include it).
+`MethodImpactTracker.getMatchedLineRanges()` is the single definition of the lines a change must
+touch: the stored ranges when present, otherwise start-end widened by one line either side. The
+HTML method detail page shows it as "Lines matched for changes" next to the first and last code
+line, so the one-line allowance is visible for every method, not just split initializers.
 A pure insertion hunk is written by java-diff-utils as `-N,0`, meaning the new lines go before
 original line N, so it touches a range that contains either neighbour, N-1 or N. That is what makes
 a new field added directly after the last field still count as a constructor change.
