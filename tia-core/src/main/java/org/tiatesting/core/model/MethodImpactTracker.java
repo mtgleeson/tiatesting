@@ -16,10 +16,43 @@ public class MethodImpactTracker implements Serializable {
     private final int lineNumberStart;
     private final int lineNumberEnd;
 
+    /**
+     * The exact source lines a change must touch to impact this method, as flat inclusive
+     * {@code [start1, end1, start2, end2, ...]} pairs in ascending order, or {@code null} when the
+     * method is matched by its padded {@link #lineNumberStart}-{@link #lineNumberEnd} range.
+     * Only set for constructors and static initializers whose range is split by other members:
+     * the compiler folds every field initializer into them, so a field declared after other methods
+     * stretches their start-end range over those methods. The ranges already include the
+     * signature/closing-brace allowance, so they are matched without extra padding.
+     * See the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
+     */
+    private final int[] lineRanges;
+
+    /**
+     * Creates a tracker for a method matched by its contiguous start-end line range.
+     *
+     * @param methodName the full class + method name + descriptor
+     * @param lineNumberStart the first line with code in the method
+     * @param lineNumberEnd the last line with code in the method
+     */
     public MethodImpactTracker(String methodName, int lineNumberStart, int lineNumberEnd) {
+        this(methodName, lineNumberStart, lineNumberEnd, null);
+    }
+
+    /**
+     * Creates a tracker for a method, optionally carrying the exact line ranges used to match
+     * source changes when its start-end range is split by other members (see {@link #lineRanges}).
+     *
+     * @param methodName the full class + method name + descriptor
+     * @param lineNumberStart the first line with code in the method
+     * @param lineNumberEnd the last line with code in the method
+     * @param lineRanges flat inclusive start/end pairs, or {@code null} to match by start-end
+     */
+    public MethodImpactTracker(String methodName, int lineNumberStart, int lineNumberEnd, int[] lineRanges) {
         this.methodName = methodName;
         this.lineNumberStart = lineNumberStart;
         this.lineNumberEnd = lineNumberEnd;
+        this.lineRanges = lineRanges;
     }
 
     public String getMethodName() {
@@ -32,6 +65,17 @@ public class MethodImpactTracker implements Serializable {
 
     public int getLineNumberEnd() {
         return lineNumberEnd;
+    }
+
+    /**
+     * The exact line ranges a change must touch to impact this method, when its start-end range is
+     * split by other members. See {@link #lineRanges} for the format.
+     *
+     * @return flat inclusive start/end pairs, or {@code null} when the method is matched by its
+     *         padded start-end range
+     */
+    public int[] getLineRanges() {
+        return lineRanges;
     }
 
     /**

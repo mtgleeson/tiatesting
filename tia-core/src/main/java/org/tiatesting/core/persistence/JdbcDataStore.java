@@ -12,6 +12,7 @@ import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.LibraryPublish;
+import org.tiatesting.core.model.LineRanges;
 import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
@@ -62,6 +63,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_METHOD_NAME = "method_" + COL_NAME;
     private static final String COL_LINE_NUMBER_START = "line_number_start";
     private static final String COL_LINE_NUMBER_END = "line_number_end";
+    private static final String COL_LINE_RANGES = "line_ranges";
     private static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
     private static final String TABLE_TIA_LIBRARY = "tia_library";
     private static final String COL_GROUP_ARTIFACT = "group_artifact";
@@ -406,7 +408,7 @@ public class JdbcDataStore implements DataStore {
         String placeholders = String.join(", ", Collections.nCopies(filenames.size(), "?"));
         String sql = "SELECT DISTINCT sc." + COL_SOURCE_FILENAME + " AS class_source_filename, " +
                 "sm." + COL_ID + " AS method_id, sm." + COL_METHOD_NAME + ", " +
-                "sm." + COL_LINE_NUMBER_START + ", sm." + COL_LINE_NUMBER_END + " " +
+                "sm." + COL_LINE_NUMBER_START + ", sm." + COL_LINE_NUMBER_END + ", sm." + COL_LINE_RANGES + " " +
                 "FROM " + TABLE_TIA_SOURCE_CLASS + " sc " +
                 "JOIN " + TABLE_TIA_SOURCE_CLASS_METHOD + " scm ON scm." + COL_TIA_SOURCE_CLASS_ID + " = sc." + COL_ID + " " +
                 "JOIN " + TABLE_TIA_SOURCE_METHOD + " sm ON sm." + COL_ID + " = scm." + COL_TIA_SOURCE_METHOD_ID + " " +
@@ -422,10 +424,7 @@ public class JdbcDataStore implements DataStore {
                 while (resultSet.next()){
                     String sourceFilename = resultSet.getString("class_source_filename");
                     int methodId = resultSet.getInt("method_id");
-                    MethodImpactTracker methodTracker = new MethodImpactTracker(
-                            resultSet.getString(COL_METHOD_NAME),
-                            resultSet.getInt(COL_LINE_NUMBER_START),
-                            resultSet.getInt(COL_LINE_NUMBER_END));
+                    MethodImpactTracker methodTracker = readMethodTracker(resultSet);
                     methodsByFile.computeIfAbsent(sourceFilename, key -> new HashMap<>()).put(methodId, methodTracker);
                 }
             }
@@ -1364,10 +1363,7 @@ public class JdbcDataStore implements DataStore {
         }
         ResultSet resultSet = ps.executeQuery();
         while (resultSet.next()) {
-            result.put(resultSet.getInt(COL_ID), new MethodImpactTracker(
-                    resultSet.getString(COL_METHOD_NAME),
-                    resultSet.getInt(COL_LINE_NUMBER_START),
-                    resultSet.getInt(COL_LINE_NUMBER_END)));
+            result.put(resultSet.getInt(COL_ID), readMethodTracker(resultSet));
         }
     }
 
@@ -2779,7 +2775,7 @@ public class JdbcDataStore implements DataStore {
     @Override
     public void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked) {
         List<String> columns = Arrays.asList(COL_RUN_ID, COL_ID, COL_METHOD_NAME,
-                COL_LINE_NUMBER_START, COL_LINE_NUMBER_END);
+                COL_LINE_NUMBER_START, COL_LINE_NUMBER_END, COL_LINE_RANGES);
         List<String> keyColumns = Arrays.asList(COL_RUN_ID, COL_ID);
         String sql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE, columns, keyColumns);
         // Ascending-id order, not the caller's map order: see the deadlock-avoidance note on this
@@ -2802,6 +2798,7 @@ public class JdbcDataStore implements DataStore {
                             statement.setString(3, tracker.getMethodName());
                             statement.setInt(4, tracker.getLineNumberStart());
                             statement.setInt(5, tracker.getLineNumberEnd());
+                            statement.setString(6, LineRanges.format(tracker.getLineRanges()));
                             statement.addBatch();
                         }
                         statement.executeBatch();
@@ -2840,7 +2837,7 @@ public class JdbcDataStore implements DataStore {
     @Override
     public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(final String runId) {
         String sql = "SELECT " + COL_ID + ", " + COL_METHOD_NAME + ", " + COL_LINE_NUMBER_START + ", "
-                + COL_LINE_NUMBER_END + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE
+                + COL_LINE_NUMBER_END + ", " + COL_LINE_RANGES + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE
                 + " WHERE " + COL_RUN_ID + " = ?";
         Map<Integer, MethodImpactTracker> staged = new HashMap<>();
         try (Connection connection = getConnection()) {
@@ -2849,10 +2846,7 @@ public class JdbcDataStore implements DataStore {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
-                        MethodImpactTracker tracker = new MethodImpactTracker(
-                                resultSet.getString(COL_METHOD_NAME),
-                                resultSet.getInt(COL_LINE_NUMBER_START),
-                                resultSet.getInt(COL_LINE_NUMBER_END));
+                        MethodImpactTracker tracker = readMethodTracker(resultSet);
                         staged.put(resultSet.getInt(COL_ID), tracker);
                     }
                 }
@@ -3726,13 +3720,17 @@ public class JdbcDataStore implements DataStore {
                     COL_ID + ", " +
                     COL_METHOD_NAME + ", " +
                     COL_LINE_NUMBER_START + ", " +
-                    COL_LINE_NUMBER_END + ") values ");
+                    COL_LINE_NUMBER_END + ", " +
+                    COL_LINE_RANGES + ") values ");
 
             for (Map.Entry<Integer, MethodImpactTracker> entry : sourceMethods.entrySet()){
+                // The formatted ranges are digits, '-' and ',' only, so they are safe to inline.
+                String lineRanges = LineRanges.format(entry.getValue().getLineRanges());
                 insertSqlBuilder.append("(" + entry.getKey() + ", '" +
                         entry.getValue().getMethodName() + "', " +
                         entry.getValue().getLineNumberStart() + ", " +
-                        entry.getValue().getLineNumberEnd() + "),");
+                        entry.getValue().getLineNumberEnd() + ", " +
+                        (lineRanges == null ? "NULL" : "'" + lineRanges + "'") + "),");
             }
             String insertSql = insertSqlBuilder.toString();
             insertSql = insertSql.substring(0, insertSql.length()-1);
@@ -3838,14 +3836,27 @@ public class JdbcDataStore implements DataStore {
         ResultSet resultSet = statement.executeQuery(sql);
 
         while(resultSet.next()){
-            String methodName = resultSet.getString(COL_METHOD_NAME);
-            int lineNumberStart = resultSet.getInt(COL_LINE_NUMBER_START);
-            int lineNumberEnd = resultSet.getInt(COL_LINE_NUMBER_END);
-            MethodImpactTracker sourceMethod = new MethodImpactTracker(methodName, lineNumberStart, lineNumberEnd);
-            sourceMethods.put(resultSet.getInt(COL_ID), sourceMethod);
+            sourceMethods.put(resultSet.getInt(COL_ID), readMethodTracker(resultSet));
         }
 
         return sourceMethods;
+    }
+
+    /**
+     * Build a method tracker from the current row of a query over {@code tia_source_method} or
+     * {@code tia_distributed_run_method_stage}. The row must include the method name, the start/end
+     * line numbers and the (nullable) exact line ranges.
+     *
+     * @param resultSet the result set positioned on the row to read
+     * @return the tracker for the row
+     * @throws SQLException if a column can't be read
+     */
+    private MethodImpactTracker readMethodTracker(ResultSet resultSet) throws SQLException {
+        return new MethodImpactTracker(
+                resultSet.getString(COL_METHOD_NAME),
+                resultSet.getInt(COL_LINE_NUMBER_START),
+                resultSet.getInt(COL_LINE_NUMBER_END),
+                LineRanges.parse(resultSet.getString(COL_LINE_RANGES)));
     }
 
     /**
@@ -4018,7 +4029,8 @@ public class JdbcDataStore implements DataStore {
                 "(" + COL_ID + " INT PRIMARY KEY, " +
                 COL_METHOD_NAME + " VARCHAR, " +
                 COL_LINE_NUMBER_START + " INT, " +
-                COL_LINE_NUMBER_END + " INT)";
+                COL_LINE_NUMBER_END + " INT, " +
+                COL_LINE_RANGES + " VARCHAR)";
 
         String createTestSuiteTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + " " +
                 "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
@@ -4475,6 +4487,23 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_source_method.line_ranges} column exists on a DB created
+     * before constructors and static initializers carried exact line ranges. Idempotent via
+     * {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows stay {@code NULL}, so their methods keep
+     * matching by start-end line until the next mapping update rewrites the catalogue. See the
+     * "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureSourceMethodLineRangesColumnExists(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
+                    COL_LINE_RANGES + " VARCHAR");
+        }
+    }
+
+    /**
      * Migration: ensure the {@code tia_id_block} table exists. It holds one row per
      * application-assigned id space, recording the next unallocated value, so concurrent writers
      * can reserve disjoint id blocks instead of each reading {@code MAX(id)} and colliding.
@@ -4569,6 +4598,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_METHOD_NAME + " VARCHAR, "
                 + COL_LINE_NUMBER_START + " INT, "
                 + COL_LINE_NUMBER_END + " INT, "
+                + COL_LINE_RANGES + " VARCHAR, "
                 + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
     }
 
@@ -4633,8 +4663,22 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Ensure the four distributed-run tables, the group-status index and the additive {@code
-     * seed_run}, {@code groups_available} and {@code run_source} columns exist. Idempotent via
+     * Build the migration that backfills the {@code tia_distributed_run_method_stage.line_ranges}
+     * column onto a staging table created before constructors and static initializers carried
+     * exact line ranges. Idempotent via {@code ADD COLUMN IF NOT EXISTS}; the staging write names
+     * the column, so a store without it would fail the next runner's stage.
+     *
+     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
+     */
+    private String buildAddMethodStageLineRangesColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " ADD COLUMN IF NOT EXISTS "
+                + COL_LINE_RANGES + " VARCHAR";
+    }
+
+    /**
+     * Ensure the four distributed-run tables, the group-status index, the additive {@code
+     * seed_run}, {@code groups_available} and {@code run_source} columns, and the method staging
+     * table's {@code line_ranges} column exist. Idempotent via
      * {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both
      * creates everything on a new database and backfills the run row's seed flag, groups available
      * and run source onto a database created before they were recorded.
@@ -4647,9 +4691,9 @@ public class JdbcDataStore implements DataStore {
      * groups_available} and {@code run_source} because the plan write names them, so a store
      * without either would fail the next plan.
      *
-     * <p>All eight DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>All nine DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be eight wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be nine wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
@@ -4669,6 +4713,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildAddSeedRunColumnSql());
             statement.addBatch(buildAddGroupsAvailableColumnSql());
             statement.addBatch(buildAddDistributedRunSourceColumnSql());
+            statement.addBatch(buildAddMethodStageLineRangesColumnSql());
             statement.executeBatch();
         }
         ensureDistributedRunSelectionTablesExist(connection);
@@ -4792,6 +4837,7 @@ public class JdbcDataStore implements DataStore {
         ensureTargetedQueryIndexesExist(connection);
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
         ensureTestSuiteUnsealedColumnExists(connection);
+        ensureSourceMethodLineRangesColumnExists(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
         ensureTiaCoreOverheadModelColumnsExist(connection);
         ensureIdBlockTableExists(connection);

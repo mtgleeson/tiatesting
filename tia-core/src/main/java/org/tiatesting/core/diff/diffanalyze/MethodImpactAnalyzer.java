@@ -6,6 +6,7 @@ import com.github.difflib.algorithm.DiffException;
 import com.github.difflib.patch.Patch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.LineRanges;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 
@@ -112,6 +113,10 @@ public class MethodImpactAnalyzer {
      * Check end point is within method:			    IM end  >= method start && IM end <= method end
      * Check impacted code range covers the method: 	IM start <= method start && IM end >= method end
      *
+     * A method carrying exact line ranges (a constructor or static initializer whose start-end range
+     * is split by other members) is instead matched against those ranges - see
+     * {@link #diffTouchesLineRanges(DiffContext, int[])}.
+     *
      * @param diffContext the parsed diff hunk carrying the impacted line range
      * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
      * @param methodsInvokedByChanges accumulator for the ids of methods the diff impacts
@@ -124,6 +129,17 @@ public class MethodImpactAnalyzer {
             MethodImpactTracker methodImpactTracker = trackedMethod.getValue();
             int diffLineBegin = diffContext.getImpactedLineNumBegin();
             int diffLineEnd = diffContext.getImpactedLineNumEnd();
+
+            if (methodImpactTracker.getLineRanges() != null) {
+                if (diffTouchesLineRanges(diffContext, methodImpactTracker.getLineRanges())) {
+                    methodsInvokedByChanges.add(methodHashcode);
+                    log.debug("Found stored tracked method: {}, diff line begin: {}, diff line end: {}, stored line ranges: {}",
+                            methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd,
+                            LineRanges.format(methodImpactTracker.getLineRanges()));
+                }
+                continue;
+            }
+
             int methodLineBegin = methodImpactTracker.getLineNumberStart() - 1; // subtract 1 to catch changes to the method name line
             int methodLineEnd = methodImpactTracker.getLineNumberEnd() + 1; // add 1 to catch changes made to the end of the method (previously closing brace)
             log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
@@ -138,6 +154,29 @@ public class MethodImpactAnalyzer {
                         methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
             }
         }
+    }
+
+    /**
+     * Check whether a diff hunk touches any of a method's exact line ranges. The ranges already
+     * include the signature/closing-brace allowance, so they are matched without extra padding.
+     * A pure insertion is written by java-diff-utils as {@code -N,0}, placing the new lines before
+     * original line N (i.e. between lines N-1 and N), so it touches a range containing either
+     * neighbour - e.g. a new field added directly after the last line of a constructor range still
+     * counts as a constructor change.
+     *
+     * @param diffContext the parsed diff hunk carrying the impacted line range
+     * @param lineRanges the method's flat inclusive {@code [start, end, ...]} pairs
+     * @return true when the hunk overlaps at least one range
+     */
+    private boolean diffTouchesLineRanges(final DiffContext diffContext, final int[] lineRanges){
+        int diffLineEnd = diffContext.getImpactedLineNumEnd();
+        int diffLineBegin = diffContext.isInsertion() ? diffLineEnd - 1 : diffContext.getImpactedLineNumBegin();
+        for (int i = 0; i < lineRanges.length; i += 2) {
+            if (diffLineBegin <= lineRanges[i + 1] && diffLineEnd >= lineRanges[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -159,6 +198,7 @@ public class MethodImpactAnalyzer {
             int revisionLineCount = Integer.parseInt(matcher.group(HUNK_DIFF_ORIG_LINE_START_COUNT_GROUP_INDEX));
 
             // if the hunk line count is 0 (i.e. line added) then treat it as 1 line.
+            sourceFileDiffContext.setInsertion(revisionLineCount == 0);
             revisionLineCount = revisionLineCount <= 0 ? 1 : revisionLineCount;
 
             sourceFileDiffContext.setImpactedLineNumBegin(revisionLineBegin);
@@ -170,8 +210,28 @@ public class MethodImpactAnalyzer {
 
     private static class DiffContext {
         boolean unifiedDiff;
+        boolean insertion;
         int impactedLineNumBegin;
         int impactedLineNumEnd;
+
+        /**
+         * Whether the hunk is a pure insertion ({@code -N,0}), i.e. it adds lines before original
+         * line N without changing any original line.
+         *
+         * @return true for a pure insertion
+         */
+        public boolean isInsertion() {
+            return insertion;
+        }
+
+        /**
+         * Record whether the hunk is a pure insertion.
+         *
+         * @param insertion true when the hunk's original line count is 0
+         */
+        public void setInsertion(boolean insertion) {
+            this.insertion = insertion;
+        }
 
         public int getImpactedLineNumBegin() {
             return impactedLineNumBegin;
