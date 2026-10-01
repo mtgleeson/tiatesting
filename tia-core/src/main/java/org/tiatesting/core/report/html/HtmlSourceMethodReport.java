@@ -73,7 +73,7 @@ public class HtmlSourceMethodReport {
 
     /**
      * Write the single source-methods index page: one table row per tracked method with its
-     * covering-suite count and line range. Renders through {@link FastTextEscaper#reportConfig()}
+     * covering-suite count and first and last code line. Renders through {@link FastTextEscaper#reportConfig()}
      * so text and attribute escaping use the report's fast escaper.
      *
      * @param tiaData the Tia data from the DB
@@ -108,8 +108,8 @@ public class HtmlSourceMethodReport {
                                             thead(tr(
                                                     th("Method"),
                                                     th("Num Test Suites").attr(numberDataType),
-                                                    th("Line start").attr(numberDataType),
-                                                    th("Line end").attr(numberDataType)
+                                                    th("First code line").attr(numberDataType),
+                                                    th("Last code line").attr(numberDataType)
                                             )),
                                             tbody()
                                     ),
@@ -137,7 +137,7 @@ public class HtmlSourceMethodReport {
 
     /**
      * Build the Source Methods index rows as a simple-datatables {@code data.data} JSON literal:
-     * one {@code [methodLink, numTestSuites, lineStart, lineEnd]} array per tracked method. The
+     * one {@code [methodLink, numTestSuites, firstCodeLine, lastCodeLine]} array per tracked method. The
      * method link column carries the same {@code <a href="{id}.html" title="{fullName}">{shortName}</a>}
      * markup the DOM table previously emitted; the display text and title are HTML-escaped through
      * {@link FastTextEscaper} (byte-identical to the j2html rendering it replaces) and the whole
