@@ -57,8 +57,12 @@ class HtmlSourceMethodReportDataOptionTest {
 
         // the link target still points at the per-method drill-down page
         assertTrue(html.contains("42.html"), "row should link to the per-method page");
-        // and the row carries the metric values [numSuites, lineStart, lineEnd]
+        // and the row carries the metric values [numSuites, firstCodeLine, lastCodeLine]
         assertTrue(html.contains("1,10,20]"), "row should carry the method's metric values");
+        assertTrue(html.contains("<th data-type=\"number\">First code line</th>"),
+                "the index should label the start column as the first code line");
+        assertTrue(html.contains("<th data-type=\"number\">Last code line</th>"),
+                "the index should label the end column as the last code line");
 
         // the anchor markup is unicode-escaped in the script (cannot terminate <script>)
         assertTrue(html.contains("\\u003ca href="), "anchor '<' should be unicode-escaped");
