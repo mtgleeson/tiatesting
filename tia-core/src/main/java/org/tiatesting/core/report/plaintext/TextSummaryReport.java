@@ -79,7 +79,7 @@ public class TextSummaryReport {
                 for (Integer methodId : classImpacted.getMethodsImpacted()){
                     MethodImpactTracker methodImpactTracker = methodImpactTrackers.get(methodId);
                     fileTestEntry += lineSep + "\t" + methodImpactTracker.getMethodName() +
-                            " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
+                            " " + lineSpan(methodImpactTracker);
                 }
             }
 
@@ -96,8 +96,22 @@ public class TextSummaryReport {
         reportBuilder.append(lineSep + lineSep + "Methods index:");
         methodImpactTrackers.forEach((methodId, methodImpactTracker) -> {
             reportBuilder.append((lineSep + "\t" + methodId + ": " + methodImpactTracker.getMethodName() +
-                    " " + methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd()));
+                    " " + lineSpan(methodImpactTracker)));
         });
+    }
+
+    /**
+     * Describe a method's lines for the text report: its start and end line, followed by the
+     * matched lines when it is a constructor or static initializer whose range is split by other
+     * members (see the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}).
+     *
+     * @param methodImpactTracker the method to describe
+     * @return e.g. {@code "8 -> 74 (matched lines 7-16,20-21,74-75)"}, or {@code "36 -> 38"}
+     */
+    static String lineSpan(MethodImpactTracker methodImpactTracker) {
+        String span = methodImpactTracker.getLineNumberStart() + " -> " + methodImpactTracker.getLineNumberEnd();
+        String matchedLines = LineRanges.format(methodImpactTracker.getLineRanges());
+        return matchedLines == null ? span : span + " (matched lines " + matchedLines + ")";
     }
 
     private void writeFailedTests(StringBuilder reportBuilder, TiaData tiaData) throws IOException {

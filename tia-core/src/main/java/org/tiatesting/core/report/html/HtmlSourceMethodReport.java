@@ -30,14 +30,24 @@ public class HtmlSourceMethodReport {
      * simple-datatables {@code columns} option for the Source Methods index table. Column 0 (the
      * method link) is typed {@code html} so its {@code <a>} markup renders (and sorts/searches by
      * its text) and is the default ascending sort; the three metric columns are typed
-     * {@code number} for numeric ordering. Emitted verbatim into the init script by
-     * {@link HtmlLayout#simpleDatatablesInitWithData}.
+     * {@code number} for numeric ordering. Column 4 (matched lines) is a free-text range list
+     * that is only set for split constructors and static initializers, so it isn't sortable.
+     * Emitted verbatim into the init script by {@link HtmlLayout#simpleDatatablesInitWithData}.
      */
     private static final String SOURCE_METHODS_COLUMNS_JSON =
             "[{ select: 0, type: \"html\", sort: \"asc\" },"
             + " { select: 1, type: \"number\" },"
             + " { select: 2, type: \"number\" },"
-            + " { select: 3, type: \"number\" }]";
+            + " { select: 3, type: \"number\" },"
+            + " { select: 4, sortable: false }]";
+
+    /**
+     * Explains the matched lines on a split initializer's detail page. See the "Constructor and
+     * static initializer line ranges" chapter in {@code WIKI.md}.
+     */
+    private static final String MATCHED_LINES_EXPLANATION = "A field or initializer block declared after "
+            + "other members stretches this initializer's start-end range over them, so Tia only matches "
+            + "source changes against the matched lines.";
 
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
@@ -94,7 +104,8 @@ public class HtmlSourceMethodReport {
                                                     th("Method"),
                                                     th("Num Test Suites").attr(numberDataType),
                                                     th("Line start").attr(numberDataType),
-                                                    th("Line end").attr(numberDataType)
+                                                    th("Line end").attr(numberDataType),
+                                                    th("Matched lines")
                                             )),
                                             tbody()
                                     ),
@@ -122,7 +133,9 @@ public class HtmlSourceMethodReport {
 
     /**
      * Build the Source Methods index rows as a simple-datatables {@code data.data} JSON literal:
-     * one {@code [methodLink, numTestSuites, lineStart, lineEnd]} array per tracked method. The
+     * one {@code [methodLink, numTestSuites, lineStart, lineEnd, matchedLines]} array per tracked
+     * method, where {@code matchedLines} is the stored line ranges text for a split constructor or
+     * static initializer and empty otherwise. The
      * method link column carries the same {@code <a href="{id}.html" title="{fullName}">{shortName}</a>}
      * markup the DOM table previously emitted; the display text and title are HTML-escaped through
      * {@link FastTextEscaper} (byte-identical to the j2html rendering it replaces) and the whole
@@ -154,7 +167,10 @@ public class HtmlSourceMethodReport {
             sb.append(',').append(entry.getValue().getTestSuites().size())
                     .append(',').append(method.getLineNumberStart())
                     .append(',').append(method.getLineNumberEnd())
-                    .append(']');
+                    .append(',');
+            String matchedLines = LineRanges.format(method.getLineRanges());
+            ScriptSafeJson.appendString(sb, matchedLines == null ? "" : matchedLines);
+            sb.append(']');
         }
         sb.append(']');
         return sb.toString();
@@ -190,6 +206,7 @@ public class HtmlSourceMethodReport {
         int lastDot = shortName.lastIndexOf('.');
         int secondLastDot = lastDot > 0 ? shortName.lastIndexOf('.', lastDot - 1) : -1;
         String classAndMethod = secondLastDot >= 0 ? shortName.substring(secondLastDot + 1) : shortName;
+        String matchedLines = LineRanges.format(methodImpactTracker.getLineRanges());
 
         try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
@@ -214,8 +231,11 @@ public class HtmlSourceMethodReport {
                                     h3("Coverage"),
                                     p(
                                             span("Line start: " + methodImpactTracker.getLineNumberStart()), br(),
-                                            span("Line end: " + methodImpactTracker.getLineNumberEnd())
+                                            span("Line end: " + methodImpactTracker.getLineNumberEnd()),
+                                            iff(matchedLines != null, br()),
+                                            iff(matchedLines != null, span("Matched lines: " + matchedLines))
                                     ),
+                                    iff(matchedLines != null, p(MATCHED_LINES_EXPLANATION)),
 
                                     h3("Impacted Test Suites"),
                                     table(attrs("#tiaSourceMethodTable"),
