@@ -46,22 +46,27 @@ final class InitializerLineRanges {
      * Starts from the initializer's range padded by one line either side (matching the allowance the
      * diff matcher gives a method's signature and closing brace), then removes:
      * <ul>
-     *     <li>the padded range of every non-initializer method in the owning class, and of every
-     *     method of the other classes compiled from the same source file (nested, inner, anonymous);</li>
+     *     <li>the signature line and body of every non-initializer method in the owning class, and of
+     *     every method of the other classes compiled from the same source file (nested, inner,
+     *     anonymous);</li>
      *     <li>the code lines of the owning class's other initializers that this initializer does not
      *     share - i.e. the other constructors' bodies, while the field initializer lines they all
      *     share are kept.</li>
      * </ul>
      * The initializer's own code lines are then added back, so a member that sits on the same line
      * as a field initializer (e.g. a lambda) can't remove it.
+     * <p>
+     * A method's line after its last code line is deliberately not removed: for a void method that
+     * line is the blank line after its closing brace, and with one blank line between members it is
+     * the only line a new field inserted between two methods can be matched against.
      *
      * @param initializer the constructor or static initializer to compute ranges for
      * @param ownerClassMethods all methods of the class declaring the initializer (the initializer
      *                          itself is skipped)
      * @param otherClassesMethods all methods of the other classes compiled from the same source file
      * @return flat inclusive {@code [start, end, ...]} pairs in ascending order, or {@code null} when
-     *         the initializer has no line info or its lines form the single padded range (so plain
-     *         start-end matching is already exact)
+     *         the initializer has no line info or no line between its first and last line was
+     *         removed (so plain padded start-end matching already fits it)
      */
     static int[] compute(IMethodCoverage initializer,
                          Collection<IMethodCoverage> ownerClassMethods,
@@ -84,11 +89,11 @@ final class InitializerLineRanges {
             if (isInitializer(other.getName())) {
                 excludeUnsharedCodeLines(included, rangeStart, initializer, other);
             } else {
-                excludePaddedRange(included, rangeStart, other);
+                excludeSignatureAndBody(included, rangeStart, other);
             }
         }
         for (IMethodCoverage other : otherClassesMethods) {
-            excludePaddedRange(included, rangeStart, other);
+            excludeSignatureAndBody(included, rangeStart, other);
         }
 
         for (int line = firstLine; line <= lastLine; line++) {
@@ -97,25 +102,43 @@ final class InitializerLineRanges {
             }
         }
 
-        int[] ranges = toRanges(included, rangeStart);
-        boolean singleFullRange = ranges.length == 2 && ranges[0] == rangeStart && ranges[1] == rangeEnd;
-        return singleFullRange ? null : ranges;
+        if (allIncluded(included, firstLine - rangeStart, lastLine - rangeStart)) {
+            return null;
+        }
+        return toRanges(included, rangeStart);
     }
 
     /**
-     * Remove another method's range, padded by one line either side for its signature and closing
-     * brace, from the included lines.
+     * Check whether every line in an index range is still included.
+     *
+     * @param included per-line inclusion flags
+     * @param fromIndex the first index to check (inclusive)
+     * @param toIndex the last index to check (inclusive)
+     * @return true when no line in the range was removed
+     */
+    private static boolean allIncluded(boolean[] included, int fromIndex, int toIndex) {
+        for (int i = fromIndex; i <= toIndex; i++) {
+            if (!included[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Remove another method's signature line (the line before its first code line) and its body
+     * (first to last code line) from the included lines.
      *
      * @param included per-line inclusion flags, indexed from {@code rangeStart}
      * @param rangeStart the source line held at index 0 of {@code included}
      * @param other the method whose lines are removed
      */
-    private static void excludePaddedRange(boolean[] included, int rangeStart, IMethodCoverage other) {
+    private static void excludeSignatureAndBody(boolean[] included, int rangeStart, IMethodCoverage other) {
         if (other.getFirstLine() < 0 || other.getLastLine() < 0) {
             return;
         }
         int from = Math.max(other.getFirstLine() - 1, rangeStart);
-        int to = Math.min(other.getLastLine() + 1, rangeStart + included.length - 1);
+        int to = Math.min(other.getLastLine(), rangeStart + included.length - 1);
         for (int line = from; line <= to; line++) {
             included[line - rangeStart] = false;
         }

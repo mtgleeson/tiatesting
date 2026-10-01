@@ -37,7 +37,8 @@ class InitializerLineRangesTest {
         int[] ranges = InitializerLineRanges.compute(noArgConstructor, classMethods, Collections.emptyList());
 
         // then
-        assertArrayEquals(new int[]{7, 16, 20, 21, 44, 44, 74, 75}, ranges);
+        assertArrayEquals(new int[]{7, 16, 20, 21, 25, 25, 34, 34, 39, 39, 43, 44, 49, 49, 53, 53,
+                57, 57, 66, 66, 70, 70, 74, 75}, ranges);
     }
 
     /**
@@ -54,7 +55,8 @@ class InitializerLineRangesTest {
         int[] ranges = InitializerLineRanges.compute(integerConstructor, classMethods, Collections.emptyList());
 
         // then
-        assertArrayEquals(new int[]{7, 10, 14, 21, 44, 44, 74, 75}, ranges);
+        assertArrayEquals(new int[]{7, 10, 14, 21, 25, 25, 34, 34, 39, 39, 43, 44, 49, 49, 53, 53,
+                57, 57, 66, 66, 70, 70, 74, 75}, ranges);
     }
 
     /**
@@ -76,6 +78,44 @@ class InitializerLineRangesTest {
     }
 
     /**
+     * A neighbouring method that only overlaps the constructor's padding line (here the method's
+     * signature sits directly below an implicit constructor on the class declaration line) leaves
+     * the constructor's own lines whole, so plain padded start-end matching is kept.
+     */
+    @Test
+    void constructorWithOnlyItsPaddingClippedReturnsNull() {
+        // given
+        IMethodCoverage constructor = method("<init>", 3);
+        IMethodCoverage nextMethod = method("checkBrakePads", 5, 6);
+
+        // when
+        int[] ranges = InitializerLineRanges.compute(constructor, Arrays.asList(constructor, nextMethod),
+                Collections.emptyList());
+
+        // then
+        assertNull(ranges);
+    }
+
+    /**
+     * The blank line after a void method's closing brace stays in the constructor's ranges, so a
+     * field inserted between two methods separated by one blank line can still be matched.
+     */
+    @Test
+    void blankLineAfterAMethodStaysInTheConstructorsRanges() {
+        // given
+        IMethodCoverage constructor = method("<init>", 3, 20);
+        IMethodCoverage voidMethod = method("first", 6, 7);
+        IMethodCoverage nextMethod = method("second", 10, 11);
+
+        // when
+        int[] ranges = InitializerLineRanges.compute(constructor,
+                Arrays.asList(constructor, voidMethod, nextMethod), Collections.emptyList());
+
+        // then
+        assertArrayEquals(new int[]{2, 4, 8, 8, 12, 21}, ranges);
+    }
+
+    /**
      * A member that sits on the same line as a field initializer (e.g. a lambda in the initializer)
      * can't remove that line from the constructor.
      */
@@ -90,7 +130,7 @@ class InitializerLineRangesTest {
                 Collections.emptyList());
 
         // then
-        assertArrayEquals(new int[]{2, 18, 20, 20}, ranges);
+        assertArrayEquals(new int[]{2, 18, 20, 21}, ranges);
     }
 
     /**
@@ -108,7 +148,7 @@ class InitializerLineRangesTest {
                 Collections.singletonList(nestedClassMethod));
 
         // then
-        assertArrayEquals(new int[]{2, 8, 14, 31}, ranges);
+        assertArrayEquals(new int[]{2, 8, 13, 31}, ranges);
     }
 
     /**

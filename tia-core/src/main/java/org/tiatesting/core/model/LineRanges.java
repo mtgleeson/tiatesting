@@ -3,8 +3,8 @@ package org.tiatesting.core.model;
 /**
  * Converts a method's exact line ranges (see {@link MethodImpactTracker#getLineRanges()}) to and
  * from the text form stored in the datastore's {@code line_ranges} column, e.g.
- * {@code "7-16,20-21,44-44,74-75"}. Each comma-separated entry is an inclusive {@code start-end}
- * pair, in ascending order.
+ * {@code "7-16,20-21,25,74-75"}. Each comma-separated entry is an inclusive {@code start-end}
+ * pair, or a single line number when the range is one line, in ascending order.
  * <p>
  * See the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
  */
@@ -32,7 +32,10 @@ public final class LineRanges {
             if (i > 0) {
                 text.append(RANGE_SEPARATOR);
             }
-            text.append(lineRanges[i]).append(BOUND_SEPARATOR).append(lineRanges[i + 1]);
+            text.append(lineRanges[i]);
+            if (lineRanges[i + 1] != lineRanges[i]) {
+                text.append(BOUND_SEPARATOR).append(lineRanges[i + 1]);
+            }
         }
         return text.toString();
     }
@@ -52,8 +55,14 @@ public final class LineRanges {
         int[] lineRanges = new int[ranges.length * 2];
         for (int i = 0; i < ranges.length; i++) {
             int separator = ranges[i].indexOf(BOUND_SEPARATOR);
-            lineRanges[i * 2] = Integer.parseInt(ranges[i].substring(0, separator));
-            lineRanges[i * 2 + 1] = Integer.parseInt(ranges[i].substring(separator + 1));
+            if (separator < 0) {
+                int line = Integer.parseInt(ranges[i]);
+                lineRanges[i * 2] = line;
+                lineRanges[i * 2 + 1] = line;
+            } else {
+                lineRanges[i * 2] = Integer.parseInt(ranges[i].substring(0, separator));
+                lineRanges[i * 2 + 1] = Integer.parseInt(ranges[i].substring(separator + 1));
+            }
         }
         return lineRanges;
     }

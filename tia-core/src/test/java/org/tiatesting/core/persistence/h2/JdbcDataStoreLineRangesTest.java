@@ -32,7 +32,7 @@ class JdbcDataStoreLineRangesTest {
 
     private static final int CONSTRUCTOR_ID = 101;
     private static final int PLAIN_METHOD_ID = 102;
-    private static final int[] CONSTRUCTOR_RANGES = {7, 16, 20, 21, 74, 75};
+    private static final int[] CONSTRUCTOR_RANGES = {7, 16, 20, 21, 25, 25, 74, 75};
 
     private JdbcDataStore dataStore;
     private H2ConnectionSettings settings;
