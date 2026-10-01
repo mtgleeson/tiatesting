@@ -55,5 +55,8 @@ wiki can also be read front to back.
   fan-out.
 - [Static test selection](wiki/static-test-selection.md) - user-declared change-to-suite rules
   layered on top of dynamic selection.
+- [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
+  declared after other methods stretches a constructor's line range over them, and the exact line
+  ranges Tia records and matches instead.
 - [Setting up a machine to run the release tasks (GPG signing)](wiki/release-signing-setup.md) -
   GPG key setup for Gradle and Maven release signing.

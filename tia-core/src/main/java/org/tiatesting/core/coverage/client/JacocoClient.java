@@ -147,11 +147,12 @@ public class JacocoClient {
                             classImpactTrackers.put(sourceFilename, new ClassImpactTracker(sourceFilename, methodsImpactedForClass));
                         }
 
+                        List<IMethodCoverage> otherClassesMethods = methodsOfOtherClasses(classesBySourceFile, bundleClass);
+
                         bundleClass.getMethods().forEach( method -> {
                             String methodName = bundleClass.getName() + "." + method.getName() + "." + method.getDesc();
                             int[] lineRanges = InitializerLineRanges.isInitializer(method.getName())
-                                    ? InitializerLineRanges.compute(method, bundleClass.getMethods(),
-                                            methodsOfOtherClasses(classesBySourceFile, bundleClass))
+                                    ? InitializerLineRanges.compute(method, bundleClass.getMethods(), otherClassesMethods)
                                     : null;
                             MethodImpactTracker methodTracker = new MethodImpactTracker(methodName,
                                     method.getFirstLine(), method.getLastLine(), lineRanges);

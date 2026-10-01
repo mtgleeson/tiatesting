@@ -13,8 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class LineRangesTest {
 
     /**
-     * Flat start/end pairs format as comma-separated {@code start-end} entries, including
-     * single-line ranges.
+     * Flat start/end pairs format as comma-separated {@code start-end} entries, with a single-line
+     * range written as just its line number.
      */
     @Test
     void formatWritesCommaSeparatedStartEndPairs() {
@@ -25,7 +25,7 @@ class LineRangesTest {
         String text = LineRanges.format(lineRanges);
 
         // then
-        assertEquals("7-16,20-21,44-44,74-75", text);
+        assertEquals("7-16,20-21,44,74-75", text);
     }
 
     /**
@@ -52,7 +52,7 @@ class LineRangesTest {
     @Test
     void parseReversesFormat() {
         // given
-        int[] lineRanges = {2, 8, 14, 31};
+        int[] lineRanges = {2, 8, 13, 13, 20, 31};
         String text = LineRanges.format(lineRanges);
 
         // when
