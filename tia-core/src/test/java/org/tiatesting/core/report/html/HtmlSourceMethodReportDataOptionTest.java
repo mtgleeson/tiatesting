@@ -109,16 +109,80 @@ class HtmlSourceMethodReportDataOptionTest {
     }
 
     /**
-     * Build a minimal {@link TiaData} with a single tracked constructor method (id 42) covered by
-     * one test suite, sufficient to exercise the Source Methods index render path.
+     * A constructor whose range is split by a late field shows its matched lines, with the
+     * explanation, on its detail page only - the index keeps just its start and end line.
+     *
+     * @param tempDir a JUnit-provided temporary report output directory
+     * @throws IOException if a generated page can't be read
+     */
+    @Test
+    void splitConstructorShowsMatchedLines(@TempDir Path tempDir) throws IOException {
+        // given
+        TiaData tiaData = buildTiaDataWithOneConstructorMethod(
+                new MethodImpactTracker("com/example/Foo.<init>(Lcom/example/Bar;)V", 8, 74,
+                        new int[]{7, 16, 25, 25, 74, 75}));
+
+        // when
+        new HtmlSourceMethodReport("branch", tempDir.toFile()).generateSourceMethodReport(tiaData);
+
+        // then
+        String index = read(new File(tempDir.toFile(), "html/branch/methods/tia-source-methods.html"));
+        assertFalse(index.contains("Matched lines"), "the index should have no matched lines column");
+        assertTrue(index.contains("1,8,74]"), "the index row should carry only start and end");
+        assertFalse(index.contains("7-16"), "the index should not carry the matched lines");
+        String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
+        assertTrue(detail.contains("Matched lines: 7-16,25,74-75"), "detail page should show the matched lines");
+        assertTrue(detail.contains("only matches source changes against the matched lines"),
+                "detail page should explain the matched lines");
+        assertTrue(detail.contains("the line before the first code line and the line after the last"),
+                "detail page should explain the one-line allowance either side");
+    }
+
+    /**
+     * An ordinary method's detail page shows only its start and end line.
+     *
+     * @param tempDir a JUnit-provided temporary report output directory
+     * @throws IOException if a generated page can't be read
+     */
+    @Test
+    void ordinaryMethodDetailPageHasNoMatchedLines(@TempDir Path tempDir) throws IOException {
+        // given
+        TiaData tiaData = buildTiaDataWithOneConstructorMethod();
+
+        // when
+        new HtmlSourceMethodReport("branch", tempDir.toFile()).generateSourceMethodReport(tiaData);
+
+        // then
+        String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
+        assertTrue(detail.contains("Line end: 20"), "detail page should show the end line");
+        assertFalse(detail.contains("Matched lines"), "an unsplit method should show no matched lines");
+        assertFalse(detail.contains("only matches source changes against the matched lines"),
+                "an unsplit method should show no matched lines explanation");
+    }
+
+    /**
+     * Build a minimal {@link TiaData} with a single tracked constructor method (id 42, lines
+     * 10-20) covered by one test suite, sufficient to exercise the Source Methods index render path.
      *
      * @return the populated Tia data
      */
     private TiaData buildTiaDataWithOneConstructorMethod() {
+        return buildTiaDataWithOneConstructorMethod(
+                new MethodImpactTracker("com/example/Foo.<init>(Lcom/example/Bar;)V", 10, 20));
+    }
+
+    /**
+     * Build a minimal {@link TiaData} with the given method tracked as id 42 and covered by one
+     * test suite.
+     *
+     * @param method the tracked method
+     * @return the populated Tia data
+     */
+    private TiaData buildTiaDataWithOneConstructorMethod(MethodImpactTracker method) {
         TiaData tiaData = new TiaData();
 
         Map<Integer, MethodImpactTracker> methods = new LinkedHashMap<>();
-        methods.put(42, new MethodImpactTracker("com/example/Foo.<init>(Lcom/example/Bar;)V", 10, 20));
+        methods.put(42, method);
         tiaData.setMethodsTracked(methods);
 
         TestSuiteTracker suite = new TestSuiteTracker("MyTestSuite");

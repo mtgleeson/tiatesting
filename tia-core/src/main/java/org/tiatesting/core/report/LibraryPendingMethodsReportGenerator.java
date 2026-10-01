@@ -1,5 +1,6 @@
 package org.tiatesting.core.report;
 
+import org.tiatesting.core.model.LineRanges;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
@@ -68,7 +69,7 @@ public class LibraryPendingMethodsReportGenerator {
                             batch.getStampVersion(),
                             String.valueOf(methodId),
                             method != null ? method.getMethodName() : null,
-                            method != null ? method.getLineNumberStart() + "-" + method.getLineNumberEnd() : null);
+                            method != null ? lineSpan(method) : null);
                 }
             }
             sb.append(table.render(lineSep));
@@ -132,5 +133,19 @@ public class LibraryPendingMethodsReportGenerator {
             }
         }
         return ids;
+    }
+
+    /**
+     * Describe a pending method's lines for the Lines column: its start-end range, followed by the
+     * matched lines when it is a constructor or static initializer whose range is split by other
+     * members (see the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}).
+     *
+     * @param method the tracked method to describe
+     * @return e.g. {@code "8-74 (matched 7-16,20-21,74-75)"}, or {@code "2-8"}
+     */
+    static String lineSpan(MethodImpactTracker method) {
+        String span = method.getLineNumberStart() + "-" + method.getLineNumberEnd();
+        String matchedLines = LineRanges.format(method.getLineRanges());
+        return matchedLines == null ? span : span + " (matched " + matchedLines + ")";
     }
 }

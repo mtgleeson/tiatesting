@@ -39,6 +39,16 @@ public class HtmlSourceMethodReport {
             + " { select: 2, type: \"number\" },"
             + " { select: 3, type: \"number\" }]";
 
+    /**
+     * Explains the matched lines on a split initializer's detail page. See the "Constructor and
+     * static initializer line ranges" chapter in {@code WIKI.md}.
+     */
+    private static final String MATCHED_LINES_EXPLANATION = "A field or initializer block declared after "
+            + "other members stretches this initializer's start-end range over them, so Tia only matches "
+            + "source changes against the matched lines. They include the line before the first code line "
+            + "and the line after the last, the same allowance every method gets for its signature and "
+            + "closing brace.";
+
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
                 + File.separator + filenameExt + File.separator + METHODS_FOLDER);
@@ -190,6 +200,7 @@ public class HtmlSourceMethodReport {
         int lastDot = shortName.lastIndexOf('.');
         int secondLastDot = lastDot > 0 ? shortName.lastIndexOf('.', lastDot - 1) : -1;
         String classAndMethod = secondLastDot >= 0 ? shortName.substring(secondLastDot + 1) : shortName;
+        String matchedLines = LineRanges.format(methodImpactTracker.getLineRanges());
 
         try (Writer writer = HtmlLayout.newReportWriter(fileName)) {
             final String numberDataType = "data-type=\"number\"";
@@ -214,8 +225,11 @@ public class HtmlSourceMethodReport {
                                     h3("Coverage"),
                                     p(
                                             span("Line start: " + methodImpactTracker.getLineNumberStart()), br(),
-                                            span("Line end: " + methodImpactTracker.getLineNumberEnd())
+                                            span("Line end: " + methodImpactTracker.getLineNumberEnd()),
+                                            iff(matchedLines != null, br()),
+                                            iff(matchedLines != null, span("Matched lines: " + matchedLines))
                                     ),
+                                    iff(matchedLines != null, p(MATCHED_LINES_EXPLANATION)),
 
                                     h3("Impacted Test Suites"),
                                     table(attrs("#tiaSourceMethodTable"),
