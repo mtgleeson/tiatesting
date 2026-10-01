@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -150,6 +151,26 @@ class LibraryPendingMethodsReportGeneratorTest {
         assertTrue(none.contains("none"));
         assertTrue(unknown.contains("Library 'com.example:nope' is not tracked."));
         assertTrue(blank.contains("A library must be specified as groupId:artifactId."));
+    }
+
+    /**
+     * A split constructor's Lines cell carries its matched lines after the start-end range, while
+     * an ordinary method's shows only start-end.
+     */
+    @Test
+    void lineSpanAppendsMatchedLinesForSplitConstructor() {
+        // given
+        MethodImpactTracker constructor = new MethodImpactTracker("com/example/Service.<init>.()V", 8, 74,
+                new int[]{7, 16, 74, 75});
+        MethodImpactTracker method = new MethodImpactTracker("com/example/Service.methodA.()V", 2, 8);
+
+        // when
+        String constructorSpan = LibraryPendingMethodsReportGenerator.lineSpan(constructor);
+        String methodSpan = LibraryPendingMethodsReportGenerator.lineSpan(method);
+
+        // then
+        assertEquals("8-74 (matched 7-16,74-75)", constructorSpan);
+        assertEquals("2-8", methodSpan);
     }
 
     /**
