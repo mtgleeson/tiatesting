@@ -276,7 +276,8 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 // The preview diffs the workspace, so it takes the identity's own reader rather
                 // than constructing a second one - the branch may be configured, the diff never is.
                 TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
-                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false, SelectionMode.SELECTIVE);
+                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                        getSelectionMode());
                 Set<String> testsToRun = result.getTestsToRun();
                 String lineSep = System.lineSeparator();
 
@@ -847,6 +848,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public Boolean getCheckLocalChanges() {
         return tiaTaskExtension.getCheckLocalChanges();
+    }
+
+    /**
+     * @return the selection mode the {@code selectAllTests} / {@code reseed} runtime flags ask
+     *         for, with a {@code -P} property winning over the extension - see
+     *         {@link TiaRuntimeFlags}
+     */
+    public SelectionMode getSelectionMode() {
+        return TiaRuntimeFlags.selectionMode(project, tiaTaskExtension);
     }
 
     public String getSourceLibs() {
