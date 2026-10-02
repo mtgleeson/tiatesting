@@ -150,6 +150,55 @@ class DistributedRunSealerTest {
     }
 
     /**
+     * A re-seed plan's seal deletes the mapping no group rewrote: a suite a runner wrote this build
+     * is flagged unsealed and survives, while a suite sealed by an earlier build and run by no group
+     * is removed with its edges. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     */
+    @Test
+    void aReseedRunsSealClearsTheSuitesNoGroupRewrote() {
+        // given
+        Map<Integer, MethodImpactTracker> stored = trackers(101, "com/example/A.a.()V", 1, 5);
+        stored.putAll(trackers(303, "com/example/Old.o.()V", 1, 5));
+        seedStoredCatalogue(stored);
+        writeSuiteOnly("com.example.OldTest", "com/example/Old.java", 303);
+        dataStore.clearUnsealedTestSuites();
+        writeSuiteOnly("com.example.ATest", "com/example/A.java", 101);
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.RESEED);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertEquals(Collections.singleton("com.example.ATest"), dataStore.getTestSuitesTracked().keySet());
+        assertEquals(Collections.singleton(101), dataStore.getMethodsTracked().keySet());
+    }
+
+    /**
+     * A select-all plan's seal is an ordinary seal: a suite no group ran keeps its mapping.
+     */
+    @Test
+    void aSelectAllRunsSealKeepsTheSuitesNoGroupRan() {
+        // given
+        Map<Integer, MethodImpactTracker> stored = trackers(101, "com/example/A.a.()V", 1, 5);
+        stored.putAll(trackers(303, "com/example/Old.o.()V", 1, 5));
+        seedStoredCatalogue(stored);
+        writeSuiteOnly("com.example.OldTest", "com/example/Old.java", 303);
+        dataStore.clearUnsealedTestSuites();
+        writeSuiteOnly("com.example.ATest", "com/example/A.java", 101);
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.SELECT_ALL);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertTrue(dataStore.getTestSuitesTracked().containsKey("com.example.OldTest"));
+    }
+
+    /**
      * A method id referenced from the edge table that no runner staged resolves from the stored
      * catalogue. It is genuinely unchanged: its line numbers could only have shifted if its file
      * changed, which would have selected its covering suites, which some group would then have run
@@ -551,6 +600,41 @@ class DistributedRunSealerTest {
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
                         1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null), groups, suites, drainResult));
+    }
+
+    /**
+     * Build and persist a plan recorded with the given selection mode.
+     *
+     * @param runId the run identifier to plan under
+     * @param groupCount how many groups the plan is split into
+     * @param mode the selection mode to record on the run row
+     */
+    private void persistPlanWithMode(final String runId, final int groupCount, final SelectionMode mode) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        Map<Integer, List<String>> suites = new HashMap<>();
+        for (int i = 0; i < groupCount; i++) {
+            groups.add(DistributedRunGroup.pending(runId, i, 1000L));
+            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+        }
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
+                        1000L * groupCount, 1234L, mode, null), groups, suites, null));
+    }
+
+    /**
+     * Write one suite's mapping on its own, as a runner's persist does - which leaves just that
+     * suite flagged unsealed.
+     *
+     * @param suiteName the suite to write
+     * @param sourceFile the covered source file's mapping key
+     * @param methodId the method id the suite covers
+     */
+    private void writeSuiteOnly(final String suiteName, final String sourceFile, final int methodId) {
+        TestSuiteTracker tracker = new TestSuiteTracker(suiteName);
+        tracker.setClassesImpacted(Collections.singletonList(new ClassImpactTracker(sourceFile,
+                Collections.singleton(Integer.valueOf(methodId)))));
+        dataStore.persistTestSuites(Collections.singletonMap(suiteName, tracker));
+        dataStore.callOrder.clear();
     }
 
     /**

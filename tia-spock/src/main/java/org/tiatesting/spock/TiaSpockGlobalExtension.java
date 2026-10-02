@@ -138,6 +138,11 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // by the run id the group was claimed under - no group count or target run time is
                 // asked for, since that shape was already decided by the plan this context was
                 // resolved from.
+                if (Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS))
+                        || Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_RESEED))) {
+                    log.warn("selectAllTests / reseed are ignored on a distributed runner: the mode "
+                            + "is decided by tia-dist-plan and recorded on the run.");
+                }
                 DistributedRunConfig config = DistributedRunConfig.forRunner(
                         distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
                 // forClaimedRunner, not claim: this fork does not claim, it re-derives the same two

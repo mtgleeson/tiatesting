@@ -53,6 +53,14 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String SELECTION_DETAILS_FILENAME = "run-selection-details.txt";
 
     /**
+     * Warned when a distributed runner is given tiaSelectAllTests or tiaReseed. The plan step
+     * decides the mode for the whole build and records it on the run row; a runner only claims its
+     * share of that plan.
+     */
+    static final String FORCED_FLAGS_IGNORED_ON_RUNNER = "tiaSelectAllTests / tiaReseed are ignored "
+            + "on a distributed runner: the mode is decided by dist-plan and recorded on the run.";
+
+    /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
      * If not specified, then "argLine" would be used for "jar" packaging and
      * "tycho.testArgLine" for "eclipse-test-plugin".
@@ -138,6 +146,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             // result is written here. Likewise there is no per-runner selection breakdown to
             // report - the build-level detail is a separate concern handled where the plan itself
             // is recorded - so the forked JVM gets an empty breakdown rather than none at all.
+            if (getSelectionMode().isForced()) {
+                getLog().warn(FORCED_FLAGS_IGNORED_ON_RUNNER);
+            }
             assignment = claimDistributedRunGroup(workspaceIdentity);
             testsToIgnore = assignment.getTestsToIgnore();
             testsToRun = assignment.getTestsToRun();

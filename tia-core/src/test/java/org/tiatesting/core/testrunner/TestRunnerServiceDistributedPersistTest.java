@@ -210,6 +210,27 @@ class TestRunnerServiceDistributedPersistTest {
     }
 
     /**
+     * A distributed runner's suite write flags each suite unsealed, exactly as a single-host run's
+     * does. The sealer's re-seed clear-out keeps precisely the flagged suites, so this is what lets a
+     * distributed re-seed tell the suites any group ran from the rest. See the "Forced runs and
+     * re-seed" chapter in {@code WIKI.md}.
+     */
+    @Test
+    void distributedRunnerFlagsItsSuitesUnsealed() {
+        // given
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), makeResult(), context);
+
+        // then
+        assertTrue(dataStore.getTestSuitesTracked().get("com.example.SomeTest").isUnsealed(),
+                "a runner's suite must stay flagged unsealed until the sealer clears it");
+    }
+
+    /**
      * {@code completeGroup} is the last write the runner makes. Completing the group is what
      * releases the barrier, so a group marked complete before its mapping rows land would let the
      * sealer rebuild the catalogue from an edge set still missing them - silent under-selection.
