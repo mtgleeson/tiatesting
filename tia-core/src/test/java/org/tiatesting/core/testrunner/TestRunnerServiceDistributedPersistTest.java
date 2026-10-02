@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -715,7 +716,7 @@ class TestRunnerServiceDistributedPersistTest {
             }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 1234L, false, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -736,7 +737,7 @@ class TestRunnerServiceDistributedPersistTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, false, null);
+        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.RunEnvironment;
 
@@ -58,9 +59,9 @@ public final class DistributedRunPlanner {
      *
      * <p>Runs, in order: (1) when {@code selection} carries no stored mapping for this branch,
      * logs why this build is a <b>seed run</b> - see {@link #logSeedRun} - since {@link #balance}
-     * uses {@code seedTestSuiteProvider} to split that case across the configured group count by
+     * uses {@code diskTestSuiteProvider} to split that case across the configured group count by
      * even count, falling back to a single empty group only when the provider finds nothing on
-     * disk; (2) warns about any previous run's groups that never reached {@code
+     * disk (a forced full run is logged as such and balanced by stored run time instead); (2) warns about any previous run's groups that never reached {@code
      * COMPLETED}, since the persist step below clears them; (3) weights the selection's suites and
      * balances them into groups via {@link #balance}; (4) warns if the configured target run time
      * was missed - deliberately done here rather than inside {@link #balance}, since {@code
@@ -110,43 +111,47 @@ public final class DistributedRunPlanner {
      *                    seal time when a plan with no groups is sealed here; supplied by the
      *                    caller rather than read from the clock here, so tests can assert the
      *                    persisted value exactly instead of tolerating whatever the clock said
-     * @param seedTestSuiteProvider supplies the suite names found on disk for a seed run to split
-     *                              across the configured groups; invoked only when {@code
-     *                              selection.isRunAllTests()} is true, so a non-seed plan never
-     *                              pays for the scan
+     * @param diskTestSuiteProvider supplies the suite names found on disk for a full run (a seed or
+     *                              a forced run) to spread across the configured groups; invoked
+     *                              only when {@code selection.isRunAllTests()} is true, so a
+     *                              selective plan never pays for the scan
      * @return a summary of the persisted plan, suitable for writing to {@code tia-run-plan.json}
-     *         and the console; {@link DistributedRunPlanSummary#isSeedRun()} is true exactly when
-     *         {@code selection.isRunAllTests()} was true
+     *         and the console, carrying the selection's mode
      * @throws IllegalStateException if the number of suites carried by the persisted plan does not
-     *                                equal {@code selection.getTestsToRun().size()} on a non-seed
+     *                                equal {@code selection.getTestsToRun().size()} on a selective
      *                                plan - meaning suites were lost while building the plan and the
      *                                build would otherwise silently skip them; never thrown on a
-     *                                seed plan, whose suites come from {@code
-     *                                seedTestSuiteProvider}, not the selection
+     *                                full-run plan, whose suites come from {@code
+     *                                diskTestSuiteProvider}, not the selection
      */
     public DistributedRunPlanSummary plan(TestSelectorResult selection, String branch,
                                            String commitValue, boolean updateDBMapping,
                                            boolean updateDBTestRunHistory, long createdAtMs,
-                                           Supplier<Set<String>> seedTestSuiteProvider) {
-        boolean seedRun = selection.isRunAllTests();
+                                           Supplier<Set<String>> diskTestSuiteProvider) {
+        SelectionMode selectionMode = selection.getSelectionMode();
+        boolean seedRun = selectionMode == SelectionMode.SEED;
         if (seedRun) {
             logSeedRun(updateDBMapping);
+        } else if (selectionMode.isForced()) {
+            log.info("Distributed run '{}': selection overridden ({}) - every suite found on disk "
+                    + "will be balanced across the groups by stored run time.", config.getRunId(),
+                    selectionMode.getLabel());
         }
 
         warnAboutIncompletePreviousRuns();
 
         GroupingResult result = balance(selection, updateDBMapping, config.getGroupCount(),
-                config.getTargetRunTimeMs(), config.getMaxGroups(), seedTestSuiteProvider);
+                config.getTargetRunTimeMs(), config.getMaxGroups(), diskTestSuiteProvider);
         warnIfTargetMissed(result, config.getTargetRunTimeMs());
 
         DistributedRunPlan runPlan = projectPlan(result, branch, commitValue, createdAtMs,
-                selection.getLibraryImpactDrainResult(), seedRun);
+                selection.getLibraryImpactDrainResult(), selectionMode);
         int selectedSuiteCount = countSuites(runPlan);
-        // The conservation check compares the persisted plan against the selection's testsToRun,
-        // which is empty on a seed run by definition - the seed's suites come from the disk scan,
-        // not the selection - so the check would spuriously fire the moment a seed run fans out.
-        // The disk scan is the seed run's source of truth, so it is skipped on the seed path.
-        if (!seedRun && selectedSuiteCount != selection.getTestsToRun().size()) {
+        // The conservation check compares the persisted plan against the selection's testsToRun.
+        // A full run's suites come from the disk scan, not the selection - a seed's testsToRun is
+        // empty, a forced run's lacks the untracked suites the scan adds - so the check would
+        // spuriously fire. The disk scan is a full run's source of truth, so it is skipped there.
+        if (!selectionMode.isFullRun() && selectedSuiteCount != selection.getTestsToRun().size()) {
             throw new IllegalStateException("distributed run '" + config.getRunId()
                     + "' plan carries " + selectedSuiteCount + " suite(s) but the selection chose "
                     + selection.getTestsToRun().size()
@@ -189,7 +194,7 @@ public final class DistributedRunPlanner {
                 result.getGroupCount(), runPlan.getRun().getTargetRunTimeMs(), result.isTargetMet(),
                 result.isClampedToMaxGroups(), result.isSingleSuiteExceedsTarget(),
                 result.isFixedOverheadExceedsTarget(), result.getTotalEstimatedMs(),
-                result.getHeaviestGroupMs(), selectedSuiteCount, seedRun);
+                result.getHeaviestGroupMs(), selectedSuiteCount, selectionMode);
     }
 
     /**
@@ -269,18 +274,23 @@ public final class DistributedRunPlanner {
      * DistributedRunConfig#validated} runs - rather than a check of its own, so a config the
      * preview accepts can never be one the real plan then rejects.
      *
-     * <p>When {@code selection.isRunAllTests()} is true - no stored mapping exists yet for this
+     * <p>When the selection is a {@link SelectionMode#SEED} - no stored mapping exists yet for this
      * branch - this method short-circuits to {@link #seedGroupingResult(Supplier, Integer,
-     * Integer)}: the suites {@code seedTestSuiteProvider} finds on disk, split across the
+     * Integer)}: the suites {@code diskTestSuiteProvider} finds on disk, split across the
      * configured group count by even count since there is no run-time data yet to balance by, or
      * a single empty group when nothing is found or no group count applies. The grouping shape is
      * still validated first, so a misconfigured {@code groupCount} / {@code targetRunTimeMs}
      * combination is still reported even on a seed run, ahead of the build that will actually need
      * it corrected.
      *
+     * <p>A forced full run ({@link SelectionMode#SELECT_ALL} / {@link SelectionMode#RESEED}) has
+     * stored run times, so it is balanced like an ordinary selection over every tracked suite, with
+     * each suite the disk scan finds that Tia does not track added at zero weight - see {@link
+     * #addUntrackedDiskSuites}.
+     *
      * @param selection the test selection to balance; its per-suite run-time estimate and mapping
-     *                  overhead drive the weights the balancer packs by, unless {@link
-     *                  TestSelectorResult#isRunAllTests()} is true, in which case they are ignored
+     *                  overhead drive the weights the balancer packs by, unless it is a seed, in
+     *                  which case they are ignored
      * @param collectingCoverage whether the previewed or planned run will collect coverage, and
      *                           therefore pay the per-suite mapping overhead when weighting suites
      * @param groupCount the fixed number of groups to split into, or null to balance for a target
@@ -291,9 +301,9 @@ public final class DistributedRunPlanner {
      * @param maxGroups an optional ceiling on the group count, used only alongside {@code
      *                  targetRunTimeMs}; null for no ceiling; on a seed run with no {@code
      *                  groupCount} this is the count the scanned suites are split across
-     * @param seedTestSuiteProvider supplies the suite names found on disk for a seed run to split
+     * @param diskTestSuiteProvider supplies the suite names found on disk for a full run to spread
      *                              across groups; invoked only when {@code
-     *                              selection.isRunAllTests()} is true, so a non-seed balance never
+     *                              selection.isRunAllTests()} is true, so a selective balance never
      *                              pays for the scan
      * @return the balancer's grouping result; nothing is persisted and nothing is logged
      * @throws IllegalArgumentException if neither or both of {@code groupCount} and {@code
@@ -306,16 +316,19 @@ public final class DistributedRunPlanner {
     public static GroupingResult balance(TestSelectorResult selection, boolean collectingCoverage,
                                           Integer groupCount, Long targetRunTimeMs,
                                           Integer maxGroups,
-                                          Supplier<Set<String>> seedTestSuiteProvider) {
+                                          Supplier<Set<String>> diskTestSuiteProvider) {
         DistributedRunConfig.validateGroupingShape(groupCount, targetRunTimeMs, maxGroups);
 
-        if (selection.isRunAllTests()) {
-            return seedGroupingResult(seedTestSuiteProvider, groupCount, maxGroups);
+        if (selection.getSelectionMode() == SelectionMode.SEED) {
+            return seedGroupingResult(diskTestSuiteProvider, groupCount, maxGroups);
         }
 
-        Map<String, Long> weights = TestGroupBalancer.suiteWeights(
+        Map<String, Long> weights = new HashMap<>(TestGroupBalancer.suiteWeights(
                 selection.getSelectedTestRunTimesMs(), selection.getCaptureOverheadMs(),
-                collectingCoverage);
+                collectingCoverage));
+        if (selection.getSelectionMode().isForced()) {
+            addUntrackedDiskSuites(weights, diskTestSuiteProvider);
+        }
 
         // Charged once per group rather than divided across them, and gated on the same flag the
         // capture overhead is: a run that does not collect coverage does not pay either. Zero until
@@ -347,6 +360,22 @@ public final class DistributedRunPlanner {
                 ? TestGroupBalancer.balanceIntoGroups(weights, groupCount, fixedOverheadMs)
                 : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups,
                         fixedOverheadMs);
+    }
+
+    /**
+     * Add every suite name the disk scan finds that the stored mapping does not track, at zero
+     * weight, so a forced full run also runs new suites. The scan over-includes non-test classes;
+     * at zero weight they cost the balancer nothing, and their runners simply never observe them.
+     * See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param weights the tracked suites' weights, extended in place; must be mutable
+     * @param diskTestSuiteProvider the disk scan
+     */
+    private static void addUntrackedDiskSuites(Map<String, Long> weights,
+                                               Supplier<Set<String>> diskTestSuiteProvider) {
+        for (String suite : diskTestSuiteProvider.get()) {
+            weights.putIfAbsent(suite, 0L);
+        }
     }
 
     /**
@@ -524,9 +553,9 @@ public final class DistributedRunPlanner {
      * @param drainResult the library-impact drain the selection already performed, carried onto the
      *                    write bundle so it survives this process exiting, or null if nothing was
      *                    drained
-     * @param seedRun whether this plan was collapsed to a seed run, recorded on the run row because
-     *                the seal cannot tell a seed run's plan from a nothing-impacted one by its
-     *                shape - see {@code DistributedRunSealer.ignoredSuiteCount}
+     * @param selectionMode the selection's mode, recorded on the run row because the seal cannot
+     *                      tell a full run's plan from a nothing-impacted one by its shape - see
+     *                      {@code DistributedRunSealer.ignoredSuiteCount}
      * @return the validated plan, ready to persist, with the groups available recorded on its run
      *         row - see {@link #groupsAvailable} - and the build's run source: the declared {@code
      *         tiaRunSource} when set, else the one detected from this plan step's environment. The
@@ -535,11 +564,11 @@ public final class DistributedRunPlanner {
      */
     private DistributedRunPlan projectPlan(GroupingResult result, String branch, String commitValue,
                                             long createdAtMs, LibraryImpactDrainResult drainResult,
-                                            boolean seedRun) {
+                                            SelectionMode selectionMode) {
         Long targetRunTimeMs = config.isStaticGroups() ? null : config.getTargetRunTimeMs();
         DistributedRun run = DistributedRun.open(config.getRunId(), branch, commitValue,
                 result.getGroupCount(), groupsAvailable(result.getGroupCount()), targetRunTimeMs,
-                result.getTotalEstimatedMs(), createdAtMs, seedRun,
+                result.getTotalEstimatedMs(), createdAtMs, selectionMode,
                 RunEnvironment.runSource(config.getRunSource()));
 
         List<DistributedRunGroup> groups = new ArrayList<>(result.getGroupCount());

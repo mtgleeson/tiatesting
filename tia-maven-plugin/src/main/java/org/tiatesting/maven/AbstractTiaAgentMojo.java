@@ -279,8 +279,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                 // ignores nothing and executes everything it discovers. Reporting the assigned
                 // count for that group would say "will run 0 test suite(s)" about the one run that
                 // executes the entire suite. See seedRunClaimLogMessage for the exact wording of
-                // each case.
-                if (assignment.isSeedRun()){
+                // each case. A forced full run is reported like an ordinary claim: its groups carry
+                // real suite names balanced by run time.
+                if (assignment.getSelectionMode() == SelectionMode.SEED){
                     getLog().info(seedRunClaimLogMessage(config.getRunId(), assignment.getRunnerKey(),
                             assignment.getGroupNumber(), assignment.getTestsToRun().size()));
                 } else {

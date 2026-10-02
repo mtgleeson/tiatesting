@@ -1,5 +1,7 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
+
 /**
  * Builds the {@code select-tests} grouping preview block: what {@link DistributedRunPlanner#balance}
  * would produce for the tests currently selected, shown without persisting anything. Shared by the
@@ -52,22 +54,29 @@ public final class DistributedRunPreviewFormatter {
      *               this method or by the caller previewing it
      * @param targetRunTimeMs the configured target wall-clock run time in ms, or {@code null} when
      *                        the preview used a fixed group count instead - static groups mode,
-     *                        which has no target to report; ignored when {@code seedRun} is true
-     * @param seedRun whether the previewed selection carries no stored mapping for this branch yet
-     *                - {@link org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult#isRunAllTests()} -
-     *                so a real plan of this selection would be a seed run
+     *                        which has no target to report; ignored for a seed
+     * @param selectionMode the previewed selection's mode - {@link
+     *                      org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult#getSelectionMode()}.
+     *                      A {@link SelectionMode#SEED} carries no stored mapping, so a real plan
+     *                      splits by even count; a forced mode is balanced by stored run time
      * @param lineSep the line separator to use between lines
      * @return the multi-line preview block, prefixed with two {@code lineSep}s so it reads as a
      *         new, blank-line-separated section after the preceding estimate block
      */
     public static String formatPreview(final GroupingResult result, final Long targetRunTimeMs,
-                                        final boolean seedRun, final String lineSep) {
+                                        final SelectionMode selectionMode, final String lineSep) {
         long avgGroupMs = result.getGroupCount() == 0 ? 0L
                 : result.getTotalEstimatedMs() / result.getGroupCount();
 
         StringBuilder preview = new StringBuilder();
         preview.append(lineSep).append(lineSep);
         preview.append("Distributed run grouping preview (not persisted):").append(lineSep);
+        boolean seedRun = selectionMode == SelectionMode.SEED;
+        if (selectionMode.isForced()) {
+            preview.append("  ").append(selectionMode.getLabel()).append(": selection overridden, ")
+                    .append("so a real distributed run would balance every suite found on disk ")
+                    .append("across the groups by stored run time.").append(lineSep);
+        }
         if (seedRun) {
             int assignedSuiteCount = 0;
             for (SuiteGroup group : result.getGroups()) {

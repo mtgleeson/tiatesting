@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.BeforeEach;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.Test;
@@ -168,7 +169,7 @@ class AbstractTiaDistStatusMojoTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, "commit-1", groups.size(), groups.size(), null, 2000L,
-                System.currentTimeMillis(), false, null);
+                System.currentTimeMillis(), SelectionMode.SELECTIVE, null);
         try (DataStore dataStore = openStore()) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

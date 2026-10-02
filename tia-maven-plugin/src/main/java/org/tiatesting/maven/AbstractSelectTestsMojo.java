@@ -153,7 +153,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             return;
         }
         System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
-                getTiaDistributedTargetRunTime(), selection.isRunAllTests(), "\n"));
+                getTiaDistributedTargetRunTime(), selection.getSelectionMode(), "\n"));
     }
 
     /**

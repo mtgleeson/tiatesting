@@ -244,7 +244,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, false, null);
+                NOW_MS - 120_000L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -269,7 +269,7 @@ class DistributedRunStatusReportTest {
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("build-1", 0, 0L));
         DistributedRun run = DistributedRun.open("build-1", "main", "commit-abc", 1, 1, null, 0L,
-                NOW_MS - 120_000L, true, null);
+                NOW_MS - 120_000L, SelectionMode.SEED, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups,
                 singleGroup(Collections.<String>emptyList()), null));
 
@@ -287,7 +287,7 @@ class DistributedRunStatusReportTest {
      * Verify a split seed's groups - suites discovered on disk and divided across the groups, not
      * collapsed to a single empty one - render like any other group's: a real assigned count and
      * real observed progress, never {@code all} or {@code n/a}. This is the behaviour fix: gating
-     * the rendering on {@code run.isSeedRun()} globally used to render every group of a split seed
+     * the rendering on {@code run.isFullRun()} globally used to render every group of a split seed
      * as {@code all}/{@code n/a} too, even though its groups carry real suite names. The check is
      * scoped to the group table specifically, since the run-level "Estimated:" header line
      * legitimately contains "n/a" for any seed run, split or fallback - see {@link
@@ -529,7 +529,7 @@ class DistributedRunStatusReportTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), 5000L,
-                1000L * groups.size(), NOW_MS - 120_000L, seedRun, null);
+                1000L * groups.size(), NOW_MS - 120_000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 

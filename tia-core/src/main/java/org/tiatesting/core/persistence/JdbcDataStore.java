@@ -8,6 +8,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
@@ -18,7 +19,6 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.RunOrigin;
-import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -128,7 +128,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SEALED_BY = "sealed_by";
     private static final String COL_SEALED_AT = "sealed_at";
     private static final String COL_DRAIN_RESULT = "drain_result";
-    private static final String COL_SEED_RUN = "seed_run";
+    private static final String COL_SELECTION_MODE = "selection_mode";
     private static final String COL_GROUPS_AVAILABLE = "groups_available";
     private static final String COL_GROUP_NUMBER = "group_number";
     private static final String COL_RUNNER_KEY = "runner_key";
@@ -1757,7 +1757,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ", " + COL_SEED_RUN + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
+                + ", " + COL_SELECTION_MODE + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
@@ -1801,7 +1801,7 @@ public class JdbcDataStore implements DataStore {
                     statement.setString(9, run.getSealedBy());
                     setNullableLong(statement, 10, run.getSealedAtMs());
                     setDrainResult(statement, 11, plan.getDrainResult());
-                    statement.setBoolean(12, run.isSeedRun());
+                    statement.setString(12, run.getSelectionMode().name());
                     statement.setInt(13, run.getGroupsAvailable());
                     setNullableString(statement, 14, run.getRunSource());
                     statement.executeUpdate();
@@ -1984,7 +1984,7 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getLong(COL_CREATED_AT),
                 resultSet.getString(COL_SEALED_BY),
                 getNullableLong(resultSet, COL_SEALED_AT),
-                resultSet.getBoolean(COL_SEED_RUN),
+                SelectionMode.fromStoredName(resultSet.getString(COL_SELECTION_MODE)),
                 resultSet.getString(COL_RUN_SOURCE));
     }
 
@@ -2618,16 +2618,16 @@ public class JdbcDataStore implements DataStore {
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
 
-            // A seed run's assigned suite names come from a raw disk scan that over-includes classes
-            // JUnit never reports as observed - abstract bases, fixtures, anonymous $ classes - so
-            // observed can never reach assigned and the group would never complete. On a seed run the
-            // guard therefore takes what the runners observed as the run's source of truth: the group
-            // need only have observed at least one suite (or, when it was assigned nothing at all,
-            // nothing). Both inputs - the seed flag and the assigned count - are fixed at plan time,
-            // so reading the flag separately from the conditional update cannot race the guard. See
-            // the distributed test runs chapter in WIKI.md.
-            boolean seedRun = readIsSeedRun(connection, runId);
-            String observedThreshold = seedRun
+            // A full run's (seed or forced) assigned suite names come from a raw disk scan that
+            // over-includes classes JUnit never reports as observed - abstract bases, fixtures,
+            // anonymous $ classes - so observed can never reach assigned and the group would never
+            // complete. On a full run the guard therefore takes what the runners observed as the
+            // run's source of truth: the group need only have observed at least one suite (or, when
+            // it was assigned nothing at all, nothing). Both inputs - the mode and the assigned count
+            // - are fixed at plan time, so reading the mode separately from the conditional update
+            // cannot race the guard. See the distributed test runs chapter in WIKI.md.
+            boolean fullRun = readIsFullRun(connection, runId);
+            String observedThreshold = fullRun
                     ? "LEAST(1, " + assignedCountSubquery + ")"
                     : assignedCountSubquery;
             String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
@@ -2668,24 +2668,26 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Read whether a distributed run was planned as a seed run, on the caller's own connection. A
-     * seed run's group assignments come from a disk scan that over-includes non-test classes, so its
-     * completion guard is loosened to observed-as-truth - see {@link #completeGroup}. Read only on
-     * the completion path, which runs once per group at the end of a build, never on a hot read path.
+     * Read whether a distributed run was planned as a full run (seed or forced), on the caller's
+     * own connection. A full run's group assignments come from a disk scan that over-includes
+     * non-test classes, so its completion guard is loosened to observed-as-truth - see
+     * {@link #completeGroup}. Read only on the completion path, which runs once per group at the
+     * end of a build, never on a hot read path.
      *
      * @param connection the open connection to read on
-     * @param runId the distributed run to read the seed flag for
-     * @return true when the run row records this plan as a seed run; false when it does not, or no
-     *         such run row exists
+     * @param runId the distributed run to read the mode for
+     * @return true when the run row records a full-run mode; false when it does not, or no such
+     *         run row exists
      * @throws SQLException if the read fails
      */
-    private boolean readIsSeedRun(final Connection connection, final String runId) throws SQLException {
-        String sql = "SELECT " + COL_SEED_RUN + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
+    private boolean readIsFullRun(final Connection connection, final String runId) throws SQLException {
+        String sql = "SELECT " + COL_SELECTION_MODE + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
                 + " WHERE " + COL_RUN_ID + " = ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, runId);
             try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && resultSet.getBoolean(COL_SEED_RUN);
+                return resultSet.next()
+                        && SelectionMode.fromStoredName(resultSet.getString(1)).isFullRun();
             }
         }
     }
@@ -4597,7 +4599,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_SEALED_BY + " VARCHAR(255), "
                 + COL_SEALED_AT + " BIGINT, "
                 + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE, "
+                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE', "
                 + COL_GROUPS_AVAILABLE + " INT, "
                 + COL_RUN_SOURCE + " VARCHAR(32))";
     }
@@ -4672,25 +4674,29 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Build the migration that backfills the {@code tia_distributed_run.seed_run} column onto a run
-     * table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and
-     * a no-op on a table {@link #buildCreateDistributedRunTableSql} just created, since that DDL
-     * already names the column. Without it, a store whose run table predates the column would fail
-     * the next plan write with "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never
-     * alters an already-existing table.
-     *
-     * <p>Pre-existing rows default to {@code FALSE}, which is the safe way round: a run wrongly read
-     * as not-a-seed-run reports every tracked suite as ignored and so cannot become an all-tests
-     * run, whereas the opposite mistake would advance the full-suite baseline and every tracked
-     * library's mapping baseline off a build that ran almost nothing. The default is only ever
-     * observed by a run planned before this migration ran, since every plan write supplies the
-     * column explicitly.
+     * Build the migration adding {@code tia_distributed_run.selection_mode} to a run table created
+     * before modes were recorded. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and a no-op on a
+     * table {@link #buildCreateDistributedRunTableSql} just created. Pre-existing rows read
+     * {@code SELECTIVE}, the safe way round: a run wrongly read as selective reports every tracked
+     * suite it was not assigned as ignored and so cannot become an all-tests run. Tia is pre-release,
+     * so the {@code seed_run} flag it replaces is not backfilled; a seed run left open across the
+     * upgrade must be re-planned.
      *
      * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
      */
-    private String buildAddSeedRunColumnSql() {
+    private String buildAddSelectionModeColumnSql() {
         return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE";
+                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE'";
+    }
+
+    /**
+     * Build the migration dropping the {@code seed_run} column that {@code selection_mode}
+     * replaced. Idempotent via {@code DROP COLUMN IF EXISTS}.
+     *
+     * @return the {@code ALTER TABLE ... DROP COLUMN IF EXISTS} statement
+     */
+    private String buildDropSeedRunColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " DROP COLUMN IF EXISTS seed_run";
     }
 
     /**
@@ -4734,23 +4740,21 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Ensure the four distributed-run tables, the group-status index, the additive {@code
-     * seed_run}, {@code groups_available} and {@code run_source} columns, and the method staging
-     * table's {@code line_ranges} column exist. Idempotent via
-     * {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both
-     * creates everything on a new database and backfills the run row's seed flag, groups available
-     * and run source onto a database created before they were recorded.
+     * selection_mode}, {@code groups_available} and {@code run_source} columns, and the method
+     * staging table's {@code line_ranges} column exist, and drop the {@code seed_run} column
+     * {@code selection_mode} replaced. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS},
+     * {@code ADD COLUMN IF NOT EXISTS} and {@code DROP COLUMN IF EXISTS}, so it both creates
+     * everything on a new database and migrates a database created before these were recorded.
      *
      * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
      * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
      * pre-release with no external databases to preserve, so a database is simply created with
-     * them. {@code seed_run} is backfilled because getting it wrong on an existing run row
-     * corrupts the full-suite baseline rather than merely failing the write, and {@code
-     * groups_available} and {@code run_source} because the plan write names them, so a store
-     * without either would fail the next plan.
+     * them. {@code selection_mode}, {@code groups_available} and {@code run_source} are added
+     * because the plan write names them, so a store without any of them would fail the next plan.
      *
-     * <p>All nine DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>All ten DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be nine wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be ten wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
@@ -4767,7 +4771,8 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
-            statement.addBatch(buildAddSeedRunColumnSql());
+            statement.addBatch(buildAddSelectionModeColumnSql());
+            statement.addBatch(buildDropSeedRunColumnSql());
             statement.addBatch(buildAddGroupsAvailableColumnSql());
             statement.addBatch(buildAddDistributedRunSourceColumnSql());
             statement.addBatch(buildAddMethodStageLineRangesColumnSql());

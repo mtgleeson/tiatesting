@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -29,7 +30,7 @@ class DistributedRunPlanSummaryTest {
         // given - a dynamic-groups plan matching the worked sample in the WIKI chapter
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         String json = summary.toJson();
@@ -39,7 +40,7 @@ class DistributedRunPlanSummaryTest {
                 + "  \"runId\": \"gh-1284471\",\n"
                 + "  \"branch\": \"main\",\n"
                 + "  \"commit\": \"87a5110\",\n"
-                + "  \"seedRun\": false,\n"
+                + "  \"selectionMode\": \"SELECTIVE\",\n"
                 + "  \"groupCount\": 5,\n"
                 + "  \"avgGroupMs\": 1380000,\n"
                 + "  \"heaviestGroupMs\": 1450000,\n"
@@ -65,7 +66,7 @@ class DistributedRunPlanSummaryTest {
         // given - a static-groups plan, which has no target run time
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 4, null, true, false, false, false, 4000000L,
-                1050000L, 300, false);
+                1050000L, 300, SelectionMode.SELECTIVE);
 
         // when
         String json = summary.toJson();
@@ -87,7 +88,7 @@ class DistributedRunPlanSummaryTest {
         String branchWithSpecialChars = "feature/say-\"hi\"\\ok";
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", branchWithSpecialChars, "87a5110", 5, 1500000L, true, false, false, false,
-                6900000L, 1450000L, 412, false);
+                6900000L, 1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         String json = summary.toJson();
@@ -106,7 +107,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_dividesTotalByGroupCount() {
         // given - a total that does not divide evenly by the group count
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 3, 1000L, true, false, false, false, 1000L, 400L, 10, false);
+                "gh-1", "main", "abc123", 3, 1000L, true, false, false, false, 1000L, 400L, 10, SelectionMode.SELECTIVE);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -124,7 +125,7 @@ class DistributedRunPlanSummaryTest {
     void getAvgGroupMs_zeroGroupCount_doesNotDivideByZero() {
         // given - a plan with no groups at all (an empty selection)
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, false, 0L, 0L, 0, false);
+                "gh-1", "main", "abc123", 0, 1500000L, true, false, false, false, 0L, 0L, 0, SelectionMode.SELECTIVE);
 
         // when
         long avgGroupMs = summary.getAvgGroupMs();
@@ -143,7 +144,7 @@ class DistributedRunPlanSummaryTest {
         // given - a plan whose target was met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -165,7 +166,7 @@ class DistributedRunPlanSummaryTest {
         // given - a plan whose target was not met
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 8, 1500000L, false, true, false, false, 16000000L,
-                2200000L, 900, false);
+                2200000L, 900, SelectionMode.SELECTIVE);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -187,7 +188,7 @@ class DistributedRunPlanSummaryTest {
         // given - a plan whose heaviest group is well above the average
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         long heaviestGroupMs = summary.getHeaviestGroupMs();
@@ -207,7 +208,7 @@ class DistributedRunPlanSummaryTest {
         // given - a plan whose heaviest group is heavier than the average group
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         String json = summary.toJson();
@@ -231,7 +232,7 @@ class DistributedRunPlanSummaryTest {
         // given - a plan whose heaviest group is heavier than the average group
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -254,13 +255,13 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_maxGroupsMissReason_matchesPreviewFormatterWording() {
         // given - a plan summary and a preview grouping result that both report the same miss
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 2, 6000L, false, true, false, false, 18000L, 9000L, 2, false);
+                "gh-1", "main", "abc123", 2, 6000L, false, true, false, false, 18000L, 9000L, 2, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
                 new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, true, false, false);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
-        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, false, "\n");
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then - the console summary's "reason:" line and the preview's "lever:" line name the
         // identical explanatory text, just prefixed differently
@@ -278,13 +279,13 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_singleSuiteMissReason_matchesPreviewFormatterWording() {
         // given - a plan summary and a preview grouping result that both report the same miss
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 1, 6000L, false, false, true, false, 9000L, 9000L, 1, false);
+                "gh-1", "main", "abc123", 1, 6000L, false, false, true, false, 9000L, 9000L, 1, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
                 new SuiteGroup(0, Collections.singletonList("Suite0"), 9000L)), false, false, true, false);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
-        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, false, "\n");
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then
         assertTrue(consoleSummary.contains("reason: " + DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET),
@@ -304,14 +305,14 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_fixedOverheadMissReason_matchesPreviewFormatterWording() {
         // given - a plan summary and a preview grouping result that both report the same miss
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1", "main", "abc123", 1, 500L, false, false, false, true, 700L, 700L, 1, false);
+                "gh-1", "main", "abc123", 1, 500L, false, false, false, true, 700L, 700L, 1, SelectionMode.SELECTIVE);
         GroupingResult preview = new GroupingResult(Collections.singletonList(
                 new SuiteGroup(0, Collections.singletonList("Suite0"), 700L)), false, false, false,
                 true);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
-        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 500L, false, "\n");
+        String previewText = DistributedRunPreviewFormatter.formatPreview(preview, 500L, SelectionMode.SELECTIVE, "\n");
 
         // then
         assertTrue(consoleSummary.contains("reason: " + DistributedRunMissReasons.FIXED_OVERHEAD_EXCEEDS_TARGET),
@@ -321,57 +322,79 @@ class DistributedRunPlanSummaryTest {
     }
 
     /**
-     * Verifies that {@link DistributedRunPlanSummary#isSeedRun()} round-trips through the
+     * Verifies that {@link DistributedRunPlanSummary#getSelectionMode()} round-trips through the
      * constructor to its getter unchanged, for a plan that is not a seed run.
      */
     @Test
-    void isSeedRun_notASeedRun_returnsFalse() {
+    void getSelectionMode_notASeedRun_returnsSelective() {
         // given - an ordinary, non-seed plan
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 5, 1500000L, true, false, false, false, 6900000L,
-                1450000L, 412, false);
+                1450000L, 412, SelectionMode.SELECTIVE);
 
         // when
-        boolean seedRun = summary.isSeedRun();
+        SelectionMode mode = summary.getSelectionMode();
 
         // then
-        assertFalse(seedRun, "an ordinary plan should not report itself as a seed run");
+        assertEquals(SelectionMode.SELECTIVE, mode, "an ordinary plan should not report itself as a seed run");
     }
 
     /**
-     * Verifies that {@link DistributedRunPlanSummary#isSeedRun()} reports true for a seed run's
-     * summary, the shape a plan collapses to when no stored mapping exists yet for the branch.
+     * Verifies that {@link DistributedRunPlanSummary#getSelectionMode()} reports SEED for a seed
+     * run's summary, the shape a plan collapses to when no stored mapping exists yet for the branch.
      */
     @Test
-    void isSeedRun_seedRun_returnsTrue() {
+    void getSelectionMode_seedRun_returnsSeed() {
         // given - a seed run's summary: one group, no suites, zero estimated time
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, SelectionMode.SEED);
 
         // when
-        boolean seedRun = summary.isSeedRun();
+        SelectionMode mode = summary.getSelectionMode();
 
         // then
-        assertTrue(seedRun, "a seed run's summary should report itself as a seed run");
+        assertEquals(SelectionMode.SEED, mode, "a seed run's summary should report itself as a seed run");
     }
 
     /**
-     * Verifies that {@code seedRun} appears in the published JSON document as its own field, in
-     * the position fixed relative to {@code commit} and {@code groupCount}, so a pipeline can
+     * Verifies that {@code selectionMode} appears in the published JSON document as its own field,
+     * in the position fixed relative to {@code commit} and {@code groupCount}, so a pipeline can
      * explain why it only received one job despite a configured group count.
      */
     @Test
-    void toJson_seedRun_includesSeedRunTrueField() {
+    void toJson_seedRun_includesSeedSelectionModeField() {
         // given - a seed run's summary
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, null, true, false, false, false, 0L, 0L, 0, SelectionMode.SEED);
 
         // when
         String json = summary.toJson();
 
         // then
-        assertTrue(json.contains("\"seedRun\": true,"),
-                "JSON should render seedRun as true for a seed run: " + json);
+        assertTrue(json.contains("\"selectionMode\": \"SEED\","),
+                "JSON should render selectionMode SEED for a seed run: " + json);
+    }
+
+    /**
+     * Verifies that a forced full run's summary names its mode in the console text and the JSON,
+     * and - unlike a seed - still reports the durations, since it was balanced by stored run time.
+     */
+    @Test
+    void forcedRun_namesTheModeAndKeepsTheDurations() {
+        // given
+        DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
+                "gh-1284471", "main", "87a5110", 2, null, true, false, false, false, 4000L, 2000L, 10,
+                SelectionMode.RESEED);
+
+        // when
+        String consoleSummary = summary.toConsoleSummary();
+        String json = summary.toJson();
+
+        // then
+        assertTrue(consoleSummary.contains("Re-seed: selection overridden"), consoleSummary);
+        assertTrue(consoleSummary.contains("the seal will rebuild the mapping from scratch"), consoleSummary);
+        assertTrue(consoleSummary.contains("Groups: 2, average 2000ms per group"), consoleSummary);
+        assertTrue(json.contains("\"selectionMode\": \"RESEED\","), json);
     }
 
     /**
@@ -386,7 +409,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_fallbackSeedRun_namesSeedRunAndOmitsTargetVerdict() {
         // given - a fallback seed run's summary: no suites found on disk to split, selectedSuiteCount 0
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 1, 1500000L, true, false, false, false, 0L, 0L, 0, true);
+                "gh-1284471", "main", "87a5110", 1, 1500000L, true, false, false, false, 0L, 0L, 0, SelectionMode.SEED);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -416,7 +439,7 @@ class DistributedRunPlanSummaryTest {
     void toConsoleSummary_splitSeedRun_namesSplitWording() {
         // given - a split seed run's summary: suites were found on disk and split across 2 groups
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
-                "gh-1284471", "main", "87a5110", 2, null, true, false, false, false, 0L, 0L, 5, true);
+                "gh-1284471", "main", "87a5110", 2, null, true, false, false, false, 0L, 0L, 5, SelectionMode.SEED);
 
         // when
         String consoleSummary = summary.toConsoleSummary();
@@ -449,7 +472,7 @@ class DistributedRunPlanSummaryTest {
         // given - a nothing-selected plan in target-run-time mode
         DistributedRunPlanSummary summary = new DistributedRunPlanSummary(
                 "gh-1284471", "main", "87a5110", 0, 1800000L, true, false, false, false, 0L,
-                0L, 0, false);
+                0L, 0, SelectionMode.SELECTIVE);
 
         // when
         String consoleSummary = summary.toConsoleSummary();

@@ -1,5 +1,6 @@
 package org.tiatesting.junit.junit5;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -146,7 +147,7 @@ class TiaTestExecutionListenerDistributedTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, Collections.singletonList(SUITE));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, false, null),
+                DistributedRun.open(RUN_ID, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, SelectionMode.SELECTIVE, null),
                 groups, suitesByGroup, null));
     }
 

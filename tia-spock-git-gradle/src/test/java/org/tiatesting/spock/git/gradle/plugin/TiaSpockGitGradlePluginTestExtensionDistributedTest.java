@@ -1,5 +1,6 @@
 package org.tiatesting.spock.git.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -172,7 +173,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, commitValue, groups.size(), groups.size(), null,
-                1000L * groups.size(), 5000L, false, null);
+                1000L * groups.size(), 5000L, SelectionMode.SELECTIVE, null);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

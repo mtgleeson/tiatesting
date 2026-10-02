@@ -776,7 +776,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(2, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(4, dataStore.readDistributedRun("run-seed-capped").getGroupsAvailable());
     }
 
@@ -803,10 +803,10 @@ class DistributedRunPlannerTest {
 
         // then the summary and persisted plan report four groups and a seed run
         assertEquals(4, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-split");
         assertEquals(4, readRun.getGroupCount());
-        assertTrue(readRun.isSeedRun());
+        assertEquals(SelectionMode.SEED, readRun.getSelectionMode());
 
         // and the eight suites are split evenly (two per group) with their union intact
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-split");
@@ -846,7 +846,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertTrue(dataStore.readDistributedRunGroupSuites("run-seed-empty", 0).isEmpty());
     }
 
@@ -867,7 +867,7 @@ class DistributedRunPlannerTest {
 
         // then - the summary reports exactly one group and a seed run
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(0, summary.getSelectedSuiteCount());
 
         // and - the persisted plan itself carries exactly one group with an empty suite list,
@@ -898,7 +898,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-target");
         assertEquals(1, readRun.getGroupCount());
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target");
@@ -923,7 +923,7 @@ class DistributedRunPlannerTest {
 
         // then the seed fans out to the three-group ceiling with the suites split evenly
         assertEquals(3, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target-max");
         assertEquals(3, groups.size());
         Set<String> union = new HashSet<>();
@@ -951,7 +951,7 @@ class DistributedRunPlannerTest {
 
         // then it stays a single group
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
     }
 
     /**
@@ -970,7 +970,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-not-seed", false, true, 1L, noSeedSuites());
 
         // then
-        assertFalse(summary.isSeedRun());
+        assertEquals(SelectionMode.SELECTIVE, summary.getSelectionMode());
     }
 
     /**
@@ -993,11 +993,11 @@ class DistributedRunPlannerTest {
                 "commit-no-scan", false, true, 1L, throwingProvider);
 
         // then
-        assertFalse(summary.isSeedRun());
+        assertEquals(SelectionMode.SELECTIVE, summary.getSelectionMode());
     }
 
     /**
-     * Verifies that {@code seedRun} reaches {@code tia-run-plan.json}: a seed run's summary
+     * Verifies that {@code selectionMode} reaches {@code tia-run-plan.json}: a seed run's summary
      * renders the field as JSON {@code true}, the signal a pipeline needs to explain why it only
      * received one job despite the configured group count.
      */
@@ -1012,7 +1012,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-json", true, true, 1L, noSeedSuites());
 
         // then
-        assertTrue(summary.toJson().contains("\"seedRun\": true,"));
+        assertTrue(summary.toJson().contains("\"selectionMode\": \"SEED\","));
     }
 
     /**
@@ -1038,7 +1038,7 @@ class DistributedRunPlannerTest {
                 "commit-seed-no-coverage", false, true, 1L, noSeedSuites());
 
         // then - the plan still succeeds and is still a one-group seed run
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(1, summary.getGroupCount());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-no-coverage");
         assertEquals(1, readRun.getGroupCount());
@@ -1305,7 +1305,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, false, null);
+                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -1327,7 +1327,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
@@ -1351,7 +1351,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
