@@ -91,6 +91,19 @@ tasks.register('profileMethodCatalogueClear', JavaExec) {
             .collect { it + '=' + project.property(it) }
 }
 
+// Times the re-seed clear-out in the seal against a generateLargeTiaDb database - see
+// ProfileReseedSeal.java javadoc. Destructive: regenerate the database before each run.
+tasks.register('profileReseedSeal', JavaExec) {
+    group = 'verification'
+    description = 'Times the re-seed seal clear-out against a synthetic large DB. Tunable via -P properties.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.tiatesting.core.perf.ProfileReseedSeal'
+
+    def passthrough = ['outDb', 'branch', 'observedPercent']
+    args = passthrough.findAll { project.hasProperty(it) }
+            .collect { it + '=' + project.property(it) }
+}
+
 publishing {
     publications {
         mavenJava(MavenPublication) {
