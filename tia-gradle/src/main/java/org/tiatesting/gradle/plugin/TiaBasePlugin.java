@@ -282,10 +282,11 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
                 System.out.println("Selected tests to run: ");
                 if (result.isRunAllTests()) {
-                    // No stored mapping for this branch yet: every test runs. testsToRun is empty
-                    // in this case (see TestSelectorResult#isRunAllTests), so it is checked first
-                    // and reported distinctly from "nothing selected" below.
-                    System.out.println("all (no stored mapping for this branch yet)");
+                    // Every test runs: a seed (no stored mapping, testsToRun empty - see
+                    // TestSelectorResult#isRunAllTests) or a forced run. Checked first so a seed is
+                    // reported distinctly from "nothing selected" below.
+                    System.out.println(SelectTestsOutputFormatter.formatRunAllReason(
+                            result.getSelectionMode()));
                     printDistributedRunPreview(result, buildDistributedGroupingIfConfigured(result),
                             lineSep);
                 } else if (testsToRun.isEmpty()){

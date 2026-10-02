@@ -15,6 +15,7 @@ import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -249,6 +250,23 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(property = "tiaCheckLocalChanges")
     boolean tiaCheckLocalChanges;
+
+    /**
+     * Run every test in this build, overriding Tia's selection, while still updating the mapping,
+     * stats and history as the other flags configure. Unlike {@code tiaEnabled=false}, Tia stays
+     * active. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     */
+    @Parameter(property = "tiaSelectAllTests")
+    boolean tiaSelectAllTests;
+
+    /**
+     * Run every test and rebuild the stored mapping from scratch when the run seals: mapping data
+     * the run did not rewrite is deleted, while history, Tia stats and the stats of every suite the
+     * run observed are kept. Implies {@code tiaSelectAllTests} and requires
+     * {@code tiaUpdateDBMapping}. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     */
+    @Parameter(property = "tiaReseed")
+    boolean tiaReseed;
 
     /**
      * Specifies the server URI of the VCS system.
@@ -734,6 +752,30 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     public String getTiaLibraryStampSchemas() {
         return tiaLibraryStampSchemas;
+    }
+
+    /**
+     * @return whether {@code tiaSelectAllTests} is set
+     */
+    public boolean isTiaSelectAllTests() {
+        return tiaSelectAllTests;
+    }
+
+    /**
+     * @return whether {@code tiaReseed} is set
+     */
+    public boolean isTiaReseed() {
+        return tiaReseed;
+    }
+
+    /**
+     * Map the {@code tiaSelectAllTests} and {@code tiaReseed} flags to the selection mode they ask
+     * for; {@code tiaReseed} wins when both are set.
+     *
+     * @return the requested selection mode
+     */
+    public SelectionMode getSelectionMode() {
+        return SelectionMode.fromFlags(tiaSelectAllTests, tiaReseed);
     }
 
     public boolean isTiaCheckLocalChanges() {

@@ -213,11 +213,21 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
 
+            SelectionMode selectionMode = getSelectionMode();
+            try {
+                selectionMode.requireMappingOwner(isTiaUpdateDBMapping());
+            } catch (IllegalStateException e) {
+                throw new MojoExecutionException(e.getMessage(), e);
+            }
+
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+            // The selection details written for the fork carry the mode, which is how the forked
+            // test JVM's seal knows whether to re-seed.
             TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, isTiaUpdateDBMapping(), SelectionMode.SELECTIVE);
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig,
+                    isTiaUpdateDBMapping(), selectionMode);
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;
         }
