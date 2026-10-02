@@ -239,7 +239,7 @@ class DatastoreEquivalenceTest {
         TestSelector selector = new TestSelector(store);
         VCSReader stubVcs = new SyntheticFooDiffVCSReader();
         return selector.selectTestsToIgnore(stubVcs, Collections.emptyList(), Collections.emptyList(),
-                false, null, null, false);
+                false, null, null, false, SelectionMode.SELECTIVE);
     }
 
     /**

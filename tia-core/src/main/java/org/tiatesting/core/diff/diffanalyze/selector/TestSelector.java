@@ -75,13 +75,20 @@ public class TestSelector {
      *                       writes are performed: tracked-library reconcile is skipped. Library
      *                       stamping never happens on the app run - the library's own publish owns
      *                       it. Stats writes are independent and not affected by this flag.
+     * @param requestedMode {@link SelectionMode#SELECTIVE} for ordinary selection, or
+     *                      {@link SelectionMode#SELECT_ALL} / {@link SelectionMode#RESEED} to
+     *                      override it and run every test: the diff, the targeted mapping queries
+     *                      and the static rules are skipped, while the library reconcile and drain
+     *                      still run. A request on a database with no stored mapping is a seed.
+     *                      See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
      * @return list of test suites to ignore in the current test run.
      */
     public TestSelectorResult selectTestsToIgnore(final VCSReader vcsReader, final List<String> sourceFilesDirNames,
                                            final List<String> testFilesDirNames, final boolean checkLocalChanges,
                                            final LibraryImpactAnalysisConfig libraryConfig,
                                            final StaticTestSelectionConfig staticMappingConfig,
-                                           final boolean updateDBMapping){
+                                           final boolean updateDBMapping,
+                                           final SelectionMode requestedMode){
         // Targeted read path: only the single-row core data is loaded up front. The mapping
         // is queried per diff-slice (the changed-files-to-tracked-methods and
         // methods-to-covering-suites lookups) inside selectTestsToRun, and the suite-level
@@ -97,8 +104,12 @@ public class TestSelector {
             // run all tests - don't ignore any
             return new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
                     0L, Collections.emptySet(), 0L, Collections.emptyMap(),
-                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, 0L, true,
-                    TestRunSelectionDetails.empty());
+                    tiaCore.getTestStats().getAllTestsRunTime(), 0L, 0L, SelectionMode.SEED,
+                    TestRunSelectionDetails.forFullRun(SelectionMode.SEED));
+        }
+
+        if (requestedMode.isForced()) {
+            return selectAllTests(requestedMode, tiaCore, libraryConfig);
         }
 
         // Suite names + stats only (no coverage edges): serves the modified-test-file check,
@@ -135,7 +146,44 @@ public class TestSelector {
                 estimate.getMedianRunTimeMsAppliedToMissing(),
                 estimate.getSelectedTestRunTimesMs(),
                 tiaCore.getTestStats().getAllTestsRunTime(), estimate.getCaptureOverheadMs(),
-                estimate.getFixedOverheadMs(), false, selectionDetails);
+                estimate.getFixedOverheadMs(), SelectionMode.SELECTIVE, selectionDetails);
+    }
+
+    /**
+     * Build the result of a forced full run: nothing ignored, every tracked suite the developer has
+     * not disabled listed as selected (so the run-time estimate and the developer-disabled
+     * bookkeeping see the real run set), and the pending library drain still evaluated so the seal
+     * can clean up exactly the stamps this run applied. The VCS diff, the targeted mapping queries
+     * and the static rules are skipped - they could only add suites that are running anyway. New
+     * suites still run: the ignore list is the only filter, and it is empty. See the "Forced runs
+     * and re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param mode the forced mode, {@link SelectionMode#SELECT_ALL} or {@link SelectionMode#RESEED}
+     * @param tiaCore the core data, for the stats the estimate is built from
+     * @param libraryConfig the library impact analysis config, or null when not configured
+     * @return the run-all result carrying {@code mode}
+     */
+    private TestSelectorResult selectAllTests(final SelectionMode mode, final TiaData tiaCore,
+                                              final LibraryImpactAnalysisConfig libraryConfig) {
+        log.info("Test selection overridden ({}): running all tests.", mode.getLabel());
+        Map<String, TestSuiteTracker> testSuitesTracked = dataStore.getTestSuitesTracked();
+        Set<String> testsToRun = new HashSet<>();
+        for (Map.Entry<String, TestSuiteTracker> entry : testSuitesTracked.entrySet()) {
+            if (!entry.getValue().isDeveloperDisabled()) {
+                testsToRun.add(entry.getKey());
+            }
+        }
+
+        PendingLibrarySelection librarySelection = drainPendingLibraryMethodsIfConfigured(
+                libraryConfig, testsToRun, testSuitesTracked);
+        RunTimeEstimate estimate = estimateRunTime(testsToRun, testSuitesTracked,
+                tiaCore.getTestStats());
+
+        return new TestSelectorResult(testsToRun, new HashSet<>(), librarySelection.getDrainResult(),
+                estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),
+                estimate.getMedianRunTimeMsAppliedToMissing(), estimate.getSelectedTestRunTimesMs(),
+                tiaCore.getTestStats().getAllTestsRunTime(), estimate.getCaptureOverheadMs(),
+                estimate.getFixedOverheadMs(), mode, TestRunSelectionDetails.forFullRun(mode));
     }
 
     /**

@@ -103,7 +103,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
@@ -124,7 +124,7 @@ class DistributedRunPlannerTest {
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
                 60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, fixedOverheadMs,
-                false, TestRunSelectionDetails.empty());
+                SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -142,7 +142,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
@@ -162,7 +162,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false, details);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE, details);
     }
 
     /**
@@ -209,21 +209,21 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false,
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
     /**
      * Build a selection that signals "no stored mapping yet" - both {@code testsToRun} and
-     * {@code testsToIgnore} empty, {@code runAllTests} true - the shape
+     * {@code testsToIgnore} empty, mode SEED - the shape
      * {@link org.tiatesting.core.diff.diffanalyze.selector.TestSelector#selectTestsToIgnore}
      * returns on a fresh branch with nothing tracked yet.
      *
-     * @return a selection with {@code runAllTests} true
+     * @return a seed selection
      */
     private static TestSelectorResult runAllTestsSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true,
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, SelectionMode.SEED,
                 TestRunSelectionDetails.empty());
     }
 

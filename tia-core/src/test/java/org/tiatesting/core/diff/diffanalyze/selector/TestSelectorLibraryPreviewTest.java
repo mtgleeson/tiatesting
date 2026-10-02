@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -105,7 +106,7 @@ class TestSelectorLibraryPreviewTest {
         // when a preview build (updateDBMapping=false) runs selection with no app diffs
         TestSelector selector = new TestSelector(dataStore);
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false);
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the covering test is selected and the stamp remains pending (no cleanup on preview)
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
@@ -129,7 +130,7 @@ class TestSelectorLibraryPreviewTest {
         // when a preview run analyzes the library diff
         TestSelector selector = new TestSelector(dataStore);
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false);
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then no test is selected for the unpublished change and nothing was persisted
         assertFalse(result.getTestsToRun().contains(LIB_TEST),
@@ -151,7 +152,7 @@ class TestSelectorLibraryPreviewTest {
         // when a primary build (updateDBMapping=true) analyzes the library diff
         TestSelector selector = new TestSelector(dataStore);
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, true);
+                Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
 
         // then no stamp rows exist and the library diff selected no tests directly
         assertTrue(dataStore.readPendingLibraryImpactedMethods(LIB_COORD).isEmpty(),
@@ -175,7 +176,7 @@ class TestSelectorLibraryPreviewTest {
         // when a local-changes run (checkLocalChanges=true, non-primary) analyzes the edit
         TestSelector selector = new TestSelector(dataStore);
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
-                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false);
+                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the covering test is selected directly and nothing was written
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
@@ -201,7 +202,7 @@ class TestSelectorLibraryPreviewTest {
         // when a local-changes run executes with no diffs of its own
         TestSelector selector = new TestSelector(dataStore);
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
-                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false);
+                Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
         // then the published change's covering test is selected and the stamp remains pending
         assertTrue(result.getTestsToRun().contains(LIB_TEST),
