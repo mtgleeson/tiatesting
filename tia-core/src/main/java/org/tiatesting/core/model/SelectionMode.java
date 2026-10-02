@@ -12,7 +12,7 @@ public enum SelectionMode {
     /** No stored mapping exists yet, so every test runs and the mapping is recorded. */
     SEED("Seed"),
     /** {@code tiaSelectAllTests}: selection overridden, every test runs. */
-    SELECT_ALL("All tests (forced)"),
+    SELECT_ALL("Forced"),
     /** {@code tiaReseed}: every test runs and the seal rebuilds the mapping from scratch. */
     RESEED("Re-seed");
 
