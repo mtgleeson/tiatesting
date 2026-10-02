@@ -812,6 +812,8 @@ Two Surefire settings can hide this output even when a binding is present:
 |-----|------|---------------|-----------|-----------------------------------------------------------------------------------------------|---------|
 |tiaEnabled|enabled|true, false|When true Tia will be used in the test runner and only the selected tests will be run. When disabled, tests are run as normal and no mapping or stats will be updated in the Tia DB.| false                                                                                         |true|
 |tiaUpdateDBMapping|updateDBMapping|true, false|When true, Tia will analyse all changes from the VCS since the last stored commit number in the DB, up to the head commit of the workspace. Only tests impacted by the detected changes will be run. The stored mapping in the Tia DB will be updated at the end of the test run (regardless if the test run was successful or failed). **This also controls the run statistics** - the run and per-suite timings, run counts and pass/fail counts are recorded by exactly the builds that own the mapping. The two are one decision: the build whose mapping is authoritative is the build whose timings are the reference ones, so a developer's machine never shifts the averages CI's estimates and savings are computed from.| false                                                                                         |false|
+|tiaSelectAllTests|selectAllTests|true, false|Run every test in this build, overriding Tia's selection, while still updating the mapping, stats and history as the other options configure. Meant to be set per build (`-DtiaSelectAllTests=true`, or `-PtiaSelectAllTests=true` on Gradle, which wins over the extension). See [Forced runs and re-seed](wiki/forced-runs-and-reseed.md).| false |false|
+|tiaReseed|reseed|true, false|Run every test and rebuild the stored mapping from scratch when the run seals: mapping data the run did not rewrite is deleted (suites that no longer run, their edges, orphan rows), while history, Tia stats and the stats of every suite the run observed are kept. Implies `tiaSelectAllTests`. Requires `tiaUpdateDBMapping=true`. See [Forced runs and re-seed](wiki/forced-runs-and-reseed.md).| false |false|
 |tiaCheckLocalChanges|checkLocalChanges|true, false|When true, Tia will analyse all the changes in the local workspace and only run the tests impacted by the local changes. **Note:** when updateDBMapping is true, checkLocalChanges will be disabled regardless of it's value. This is done to ensure the Tia DB is only updated based on analysed changes from VCS and not local changes. In a [distributed test run](#distributed-test-runs) this same conflict is a hard error rather than a silent disable, so a run that asked to test local changes is never quietly switched to the committed baseline - see the [distributed requirements](#requirements).| false                                                                                         |false|
 |tiaUpdateDBTestRunHistory|updateDBTestRunHistory|true, false|When true, Tia logs one row to the `tia_test_run_history` table on every Tia-enabled test run, capturing branch, commit, suite counts (ran / ignored / failed), duration, and whether the run also updated the mapping. The HTML report's "History" tab reads from this table.| true                                                                                          |false|
 |tiaProjectDir|projectDir|<string>|The file path to the root folder of the project being analysed.|                                                                                               |true|
@@ -960,7 +962,7 @@ gradle tia-dist-plan
   "runId": "gh-1284471",
   "branch": "main",
   "commit": "87a5110",
-  "seedRun": false,
+  "selectionMode": "SELECTIVE",
   "groupCount": 5,
   "avgGroupMs": 1380000,
   "heaviestGroupMs": 1450000,
@@ -979,7 +981,7 @@ gradle tia-dist-plan
 | `runId` | string | The `tiaRunId` this plan was written under. Every runner job must be given the same value to claim from it. |
 | `branch` | string | The VCS branch the selection was made against. A runner is verified against this before it claims. |
 | `commit` | string | The VCS commit the selection was made against, and the one the build seals at. |
-| `seedRun` | boolean | `true` when no stored mapping existed yet for this branch, so the plan was collapsed to a single group covering the whole suite and the configured group count / target were ignored. Explains why a pipeline received one job despite asking for more. |
+| `selectionMode` | string | How the selection was decided: `SELECTIVE` (ordinary), `SEED` (no stored mapping existed yet for this branch, so the suites found on disk were split by even count), `SELECT_ALL` or `RESEED` (forced by `tiaSelectAllTests` / `tiaReseed`). Informational only - size your jobs from `groupCount`. Replaced the earlier `seedRun` boolean. |
 | `groupCount` | number | How many groups the selection was split into. **This is the field to size your job matrix from** - start exactly this many runner jobs. `0` when Tia selected nothing to run: the plan step has then already sealed the build itself, so start no runner jobs (see [When nothing is selected](#when-nothing-is-selected)). |
 | `avgGroupMs` | number | `totalEstimatedMs / groupCount`. A shape indicator only; do not set job timeouts from it - uneven packing is exactly what it hides. |
 | `heaviestGroupMs` | number | The heaviest group's estimate, including its own copy of the fixed per-JVM cost. This is the build's expected wall-clock test time, since groups run in parallel, and the figure to base a job timeout on. |
@@ -1041,7 +1043,7 @@ The one that catches people out: **`Savings` never includes the speed-up from di
 
 Read `groupCount` to size your job matrix - for example `jq -c '[range(.groupCount)]' target/tia/tia-run-plan.json`.
 
-Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - one group with everything, ignoring your configured group count, because there is no mapping yet to split. `seedRun: true` says so.
+Expect `groupCount` to vary between builds: a one-line change selects fewer tests and needs fewer runners than a dependency bump does. That is the feature working, not instability. Note also that the **first** distributed build on a branch is a seed run - its suites are found on disk and split by even count, because there are no run times yet to balance by. `selectionMode: "SEED"` says so.
 
 ### When nothing is selected
 

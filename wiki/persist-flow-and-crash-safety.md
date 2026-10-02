@@ -34,10 +34,15 @@ On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 / JU
                                 - tia_source_method (the method catalogue)
                                 - the library drain cleanup (pending rows deleted, tracked-library
                                   baselines advanced)
+                                - the re-seed clear-out, on a tiaReseed run only (every suite
+                                  not flagged unsealed, plus orphan rows)
                                 - clearUnsealedTestSuites (every currently-flagged suite)
                                 - tia_core (commit value, branch, last-updated, optional stats)
 4. persistTestRunHistory   - tia_test_run_history (audit row)
 ```
+
+The re-seed clear-out reuses the `unsealed` flag as its "rewritten by this run" marker, which is why
+it must run before the flags are cleared - see [Forced runs and re-seed](forced-runs-and-reseed.md).
 
 The invariant: **if commit X is the stored value, every mapping write for X has completed.**
 
