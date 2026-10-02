@@ -318,8 +318,8 @@ public final class DistributedRunStatusReport {
      * reported nothing, and printing zeros for it would be indistinguishable from a runner that took
      * the group and ran nothing. Every group's Estimated column is dashed for a seed run too,
      * regardless of status, since {@code estimatedMs} is zeroed at plan time for a seed run's groups
-     * - see {@link DistributedRun#getSelectionMode()} - and printing "0ms" would read as a measured time
-     * rather than the absence of one.
+     * - see {@link DistributedRun#getSelectionMode()} - and printing "0ms" would read as a measured
+     * time rather than the absence of one.
      *
      * @param report the buffer to append to
      * @param run the run being reported on

@@ -62,19 +62,19 @@ public final class DistributedRunPlanner {
      * logs why this build is a <b>seed run</b> - see {@link #logSeedRun} - since {@link #balance}
      * uses {@code diskTestSuiteProvider} to split that case across the configured group count by
      * even count, falling back to a single empty group only when the provider finds nothing on
-     * disk (a forced full run is logged as such and balanced by stored run time instead); (2) warns about any previous run's groups that never reached {@code
-     * COMPLETED}, since the persist step below clears them; (3) weights the selection's suites and
-     * balances them into groups via {@link #balance}; (4) warns if the configured target run time
-     * was missed - deliberately done here rather than inside {@link #balance}, since {@code
-     * balance} is also the {@code select-tests} preview's entry point and a preview that logs
-     * "planning did not meet its target" would claim a plan was created when nothing was; (5)
-     * projects the result onto the persisted {@link DistributedRunPlan} types, carrying the
-     * selection's library-impact drain result onto the run row; (6) persists the plan, which clears
-     * the previous run's rows in the same transaction; (7) stages {@code selection}'s selection
-     * breakdown under this run's id via {@link DataStore#persistDistributedRunSelectionDetails},
-     * so the sealer can later copy it onto the build's single {@code tia_test_run_history} row;
-     * (8) when the plan has no groups, seals the run itself - see {@link #sealEmptyPlan}; and (9)
-     * returns a summary of what was persisted.
+     * disk (a forced full run is logged as such and balanced by stored run time instead); (2) warns
+     * about any previous run's groups that never reached {@code COMPLETED}, since the persist step
+     * below clears them; (3) weights the selection's suites and balances them into groups via
+     * {@link #balance}; (4) warns if the configured target run time was missed - deliberately done
+     * here rather than inside {@link #balance}, since {@code balance} is also the {@code
+     * select-tests} preview's entry point and a preview that logs "planning did not meet its
+     * target" would claim a plan was created when nothing was; (5) projects the result onto the
+     * persisted {@link DistributedRunPlan} types, carrying the selection's library-impact drain
+     * result onto the run row; (6) persists the plan, which clears the previous run's rows in the
+     * same transaction; (7) stages {@code selection}'s selection breakdown under this run's id via
+     * {@link DataStore#persistDistributedRunSelectionDetails}, so the sealer can later copy it onto
+     * the build's single {@code tia_test_run_history} row; (8) when the plan has no groups, seals
+     * the run itself - see {@link #sealEmptyPlan}; and (9) returns a summary of what was persisted.
      *
      * <p>Step (8) exists because a selection that chose nothing needs no runner: the balancer
      * gives it no groups, so the pipeline starts no runner jobs, and no runner is left to finish

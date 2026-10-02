@@ -136,8 +136,9 @@ public class TiaDistPlanTask extends DefaultTask {
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
                 // Full runs only (seed or forced): reads the project's compiled test-class dirs off
-                // disk so the run can be spread across groups and new suites are included. Resolved on the plugin because the daemon-side task
-                // has no fork to inherit tiaTestClassesDirs from.
+                // disk so the run can be spread across groups and new suites are included. Resolved
+                // on the plugin because the daemon-side task has no fork to inherit
+                // tiaTestClassesDirs from.
                 Supplier<Set<String>> seedTestSuiteProvider =
                         () -> TestClassScanner.scanTestSuiteNames(plugin.resolveTestClassesDirsCsv());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),
