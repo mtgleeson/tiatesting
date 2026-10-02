@@ -34,7 +34,7 @@ class HtmlHistoryTimelineTest {
                                              int savingsPercent, int numFailed) {
         return new TestRunHistoryEntry(id, timestampMs, "main", "abc", 5, 0, numFailed, durationMs,
                 true, 0L, savingsPercent, 0L, savingsPercent, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null);
     }
 
     /**
@@ -142,7 +142,7 @@ class HtmlHistoryTimelineTest {
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("dist", 1000L, "main", "abc", 5, 0,
                 0, 20_000L, true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
                 Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_CI, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String json = HtmlHistoryTimeline.buildRunsJson(Collections.singletonList(distributed));
@@ -178,7 +178,7 @@ class HtmlHistoryTimelineTest {
         // given
         TestRunHistoryEntry rerun = new TestRunHistoryEntry("rerun", 2000L, "main", "abc", 1, 4, 0, 10L,
                 true, 0L, 0, 0L, 0, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true, null);
 
         // when
         String real = HtmlHistoryTimeline.buildRunsJson(

@@ -1,5 +1,6 @@
 package org.tiatesting.core.report;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
@@ -155,7 +156,7 @@ class TestRunHistoryConsoleFormatterTest {
         // given - 1h 23m 20s of savings, longer than the "Savings" header
         TestRunHistoryEntry longSavings = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
                 8, 2, 0, 1000L, true, 5_000_000L, 80, 5_000_000L, 80, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -264,7 +265,7 @@ class TestRunHistoryConsoleFormatterTest {
                 .format(LOCAL_DATE_TIME);
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", epochMs, "main", "abc",
                 1, 0, 0, 1000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -288,10 +289,10 @@ class TestRunHistoryConsoleFormatterTest {
         // given - one partial run that saved 4s (80%) and one all-tests run that saved nothing
         TestRunHistoryEntry partial = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
                 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
         TestRunHistoryEntry allTests = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc",
                 10, 0, 0, 5000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -314,7 +315,7 @@ class TestRunHistoryConsoleFormatterTest {
         // given
         TestRunHistoryEntry entry = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc",
                 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -342,7 +343,7 @@ class TestRunHistoryConsoleFormatterTest {
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 40_000L, 67, 2_000L, 20, "run-1", Long.valueOf(8_000L),
                 Integer.valueOf(3), Integer.valueOf(6), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -369,10 +370,10 @@ class TestRunHistoryConsoleFormatterTest {
         // given
         TestRunHistoryEntry distributed = new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main",
                 "abc", 8, 2, 0, 20_000L, true, 4000L, 80, 4000L, 80, "run-1", Long.valueOf(8_000L),
-                Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false);
+                Integer.valueOf(3), Integer.valueOf(3), RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null);
         TestRunHistoryEntry singleHost = new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main",
                 "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         String output = TestRunHistoryConsoleFormatter.formatHistory(
@@ -432,6 +433,28 @@ class TestRunHistoryConsoleFormatterTest {
      * @return the populated entry
      */
     /**
+     * A forced full run saves nothing by definition, so its Savings cell names its mode instead of
+     * dashing.
+     */
+    @Test
+    void forcedRunRow_showsItsModeInTheSavingsColumn() {
+        // given
+        TestRunHistoryEntry reseed = new TestRunHistoryEntry("id-reseed", 1_700_000_000_000L,
+                "main", "abc123de", 10, 0, 0, 4_000L, true, 0L, 0, 0L, 0, null, null, null, null,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false,
+                SelectionMode.RESEED);
+
+        // when
+        String output = TestRunHistoryConsoleFormatter.formatHistory(
+                Collections.singletonList(reseed), 20, LF);
+
+        // then
+        String[] lines = output.split(LF, -1);
+        int savingsColumn = lines[2].indexOf("Savings ");
+        assertTrue(lines[4].substring(savingsColumn).startsWith("Re-seed"), output);
+    }
+
+    /**
      * A rerun row names itself in the Savings column - where it would otherwise show a dash, since
      * it is credited no savings - and marking it that way does not widen the table.
      */
@@ -442,7 +465,7 @@ class TestRunHistoryConsoleFormatterTest {
                 42, 3, 1, 83_000L, true);
         TestRunHistoryEntry rerun = new TestRunHistoryEntry("id-rerun", first.getRunTimestampMs() + 60_000L,
                 "main", "abc123de", 1, 3, 0, 4_000L, true, 0L, 0, 0L, 0, null, null, null, null,
-                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true);
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true, null);
 
         // when
         String withoutRerun = TestRunHistoryConsoleFormatter.formatHistory(
@@ -460,7 +483,7 @@ class TestRunHistoryConsoleFormatterTest {
 
     private static TestRunHistoryEntry entryWithOrigin(RunOrigin origin) {
         return new TestRunHistoryEntry("id-1", 1_700_000_000_000L, "main", "abc123",
-                42, 3, 1, 83_000L, true, 0L, 0, 0L, 0, null, null, null, null, origin, null, null, null, null, null, false);
+                42, 3, 1, 83_000L, true, 0L, 0, 0L, 0, null, null, null, null, origin, null, null, null, null, null, false, null);
     }
 
     private static TestRunHistoryEntry entry(int year, int month, int day, int hour, int minute,
@@ -471,7 +494,7 @@ class TestRunHistoryConsoleFormatterTest {
                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         return new TestRunHistoryEntry(id, epoch, branch, commit, ran, ignored, failed,
                 durationMs, mapping, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
     }
 
     private static List<TestRunHistoryEntry> sequentialEntries(int count) {
@@ -480,7 +503,7 @@ class TestRunHistoryConsoleFormatterTest {
         for (int i = 0; i < count; i++) {
             entries.add(new TestRunHistoryEntry("id" + i, base - i * 1000L, "main",
                     "c" + i, 1, 0, 0, 1000L, true, 0L, 0, 0L, 0, null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                    null, null, null, null, null, false));
+                    null, null, null, null, null, false, null));
         }
         return entries;
     }

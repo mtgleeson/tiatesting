@@ -44,6 +44,7 @@ public final class TestRunHistoryEntry implements Serializable {
     private final Integer numUnsealedMapping;
     private final Integer numPendingLibrary;
     private final boolean rerun;
+    private final SelectionMode selectionMode;
 
     /**
      * Full constructor including the (caller-supplied) id. Used by the read path so the id
@@ -107,6 +108,8 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param rerun true when the row records a retry of failed tests (a Surefire rerun or a Gradle
      *              test-retry round) rather than the test task's real run; such a row is credited
      *              no savings
+     * @param selectionMode how the run's selection was decided, or null for a row recorded before
+     *                      modes were - see the "Forced runs and re-seed" chapter in {@code WIKI.md}
      */
     public TestRunHistoryEntry(String id, long runTimestampMs, String branch, String commit,
                                int numSuitesRan, int numSuitesIgnored, int numSuitesFailed,
@@ -118,7 +121,7 @@ public final class TestRunHistoryEntry implements Serializable {
                                Integer numModifiedTestFiles,
                                Integer numNewTestFiles, Integer numPreviouslyFailed,
                                Integer numUnsealedMapping, Integer numPendingLibrary,
-                               boolean rerun) {
+                               boolean rerun, SelectionMode selectionMode) {
         this.id = id;
         this.runTimestampMs = runTimestampMs;
         this.branch = branch;
@@ -143,6 +146,7 @@ public final class TestRunHistoryEntry implements Serializable {
         this.numUnsealedMapping = numUnsealedMapping;
         this.numPendingLibrary = numPendingLibrary;
         this.rerun = rerun;
+        this.selectionMode = selectionMode;
     }
 
     /**
@@ -187,7 +191,7 @@ public final class TestRunHistoryEntry implements Serializable {
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
-                rerun);
+                rerun, modeOrNull(selectionDetails));
     }
 
     /**
@@ -256,7 +260,7 @@ public final class TestRunHistoryEntry implements Serializable {
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPreviouslyFailed),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumUnsealedMapping),
                 counterOrNull(selectionDetails, TestRunSelectionDetails::getNumPendingLibrary),
-                false);
+                false, modeOrNull(selectionDetails));
     }
 
     /**
@@ -269,6 +273,16 @@ public final class TestRunHistoryEntry implements Serializable {
      * @param f the extractor to apply to {@code d} to obtain one counter's value
      * @return the extracted counter boxed as an {@code Integer}, or null when {@code d} is null
      */
+    /**
+     * Read the selection mode off a breakdown, or null when no breakdown was recorded.
+     *
+     * @param d the breakdown, possibly null
+     * @return the breakdown's mode, or null
+     */
+    private static SelectionMode modeOrNull(TestRunSelectionDetails d) {
+        return d == null ? null : d.getSelectionMode();
+    }
+
     private static Integer counterOrNull(TestRunSelectionDetails d,
                                          java.util.function.ToIntFunction<TestRunSelectionDetails> f) {
         return d == null ? null : Integer.valueOf(f.applyAsInt(d));
@@ -449,6 +463,12 @@ public final class TestRunHistoryEntry implements Serializable {
      *         since its runners write no history rows of their own
      */
     public boolean isRerun() { return rerun; }
+
+    /**
+     * @return how the run's selection was decided, or null for a row recorded before modes were.
+     *         See the "Forced runs and re-seed" chapter in {@code WIKI.md}
+     */
+    public SelectionMode getSelectionMode() { return selectionMode; }
 
     @Override
     public boolean equals(Object o) {

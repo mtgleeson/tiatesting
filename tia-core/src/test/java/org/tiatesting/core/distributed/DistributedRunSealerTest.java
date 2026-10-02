@@ -176,6 +176,24 @@ class DistributedRunSealerTest {
     }
 
     /**
+     * The build's history row carries the mode the plan recorded, so a re-seed shows as one in the
+     * history reports.
+     */
+    @Test
+    void theHistoryRowCarriesThePlansMode() {
+        // given
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.RESEED);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertEquals(SelectionMode.RESEED, dataStore.readTestRunHistory().get(0).getSelectionMode());
+    }
+
+    /**
      * A select-all plan's seal is an ordinary seal: a suite no group ran keeps its mapping.
      */
     @Test

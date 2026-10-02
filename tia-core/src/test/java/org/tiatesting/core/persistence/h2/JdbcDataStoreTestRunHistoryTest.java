@@ -61,6 +61,37 @@ class JdbcDataStoreTestRunHistoryTest {
     }
 
     @Test
+    void theSelectionModeRoundTrips() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(
+                "main", "abc123", 1_700_000_000_000L, 10, 0, 0, 5_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
+                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED), false);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
+
+        // then
+        assertEquals(SelectionMode.RESEED, result.get(0).getSelectionMode());
+    }
+
+    @Test
+    void aRowWithNoRecordedBreakdownReadsBackNoMode() {
+        // given - no selection breakdown, so no mode was recorded
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create(
+                "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
+
+        // when
+        dataStore.persistTestRunHistoryEntry(entry);
+        List<TestRunHistoryEntry> result = dataStore.readTestRunHistory();
+
+        // then
+        assertNull(result.get(0).getSelectionMode());
+    }
+
+    @Test
     void persistAndReadReturnsRow() {
         // given
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(
@@ -100,7 +131,7 @@ class JdbcDataStoreTestRunHistoryTest {
                 "dist-id", 1_700_000_000_000L, "main", "abc123",
                 10, 2, 1, 5_000L, true, 4_000L, 80, 4_000L, 80,
                 "ci-run-42", 1_800L, 4, 4, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null),
-                null, null, null, null, null, false);
+                null, null, null, null, null, false, null);
 
         // when
         dataStore.persistTestRunHistoryEntry(entry);
