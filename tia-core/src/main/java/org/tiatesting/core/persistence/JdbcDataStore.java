@@ -626,6 +626,12 @@ public class JdbcDataStore implements DataStore {
                     persistTrackedLibrary(connection, library);
                 }
 
+                if (sealedRunData.isReseed()) {
+                    // Must precede clearUnsealedTestSuites: the unsealed flag is what marks the
+                    // suites this run rewrote, and the clear-out keeps exactly those.
+                    clearMappingNotRewrittenByThisRun(connection);
+                }
+
                 // Clear every currently-flagged suite before the commit value advances: those
                 // suites' mapping rows are now safe to trust against the commit about to become
                 // the stored one. Deliberately unconditional and not scoped to this run's own
@@ -734,6 +740,55 @@ public class JdbcDataStore implements DataStore {
      * @param connection the connection to update on
      * @throws SQLException if the update fails
      */
+    /**
+     * Re-seed clear-out: delete every piece of mapping data this run did not just rewrite, inside
+     * the seal's transaction. A suite this run executed had its edges rewritten and its unsealed
+     * flag set by persistTestSuiteClasses, so the flag is the "observed by this run" marker.
+     * Unobserved suites are deleted with their classes and edges, except developer-disabled ones,
+     * which keep their row, flag and stats and lose only their edges. Orphan class, edge and method
+     * rows - from earlier crashes, or suite deletions that never cascaded - are swept across the
+     * whole mapping, and failed-suite entries naming a suite that no longer exists are pruned. Core
+     * stats, history, library tables and id blocks are untouched. See the "Forced runs and
+     * re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param connection the seal's connection, already inside its transaction
+     * @throws SQLException if any delete fails; the caller rolls the whole seal back
+     */
+    private void clearMappingNotRewrittenByThisRun(Connection connection) throws SQLException {
+        String notObserved = "(" + COL_UNSEALED + " IS NULL OR " + COL_UNSEALED + " = FALSE)";
+        String unobservedSuiteIds = "SELECT " + COL_ID + " FROM " + TABLE_TIA_TEST_SUITE
+                + " WHERE " + notObserved;
+
+        try (Statement statement = connection.createStatement()) {
+            int edges = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD
+                    + " WHERE " + COL_TIA_SOURCE_CLASS_ID + " IN (SELECT " + COL_ID + " FROM "
+                    + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " IN ("
+                    + unobservedSuiteIds + "))");
+            int classes = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS
+                    + " WHERE " + COL_TIA_TEST_SUITE_ID + " IN (" + unobservedSuiteIds + ")");
+            int suites = statement.executeUpdate("DELETE FROM " + TABLE_TIA_TEST_SUITE
+                    + " WHERE " + notObserved + " AND (" + COL_DEVELOPER_DISABLED + " IS NULL OR "
+                    + COL_DEVELOPER_DISABLED + " = FALSE)");
+            int orphanClasses = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_TEST_SUITE + " s WHERE s."
+                    + COL_ID + " = " + TABLE_TIA_SOURCE_CLASS + "." + COL_TIA_TEST_SUITE_ID + ")");
+            int orphanEdges = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_SOURCE_CLASS + " c WHERE c."
+                    + COL_ID + " = " + TABLE_TIA_SOURCE_CLASS_METHOD + "." + COL_TIA_SOURCE_CLASS_ID + ")");
+            int methods = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_METHOD
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " e WHERE e."
+                    + COL_TIA_SOURCE_METHOD_ID + " = " + TABLE_TIA_SOURCE_METHOD + "." + COL_ID + ")");
+            int failed = statement.executeUpdate("DELETE FROM " + TABLE_TIA_TEST_SUITES_FAILED
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_TEST_SUITE + " s WHERE s."
+                    + COL_NAME + " = " + TABLE_TIA_TEST_SUITES_FAILED + "." + COL_TEST_SUITE_NAME + ")");
+
+            log.info("Re-seed: removed {} unobserved suite(s), {} class row(s) and {} edge(s) of "
+                            + "unobserved suites, {} orphan class row(s), {} orphan edge(s), {} "
+                            + "unreferenced method(s) and {} failed entr(ies) for deleted suites.",
+                    suites, classes, edges, orphanClasses, orphanEdges, methods, failed);
+        }
+    }
+
     private void clearUnsealedTestSuites(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             int cleared = statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE
