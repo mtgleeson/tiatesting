@@ -76,6 +76,10 @@ class TestSelectorForcedModeTest {
         }
     }
 
+    /**
+     * Select-all ignores nothing despite a stored mapping, selects every tracked suite the
+     * developer has not disabled, carries its mode, and never consults the VCS diff.
+     */
     @Test
     void selectAllReturnsAnEmptyIgnoreSetDespiteAStoredMapping() {
         // given
@@ -94,6 +98,9 @@ class TestSelectorForcedModeTest {
         assertEquals(0, vcsReader.diffRequests, "a forced run must not consult the VCS diff");
     }
 
+    /**
+     * A re-seed selects exactly like select-all; it differs only at seal.
+     */
     @Test
     void reseedBehavesLikeSelectAllAtSelectionTime() {
         // given
@@ -109,6 +116,9 @@ class TestSelectorForcedModeTest {
         assertEquals(SelectionMode.RESEED, result.getSelectionDetails().getSelectionMode());
     }
 
+    /**
+     * A forced flag on a database with no stored mapping is simply a seed.
+     */
     @Test
     void aForcedModeWithNoStoredMappingIsASeed() {
         // given - an empty database with no stored commit
@@ -122,6 +132,9 @@ class TestSelectorForcedModeTest {
         assertTrue(result.getTestsToIgnore().isEmpty());
     }
 
+    /**
+     * Ordinary selection still diffs and ignores the unimpacted suite.
+     */
     @Test
     void selectiveModeStillDiffs() {
         // given

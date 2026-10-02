@@ -63,6 +63,9 @@ class JdbcDataStoreSelectionModeTest {
         tempDir.delete();
     }
 
+    /**
+     * A plan's selection mode round-trips through the run row.
+     */
     @Test
     void theRunRowRoundTripsItsSelectionMode() {
         // given
@@ -78,6 +81,9 @@ class JdbcDataStoreSelectionModeTest {
         assertTrue(read.isFullRun());
     }
 
+    /**
+     * A run table created with the old seed_run column gains selection_mode and loses seed_run.
+     */
     @Test
     void aRunTableWithTheOldSeedRunColumnIsMigrated() throws Exception {
         // given - a run table created before selection_mode existed

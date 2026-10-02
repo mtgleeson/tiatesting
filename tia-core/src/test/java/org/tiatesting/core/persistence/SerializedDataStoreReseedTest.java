@@ -58,6 +58,10 @@ class SerializedDataStoreReseedTest {
         }
     }
 
+    /**
+     * The in-memory re-seed keeps the rewritten suite and the developer-disabled one (stripped of
+     * coverage), and drops everything else and its methods.
+     */
     @Test
     void reseedKeepsRewrittenAndDeveloperDisabledSuitesOnly() {
         // given
@@ -76,6 +80,9 @@ class SerializedDataStoreReseedTest {
         assertEquals(Collections.singleton(2), dataStore.getTiaData(false).getMethodsTracked().keySet());
     }
 
+    /**
+     * Without the re-seed flag the serialized seal deletes nothing.
+     */
     @Test
     void anOrdinarySealKeepsEverySuite() {
         // given

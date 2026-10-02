@@ -12,6 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class AbstractTiaMojoSelectionModeTest {
 
+    /**
+     * With no flag set, the mojo asks for ordinary selection.
+     */
     @Test
     void noFlagIsSelective() {
         // given
@@ -24,6 +27,9 @@ class AbstractTiaMojoSelectionModeTest {
         assertEquals(SelectionMode.SELECTIVE, mode);
     }
 
+    /**
+     * tiaSelectAllTests maps to SELECT_ALL.
+     */
     @Test
     void selectAllFlagMapsToSelectAllMode() {
         // given
@@ -37,6 +43,9 @@ class AbstractTiaMojoSelectionModeTest {
         assertEquals(SelectionMode.SELECT_ALL, mode);
     }
 
+    /**
+     * tiaReseed wins over tiaSelectAllTests.
+     */
     @Test
     void reseedFlagWinsOverSelectAll() {
         // given

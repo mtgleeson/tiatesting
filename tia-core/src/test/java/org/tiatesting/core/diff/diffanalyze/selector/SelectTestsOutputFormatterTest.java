@@ -23,6 +23,9 @@ class SelectTestsOutputFormatterTest {
 
     private static final String LINE_SEP = "\n";
 
+    /**
+     * A seed's run-all line says no mapping is stored yet.
+     */
     @Test
     void runAllReasonNamesASeed() {
         // given
@@ -35,6 +38,9 @@ class SelectTestsOutputFormatterTest {
         assertEquals("all (no stored mapping for this branch yet)", line);
     }
 
+    /**
+     * A forced run's run-all line names the mode that overrode selection.
+     */
     @Test
     void runAllReasonNamesAForcedMode() {
         // given

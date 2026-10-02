@@ -60,6 +60,9 @@ class JdbcDataStoreTestRunHistoryTest {
         }
     }
 
+    /**
+     * A history row's selection mode round-trips through the store.
+     */
     @Test
     void theSelectionModeRoundTrips() {
         // given
@@ -76,6 +79,9 @@ class JdbcDataStoreTestRunHistoryTest {
         assertEquals(SelectionMode.RESEED, result.get(0).getSelectionMode());
     }
 
+    /**
+     * A row recorded with no selection breakdown reads back with no mode rather than SELECTIVE.
+     */
     @Test
     void aRowWithNoRecordedBreakdownReadsBackNoMode() {
         // given - no selection breakdown, so no mode was recorded
