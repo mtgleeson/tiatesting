@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.report.ReportUtils;
 
 import java.util.Map;
@@ -25,6 +26,21 @@ import java.util.Map;
 public class SelectTestsOutputFormatter {
 
     private SelectTestsOutputFormatter() {}
+
+    /**
+     * Describe why every test runs, for the select-tests preview's "Selected tests to run" line:
+     * either no mapping is stored yet (a seed) or a runtime flag overrode the selection. See the
+     * "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param selectionMode the full-run mode the selection returned
+     * @return the line to print, e.g. {@code all (no stored mapping for this branch yet)}
+     */
+    public static String formatRunAllReason(final SelectionMode selectionMode) {
+        if (selectionMode == SelectionMode.SEED) {
+            return "all (no stored mapping for this branch yet)";
+        }
+        return "all (selection overridden: " + selectionMode.getLabel() + ")";
+    }
 
     /**
      * Build the tab-indented list of selected tests with each test's estimated runtime in

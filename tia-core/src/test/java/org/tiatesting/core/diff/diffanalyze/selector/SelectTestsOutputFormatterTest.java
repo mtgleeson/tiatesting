@@ -23,6 +23,30 @@ class SelectTestsOutputFormatterTest {
 
     private static final String LINE_SEP = "\n";
 
+    @Test
+    void runAllReasonNamesASeed() {
+        // given
+        SelectionMode mode = SelectionMode.SEED;
+
+        // when
+        String line = SelectTestsOutputFormatter.formatRunAllReason(mode);
+
+        // then
+        assertEquals("all (no stored mapping for this branch yet)", line);
+    }
+
+    @Test
+    void runAllReasonNamesAForcedMode() {
+        // given
+        SelectionMode mode = SelectionMode.RESEED;
+
+        // when
+        String line = SelectTestsOutputFormatter.formatRunAllReason(mode);
+
+        // then
+        assertEquals("all (selection overridden: Re-seed)", line);
+    }
+
     /**
      * An empty {@code testsToRun} means there's nothing to estimate - the estimate block
      * formatter must return an empty string so the plugins don't print a stray runtime line.
