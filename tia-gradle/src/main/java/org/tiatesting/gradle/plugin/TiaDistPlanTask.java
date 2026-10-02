@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -91,9 +92,13 @@ public class TiaDistPlanTask extends DefaultTask {
         boolean tiaEnabled = Boolean.TRUE.equals(plugin.getEnabled());
         Set<Project> reactorProjects = plugin.getReactorProjects();
         DistributedRunConfig config;
+        SelectionMode selectionMode = plugin.getSelectionMode();
         try {
             DistributedRunPreconditions.check(tiaEnabled, reactorProjects.size(), plugin.getDbUrl(),
                     plugin.getDbDialect(), checkLocalChanges, updateDBMapping);
+            // The plan step decides the mode for the whole build: the runners take it from the
+            // run row, and the sealer re-seeds from it.
+            selectionMode.requireMappingOwner(updateDBMapping);
             config = DistributedRunConfig.validated(plugin.getRunId(), plugin.getDistributedGroupCount(),
                     plugin.getDistributedTargetRunTime(), plugin.getDistributedMaxGroups(),
                     plugin.getDistributedRunnerKey(), plugin.getRunSource());
@@ -126,13 +131,14 @@ public class TiaDistPlanTask extends DefaultTask {
             // not updating the mapping and selecting against the local workspace is exactly what was
             // asked for. When updateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping);
+                    testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping, selectionMode);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
-                // Seed-only: reads the project's compiled test-class dirs off disk so a seed run
-                // can be split across groups. Resolved on the plugin because the daemon-side task
-                // has no fork to inherit tiaTestClassesDirs from.
+                // Full runs only (seed or forced): reads the project's compiled test-class dirs off
+                // disk so the run can be spread across groups and new suites are included. Resolved
+                // on the plugin because the daemon-side task has no fork to inherit
+                // tiaTestClassesDirs from.
                 Supplier<Set<String>> seedTestSuiteProvider =
                         () -> TestClassScanner.scanTestSuiteNames(plugin.resolveTestClassesDirsCsv());
                 summary = planner.plan(selection, workspaceIdentity.getBranch(),

@@ -22,7 +22,7 @@ public final class DistributedRun implements Serializable {
     private final long createdAtMs;
     private final String sealedBy;
     private final Long sealedAtMs;
-    private final boolean seedRun;
+    private final SelectionMode selectionMode;
     private final String runSource;
 
     /**
@@ -43,10 +43,9 @@ public final class DistributedRun implements Serializable {
      * @param createdAtMs UTC epoch millis when the plan was written
      * @param sealedBy runner key of the runner that performed the seal, or null if not sealed
      * @param sealedAtMs UTC epoch millis of the seal, or null if not sealed
-     * @param seedRun whether this is a seed run - the first distributed build on a branch with no
-     *                stored mapping yet, whose suites are discovered on disk and split across
-     *                groups by even count, or collapsed to a single group when nothing is found on
-     *                disk or no group count applies
+     * @param selectionMode how the plan's selection was decided; null is read as
+     *                      {@link SelectionMode#SELECTIVE}. Every mode but SELECTIVE is a full
+     *                      run whose groups were drawn from a disk scan - see {@link #isFullRun()}
      * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
@@ -54,7 +53,8 @@ public final class DistributedRun implements Serializable {
     public DistributedRun(String runId, String branch, String commitValue,
                           DistributedRunStatus status, int groupCount, int groupsAvailable,
                           Long targetRunTimeMs, long estimatedTotalMs, long createdAtMs,
-                          String sealedBy, Long sealedAtMs, boolean seedRun, String runSource) {
+                          String sealedBy, Long sealedAtMs, SelectionMode selectionMode,
+                          String runSource) {
         this.runId = runId;
         this.branch = branch;
         this.commitValue = commitValue;
@@ -66,7 +66,7 @@ public final class DistributedRun implements Serializable {
         this.createdAtMs = createdAtMs;
         this.sealedBy = sealedBy;
         this.sealedAtMs = sealedAtMs;
-        this.seedRun = seedRun;
+        this.selectionMode = selectionMode == null ? SelectionMode.SELECTIVE : selectionMode;
         this.runSource = runSource;
     }
 
@@ -85,10 +85,9 @@ public final class DistributedRun implements Serializable {
      * @param targetRunTimeMs the configured target run time in ms, or null in static groups
      * @param estimatedTotalMs summed estimated run time of every selected suite, in ms
      * @param createdAtMs UTC epoch millis when the plan was written
-     * @param seedRun whether this is a seed run - the first distributed build on a branch with no
-     *                stored mapping yet, whose suites are discovered on disk and split across
-     *                groups by even count, or collapsed to a single group when nothing is found on
-     *                disk or no group count applies
+     * @param selectionMode how the plan's selection was decided; null is read as
+     *                      {@link SelectionMode#SELECTIVE}. Every mode but SELECTIVE is a full
+     *                      run whose groups were drawn from a disk scan - see {@link #isFullRun()}
      * @param runSource the run source the plan step resolved for the build ({@code CI}, {@code
      *                  LOCAL} or a declared label), or null for a run planned before the source
      *                  was recorded - the sealer then falls back to its own environment
@@ -96,11 +95,11 @@ public final class DistributedRun implements Serializable {
      */
     public static DistributedRun open(String runId, String branch, String commitValue,
                                       int groupCount, int groupsAvailable, Long targetRunTimeMs,
-                                      long estimatedTotalMs, long createdAtMs, boolean seedRun,
+                                      long estimatedTotalMs, long createdAtMs, SelectionMode selectionMode,
                                       String runSource) {
         return new DistributedRun(runId, branch, commitValue, DistributedRunStatus.OPEN,
                 groupCount, groupsAvailable, targetRunTimeMs, estimatedTotalMs, createdAtMs, null,
-                null, seedRun, runSource);
+                null, selectionMode, runSource);
     }
 
     /** @return the CI-supplied run identifier */
@@ -144,17 +143,24 @@ public final class DistributedRun implements Serializable {
     public Long getSealedAtMs() { return sealedAtMs; }
 
     /**
-     * Whether this run is a seed run: the planner found no stored mapping for the branch, so its
-     * suites are discovered on disk and split across groups by even count rather than balanced by
-     * duration - or, when nothing is found on disk or no group count applies, collapsed to a
-     * single group carrying no suite names, whose runner ignores nothing and runs everything.
-     * Persisted with the plan rather than worked out again at seal time, because the shape of a
-     * seed run's plan can otherwise be indistinguishable from a nothing-impacted one - see
-     * {@code DistributedRunSealer.ignoredSuiteCount}.
+     * How the plan's selection was decided: ordinary selection, a seed (no stored mapping, suites
+     * split across groups by even count, or collapsed to a single group carrying no suite names
+     * whose runner runs everything), or a forced full run. Persisted with the plan rather than
+     * worked out again at seal time, because a full run's plan can otherwise be indistinguishable
+     * from a nothing-impacted one - see {@code DistributedRunSealer.ignoredSuiteCount}.
      *
-     * @return true if this run is a seed run
+     * @return the selection mode the plan was made with
      */
-    public boolean isSeedRun() { return seedRun; }
+    public SelectionMode getSelectionMode() { return selectionMode; }
+
+    /**
+     * Whether the plan runs every test - a seed or a forced run - so its groups were drawn from
+     * the disk scan, its completion guard is loosened and it ignores no suite. See the "Forced
+     * runs and re-seed" chapter in {@code WIKI.md}.
+     *
+     * @return true for every mode but {@link SelectionMode#SELECTIVE}
+     */
+    public boolean isFullRun() { return selectionMode.isFullRun(); }
 
     /**
      * The run source the plan step resolved for the build, which the sealer stamps on the build's
@@ -183,7 +189,7 @@ public final class DistributedRun implements Serializable {
                 && groupsAvailable == that.groupsAvailable
                 && estimatedTotalMs == that.estimatedTotalMs
                 && createdAtMs == that.createdAtMs
-                && seedRun == that.seedRun
+                && selectionMode == that.selectionMode
                 && Objects.equals(runId, that.runId)
                 && Objects.equals(branch, that.branch)
                 && Objects.equals(commitValue, that.commitValue)
@@ -202,7 +208,7 @@ public final class DistributedRun implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(runId, branch, commitValue, status, groupCount, groupsAvailable,
-                targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, seedRun,
+                targetRunTimeMs, estimatedTotalMs, createdAtMs, sealedBy, sealedAtMs, selectionMode,
                 runSource);
     }
 
@@ -215,7 +221,7 @@ public final class DistributedRun implements Serializable {
     public String toString() {
         return "DistributedRun{runId=" + runId + ", branch=" + branch + ", commit=" + commitValue
                 + ", status=" + status + ", groupCount=" + groupCount
-                + ", groupsAvailable=" + groupsAvailable + ", seedRun=" + seedRun
+                + ", groupsAvailable=" + groupsAvailable + ", selectionMode=" + selectionMode
                 + ", runSource=" + runSource + "}";
     }
 }

@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.testfixtures.ProjectBuilder;
@@ -231,7 +232,7 @@ class TiaDistStatusTaskTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), groups.size(), null, 2000L,
-                System.currentTimeMillis(), false, null);
+                System.currentTimeMillis(), SelectionMode.SELECTIVE, null);
 
         TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
         try (DataStore dataStore = plugin.buildDataStore(branch)) {

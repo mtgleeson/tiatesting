@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -146,6 +147,73 @@ class DistributedRunSealerTest {
                 "the first group's staged line numbers must win over the stored ones");
         assertEquals(60, catalogue.get(202).getLineNumberStart(),
                 "the last group's staged line numbers must win over the stored ones");
+    }
+
+    /**
+     * A re-seed plan's seal deletes the mapping no group rewrote: a suite a runner wrote this build
+     * is flagged unsealed and survives, while a suite sealed by an earlier build and run by no group
+     * is removed with its edges. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     */
+    @Test
+    void aReseedRunsSealClearsTheSuitesNoGroupRewrote() {
+        // given
+        Map<Integer, MethodImpactTracker> stored = trackers(101, "com/example/A.a.()V", 1, 5);
+        stored.putAll(trackers(303, "com/example/Old.o.()V", 1, 5));
+        seedStoredCatalogue(stored);
+        writeSuiteOnly("com.example.OldTest", "com/example/Old.java", 303);
+        dataStore.clearUnsealedTestSuites();
+        writeSuiteOnly("com.example.ATest", "com/example/A.java", 101);
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.RESEED);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertEquals(Collections.singleton("com.example.ATest"), dataStore.getTestSuitesTracked().keySet());
+        assertEquals(Collections.singleton(101), dataStore.getMethodsTracked().keySet());
+    }
+
+    /**
+     * The build's history row carries the mode the plan recorded, so a re-seed shows as one in the
+     * history reports.
+     */
+    @Test
+    void theHistoryRowCarriesThePlansMode() {
+        // given
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.RESEED);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, true, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertEquals(SelectionMode.RESEED, dataStore.readTestRunHistory().get(0).getSelectionMode());
+    }
+
+    /**
+     * A select-all plan's seal is an ordinary seal: a suite no group ran keeps its mapping.
+     */
+    @Test
+    void aSelectAllRunsSealKeepsTheSuitesNoGroupRan() {
+        // given
+        Map<Integer, MethodImpactTracker> stored = trackers(101, "com/example/A.a.()V", 1, 5);
+        stored.putAll(trackers(303, "com/example/Old.o.()V", 1, 5));
+        seedStoredCatalogue(stored);
+        writeSuiteOnly("com.example.OldTest", "com/example/Old.java", 303);
+        dataStore.clearUnsealedTestSuites();
+        writeSuiteOnly("com.example.ATest", "com/example/A.java", 101);
+        persistPlanWithMode(RUN_ID, 1, SelectionMode.SELECT_ALL);
+        completeAllGroups(RUN_ID, RUNNER_A);
+
+        // when
+        boolean sealed = sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        assertTrue(sealed);
+        assertTrue(dataStore.getTestSuitesTracked().containsKey("com.example.OldTest"));
     }
 
     /**
@@ -549,7 +617,42 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, false, null), groups, suites, drainResult));
+                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null), groups, suites, drainResult));
+    }
+
+    /**
+     * Build and persist a plan recorded with the given selection mode.
+     *
+     * @param runId the run identifier to plan under
+     * @param groupCount how many groups the plan is split into
+     * @param mode the selection mode to record on the run row
+     */
+    private void persistPlanWithMode(final String runId, final int groupCount, final SelectionMode mode) {
+        List<DistributedRunGroup> groups = new ArrayList<>();
+        Map<Integer, List<String>> suites = new HashMap<>();
+        for (int i = 0; i < groupCount; i++) {
+            groups.add(DistributedRunGroup.pending(runId, i, 1000L));
+            suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
+        }
+        dataStore.persistDistributedRunPlan(new DistributedRunPlan(
+                DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
+                        1000L * groupCount, 1234L, mode, null), groups, suites, null));
+    }
+
+    /**
+     * Write one suite's mapping on its own, as a runner's persist does - which leaves just that
+     * suite flagged unsealed.
+     *
+     * @param suiteName the suite to write
+     * @param sourceFile the covered source file's mapping key
+     * @param methodId the method id the suite covers
+     */
+    private void writeSuiteOnly(final String suiteName, final String sourceFile, final int methodId) {
+        TestSuiteTracker tracker = new TestSuiteTracker(suiteName);
+        tracker.setClassesImpacted(Collections.singletonList(new ClassImpactTracker(sourceFile,
+                Collections.singleton(Integer.valueOf(methodId)))));
+        dataStore.persistTestSuites(Collections.singletonMap(suiteName, tracker));
+        dataStore.callOrder.clear();
     }
 
     /**
@@ -572,7 +675,7 @@ class DistributedRunSealerTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, suitePerGroup.length, suitePerGroup.length, null,
-                        1000L * suitePerGroup.length, 1234L, false, null), groups, suites, null));
+                        1000L * suitePerGroup.length, 1234L, SelectionMode.SELECTIVE, null), groups, suites, null));
     }
 
     /**
@@ -589,7 +692,7 @@ class DistributedRunSealerTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         suites.put(0, Arrays.asList("com.example.Suite0Test"));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, false, null),
+                DistributedRun.open(runId, branch, PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null),
                 groups, suites, null));
     }
 

@@ -1,5 +1,6 @@
 package org.tiatesting.spock;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -126,7 +127,7 @@ class TiaSpockRunListenerDistributedTest {
         Map<Integer, List<String>> suitesByGroup = new HashMap<>();
         suitesByGroup.put(0, Collections.singletonList("com.example.ATest"));
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
-                DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, false, null),
+                DistributedRun.open(runId, BRANCH, PLAN_COMMIT, 1, 1, null, 1000L, 5000L, SelectionMode.SELECTIVE, null),
                 groups, suitesByGroup, null));
     }
 

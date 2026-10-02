@@ -39,6 +39,9 @@ wiki can also be read front to back.
   framework, how a suite's latest outcome carries across Surefire retries, the incremental failed-set
   write that keeps concurrent distributed runners from discarding each other's entries, and how a
   Surefire rerun or a Gradle test-retry round is detected and persisted as a retry.
+- [Forced runs and re-seed](wiki/forced-runs-and-reseed.md) - the `tiaSelectAllTests` and
+  `tiaReseed` runtime flags: the selection mode, why pending library stamps survive, the re-seed
+  clear-out inside the seal transaction, retries, distributed runs, and the measured cost.
 - [Distributed test runs (group assignment and the run lifecycle)](wiki/distributed-test-runs.md) -
   how one logical build is split across CI runners: the plan, the claim protocol, the completion
   barrier and the sealer election, plus what a pipeline has to run.

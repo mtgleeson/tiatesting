@@ -65,13 +65,16 @@ public final class SealedRunDataAssembler {
      * @param allTestsRun true when the run ignored zero suites, which re-covers every library
      * @param statsIncrement this run's contribution to the Tia-level stats, carried through to the
      *                       seal so the store can accumulate it at write time
+     * @param reseed whether the seal re-seeds the mapping - see the "Forced runs and re-seed"
+     *               chapter in {@code WIKI.md}
      * @return the payload to hand to {@link DataStore#persistSealedRunData(SealedRunData)}
      */
     public SealedRunData assemble(final TiaData tiaData,
                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
                                   final LibraryImpactDrainResult drainResult,
                                   final String commitValue, final boolean allTestsRun,
-                                  final CoreStatsIncrement statsIncrement) {
+                                  final CoreStatsIncrement statsIncrement,
+                                  final boolean reseed) {
         Map<Integer, MethodImpactTracker> methodsTracked =
                 buildMethodsTracked(tiaData, observedMethodTrackers);
 
@@ -86,7 +89,7 @@ public final class SealedRunDataAssembler {
                 collectLibrariesToPersist(drainResult, commitValue, allTestsRun);
 
         return new SealedRunData(tiaData, methodsTracked, drainedMethodKeys, drainedForcedKeys,
-                librariesToPersist, statsIncrement);
+                librariesToPersist, statsIncrement, reseed);
     }
 
     /**

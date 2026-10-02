@@ -105,6 +105,10 @@ public final class TestRunHistoryDetailConsoleFormatter {
                 .append(Instant.ofEpochMilli(entry.getRunTimestampMs()).atZone(zone).format(LOCAL_DATE_TIME))
                 .append(lineSep);
         sb.append("Rerun:               ").append(entry.isRerun() ? "yes" : "no").append(lineSep);
+        String modeLabel = ReportUtils.selectionModeLabel(entry);
+        if (modeLabel != null) {
+            sb.append("Selection:           ").append(modeLabel).append(lineSep);
+        }
         sb.append("Suites ran:          ").append(entry.getNumSuitesRan()).append(lineSep);
         sb.append("Suites ignored:      ").append(entry.getNumSuitesIgnored()).append(lineSep);
         sb.append("Suites failed:       ").append(entry.getNumSuitesFailed()).append(lineSep);
@@ -154,7 +158,9 @@ public final class TestRunHistoryDetailConsoleFormatter {
 
     /**
      * Append the "Selection sources" section: the five scalar selection-source counters, each
-     * rendered as the not-applicable dash when its boxed value is null (not recorded).
+     * rendered as the not-applicable dash when its boxed value is null (not recorded) - or, for a
+     * run that executed every test, a single line saying why, in place of counters that would all
+     * read zero.
      *
      * @param sb      output buffer
      * @param entry   the run whose counters are rendered
@@ -162,6 +168,11 @@ public final class TestRunHistoryDetailConsoleFormatter {
      */
     private static void appendSelectionSources(StringBuilder sb, TestRunHistoryEntry entry, String lineSep) {
         sb.append("Selection sources:").append(lineSep);
+        String overrideNote = ReportUtils.selectionOverrideNote(entry);
+        if (overrideNote != null) {
+            sb.append("  ").append(overrideNote).append(lineSep);
+            return;
+        }
         sb.append("  Modified test files:  ").append(orDash(entry.getNumModifiedTestFiles())).append(lineSep);
         sb.append("  New test files:       ").append(orDash(entry.getNumNewTestFiles())).append(lineSep);
         sb.append("  Previously-failed:    ").append(orDash(entry.getNumPreviouslyFailed())).append(lineSep);

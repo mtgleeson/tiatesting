@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Plugin;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -275,16 +276,18 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 // The preview diffs the workspace, so it takes the identity's own reader rather
                 // than constructing a second one - the branch may be configured, the diff never is.
                 TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
-                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
+                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                        getSelectionMode());
                 Set<String> testsToRun = result.getTestsToRun();
                 String lineSep = System.lineSeparator();
 
                 System.out.println("Selected tests to run: ");
                 if (result.isRunAllTests()) {
-                    // No stored mapping for this branch yet: every test runs. testsToRun is empty
-                    // in this case (see TestSelectorResult#isRunAllTests), so it is checked first
-                    // and reported distinctly from "nothing selected" below.
-                    System.out.println("all (no stored mapping for this branch yet)");
+                    // Every test runs: a seed (no stored mapping, testsToRun empty - see
+                    // TestSelectorResult#isRunAllTests) or a forced run. Checked first so a seed is
+                    // reported distinctly from "nothing selected" below.
+                    System.out.println(SelectTestsOutputFormatter.formatRunAllReason(
+                            result.getSelectionMode()));
                     printDistributedRunPreview(result, buildDistributedGroupingIfConfigured(result),
                             lineSep);
                 } else if (testsToRun.isEmpty()){
@@ -380,7 +383,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             return;
         }
         System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
-                getDistributedTargetRunTime(), selection.isRunAllTests(), lineSep));
+                getDistributedTargetRunTime(), selection.getSelectionMode(), lineSep));
     }
 
     /**
@@ -845,6 +848,15 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     public Boolean getCheckLocalChanges() {
         return tiaTaskExtension.getCheckLocalChanges();
+    }
+
+    /**
+     * @return the selection mode the {@code selectAllTests} / {@code reseed} runtime flags ask
+     *         for, with a {@code -P} property winning over the extension - see
+     *         {@link TiaRuntimeFlags}
+     */
+    public SelectionMode getSelectionMode() {
+        return TiaRuntimeFlags.selectionMode(project, tiaTaskExtension);
     }
 
     public String getSourceLibs() {

@@ -20,7 +20,7 @@ class DistributedRunTest {
      * @return a freshly planned run
      */
     private static DistributedRun runWithSource(String runSource) {
-        return DistributedRun.open("run-1", "main", "abc123", 2, 2, null, 300L, 5L, false,
+        return DistributedRun.open("run-1", "main", "abc123", 2, 2, null, 300L, 5L, SelectionMode.SELECTIVE,
                 runSource);
     }
 

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
@@ -87,7 +88,7 @@ class TestRunnerServiceHistoryDetailTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4, SelectionMode.SELECTIVE);
 
         TestRunResult testRunResult = new TestRunResult(
                 trackers, new HashSet<>(), runnerTestSuites, runnerTestSuites,
@@ -147,7 +148,7 @@ class TestRunnerServiceHistoryDetailTest {
         Set<String> runnerTestSuites = new HashSet<>(Arrays.asList("com.example.ATest"));
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 7, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         TestRunResult result = new TestRunResult(trackers, new HashSet<>(), runnerTestSuites,
                 runnerTestSuites, new HashSet<>(), new HashMap<>(), new TestStats(), null, 0, 1, 0, details, RunAttempt.FIRST);
 

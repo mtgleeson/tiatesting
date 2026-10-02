@@ -7,6 +7,7 @@ import org.tiatesting.core.distributed.DistributedRunnerPersist;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -429,7 +430,30 @@ public class TestRunnerService {
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 testRunResult.getMethodTrackersFromTestRun(),
                 testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
-                statsIncrement));
+                statsIncrement, isReseed(testRunResult)));
+    }
+
+    /**
+     * Decide whether this seal re-seeds the mapping. Only the first attempt does: a retry runs just
+     * the failed suites, so its unsealed set is a sliver of the suite and a clear-out keyed on it
+     * would delete nearly the whole mapping. See the "Forced runs and re-seed" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param testRunResult the collected results of the test run, carrying the selection mode and
+     *                      the attempt
+     * @return true when the run asked for a re-seed and this is its first attempt
+     */
+    private boolean isReseed(final TestRunResult testRunResult) {
+        if (testRunResult.getSelectionDetails().getSelectionMode() != SelectionMode.RESEED) {
+            return false;
+        }
+        if (testRunResult.getRunAttempt() != RunAttempt.FIRST) {
+            log.info("Re-seed requested, but this is a retry attempt ({}); sealing without the "
+                    + "clear-out, which the first attempt already performed.",
+                    testRunResult.getRunAttempt());
+            return false;
+        }
+        return true;
     }
 
     /**

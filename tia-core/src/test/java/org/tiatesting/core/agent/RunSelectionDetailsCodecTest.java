@@ -2,6 +2,7 @@ package org.tiatesting.core.agent;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 
@@ -39,7 +40,8 @@ class RunSelectionDetailsCodecTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", 3),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "forced-selection-rule", 7)
         );
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
+                SelectionMode.SELECTIVE);
         File file = tempDir.resolve("selection-details.txt").toFile();
 
         // when
@@ -75,7 +77,7 @@ class RunSelectionDetailsCodecTest {
         TestRunTrigger triggerWithNewline = new TestRunTrigger(
                 TestRunTrigger.Type.STATIC_RULE, "line-one\nline-two", 4);
         TestRunSelectionDetails details = new TestRunSelectionDetails(
-                Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0);
+                Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         File file = tempDir.resolve("selection-details-newline.txt").toFile();
 
         // when
@@ -141,7 +143,8 @@ class RunSelectionDetailsCodecTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, name, 1)
         );
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0,
+                SelectionMode.SELECTIVE);
         File file = tempDir.resolve("names.txt").toFile();
 
         // when
@@ -182,5 +185,42 @@ class RunSelectionDetailsCodecTest {
         assertEquals("valid.One", result.getTriggers().get(0).getName());
         assertEquals("valid-two", result.getTriggers().get(1).getName());
         assertTrue(result.getTriggers().get(1).getType() == TestRunTrigger.Type.STATIC_RULE);
+    }
+
+    /**
+     * Verify that the {@link SelectionMode} a breakdown was built with survives a write/read round
+     * trip through the sidecar file, the same as every counter and trigger.
+     */
+    @Test
+    void selectionModeRoundTripsThroughTheFile() {
+        // given
+        File file = tempDir.resolve("details.txt").toFile();
+        TestRunSelectionDetails details = TestRunSelectionDetails.forFullRun(SelectionMode.RESEED);
+
+        // when
+        RunSelectionDetailsCodec.write(details, file);
+        TestRunSelectionDetails read = RunSelectionDetailsCodec.read(file);
+
+        // then
+        assertEquals(SelectionMode.RESEED, read.getSelectionMode());
+    }
+
+    /**
+     * Verify that a sidecar file written before modes existed - a counters line with no following
+     * {@code mode} line - reads back as {@link SelectionMode#SELECTIVE}, so old-format files (and
+     * the defensive-parsing tests above, which hand-write counters-only content) keep working.
+     */
+    @Test
+    void aFileWithNoModeLineReadsAsSelective() throws IOException {
+        // given
+        File file = tempDir.resolve("details.txt").toFile();
+        Files.write(file.toPath(), "counters\t1\t0\t0\t0\t0\n".getBytes(StandardCharsets.UTF_8));
+
+        // when
+        TestRunSelectionDetails read = RunSelectionDetailsCodec.read(file);
+
+        // then
+        assertEquals(SelectionMode.SELECTIVE, read.getSelectionMode());
+        assertEquals(1, read.getNumModifiedTestFiles());
     }
 }

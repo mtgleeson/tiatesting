@@ -182,9 +182,13 @@ public final class TestRunHistoryConsoleFormatter {
                     ? e.getGroupCount().toString() : NOT_APPLICABLE));
         }
 
+        // A full run (seed or forced) saves nothing by definition; naming its mode in the cell
+        // that would otherwise dash marks the row without widening the table, as a rerun does.
         columns.add(new Column("Savings", false, (e, zone) -> e.isRerun() ? RERUN
                 : e.getWallClockSavingsMs() > 0
-                ? ReportUtils.prettyDuration(e.getWallClockSavingsMs(), true) : NOT_APPLICABLE));
+                ? ReportUtils.prettyDuration(e.getWallClockSavingsMs(), true)
+                : ReportUtils.selectionModeLabel(e) != null ? ReportUtils.selectionModeLabel(e)
+                : NOT_APPLICABLE));
         columns.add(new Column("Savings %", true, (e, zone) -> e.getWallClockSavingsMs() > 0
                 ? e.getWallClockSavingsPercent() + "%" : NOT_APPLICABLE));
 

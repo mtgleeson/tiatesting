@@ -59,6 +59,16 @@ public final class ForkSystemProperties {
      */
     public static final String PROP_TEST_CLASSES_DIRS = "tiaTestClassesDirs";
 
+    /**
+     * Property name for the {@code tiaSelectAllTests} flag forwarded to a Gradle test JVM, where the
+     * Spock extension runs the selection. See the "Forced runs and re-seed" chapter in
+     * {@code WIKI.md}.
+     */
+    public static final String PROP_SELECT_ALL_TESTS = "tiaSelectAllTests";
+
+    /** Property name for the {@code tiaReseed} flag; see {@link #PROP_SELECT_ALL_TESTS}. */
+    public static final String PROP_RESEED = "tiaReseed";
+
     private ForkSystemProperties() {
     }
 

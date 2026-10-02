@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.MojoExecution;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -50,6 +51,14 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
     private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
     private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
     private static final String SELECTION_DETAILS_FILENAME = "run-selection-details.txt";
+
+    /**
+     * Warned when a distributed runner is given tiaSelectAllTests or tiaReseed. The plan step
+     * decides the mode for the whole build and records it on the run row; a runner only claims its
+     * share of that plan.
+     */
+    static final String FORCED_FLAGS_IGNORED_ON_RUNNER = "tiaSelectAllTests / tiaReseed are ignored "
+            + "on a distributed runner: the mode is decided by dist-plan and recorded on the run.";
 
     /**
      * Allows to specify a property which will contains settings for JaCoCo Agent.
@@ -137,6 +146,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             // result is written here. Likewise there is no per-runner selection breakdown to
             // report - the build-level detail is a separate concern handled where the plan itself
             // is recorded - so the forked JVM gets an empty breakdown rather than none at all.
+            if (getSelectionMode().isForced()) {
+                getLog().warn(FORCED_FLAGS_IGNORED_ON_RUNNER);
+            }
             assignment = claimDistributedRunGroup(workspaceIdentity);
             testsToIgnore = assignment.getTestsToIgnore();
             testsToRun = assignment.getTestsToRun();
@@ -212,11 +224,21 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
 
+            SelectionMode selectionMode = getSelectionMode();
+            try {
+                selectionMode.requireMappingOwner(isTiaUpdateDBMapping());
+            } catch (IllegalStateException e) {
+                throw new MojoExecutionException(e.getMessage(), e);
+            }
+
             TestSelector testSelector = new TestSelector(dataStore);
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+            // The selection details written for the fork carry the mode, which is how the forked
+            // test JVM's seal knows whether to re-seed.
             TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, isTiaUpdateDBMapping());
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig,
+                    isTiaUpdateDBMapping(), selectionMode);
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;
         }
@@ -268,8 +290,9 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
                 // ignores nothing and executes everything it discovers. Reporting the assigned
                 // count for that group would say "will run 0 test suite(s)" about the one run that
                 // executes the entire suite. See seedRunClaimLogMessage for the exact wording of
-                // each case.
-                if (assignment.isSeedRun()){
+                // each case. A forced full run is reported like an ordinary claim: its groups carry
+                // real suite names balanced by run time.
+                if (assignment.getSelectionMode() == SelectionMode.SEED){
                     getLog().info(seedRunClaimLogMessage(config.getRunId(), assignment.getRunnerKey(),
                             assignment.getGroupNumber(), assignment.getTestsToRun().size()));
                 } else {

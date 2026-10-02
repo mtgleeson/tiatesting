@@ -1,5 +1,6 @@
 package org.tiatesting.core.perf;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -126,7 +127,7 @@ public final class ProfileSelectTests {
                 /* checkLocalChanges */ false,
                 /* libraryConfig */ null,
                 /* staticMappingConfig */ null,
-                /* updateDBMapping */ false);
+                /* updateDBMapping */ false, SelectionMode.SELECTIVE);
         long tSelectEnd = System.nanoTime();
         printPhase("Phase 3 - selectTestsToIgnore (diffFiles=" + args.diffFiles + ")", tSelectStart, tSelectEnd);
 

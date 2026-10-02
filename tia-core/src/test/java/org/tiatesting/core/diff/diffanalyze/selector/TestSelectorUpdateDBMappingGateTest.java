@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,7 +100,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false);
+                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().isEmpty(),
                 "Non-primary build must not insert tia_library rows.");
@@ -114,7 +115,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, true);
+                Collections.emptyList(), false, libraryConfig, null, true, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:lib"),
                 "Primary build must insert the declared library on reconcile.");
@@ -133,7 +134,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false);
+                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().containsKey("com.example:gone"),
                 "Non-primary build must not delete tia_library rows even when config drops a library.");
@@ -157,7 +158,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(counting);
         testSelector.selectTestsToIgnore(libraryDiffVcsReader(), Collections.emptyList(),
-                Collections.emptyList(), false, libraryConfig, null, false);
+                Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertEquals(0, counting.persistPendingCalls.get(),
                 "Non-primary build must not call persistPendingLibraryImpactedMethods.");
@@ -192,7 +193,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         TestSelector testSelector = new TestSelector(counting);
         TestSelectorResult result = testSelector.selectTestsToIgnore(emptyDiffsVcsReader(),
-                Collections.emptyList(), Collections.emptyList(), false, libraryConfig, null, false);
+                Collections.emptyList(), Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(result.getTestsToRun().contains("com.example.LibTest"),
                 "Preview must surface tests resolved from drained pending batches.");

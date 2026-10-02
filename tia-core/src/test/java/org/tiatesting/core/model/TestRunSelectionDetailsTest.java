@@ -3,6 +3,7 @@ package org.tiatesting.core.model;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,7 +18,8 @@ public class TestRunSelectionDetailsTest {
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", 5),
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", 20),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
+                SelectionMode.SELECTIVE);
 
         // when
         List<TestRunTrigger> methods = details.getSourceMethodTriggers();
@@ -47,5 +49,43 @@ public class TestRunSelectionDetailsTest {
         assertTrue(empty.getTriggers().isEmpty());
         assertEquals(0, empty.getNumModifiedTestFiles());
         assertEquals(0, empty.getNumPendingLibrary());
+    }
+
+    /**
+     * Verify that {@link TestRunSelectionDetails#forFullRun(SelectionMode)} carries the given mode
+     * with no triggers and every counter at zero, since a full run has nothing to attribute.
+     */
+    @Test
+    public void forFullRunCarriesTheModeWithEmptyCounters() {
+        // given
+        SelectionMode mode = SelectionMode.SELECT_ALL;
+
+        // when
+        TestRunSelectionDetails details = TestRunSelectionDetails.forFullRun(mode);
+
+        // then
+        assertEquals(mode, details.getSelectionMode());
+        assertTrue(details.getTriggers().isEmpty());
+        assertEquals(0, details.getNumModifiedTestFiles());
+    }
+
+    /**
+     * Verify that {@link TestRunSelectionDetails#withSelectionMode(SelectionMode)} returns a copy
+     * with every trigger and counter unchanged and only the mode replaced, leaving the original
+     * breakdown untouched.
+     */
+    @Test
+    public void withSelectionModeKeepsEveryCounter() {
+        // given
+        TestRunSelectionDetails details = new TestRunSelectionDetails(Collections.emptyList(),
+                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
+
+        // when
+        TestRunSelectionDetails copy = details.withSelectionMode(SelectionMode.RESEED);
+
+        // then
+        assertEquals(SelectionMode.RESEED, copy.getSelectionMode());
+        assertEquals(5, copy.getNumPendingLibrary());
+        assertEquals(SelectionMode.SELECTIVE, details.getSelectionMode());
     }
 }
