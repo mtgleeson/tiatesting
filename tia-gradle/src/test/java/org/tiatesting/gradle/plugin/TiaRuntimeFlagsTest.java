@@ -14,6 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class TiaRuntimeFlagsTest {
 
+    /**
+     * A -P property wins over the extension's setting.
+     */
     @Test
     void commandLinePropertyOverridesTheExtension() {
         // given
@@ -29,6 +32,9 @@ class TiaRuntimeFlagsTest {
         assertEquals(SelectionMode.RESEED, mode);
     }
 
+    /**
+     * With no -P property, the extension's setting applies.
+     */
     @Test
     void extensionValueIsUsedWhenNoPropertyIsSet() {
         // given
@@ -43,6 +49,9 @@ class TiaRuntimeFlagsTest {
         assertEquals(SelectionMode.SELECT_ALL, mode);
     }
 
+    /**
+     * With nothing set, the mode is ordinary selection.
+     */
     @Test
     void nothingSetIsSelective() {
         // given

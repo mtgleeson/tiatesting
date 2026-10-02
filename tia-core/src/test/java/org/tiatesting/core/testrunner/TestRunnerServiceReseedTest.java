@@ -86,6 +86,9 @@ class TestRunnerServiceReseedTest {
         }
     }
 
+    /**
+     * A re-seed run's first attempt clears the suite it did not run.
+     */
     @Test
     void aFirstAttemptReseedClearsSuitesItDidNotRun() {
         // given - a re-seed run that executes only the second suite, while both are still on disk
@@ -98,6 +101,9 @@ class TestRunnerServiceReseedTest {
         assertEquals(Collections.singleton(SUITE_SEEN), dataStore.getTestSuitesTracked().keySet());
     }
 
+    /**
+     * A fresh-JVM retry of a re-seed run clears nothing - it ran only the failed suites.
+     */
     @Test
     void aFreshJvmRetryOfAReseedClearsNothing() {
         // given
@@ -110,6 +116,9 @@ class TestRunnerServiceReseedTest {
         assertTrue(dataStore.getTestSuitesTracked().containsKey(SUITE_OLD));
     }
 
+    /**
+     * A select-all run never clears mapping data.
+     */
     @Test
     void aSelectAllRunClearsNothing() {
         // given

@@ -86,6 +86,10 @@ class ReseedSealTest {
         }
     }
 
+    /**
+     * A re-seed deletes a suite the run did not rewrite, with its edges and its
+     * now-unreferenced methods.
+     */
     @Test
     void reseedDropsSuitesTheRunDidNotObserve() {
         // given - "Old" was sealed by an earlier run; "Seen" was just rewritten by this run
@@ -101,6 +105,10 @@ class ReseedSealTest {
         assertEquals(Collections.singleton(2), dataStore.getMethodsTracked().keySet());
     }
 
+    /**
+     * A developer-disabled suite the run did not rewrite keeps its row and flag but loses its
+     * edges.
+     */
     @Test
     void reseedKeepsADeveloperDisabledSuiteButStripsItsEdges() {
         // given
@@ -117,6 +125,9 @@ class ReseedSealTest {
         assertEquals(Collections.singleton(2), dataStore.getUniqueMethodIdsTracked());
     }
 
+    /**
+     * A suite the re-seed run rewrote keeps its accumulated stats.
+     */
     @Test
     void reseedKeepsTheStatsOfObservedSuites() {
         // given - "Seen" has two stored runs and is rewritten by this run, contributing a third
@@ -131,6 +142,9 @@ class ReseedSealTest {
         assertEquals(3L, dataStore.getTestSuitesTracked().get("Seen").getTestStats().getNumRuns());
     }
 
+    /**
+     * Failed-set entries naming a deleted suite are pruned; the observed suite's entry stays.
+     */
     @Test
     void reseedPrunesFailedEntriesForDeletedSuites() {
         // given
@@ -146,6 +160,9 @@ class ReseedSealTest {
         assertEquals(Collections.singleton("Seen"), dataStore.getTiaData(false).getTestSuitesFailed());
     }
 
+    /**
+     * A re-seed advances the commit as any seal does and leaves history rows alone.
+     */
     @Test
     void reseedLeavesCoreAndHistoryAlone() {
         // given
@@ -163,6 +180,9 @@ class ReseedSealTest {
         assertEquals(1, dataStore.readTestRunHistory().size());
     }
 
+    /**
+     * Without the re-seed flag the seal deletes nothing.
+     */
     @Test
     void anOrdinarySealKeepsUnobservedSuites() {
         // given
@@ -177,6 +197,9 @@ class ReseedSealTest {
         assertEquals(new HashSet<>(Arrays.asList(1, 2)), dataStore.getUniqueMethodIdsTracked());
     }
 
+    /**
+     * A failure after the clear-out inside the seal rolls the clear-out back with everything else.
+     */
     @Test
     void aFailedReseedSealRollsBackTheClearOut() {
         // given - a core row with no last-updated time fails the commit write, which runs after
