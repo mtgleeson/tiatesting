@@ -248,6 +248,9 @@ public class SerializedDataStore implements DataStore {
 
         TiaData tiaData = sealedRunData.getTiaData();
         tiaData.setMethodsTracked(sealedRunData.getMethodsTracked());
+        if (sealedRunData.isReseed()) {
+            applyReseedClearOut(tiaData);
+        }
         // No SQL to accumulate in, so the increment is applied to the in-memory instance instead.
         // The read-modify-write window the JDBC stores close by accumulating server-side stays open
         // here - but this store is a single file guarded by a file lock, so the concurrent writers
@@ -255,6 +258,44 @@ public class SerializedDataStore implements DataStore {
         applyStatsIncrement(tiaData, sealedRunData.getStatsIncrement());
         clearUnsealedTestSuites();
         persistCoreData(tiaData);
+    }
+
+    /**
+     * In-memory equivalent of the JDBC re-seed clear-out: drop the suites this run did not rewrite
+     * unless they are developer-disabled, strip the coverage of unobserved developer-disabled
+     * suites, drop methods no remaining suite covers, and prune failed entries for deleted suites.
+     * "Rewritten by this run" is the stored unsealed flag, exactly as in the JDBC stores. See the
+     * "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param tiaData the core data about to be written, mutated in place
+     */
+    private void applyReseedClearOut(TiaData tiaData) {
+        TiaData stored = getTiaData(false);
+        Map<String, TestSuiteTracker> kept = new HashMap<>();
+        for (Map.Entry<String, TestSuiteTracker> entry : stored.getTestSuitesTracked().entrySet()) {
+            TestSuiteTracker tracker = entry.getValue();
+            if (tracker.isUnsealed()) {
+                kept.put(entry.getKey(), tracker);
+            } else if (tracker.isDeveloperDisabled()) {
+                tracker.setClassesImpacted(new ArrayList<>());
+                kept.put(entry.getKey(), tracker);
+            }
+        }
+
+        Set<Integer> referenced = new HashSet<>();
+        for (TestSuiteTracker tracker : kept.values()) {
+            for (ClassImpactTracker classTracker : tracker.getClassesImpacted()) {
+                referenced.addAll(classTracker.getMethodsImpacted());
+            }
+        }
+
+        tiaData.setTestSuitesTracked(kept);
+        Map<Integer, MethodImpactTracker> methods = new HashMap<>(tiaData.getMethodsTracked());
+        methods.keySet().retainAll(referenced);
+        tiaData.setMethodsTracked(methods);
+        Set<String> failed = new HashSet<>(stored.getTestSuitesFailed());
+        failed.retainAll(kept.keySet());
+        tiaData.setTestSuitesFailed(failed);
     }
 
     /**
@@ -278,11 +319,23 @@ public class SerializedDataStore implements DataStore {
         }
     }
 
+    /**
+     * {@inheritDoc} Merges the given suites into the stored map and flags each one unsealed until
+     * the seal clears it, mirroring the JDBC stores' edge write so a re-seed seal can tell the
+     * suites this run rewrote from the rest.
+     *
+     * @param testSuites the suites this run touched, keyed by name
+     */
     @Override
     public void persistTestSuites(Map<String, TestSuiteTracker> testSuites) {
         TiaData tiaData = getTiaData(false);
         // Merged rather than replaced: the caller passes only the suites it touched, so replacing
-        // the map would drop every suite this run had nothing to say about.
+        // the map would drop every suite this run had nothing to say about. Each written suite is
+        // flagged unsealed until the seal, as the JDBC stores' edge write does - the flag is what
+        // a re-seed seal keeps.
+        for (TestSuiteTracker tracker : testSuites.values()) {
+            tracker.setUnsealed(true);
+        }
         tiaData.getTestSuitesTracked().putAll(testSuites);
         long startTime = System.currentTimeMillis();
         writeTiaDataToDisk(tiaData);

@@ -309,7 +309,7 @@ public final class DistributedRunSealer {
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
-                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement));
+                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, false));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
