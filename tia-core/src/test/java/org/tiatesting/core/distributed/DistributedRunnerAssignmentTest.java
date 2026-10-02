@@ -114,7 +114,7 @@ class DistributedRunnerAssignmentTest {
             groups.add(DistributedRunGroup.pending(runId, groupNumber, 1000L));
         }
         DistributedRun run = DistributedRun.open(runId, "main", commitValue, groups.size(), groups.size(), null,
-                1000L * groups.size(), 5000L, seedRun, null);
+                1000L * groups.size(), 5000L, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
     }
 
@@ -336,7 +336,7 @@ class DistributedRunnerAssignmentTest {
                 config("run-seed-flag", "runner-a"), "commit-1", 1L);
 
         // then
-        assertTrue(assignment.isSeedRun(), "a plan persisted as a seed run must report itself as one");
+        assertTrue(assignment.isFullRun(), "a plan persisted as a seed run must report itself as one");
         assertTrue(assignment.getTestsToRun().isEmpty(),
                 "a seed run's group carries no suite names, which is exactly why the flag is needed");
     }
@@ -362,7 +362,7 @@ class DistributedRunnerAssignmentTest {
                 config("run-nothing-impacted", "runner-a"), "commit-1", 1L);
 
         // then
-        assertFalse(assignment.isSeedRun(),
+        assertFalse(assignment.isFullRun(),
                 "an empty group list is not evidence of a seed run - a nothing-impacted build "
                         + "produces the same shape and must not be reported as running everything");
         assertTrue(assignment.getTestsToRun().isEmpty(), "nothing was impacted, so nothing runs");

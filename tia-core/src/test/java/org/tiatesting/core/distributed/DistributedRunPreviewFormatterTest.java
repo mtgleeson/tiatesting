@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -56,7 +57,7 @@ class DistributedRunPreviewFormatterTest {
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
-                false, "\n");
+                SelectionMode.SELECTIVE, "\n");
 
         // then
         assertTrue(preview.contains("Target: 500ms - not met"),
@@ -82,7 +83,7 @@ class DistributedRunPreviewFormatterTest {
 
         // when
         String preview = DistributedRunPreviewFormatter.formatPreview(result, Long.valueOf(500L),
-                false, "\n");
+                SelectionMode.SELECTIVE, "\n");
 
         // then
         assertTrue(preview.contains(DistributedRunMissReasons.MAX_GROUPS_LIMITING),
@@ -104,7 +105,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
 
         // when the preview is formatted with no target run time
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SELECTIVE, "\n");
 
         // then it reports the groups and weights and states no target applies
         assertTrue(preview.contains("Groups: 2, average 1500ms per group, heaviest 2000ms"), preview);
@@ -125,7 +126,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
 
         // when
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SELECTIVE, "\n");
 
         // then
         assertTrue(preview.contains("heaviest 2000ms"), preview);
@@ -144,7 +145,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
 
         // when
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
 
         // then
         assertTrue(preview.contains("Seed run:"), preview);
@@ -165,7 +166,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // when
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
 
         // then
         assertTrue(preview.contains("Groups: 2"), preview);
@@ -183,7 +184,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {5000L, 4000L}, true, false, false);
 
         // when the preview is formatted against that target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then it reports the target as met and names no lever
         assertTrue(preview.contains("Target: 6000ms - met"));
@@ -200,7 +201,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L, 9000L}, false, true, false);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then it reports the target as not met and names the max-groups lever only
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -218,7 +219,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L}, false, false, true);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then it reports the target as not met and names the single-suite lever only
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -236,7 +237,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {9000L, 9000L}, false, true, true);
 
         // when the preview is formatted against a missed target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SELECTIVE, "\n");
 
         // then it reports the target as not met and names both levers
         assertTrue(preview.contains("Target: 6000ms - not met"));
@@ -254,7 +255,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L}, true, false, false);
 
         // when the preview is formatted
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SELECTIVE, "\n");
 
         // then it starts with a blank line before the header
         assertTrue(preview.startsWith("\n\nDistributed run grouping preview (not persisted):"));
@@ -289,7 +290,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
 
         // when the preview is formatted as a seed run against a configured target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SEED, "\n");
 
         // then it names the seed run and reports exactly one group
         assertTrue(preview.contains("Seed run:"),
@@ -309,7 +310,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {0L}, true, false, false);
 
         // when the preview is formatted as a seed run against a configured target
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, 6000L, SelectionMode.SEED, "\n");
 
         // then no target verdict is printed
         assertFalse(preview.contains("Target:"),
@@ -326,7 +327,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = groupingResult(new long[] {1000L, 2000L}, true, false, false);
 
         // when the preview is formatted as a non-seed run
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, false, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SELECTIVE, "\n");
 
         // then it does not mention a seed run
         assertFalse(preview.contains("Seed run:"),
@@ -345,7 +346,7 @@ class DistributedRunPreviewFormatterTest {
                 new SuiteGroup(0, Collections.<String>emptyList(), 0L)), true, false, false, false);
 
         // when
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
 
         // then
         assertTrue(preview.contains("Seed run: no stored mapping exists yet for this branch, so a "
@@ -367,7 +368,7 @@ class DistributedRunPreviewFormatterTest {
         GroupingResult result = new GroupingResult(groups, true, false, false, false);
 
         // when
-        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, true, "\n");
+        String preview = DistributedRunPreviewFormatter.formatPreview(result, null, SelectionMode.SEED, "\n");
 
         // then
         assertTrue(preview.contains("Seed run: no stored mapping exists yet for this branch, so a "

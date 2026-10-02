@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -293,7 +294,7 @@ class DistributedRunSealerEmptyBuildTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                        1000L * groupCount, PLANNED_AT_MS, seedRun, null), groups, suites, null));
+                        1000L * groupCount, PLANNED_AT_MS, seedRun ? SelectionMode.SEED : SelectionMode.SELECTIVE, null), groups, suites, null));
     }
 
     /**

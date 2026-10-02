@@ -2,9 +2,11 @@ package org.tiatesting.core.distributed;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 
 import java.util.Map;
@@ -276,8 +278,9 @@ public final class DistributedRunnerPersist {
                         + "write for it";
             }
             if (group.getStatus() == DistributedRunGroupStatus.CLAIMED && heldByThisRunner) {
-                if (dataStore.readDistributedRun(context.getRunId()).isSeedRun()) {
-                    return "this is a seed run and this runner has observed no suites yet ("
+                DistributedRun run = dataStore.readDistributedRun(context.getRunId());
+                if (run.isFullRun()) {
+                    return "this is a " + fullRunName(run) + " and this runner has observed no suites yet ("
                             + group.getSuitesObserved() + "), so the group has run nothing to "
                             + "complete";
                 }
@@ -292,5 +295,17 @@ public final class DistributedRunnerPersist {
         }
 
         return "the run's group rows are gone, so a newer build's plan write superseded this run";
+    }
+
+    /**
+     * Name a full run for a log or rejection message: a seed run, or a forced run named by its
+     * mode, so a forced run is never described as having no stored mapping.
+     *
+     * @param run the full run
+     * @return "seed run", or e.g. "full run (Re-seed)"
+     */
+    static String fullRunName(final DistributedRun run) {
+        return run.getSelectionMode() == SelectionMode.SEED ? "seed run"
+                : "full run (" + run.getSelectionMode().getLabel() + ")";
     }
 }

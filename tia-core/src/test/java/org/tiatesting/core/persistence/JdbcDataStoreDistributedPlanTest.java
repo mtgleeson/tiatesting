@@ -155,7 +155,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid plan, unsaved
      */
     private static DistributedRunPlan samplePlan(String runId, LibraryImpactDrainResult drainResult) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, false, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 2, 2, 60000L, 90000L, 1234L, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = Arrays.asList(
                 DistributedRunGroup.pending(runId, 0, 50000L),
                 DistributedRunGroup.pending(runId, 1, 40000L));
@@ -358,7 +358,7 @@ class JdbcDataStoreDistributedPlanTest {
      * @return a valid seed-run plan, unsaved
      */
     private static DistributedRunPlan seedRunPlan(String runId) {
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, true, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 0L, 7L, SelectionMode.SEED, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Collections.<String>emptyList());
         return new DistributedRunPlan(run,
@@ -401,7 +401,7 @@ class JdbcDataStoreDistributedPlanTest {
             migratedStore.persistDistributedRunPlan(seedRunPlan("run-migrated"));
 
             // then
-            assertTrue(migratedStore.readDistributedRun("run-migrated").isSeedRun(),
+            assertTrue(migratedStore.readDistributedRun("run-migrated").isFullRun(),
                     "the migration must add seed_run to a table that predates it, and the plan "
                             + "write must then store the flag as usual");
         } finally {
@@ -417,7 +417,7 @@ class JdbcDataStoreDistributedPlanTest {
     void shouldRoundTripTheGroupsAvailable() {
         // given
         DistributedRun run = DistributedRun.open("run-avail", "main", "commit-1", 1, 6, 60000L,
-                10L, 7L, false, null);
+                10L, 7L, SelectionMode.SELECTIVE, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -441,7 +441,7 @@ class JdbcDataStoreDistributedPlanTest {
      */
     private static DistributedRunPlan planWithRunSource(String runId, String runSource) {
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 10L, 7L,
-                false, runSource);
+                SelectionMode.SELECTIVE, runSource);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         return new DistributedRunPlan(run,
@@ -563,7 +563,7 @@ class JdbcDataStoreDistributedPlanTest {
         DistributedRun read = dataStore.readDistributedRun("run-seed");
 
         // then
-        assertTrue(read.isSeedRun(), "a seed run's plan must read back as a seed run");
+        assertTrue(read.isFullRun(), "a seed run's plan must read back as a seed run");
     }
 
     /**
@@ -580,7 +580,7 @@ class JdbcDataStoreDistributedPlanTest {
         DistributedRun read = dataStore.readDistributedRun("run-1");
 
         // then
-        assertFalse(read.isSeedRun(), "an ordinary plan must not read back as a seed run");
+        assertFalse(read.isFullRun(), "an ordinary plan must not read back as a seed run");
     }
 
     /**
@@ -592,7 +592,7 @@ class JdbcDataStoreDistributedPlanTest {
     @Test
     void shouldPreserveANullTargetRunTimeForStaticGroupsMode() {
         // given
-        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, false, null);
+        DistributedRun run = DistributedRun.open("run-static", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList("com.example.ATest"));
         DistributedRunPlan plan = new DistributedRunPlan(run,
@@ -711,7 +711,7 @@ class JdbcDataStoreDistributedPlanTest {
         for (int i = 0; i < 60; i++) {
             oversizedName.append("com.example.VeryLongSuiteName");
         }
-        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, false, null);
+        DistributedRun run = DistributedRun.open("run-bad", "main", "commit-1", 1, 1, null, 10L, 7L, SelectionMode.SELECTIVE, null);
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, Arrays.asList(oversizedName.toString()));
         DistributedRunPlan badPlan = new DistributedRunPlan(run,

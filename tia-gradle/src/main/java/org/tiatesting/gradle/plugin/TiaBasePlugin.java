@@ -383,7 +383,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             return;
         }
         System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
-                getDistributedTargetRunTime(), selection.isRunAllTests(), lineSep));
+                getDistributedTargetRunTime(), selection.getSelectionMode(), lineSep));
     }
 
     /**

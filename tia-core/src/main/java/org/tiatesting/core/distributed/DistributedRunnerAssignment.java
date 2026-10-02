@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 
 import java.util.Collections;
@@ -34,7 +35,7 @@ public final class DistributedRunnerAssignment {
     private final Integer groupNumber;
     private final Set<String> testsToIgnore;
     private final Set<String> testsToRun;
-    private final boolean seedRun;
+    private final SelectionMode selectionMode;
 
     /**
      * Store the resolved assignment. Private so instances can only come from {@link #claim} or
@@ -45,16 +46,16 @@ public final class DistributedRunnerAssignment {
      * @param groupNumber the claimed group, or null when no group was left to claim
      * @param testsToIgnore the suite names this runner must not execute
      * @param testsToRun the suite names this runner is responsible for
-     * @param seedRun whether the plan recorded this run as a seed run
+     * @param selectionMode the selection mode the plan recorded for this run
      */
     private DistributedRunnerAssignment(String runnerKey, Integer groupNumber,
                                          Set<String> testsToIgnore, Set<String> testsToRun,
-                                         boolean seedRun) {
+                                         SelectionMode selectionMode) {
         this.runnerKey = runnerKey;
         this.groupNumber = groupNumber;
         this.testsToIgnore = testsToIgnore;
         this.testsToRun = testsToRun;
-        this.seedRun = seedRun;
+        this.selectionMode = selectionMode;
     }
 
     /**
@@ -124,9 +125,9 @@ public final class DistributedRunnerAssignment {
                                                                 final Integer groupNumber) {
         DistributedRunCoordinator coordinator = new DistributedRunCoordinator(dataStore, config);
         // Read from the run row, never inferred from an empty suite list: a runner that claimed no
-        // group has an empty list too, and treating it as a seed run would report it as having run
-        // every test. The planner persists the flag precisely so nobody has to guess.
-        boolean seedRun = coordinator.readRun().isSeedRun();
+        // group has an empty list too, and treating it as a full run would report it as having run
+        // every test. The planner persists the mode precisely so nobody has to guess.
+        SelectionMode selectionMode = coordinator.readRun().getSelectionMode();
         Set<String> testsToIgnore = coordinator.deriveTestsToIgnore(groupNumber,
                 dataStore.getTestSuitesTracked().keySet());
         Set<String> testsToRun = groupNumber != null
@@ -135,7 +136,7 @@ public final class DistributedRunnerAssignment {
                 : Collections.<String>emptySet();
 
         return new DistributedRunnerAssignment(runnerKey, groupNumber, testsToIgnore, testsToRun,
-                seedRun);
+                selectionMode);
     }
 
     /**
@@ -172,8 +173,9 @@ public final class DistributedRunnerAssignment {
     public Set<String> getTestsToRun() { return testsToRun; }
 
     /**
-     * Report whether the plan recorded this run as a seed run - the first distributed build on a
-     * branch, which has no stored mapping to split. A seed run's suites are discovered on disk and
+     * Report whether the plan recorded this run as a full run - a seed (the first distributed build
+     * on a branch, with no stored mapping to split) or a forced run. A full run's suites are
+     * discovered on disk and
      * split across the groups, the same as any other run, so a claimed group can carry real suite
      * names and this runner's {@link #getTestsToRun()} then holds its own slice. Only the fallback
      * case - nothing found on disk, or no group count applied - collapses to a single group
@@ -187,9 +189,12 @@ public final class DistributedRunnerAssignment {
      * nothing", and only the persisted flag - together with whether {@code testsToRun} is empty -
      * tells the two apart.
      *
-     * @return true when the plan recorded this run as a seed run
+     * @return true when the plan recorded this run as a full run
      */
-    public boolean isSeedRun() { return seedRun; }
+    public boolean isFullRun() { return selectionMode.isFullRun(); }
+
+    /** @return the selection mode the plan recorded for this run */
+    public SelectionMode getSelectionMode() { return selectionMode; }
 
     /**
      * Diagnostic rendering naming the runner, its group, and the size of each suite list.

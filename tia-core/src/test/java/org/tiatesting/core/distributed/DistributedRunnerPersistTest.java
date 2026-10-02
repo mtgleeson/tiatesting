@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -409,7 +410,7 @@ class DistributedRunnerPersistTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, false, null), groups, suites, null));
+                        1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null), groups, suites, null));
     }
 
     /**
@@ -428,6 +429,6 @@ class DistributedRunnerPersistTest {
         }
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(
                 DistributedRun.open(runId, "main", "plan-commit", groupCount, groupCount, null,
-                        1000L * groupCount, 1234L, true, null), groups, suites, null));
+                        1000L * groupCount, 1234L, SelectionMode.SEED, null), groups, suites, null));
     }
 }
