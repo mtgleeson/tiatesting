@@ -145,8 +145,10 @@ record the mode on the run row. Runners take the mode from the plan; a runner gi
 a warning that it is ignored there. See [Distributed test runs](distributed-test-runs.md).
 
 - **Grouping.** A forced plan draws its suite universe from the same disk scan a seed uses, so new
-  suites run. Unlike a seed's even-count split it is balanced by stored run time: tracked suites
-  carry their recorded times and untracked disk-scan entries (mostly non-test classes) weigh zero.
+  suites run. Unlike a seed's even-count split, its tracked suites are balanced by stored run time;
+  each untracked disk-scan name (mostly non-test classes) is then added to the group holding the
+  fewest names. Untracked names never form a group of their own: a group with nothing its runner
+  can observe could never complete. A forced plan with no tracked suite at all is split like a seed.
 - **Completion and seal.** Every full run - seed or forced - completes a group once it observed at
   least one suite (the disk scan over-includes, so observed can never reach assigned), ignores no
   suite at seal, and supplies no overhead-model measurement.
