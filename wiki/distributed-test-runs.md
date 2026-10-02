@@ -154,8 +154,12 @@ Which groups it splits across depends on the configured mode:
   entirely. That runner ignores nothing and runs everything.
 
 Either way `DistributedRunPlanner` logs at INFO why the build is a seed run, and records the mapping
-the next build plans from. `tia-run-plan.json` still carries `"seedRun": true`, whether the run
-landed as a single job or several, so a pipeline can explain what it is looking at.
+the next build plans from. `tia-run-plan.json` still carries `"selectionMode": "SEED"`, whether the
+run landed as a single job or several, so a pipeline can explain what it is looking at.
+
+A forced full run (`tiaSelectAllTests` / `tiaReseed`) draws its suites from the same disk scan but is
+balanced by stored run time instead, and shares the seed's loosened completion guard and seal
+treatment - see [Forced runs and re-seed](forced-runs-and-reseed.md).
 
 The scan is deliberately a **superset** of the suite names Tia tracks - the test framework's binary
 class names. It includes every compiled class name, so a JUnit5 `@Nested` class's `Outer$Nested`
@@ -749,7 +753,7 @@ The ignored half of that comes from what the plan **assigned** the groups, never
 That counter once accumulated every retry's executions, which let a partial build with enough
 reruns look like it ran everything; it now counts distinct suites, but an execution count is still
 not Tia's selection decision - it includes suites nobody planned. Where the
-assignment is empty it is answered from the run row's `seed_run` flag rather than from the plan's
+assignment is empty it is answered from the run row's `selection_mode` rather than from the plan's
 shape: a seed run that fell back to a single group carries no suite names and ignored nothing, a
 nothing-impacted build has no groups at all and ignored every tracked suite, and by seal
 time the two plans are indistinguishable - the seed run's own runners have already populated the
@@ -797,8 +801,8 @@ The solve runs at seal time and folds its answer into rolling averages on `tia_c
 runner executed, which can include suites the plan never assigned, so it is not what the group was
 sized from. What the plan assigned a group cannot be moved by any number of retries.
 
-**A seed run is excluded, whether it fell back to a single group or was split.** The `seed_run` flag
-decides this outright, not the shape of the assignment: a single-group seed run is assigned no suite
+**A full run (seed or forced) is excluded, whether it fell back to a single group or was split.** The
+run row's `selection_mode` decides this outright, not the shape of the assignment: a single-group seed run is assigned no suite
 names, and reading that as a group that ran nothing would push a full-suite run's entire overhead
 into `fixed`; a split seed run does carry suite names, but they are split by even count rather than
 by measured duration, so its groups say nothing real about how overhead scales with suite count. It

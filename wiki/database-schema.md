@@ -102,6 +102,7 @@ erDiagram
         INT num_unsealed_mapping
         INT num_pending_library
         BOOLEAN rerun
+        VARCHAR selection_mode
     }
 
     tia_test_run_history_trigger {
@@ -153,7 +154,7 @@ erDiagram
         VARCHAR sealed_by
         BIGINT sealed_at
         BLOB drain_result
-        BOOLEAN seed_run
+        VARCHAR selection_mode
         VARCHAR run_source
     }
 
@@ -248,7 +249,9 @@ rather than needing their own cleanup.)
   null means "not recorded" rather than zero. See the
   [Run history details](run-history-details.md) chapter. `rerun` flags a retry of failed tests (a
   Surefire rerun or a Gradle test-retry round), which is credited no savings - see
-  [Test-run history log](test-run-history.md).
+  [Test-run history log](test-run-history.md). `selection_mode` records how the run's selection was
+  decided (null for rows written before it existed) - see
+  [Forced runs and re-seed](forced-runs-and-reseed.md).
 - **tia_test_run_history_trigger** - the per-changed-method and per-static-rule selection triggers
   behind one history row's counters, each with a suite count; FK to `tia_test_run_history.id`,
   `ON DELETE CASCADE`. Loaded only on demand - by the per-run detail page and the history-details
@@ -273,11 +276,12 @@ rather than needing their own cleanup.)
   / `SEALED`), the plan's shape, and `sealed_by` / `sealed_at` - the election record whose `IS NULL`
   predicate is what makes exactly one runner the sealer. A plan with no groups - nothing was
   selected - is sealed by the plan step itself, recorded as `<run_id>-planner`. `drain_result`
-  carries the library-impact drain the plan computed, for the sealer to apply once. `seed_run`
-  records that the planner collapsed this run to a single group with no suite names because the
-  branch had no stored mapping yet - the seal reads it to tell that build (which ran everything and
-  ignored nothing) from a nothing-impacted one, which has no groups at all and ignored every tracked
-  suite. Nothing else in the row separates the two, which is why the planner's answer is stored
+  carries the library-impact drain the plan computed, for the sealer to apply once.
+  `selection_mode` (`SELECTIVE`, `SEED`, `SELECT_ALL` or `RESEED`) records how the plan's selection
+  was decided; it replaced the old `seed_run` flag - see
+  [Forced runs and re-seed](forced-runs-and-reseed.md). The seal reads it to tell a full run (which
+  ran everything and ignored nothing) from a nothing-impacted one, which has no groups at all and
+  ignored every tracked suite, and to know whether to re-seed. Nothing else in the row separates the two, which is why the planner's answer is stored
   rather than re-derived. `run_source` is the source the plan step resolved (declared or detected
   on the CI agent), which the sealer stamps on the build's history row in place of detecting one in
   the sealing runner's JVM; null on a run planned before the column existed.
