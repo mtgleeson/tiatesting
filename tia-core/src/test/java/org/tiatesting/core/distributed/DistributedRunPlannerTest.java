@@ -297,6 +297,36 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * With more groups configured than tracked suites, a forced plan must not create a group made
+     * only of untracked disk-scan names: those are often non-test classes no runner observes, so
+     * such a group could never complete. The untracked names are spread across the groups that
+     * hold a tracked suite instead.
+     */
+    @Test
+    void aForcedPlanNeverCreatesAGroupOfOnlyUntrackedNames() {
+        // given - three tracked suites, five groups configured, two untracked names on disk
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.Helper", "com.example.Fixture");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 5, null, null, scan);
+
+        // then
+        Set<String> tracked = new HashSet<>(java.util.Arrays.asList("com.example.HeavyTest",
+                "com.example.LightATest", "com.example.LightBTest"));
+        Set<String> assigned = new HashSet<>();
+        assertEquals(3, result.getGroupCount());
+        for (SuiteGroup group : result.getGroups()) {
+            assigned.addAll(group.getSuiteNames());
+            Set<String> groupTracked = new HashSet<>(group.getSuiteNames());
+            groupTracked.retainAll(tracked);
+            assertFalse(groupTracked.isEmpty(), "every group needs a tracked suite: " + group);
+        }
+        assertEquals(scan.get(), assigned);
+    }
+
+    /**
      * A forced plan records its mode on the run row and summary, and the conservation check does
      * not reject it for carrying the untracked suites the disk scan added.
      */

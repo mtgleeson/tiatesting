@@ -16,6 +16,7 @@ import org.tiatesting.core.testrunner.RunEnvironment;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -284,9 +285,10 @@ public final class DistributedRunPlanner {
      * it corrected.
      *
      * <p>A forced full run ({@link SelectionMode#SELECT_ALL} / {@link SelectionMode#RESEED}) has
-     * stored run times, so it is balanced like an ordinary selection over every tracked suite, with
-     * each suite the disk scan finds that Tia does not track added at zero weight - see {@link
-     * #addUntrackedDiskSuites}.
+     * stored run times, so its tracked suites are balanced like an ordinary selection, and every
+     * suite the disk scan finds that Tia does not track is then added to the group holding the
+     * fewest names - see {@link #spreadUntrackedDiskSuites}. A forced run with no tracked suite at
+     * all has nothing to balance by, so it is split like a seed.
      *
      * @param selection the test selection to balance; its per-suite run-time estimate and mapping
      *                  overhead drive the weights the balancer packs by, unless it is a seed, in
@@ -323,11 +325,12 @@ public final class DistributedRunPlanner {
             return seedGroupingResult(diskTestSuiteProvider, groupCount, maxGroups);
         }
 
-        Map<String, Long> weights = new HashMap<>(TestGroupBalancer.suiteWeights(
+        Map<String, Long> weights = TestGroupBalancer.suiteWeights(
                 selection.getSelectedTestRunTimesMs(), selection.getCaptureOverheadMs(),
-                collectingCoverage));
-        if (selection.getSelectionMode().isForced()) {
-            addUntrackedDiskSuites(weights, diskTestSuiteProvider);
+                collectingCoverage);
+        boolean forced = selection.getSelectionMode().isForced();
+        if (forced && weights.isEmpty()) {
+            return seedGroupingResult(diskTestSuiteProvider, groupCount, maxGroups);
         }
 
         // Charged once per group rather than divided across them, and gated on the same flag the
@@ -356,26 +359,58 @@ public final class DistributedRunPlanner {
                     selection.getCaptureOverheadMs(), selection.getFixedOverheadMs());
         }
 
-        return groupCount != null
+        GroupingResult balanced = groupCount != null
                 ? TestGroupBalancer.balanceIntoGroups(weights, groupCount, fixedOverheadMs)
                 : TestGroupBalancer.balanceForTargetRunTime(weights, targetRunTimeMs, maxGroups,
                         fixedOverheadMs);
+        return forced ? spreadUntrackedDiskSuites(balanced, diskTestSuiteProvider) : balanced;
     }
 
     /**
-     * Add every suite name the disk scan finds that the stored mapping does not track, at zero
-     * weight, so a forced full run also runs new suites. The scan over-includes non-test classes;
-     * at zero weight they cost the balancer nothing, and their runners simply never observe them.
-     * See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
+     * Add every suite name the disk scan finds that the forced plan does not already carry to the
+     * group holding the fewest names (the lowest group number on a tie), so a forced full run also
+     * runs new suites. The scan over-includes non-test classes, which carry no run time and never
+     * run, so they are spread across groups that each already hold a tracked suite rather than
+     * balanced as weights of their own: a group made only of such names would observe nothing and
+     * could never complete. Each group keeps its estimate. See the "Forced runs and re-seed"
+     * chapter in {@code WIKI.md}.
      *
-     * @param weights the tracked suites' weights, extended in place; must be mutable
+     * @param balanced the grouping of the tracked suites
      * @param diskTestSuiteProvider the disk scan
+     * @return the grouping with every untracked disk-scan name added
      */
-    private static void addUntrackedDiskSuites(Map<String, Long> weights,
-                                               Supplier<Set<String>> diskTestSuiteProvider) {
-        for (String suite : diskTestSuiteProvider.get()) {
-            weights.putIfAbsent(suite, 0L);
+    private static GroupingResult spreadUntrackedDiskSuites(GroupingResult balanced,
+                                                            Supplier<Set<String>> diskTestSuiteProvider) {
+        List<List<String>> names = new ArrayList<>();
+        Set<String> assigned = new HashSet<>();
+        for (SuiteGroup group : balanced.getGroups()) {
+            names.add(new ArrayList<>(group.getSuiteNames()));
+            assigned.addAll(group.getSuiteNames());
         }
+        if (names.isEmpty()) {
+            return balanced;
+        }
+
+        List<String> untracked = new ArrayList<>(diskTestSuiteProvider.get());
+        untracked.removeAll(assigned);
+        Collections.sort(untracked);
+        for (String suite : untracked) {
+            int fewest = 0;
+            for (int i = 1; i < names.size(); i++) {
+                if (names.get(i).size() < names.get(fewest).size()) {
+                    fewest = i;
+                }
+            }
+            names.get(fewest).add(suite);
+        }
+
+        List<SuiteGroup> groups = new ArrayList<>();
+        for (SuiteGroup group : balanced.getGroups()) {
+            groups.add(new SuiteGroup(group.getGroupNumber(), names.get(group.getGroupNumber()),
+                    group.getEstimatedMs()));
+        }
+        return new GroupingResult(groups, balanced.isTargetMet(), balanced.isClampedToMaxGroups(),
+                balanced.isSingleSuiteExceedsTarget(), balanced.isFixedOverheadExceedsTarget());
     }
 
     /**
