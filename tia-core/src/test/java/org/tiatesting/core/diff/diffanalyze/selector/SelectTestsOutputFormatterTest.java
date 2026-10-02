@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 
@@ -21,6 +22,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SelectTestsOutputFormatterTest {
 
     private static final String LINE_SEP = "\n";
+
+    /**
+     * A seed's run-all line says no mapping is stored yet.
+     */
+    @Test
+    void runAllReasonNamesASeed() {
+        // given
+        SelectionMode mode = SelectionMode.SEED;
+
+        // when
+        String line = SelectTestsOutputFormatter.formatRunAllReason(mode);
+
+        // then
+        assertEquals("all (no stored mapping for this branch yet)", line);
+    }
+
+    /**
+     * A forced run's run-all line names the mode that overrode selection.
+     */
+    @Test
+    void runAllReasonNamesAForcedMode() {
+        // given
+        SelectionMode mode = SelectionMode.RESEED;
+
+        // when
+        String line = SelectTestsOutputFormatter.formatRunAllReason(mode);
+
+        // then
+        assertEquals("all (selection overridden: Re-seed)", line);
+    }
 
     /**
      * An empty {@code testsToRun} means there's nothing to estimate - the estimate block
@@ -497,7 +528,7 @@ class SelectTestsOutputFormatterTest {
                                                   long captureOverheadMs, long fixedOverheadMs){
         return new TestSelectorResult(testsToRun, Collections.emptySet(), null,
                 estimatedRunTimeMs, withoutStats, median, perTestRunTimes, allTestsRunTimeMs,
-                captureOverheadMs, fixedOverheadMs, false, TestRunSelectionDetails.empty());
+                captureOverheadMs, fixedOverheadMs, SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
     }
 
     /**

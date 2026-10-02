@@ -4,6 +4,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.report.ReportUtils;
 import org.tiatesting.core.report.TextTable;
@@ -186,7 +187,7 @@ public final class DistributedRunStatusReport {
      * would for an ordinary run. Only a fallback seed's single group - which the plan genuinely
      * assigned no suite names, having found none to split - comes back empty, the same as it would
      * for an unrelated nothing-impacted group; callers tell the two apart by combining an empty
-     * result with {@link DistributedRun#isSeedRun()}.
+     * result with {@link DistributedRun#getSelectionMode()}.
      *
      * @param dataStore the datastore to read from
      * @param run the run being reported on
@@ -228,7 +229,7 @@ public final class DistributedRunStatusReport {
      * Append the run-level block: what the run is, what it was planned against, how far through it
      * is, and whether it sealed. The "Estimated:" line reports {@code n/a (seed run - no run-time
      * data yet)} for a seed run rather than its zeroed {@code estimatedTotalMs}, since a seed run has
-     * no run-time data to estimate from at all - see {@link DistributedRun#isSeedRun()}.
+     * no run-time data to estimate from at all - see {@link DistributedRun#getSelectionMode()}.
      *
      * @param report the buffer to append to
      * @param run the run being reported on
@@ -252,7 +253,12 @@ public final class DistributedRunStatusReport {
                 .append(" of ").append(groups.size()).append(" group(s) completed").append(lineSep);
         report.append("  Planned:    ").append(timestamp(run.getCreatedAtMs()))
                 .append(ago(run.getCreatedAtMs(), nowMs)).append(lineSep);
-        if (run.isSeedRun()) {
+        if (run.getSelectionMode().isForced()) {
+            report.append("  Mode:       ").append(run.getSelectionMode().getLabel())
+                    .append(" - selection overridden, so every suite found on disk was balanced ")
+                    .append("across the groups by stored run time.").append(lineSep);
+        }
+        if (run.getSelectionMode() == SelectionMode.SEED) {
             if (anyGroupHasAssignedSuites(assignedSuites)) {
                 report.append("  Seed run:   yes - no stored mapping existed for this branch when ")
                         .append("the plan was written, so its suites were discovered on disk and ")
@@ -271,7 +277,7 @@ public final class DistributedRunStatusReport {
         // duration - so run.getEstimatedTotalMs() is zeroed at plan time (see DistributedRunPlanner's
         // seedGroupingResult) and printing that zero here would read as a measured estimate rather
         // than the absence of one.
-        if (run.isSeedRun()) {
+        if (run.getSelectionMode() == SelectionMode.SEED) {
             report.append("  Estimated:  ").append(NOT_MEANINGFUL)
                     .append(" (seed run - no run-time data yet)").append(lineSep);
         } else {
@@ -312,8 +318,8 @@ public final class DistributedRunStatusReport {
      * reported nothing, and printing zeros for it would be indistinguishable from a runner that took
      * the group and ran nothing. Every group's Estimated column is dashed for a seed run too,
      * regardless of status, since {@code estimatedMs} is zeroed at plan time for a seed run's groups
-     * - see {@link DistributedRun#isSeedRun()} - and printing "0ms" would read as a measured time
-     * rather than the absence of one.
+     * - see {@link DistributedRun#getSelectionMode()} - and printing "0ms" would read as a measured
+     * time rather than the absence of one.
      *
      * @param report the buffer to append to
      * @param run the run being reported on
@@ -334,7 +340,7 @@ public final class DistributedRunStatusReport {
             // A fallback seed's group is the only one that renders "all"/"n/a": it is a seed run
             // whose group was genuinely assigned no suite names. A split seed's groups carry real
             // names and fall through to the ordinary rendering below, same as any other group.
-            boolean fallbackSeedGroup = run.isSeedRun() && assignedSuites.get(i).isEmpty();
+            boolean fallbackSeedGroup = run.isFullRun() && assignedSuites.get(i).isEmpty();
             table.addRow(
                     Integer.toString(group.getGroupNumber()),
                     group.getStatus().toString(),
@@ -346,7 +352,8 @@ public final class DistributedRunStatusReport {
                     // A seed run's groups all carry estimatedMs 0 (see DistributedRunPlanner's
                     // seedGroupingResult) - genuinely zero, not just unreported - so the column is
                     // dashed rather than printing "0ms", which would read as a measured time.
-                    run.isSeedRun() ? NOT_APPLICABLE : duration(group.getEstimatedMs()),
+                    run.getSelectionMode() == SelectionMode.SEED ? NOT_APPLICABLE
+                            : duration(group.getEstimatedMs()),
                     group.getActualDurationMs() == null ? NOT_APPLICABLE
                             : duration(group.getActualDurationMs().longValue()),
                     elapsed(group, nowMs));
@@ -356,8 +363,8 @@ public final class DistributedRunStatusReport {
         report.append(table.render(lineSep)).append(lineSep).append(lineSep);
         report.append("  Assigned = suites the plan gave this group; Observed = suites its runner ")
                 .append("saw finish or skip.").append(lineSep);
-        if (run.isSeedRun()) {
-            report.append("  A group completes once Observed reaches at least one - a seed run's ")
+        if (run.isFullRun()) {
+            report.append("  A group completes once Observed reaches at least one - a full run's ")
                     .append("Assigned counts include non-test classes the runner never observes, so ")
                     .append("Observed may stay below Assigned - and the run seals once every group ")
                     .append("completes.").append(lineSep);
@@ -494,7 +501,7 @@ public final class DistributedRunStatusReport {
                 report.append("CLAIMED by '").append(group.getRunnerKey()).append("'")
                         .append(NOT_APPLICABLE.equals(runningFor) ? ""
                                 : " (running for " + runningFor + ")");
-                if (run.isSeedRun() && assignedSuites.get(i).isEmpty()) {
+                if (run.isFullRun() && assignedSuites.get(i).isEmpty()) {
                     // A fallback seed's group was assigned no suite names, so there is no "N of M"
                     // to report progress against - its runner works through whatever it discovers.
                     // A split seed's group has real assigned suites and falls through to the
@@ -529,8 +536,9 @@ public final class DistributedRunStatusReport {
         for (int i = 0; i < groups.size(); i++) {
             List<String> suites = assignedSuites.get(i);
             report.append(lineSep).append("  Group ").append(groups.get(i).getGroupNumber());
-            if (run.isSeedRun() && suites.isEmpty()) {
-                report.append(": no suite names - a seed run's group covers every suite its runner "
+            if (run.isFullRun() && suites.isEmpty()) {
+                report.append(": no suite names - a ").append(DistributedRunnerPersist.fullRunName(run))
+                        .append("'s group covers every suite its runner "
                         + "discovers.");
             } else if (suites.isEmpty()) {
                 report.append(": none - the plan assigned this group no suites.");

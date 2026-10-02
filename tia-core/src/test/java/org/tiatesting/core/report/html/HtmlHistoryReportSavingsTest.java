@@ -1,5 +1,6 @@
 package org.tiatesting.core.report.html;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.model.RunOrigin;
@@ -27,9 +28,9 @@ class HtmlHistoryReportSavingsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80,
-                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false),
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null),
                 new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0,
-                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false)));
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
@@ -60,9 +61,9 @@ class HtmlHistoryReportSavingsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Arrays.asList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 8, 2, 0, 1000L, true, 4000L, 80, 4000L, 80,
-                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false),
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null),
                 new TestRunHistoryEntry("id2", 1_699_000_000_000L, "main", "abc", 10, 0, 0, 5000L, true, 0L, 0, 0L, 0,
-                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false)));
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
@@ -95,7 +96,7 @@ class HtmlHistoryReportSavingsTest {
         TiaData tiaData = new TiaData();
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 1, 9, 0, 1000L, true, 0L, 0, 0L, 0,
-                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true)));
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, true, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
@@ -106,6 +107,31 @@ class HtmlHistoryReportSavingsTest {
         // then
         assertTrue(html.contains("title=\"A rerun of failed tests - credited no savings\" data-order=\"0\">rerun</td>"),
                 "the rerun row's Savings cell should read rerun, with a hint and a sort value. Output:\n" + html);
+    }
+
+    /**
+     * A forced full run's Savings cell names its mode in place of the dash it would otherwise show.
+     *
+     * @param tempDir a JUnit-managed temp directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void historyPage_forcedRunRowShowsItsModeInItsSavingsCell(@TempDir File tempDir) throws Exception {
+        // given
+        TiaData tiaData = new TiaData();
+        tiaData.setTestRunHistory(Collections.singletonList(
+                new TestRunHistoryEntry("id1", 1_700_000_000_000L, "main", "abc", 10, 0, 0, 1000L, true, 0L, 0, 0L, 0,
+                        null, null, null, null, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null,
+                        null, false, SelectionMode.SELECT_ALL)));
+
+        // when
+        new HtmlHistoryReport("html", tempDir).generateReport(tiaData);
+        File page = new File(tempDir, "html" + File.separator + "html" + File.separator
+                + "history" + File.separator + "tia-history.html");
+        String html = new String(Files.readAllBytes(page.toPath()));
+
+        // then
+        assertTrue(html.contains("data-order=\"0\">Forced</td>"), "Output:\n" + html);
     }
 
     /**
@@ -123,7 +149,7 @@ class HtmlHistoryReportSavingsTest {
         tiaData.setTestRunHistory(Collections.singletonList(
                 new TestRunHistoryEntry("a-full-history-id-1234", 1_700_000_000_000L, "main", "abc", 8, 2, 0,
                         1000L, true, 4000L, 80, 4000L, 80, null, null, null, null,
-                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false)));
+                        RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, null, null, null, null, false, null)));
 
         // when
         new HtmlHistoryReport("html", tempDir).generateReport(tiaData);

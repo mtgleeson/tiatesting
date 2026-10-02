@@ -1,5 +1,6 @@
 package org.tiatesting.core.persistence;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,7 @@ class JdbcDataStoreCompletionTest {
             suites.put(i, Arrays.asList("com.example.Suite" + i + "Test"));
         }
         DistributedRun run = DistributedRun.open(runId, "main", "commit-1", groupCount, groupCount, null,
-                1000L * groupCount, 1234L, false, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -119,7 +120,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, false, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -132,6 +133,19 @@ class JdbcDataStoreCompletionTest {
      * @param suiteCount how many suites to assign to the run's one group
      */
     private void persistSeedPlanWithOneGroupOfSuites(String runId, int suiteCount) {
+        persistFullRunPlanWithOneGroupOfSuites(runId, suiteCount, SelectionMode.SEED);
+    }
+
+    /**
+     * Build and persist a single-group full-run plan (seed or forced) with {@code suiteCount}
+     * suites assigned to that group, the disk-scan shape whose assigned count exceeds what its
+     * runner can ever observe.
+     *
+     * @param runId the run identifier to plan under
+     * @param suiteCount how many suites to assign to the run's one group
+     * @param mode the full-run mode to record on the run row
+     */
+    private void persistFullRunPlanWithOneGroupOfSuites(String runId, int suiteCount, SelectionMode mode) {
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         List<String> suiteNames = new ArrayList<>();
@@ -140,7 +154,7 @@ class JdbcDataStoreCompletionTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, true, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, mode, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -156,7 +170,7 @@ class JdbcDataStoreCompletionTest {
         groups.add(DistributedRunGroup.pending(runId, 0, 1000L));
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, new ArrayList<String>());
-        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, true, null);
+        DistributedRun run = DistributedRun.open(runId, "main", "commit-1", 1, 1, null, 1000L, 1234L, SelectionMode.SEED, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -597,6 +611,43 @@ class JdbcDataStoreCompletionTest {
         assertNotNull(completed, "a seed group that observed at least one suite must complete");
         assertEquals(DistributedRunGroupStatus.COMPLETED, completed.getStatus());
         assertEquals(1, completed.getSuitesObserved());
+    }
+
+    /**
+     * A forced select-all run's groups come from the same over-including disk scan as a seed's, so
+     * its group completes on the same loosened guard: at least one suite observed.
+     */
+    @Test
+    void shouldCompleteSelectAllGroupWhenAtLeastOneSuiteObservedEvenBelowAssigned() {
+        // given
+        persistFullRunPlanWithOneGroupOfSuites("run-1", 5, SelectionMode.SELECT_ALL);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, 1, 0L));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a forced group that observed at least one suite must complete");
+        assertEquals(DistributedRunGroupStatus.COMPLETED, completed.getStatus());
+    }
+
+    /**
+     * A re-seed run's group completes on the loosened guard too.
+     */
+    @Test
+    void shouldCompleteReseedGroupWhenAtLeastOneSuiteObservedEvenBelowAssigned() {
+        // given
+        persistFullRunPlanWithOneGroupOfSuites("run-1", 5, SelectionMode.RESEED);
+        dataStore.claimNextPendingGroup("run-1", "runner-a", 5000L);
+        assertTrue(dataStore.reportGroupProgress("run-1", 0, "runner-a", 4321L, 1, 0, 1, 0L));
+
+        // when
+        DistributedRunGroup completed = dataStore.completeGroup("run-1", 0, "runner-a", 9000L);
+
+        // then
+        assertNotNull(completed, "a re-seed group that observed at least one suite must complete");
+        assertEquals(DistributedRunGroupStatus.COMPLETED, completed.getStatus());
     }
 
     /**

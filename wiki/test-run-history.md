@@ -115,6 +115,16 @@ Where it shows:
 - **History table and `history` task output** - `rerun` in the Savings cell, where the row would otherwise show a dash, with a hover hint on the HTML page. This marks the row without adding a column to a table kept narrow enough not to scroll sideways.
 - **Timeline chart** - a rerun bar keeps its pass/fail colour but is drawn faded with a dashed outline, with a Rerun legend entry; see [History timeline chart](history-timeline-chart.md).
 
+### Selection mode
+
+`selection_mode` records how the run's selection was decided: `SELECTIVE`, `SEED`, `SELECT_ALL`
+(`tiaSelectAllTests`) or `RESEED` (`tiaReseed`). It was added by migration with no default, so rows
+written before it read back null. Reports name the mode only for a seed or forced run: in the Savings
+cell of the history table and `history` output (where a full run, which saves nothing, would
+otherwise dash), and as a `Selection:` line on the run detail page, which also replaces the all-zero
+selection counters with a line saying why every test ran. See
+[Forced runs and re-seed](forced-runs-and-reseed.md).
+
 ### Why timestamps are stored as UTC epoch ms
 
 Tia runs on developer laptops, CI runners, and shared workspaces in potentially different timezones. Storing a timezone-agnostic numeric value avoids any "what does this string mean in this DB" ambiguity. The HTML History page renders each row's timestamp in the viewer's **local** timezone via a small inline script (`HtmlLayout.localTimeRenderingScript`) that joins the locale's date and time with a single space - no comma, no millisecond precision and no timezone marker in the displayed text. The History table renders to the minute (its `<time>` elements carry `data-no-seconds`); the run detail page keeps the seconds.

@@ -11,6 +11,7 @@ import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestJvmSequence;
@@ -137,6 +138,11 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // by the run id the group was claimed under - no group count or target run time is
                 // asked for, since that shape was already decided by the plan this context was
                 // resolved from.
+                if (Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS))
+                        || Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_RESEED))) {
+                    log.warn("selectAllTests / reseed are ignored on a distributed runner: the mode "
+                            + "is decided by tia-dist-plan and recorded on the run.");
+                }
                 DistributedRunConfig config = DistributedRunConfig.forRunner(
                         distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
                 // forClaimedRunner, not claim: this fork does not claim, it re-derives the same two
@@ -164,11 +170,17 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 // The one path that needs a reader, and the one that closes it: an ordinary build
                 // runs its own selection here, which diffs the workspace.
                 VCSReader vcsReader = vcsReaderSupplier.get();
+                // Forwarded by the Gradle plugin, which has already refused tiaReseed without
+                // updateDBMapping. The mode rides on the selection details into the persist, which
+                // is where a re-seed takes effect.
+                SelectionMode selectionMode = SelectionMode.fromFlags(
+                        Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS)),
+                        Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_RESEED)));
                 try {
                     TestSelectorResult testSelectorResult = new TiaSpockTestRunInitializer(dataStore)
                             .selectTests(vcsReader, sourceFilesDirs, testFilesDirs,
                                     this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig,
-                                    staticMappingConfig);
+                                    staticMappingConfig, selectionMode);
                     ignoredTests = testSelectorResult.getTestsToIgnore();
                     testsToRun = testSelectorResult.getTestsToRun();
                     drainResult = testSelectorResult.getLibraryImpactDrainResult();

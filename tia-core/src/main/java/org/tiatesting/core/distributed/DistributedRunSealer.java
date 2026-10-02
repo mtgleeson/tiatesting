@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -234,7 +235,8 @@ public final class DistributedRunSealer {
         }
 
         if (!ranNoExpectedSuites) {
-            seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement);
+            seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement,
+                    run.getSelectionMode() == SelectionMode.RESEED);
         }
 
         if (updateDBTestRunHistory) {
@@ -253,7 +255,8 @@ public final class DistributedRunSealer {
             // DataStore#readDistributedRunSelectionDetails - so a seed or pre-feature run reads
             // back TestRunSelectionDetails.empty() rather than forcing a null check here.
             TestRunSelectionDetails selectionDetails =
-                    dataStore.readDistributedRunSelectionDetails(context.getRunId());
+                    dataStore.readDistributedRunSelectionDetails(context.getRunId())
+                            .withSelectionMode(run.getSelectionMode());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
                     run.getGroupsAvailable(), run.getCreatedAtMs(), run.getRunSource(),
@@ -282,10 +285,14 @@ public final class DistributedRunSealer {
      * @param allTestsRun whether the groups between them ran every tracked suite
      * @param statsIncrement the build's contribution to the Tia-level stats, accumulated by the
      *                       store at write time
+     * @param reseed whether the plan was a re-seed, so the seal also deletes every piece of mapping
+     *               data no group rewrote - the suites any runner wrote are the ones flagged
+     *               unsealed. The sealer seals once per build, so there is no retry to guard against.
+     *               See the "Forced runs and re-seed" chapter in {@code WIKI.md}
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
                       final boolean updateDBMapping, final boolean allTestsRun,
-                      final CoreStatsIncrement statsIncrement) {
+                      final CoreStatsIncrement statsIncrement, final boolean reseed) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
@@ -309,7 +316,7 @@ public final class DistributedRunSealer {
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
-                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement));
+                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, reseed));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
@@ -425,7 +432,7 @@ public final class DistributedRunSealer {
      * run nothing, so executing nothing is Tia working as intended and its stats and savings are
      * recorded as usual. Any build with suites assigned to a group expected those suites.
      *
-     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param run the run row this seal already read, carrying the planner's selection mode
      * @param assignedSuitesByGroup the suite names the plan assigned each group
      * @param totals the figures the build's groups add up to
      * @return true when no group ran a suite though the plan expected at least one to
@@ -437,7 +444,7 @@ public final class DistributedRunSealer {
             return false;
         }
 
-        return run.isSeedRun() || assignedAnySuite(assignedSuitesByGroup);
+        return run.isFullRun() || assignedAnySuite(assignedSuitesByGroup);
     }
 
     /**
@@ -468,7 +475,7 @@ public final class DistributedRunSealer {
      * reported one, but a filter that excluded every runner's share, or an assignment whose suites are
      * all disabled in source, produce the same shape and are not distinguishable from here.
      *
-     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param run the run row this seal already read, carrying the planner's selection mode
      * @param assignedSuitesByGroup the suite names the plan assigned each group, counted for the
      *                              warning so it names what was expected
      * @param updateDBMapping whether this build owned mapping-DB updates
@@ -480,7 +487,7 @@ public final class DistributedRunSealer {
         for (Set<String> groupSuites : assignedSuitesByGroup.values()) {
             assignedSuites.addAll(groupSuites);
         }
-        String expected = run.isSeedRun() && assignedSuites.isEmpty()
+        String expected = run.isFullRun() && assignedSuites.isEmpty()
                 ? "every test suite"
                 : assignedSuites.size() + " selected test suite(s)";
 
@@ -517,13 +524,13 @@ public final class DistributedRunSealer {
      * planned - see the stray-suite case below. What the plan assigned each group cannot be moved by
      * any number of retries or strays, so it is what this counts against.
      *
-     * <p><b>A seed run returns zero up front.</b> A seed run runs every test, so it ignores nothing.
-     * Its assignment shape does not matter: a fanned-out seed carries disk-scanned suite names and a
-     * collapsed seed carries none, but neither is a reliable tracked-vs-assigned basis, and the
-     * barrier only released once every group observed at least one suite. Deciding this from {@link
-     * DistributedRun#isSeedRun()} rather than from the assignment also makes it robust to a tracked
-     * suite whose name the disk scan did not enumerate (a {@code @Nested} binary name, say), which
-     * the general path below would otherwise miscount as ignored.
+     * <p><b>A full run (seed or forced) returns zero up front.</b> A full run runs every test, so it
+     * ignores nothing. Its assignment shape does not matter: a fanned-out run carries disk-scanned
+     * suite names and a collapsed seed carries none, but neither is a reliable tracked-vs-assigned
+     * basis, and the barrier only released once every group observed at least one suite. Deciding
+     * this from {@link DistributedRun#isFullRun()} rather than from the assignment also makes it
+     * robust to a tracked suite whose name the disk scan did not enumerate (a {@code @Nested}
+     * binary name, say), which the general path below would otherwise miscount as ignored.
      *
      * <p>For a non-seed build the count is read from the plan's assignment, never from the execution
      * counter - see the {@code suites_ran} caveat below.
@@ -542,21 +549,21 @@ public final class DistributedRunSealer {
      *
      * <p>One small query per group, at seal time only - never on the hot read path.
      *
-     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param run the run row this seal already read, carrying the planner's selection mode
      * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
      *                              number
      * @return the number of tracked, non-developer-disabled suites the plan did not assign to any
-     *         group; always zero for a seed run
+     *         group; always zero for a full run (seed or forced)
      */
     private int ignoredSuiteCount(final DistributedRun run,
                                   final Map<Integer, Set<String>> assignedSuitesByGroup) {
-        // A seed run runs every test by definition, and its group assignments come from a disk scan
-        // that over-includes non-test classes - not a reliable basis for a tracked-vs-assigned
-        // difference. Whether it fanned out across groups (assigned real suite names) or collapsed to
-        // a single empty group (assigned nothing), a sealed seed run ignored nothing: the barrier
-        // only released once every group had observed at least one suite. See the distributed test
-        // runs chapter in WIKI.md.
-        if (run.isSeedRun()) {
+        // A full run (seed or forced) runs every test by definition, and its group assignments come
+        // from a disk scan that over-includes non-test classes - not a reliable basis for a
+        // tracked-vs-assigned difference. Whether it fanned out across groups (assigned real suite
+        // names) or collapsed to a single empty group (assigned nothing), a sealed full run ignored
+        // nothing: the barrier only released once every group had observed at least one suite. See
+        // the distributed test runs chapter in WIKI.md.
+        if (run.isFullRun()) {
             return 0;
         }
 
@@ -636,7 +643,7 @@ public final class DistributedRunSealer {
      * same distinction {@link #ignoredSuiteCount} turns on.
      *
      * @param tiaData the core data being sealed, read for the all-tests baseline the solve needs
-     * @param run the run row this seal already read, carrying the planner's seed-run flag
+     * @param run the run row this seal already read, carrying the planner's selection mode
      * @param groups the run's groups, as read back from the datastore after the barrier
      * @param assignedSuitesByGroup the suite names the plan assigned each group, keyed by group
      *                              number
@@ -647,10 +654,11 @@ public final class DistributedRunSealer {
     private DistributedRunOverheadModel solveOverheadModel(final TiaData tiaData, final DistributedRun run,
                                    final List<DistributedRunGroup> groups,
                                    final Map<Integer, Set<String>> assignedSuitesByGroup) {
-        if (run.isSeedRun()) {
-            log.debug("Distributed run '{}': this was a seed run, whose one group is assigned no "
-                    + "suite names because it runs everything, so it supplies no second equation "
-                    + "for the overhead model.", context.getRunId());
+        if (run.isFullRun()) {
+            log.debug("Distributed run '{}': this was a full run ({}), whose groups were drawn from "
+                    + "a disk scan that includes non-test classes, so it supplies no reliable second "
+                    + "equation for the overhead model.", context.getRunId(),
+                    run.getSelectionMode().getLabel());
             return null;
         }
 

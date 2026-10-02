@@ -1,5 +1,7 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
+
 /**
  * An immutable summary of a distributed run plan: the facts a CI pipeline and a human both need
  * once the balancer has decided on groups. {@link DistributedRunPlanner} builds one of these from
@@ -15,14 +17,15 @@ package org.tiatesting.core.distributed;
  * no target run time to report; it is rendered as JSON {@code null}, never {@code 0}, since zero
  * would read as an (impossible) target of zero rather than the absence of one.
  *
- * <p>{@code seedRun} is true exactly when no stored mapping existed yet for this branch - see
- * {@link DistributedRunPlanner#plan}. That does not fix {@link #getGroupCount()} at one: when
- * suites are discovered on disk, the plan splits them across the configured group count by even
- * count - capped at one group per suite found - and {@code groupCount} is whatever that split
- * produced; only when nothing is found on
- * disk, or no group count applies, does the plan fall back to a single empty group. A pipeline
- * reading {@code tia-run-plan.json} can use {@code seedRun} to explain why the mapping was
- * missing rather than assuming it will always receive exactly one job.
+ * <p>{@code selectionMode} is {@code SELECTIVE}, {@code SEED}, {@code SELECT_ALL} or
+ * {@code RESEED}. It is {@code SEED} exactly when no stored mapping existed yet for this branch -
+ * see {@link DistributedRunPlanner#plan}; the two forced modes are balanced by stored run time.
+ * That does not fix {@link #getGroupCount()} at one: when suites are discovered on disk, the plan
+ * splits them across the configured group count by even count - capped at one group per suite found
+ * - and {@code groupCount} is whatever that split produced; only when nothing is found on disk, or
+ * no group count applies, does the plan fall back to a single empty group. A pipeline reading
+ * {@code tia-run-plan.json} can use {@code selectionMode} to explain why the mapping was missing
+ * rather than assuming it will always receive exactly one job.
  *
  * <p>{@code groupCount} is {@code 0} when a non-seed selection chose nothing. The plan step has
  * then already sealed the run itself, so a pipeline must start no runner jobs for it - see
@@ -33,7 +36,7 @@ public final class DistributedRunPlanSummary {
     private final String runId;
     private final String branch;
     private final String commit;
-    private final boolean seedRun;
+    private final SelectionMode selectionMode;
     private final int groupCount;
     private final long avgGroupMs;
     private final Long targetMs;
@@ -71,17 +74,17 @@ public final class DistributedRunPlanSummary {
      *                        case a pipeline setting a job timeout needs to know about
      * @param selectedSuiteCount the number of test suites selected for this run, across all
      *                           groups
-     * @param seedRun whether no stored mapping existed yet for this branch, so the plan's suites
-     *                were split across the groups by even count rather than balanced from the
-     *                selection - or, when nothing was found on disk, collapsed to a single empty
-     *                group
+     * @param selectionMode how the selection was decided. A {@link SelectionMode#SEED} means no
+     *                      stored mapping existed yet, so the plan's suites were split across the
+     *                      groups by even count - or, when nothing was found on disk, collapsed to
+     *                      a single empty group. A forced mode was balanced by stored run time
      */
     public DistributedRunPlanSummary(String runId, String branch, String commit, int groupCount,
                                       Long targetMs, boolean targetMet, boolean clampedToMaxGroups,
                                       boolean singleSuiteExceedsTarget,
                                       boolean fixedOverheadExceedsTarget, long totalEstimatedMs,
                                       long heaviestGroupMs, int selectedSuiteCount,
-                                      boolean seedRun) {
+                                      SelectionMode selectionMode) {
         this.runId = runId;
         this.branch = branch;
         this.commit = commit;
@@ -94,7 +97,7 @@ public final class DistributedRunPlanSummary {
         this.totalEstimatedMs = totalEstimatedMs;
         this.heaviestGroupMs = heaviestGroupMs;
         this.selectedSuiteCount = selectedSuiteCount;
-        this.seedRun = seedRun;
+        this.selectionMode = selectionMode;
         this.avgGroupMs = groupCount == 0 ? 0L : totalEstimatedMs / groupCount;
     }
 
@@ -155,13 +158,14 @@ public final class DistributedRunPlanSummary {
     public int getSelectedSuiteCount() { return selectedSuiteCount; }
 
     /**
-     * @return whether no stored mapping existed yet for this branch, so the plan's suites were
-     *         split by even count rather than balanced from the selection; when true, {@link
-     *         #getGroupCount()} is the configured group count the split suites were divided
-     *         across (capped at one group per suite found), or 1 only in the fallback case where nothing was found on disk to split (or
-     *         no group count applied)
+     * @return how the plan's selection was decided. For a {@link SelectionMode#SEED} no stored
+     *         mapping existed yet, so the plan's suites were split by even count rather than
+     *         balanced from the selection, and {@link #getGroupCount()} is the configured group
+     *         count the split suites were divided across (capped at one group per suite found), or
+     *         1 only in the fallback case where nothing was found on disk to split (or no group
+     *         count applied)
      */
-    public boolean isSeedRun() { return seedRun; }
+    public SelectionMode getSelectionMode() { return selectionMode; }
 
     /**
      * Render this summary as the {@code tia-run-plan.json} document a CI pipeline parses to
@@ -179,7 +183,7 @@ public final class DistributedRunPlanSummary {
         json.append("  \"runId\": \"").append(escapeJsonString(runId)).append("\",\n");
         json.append("  \"branch\": \"").append(escapeJsonString(branch)).append("\",\n");
         json.append("  \"commit\": \"").append(escapeJsonString(commit)).append("\",\n");
-        json.append("  \"seedRun\": ").append(seedRun).append(",\n");
+        json.append("  \"selectionMode\": \"").append(selectionMode.name()).append("\",\n");
         json.append("  \"groupCount\": ").append(groupCount).append(",\n");
         json.append("  \"avgGroupMs\": ").append(avgGroupMs).append(",\n");
         json.append("  \"heaviestGroupMs\": ").append(heaviestGroupMs).append(",\n");
@@ -246,7 +250,8 @@ public final class DistributedRunPlanSummary {
      * explanation once the real plan is persisted.
      *
      * @return a multi-line human-readable summary naming the run, its groups, and whether the
-     *         target was met; when {@link #isSeedRun()} is true, names that instead of the target
+     *         target was met; for a forced full run, names the mode first; for a seed, names that
+     *         instead of the target
      *         verdict, since a seed run has no target to report - distinguishing a split seed,
      *         whose suites were discovered on disk and divided across the configured groups, from
      *         a fallback seed, which collapses to a single group covering the whole suite, by
@@ -260,6 +265,14 @@ public final class DistributedRunPlanSummary {
         StringBuilder summary = new StringBuilder();
         summary.append("Distributed run plan for ").append(runId)
                 .append(" (branch ").append(branch).append(", commit ").append(commit).append(")\n");
+        boolean seedRun = selectionMode == SelectionMode.SEED;
+        if (selectionMode.isForced()) {
+            summary.append("  ").append(selectionMode.getLabel()).append(": selection overridden, so ")
+                    .append("every suite found on disk was balanced across the groups by stored ")
+                    .append("run time")
+                    .append(selectionMode == SelectionMode.RESEED
+                            ? "; the seal will rebuild the mapping from scratch.\n" : ".\n");
+        }
         if (seedRun) {
             if (selectedSuiteCount > 0) {
                 summary.append("  Seed run: no stored mapping exists yet for this branch, so its ")
@@ -323,7 +336,7 @@ public final class DistributedRunPlanSummary {
     @Override
     public String toString() {
         return "DistributedRunPlanSummary{runId=" + runId + ", branch=" + branch
-                + ", commit=" + commit + ", seedRun=" + seedRun + ", groupCount=" + groupCount
+                + ", commit=" + commit + ", selectionMode=" + selectionMode + ", groupCount=" + groupCount
                 + ", avgGroupMs=" + avgGroupMs
                 + ", heaviestGroupMs=" + heaviestGroupMs
                 + ", targetMs=" + targetMs + ", targetMet=" + targetMet

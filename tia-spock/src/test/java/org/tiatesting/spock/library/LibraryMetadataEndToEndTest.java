@@ -1,5 +1,6 @@
 package org.tiatesting.spock.library;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +76,7 @@ class LibraryMetadataEndToEndTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.<String>emptyList(),
-                Collections.<String>emptyList(), false, config, null, true);
+                Collections.<String>emptyList(), false, config, null, true, SelectionMode.SELECTIVE);
 
         // Reconciler must have inserted the library row with the pre-resolved source dirs; the
         // ledger state starts null (seeded by the library's first publish, not by reconcile).
@@ -99,7 +100,7 @@ class LibraryMetadataEndToEndTest {
 
         TestSelector testSelector = new TestSelector(dataStore);
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.<String>emptyList(),
-                Collections.<String>emptyList(), false, config, null, false);
+                Collections.<String>emptyList(), false, config, null, false, SelectionMode.SELECTIVE);
 
         assertTrue(dataStore.readTrackedLibraries().isEmpty(),
                 "Non-primary build (updateDBMapping=false) must not insert tia_library rows.");

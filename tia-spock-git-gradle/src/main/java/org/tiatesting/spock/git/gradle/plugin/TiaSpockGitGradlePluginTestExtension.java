@@ -20,6 +20,7 @@ import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryJarDirectoryResolver;
 import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
 import org.tiatesting.core.model.LibraryBuildMetadata;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -30,6 +31,7 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
 import org.tiatesting.gradle.plugin.TiaBasePlugin;
+import org.tiatesting.gradle.plugin.TiaRuntimeFlags;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 import org.tiatesting.gradle.plugin.TiaSchemaResolver;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
@@ -132,6 +134,20 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
                     testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
+                    // The runtime flags, resolved here (a -P property wins over the extension) and
+                    // refused up front when a re-seed has no mapping to rebuild.
+                    SelectionMode selectionMode = TiaRuntimeFlags.selectionMode(testTask.getProject(),
+                            tiaTaskExtension);
+                    try {
+                        selectionMode.requireMappingOwner(
+                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
+                    } catch (IllegalStateException e) {
+                        throw new GradleException(e.getMessage(), e);
+                    }
+                    testTask.systemProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS,
+                            selectionMode == SelectionMode.SELECT_ALL);
+                    testTask.systemProperty(ForkSystemProperties.PROP_RESEED,
+                            selectionMode == SelectionMode.RESEED);
                     // Number this task execution's test JVMs. The test-retry plugin re-runs failed
                     // tests in fresh JVMs inside this same task action, each with these same
                     // properties, so a counter reset here - once per execution, before any JVM
@@ -292,6 +308,14 @@ public class TiaSpockGitGradlePluginTestExtension {
 
         if (tiaTaskExt.getCheckLocalChanges() == null){
             tiaTaskExt.setCheckLocalChanges(tiaProjectExt.getCheckLocalChanges());
+        }
+
+        if (tiaTaskExt.getSelectAllTests() == null){
+            tiaTaskExt.setSelectAllTests(tiaProjectExt.getSelectAllTests());
+        }
+
+        if (tiaTaskExt.getReseed() == null){
+            tiaTaskExt.setReseed(tiaProjectExt.getReseed());
         }
 
         // Like the distributed settings below, the run source describes the build rather than any

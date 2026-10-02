@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Project;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.Test;
@@ -69,20 +70,20 @@ class TiaBasePluginDistributedTest {
         runTimes.put("com.example.BTest", 2000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                5000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 500L, 0L, false,
+                5000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 500L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
     /**
-     * Build a seed selection - no stored mapping exists yet for the tracked branch, so {@code
-     * runAllTests} is true and both {@code testsToRun} and {@code testsToIgnore} are empty, per
-     * {@link TestSelectorResult#isRunAllTests()}.
+     * Build a seed selection - no stored mapping exists yet for the tracked branch, so the mode is
+     * {@link SelectionMode#SEED} and both {@code testsToRun} and {@code testsToIgnore} are empty,
+     * per {@link TestSelectorResult#isRunAllTests()}.
      *
-     * @return a selection with {@code runAllTests} true and no selected or ignored tests
+     * @return a seed selection with no selected or ignored tests
      */
     private static TestSelectorResult seedSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(), null,
-                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, 0L, true,
+                0L, Collections.<String>emptySet(), 0L, Collections.<String, Long>emptyMap(), 0L, 0L, 0L, SelectionMode.SEED,
                 TestRunSelectionDetails.empty());
     }
 

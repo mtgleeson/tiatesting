@@ -1,5 +1,6 @@
 package org.tiatesting.core.testrunner;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -206,6 +207,27 @@ class TestRunnerServiceDistributedPersistTest {
                 "the runner's suite mapping row must be written");
         assertTrue(dataStore.getTestSuitesFailed().contains("com.example.FailedTest"),
                 "the runner's failed suites must be added to the stored failed set");
+    }
+
+    /**
+     * A distributed runner's suite write flags each suite unsealed, exactly as a single-host run's
+     * does. The sealer's re-seed clear-out keeps precisely the flagged suites, so this is what lets a
+     * distributed re-seed tell the suites any group ran from the rest. See the "Forced runs and
+     * re-seed" chapter in {@code WIKI.md}.
+     */
+    @Test
+    void distributedRunnerFlagsItsSuitesUnsealed() {
+        // given
+        persistPlan(RUN_ID, 2);
+        DistributedRunnerContext context = claimGroup(RUN_ID, RUNNER_KEY);
+
+        // when
+        service.persistTestRunData(true, true, "new-commit", "main",
+                System.currentTimeMillis(), makeResult(), context);
+
+        // then
+        assertTrue(dataStore.getTestSuitesTracked().get("com.example.SomeTest").isUnsealed(),
+                "a runner's suite must stay flagged unsealed until the sealer clears it");
     }
 
     /**
@@ -715,7 +737,7 @@ class TestRunnerServiceDistributedPersistTest {
             }
         }
         DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 1234L, false, null);
+                1000L * groupCount, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 
@@ -736,7 +758,7 @@ class TestRunnerServiceDistributedPersistTest {
         }
         Map<Integer, List<String>> suites = new HashMap<>();
         suites.put(0, suiteNames);
-        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, false, null);
+        DistributedRun run = DistributedRun.open(runId, "main", PLAN_COMMIT, 1, 1, null, 1000L, 1234L, SelectionMode.SELECTIVE, null);
         dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suites, null));
     }
 

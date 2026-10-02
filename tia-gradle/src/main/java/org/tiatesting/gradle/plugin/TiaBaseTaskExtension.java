@@ -2,6 +2,7 @@ package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 
 import java.io.File;
@@ -27,6 +28,8 @@ public class TiaBaseTaskExtension {
     private Boolean updateDBMapping;
     private Boolean updateDBTestRunHistory = Boolean.TRUE;
     private Boolean checkLocalChanges;
+    private Boolean selectAllTests;
+    private Boolean reseed;
     private String runSource;
     private String schemaSuffix;
     private String libraryStampSchemas;
@@ -356,6 +359,42 @@ public class TiaBaseTaskExtension {
 
     public void setCheckLocalChanges(Boolean checkLocalChanges) {
         this.checkLocalChanges = checkLocalChanges;
+    }
+
+    /**
+     * @return the {@code selectAllTests} setting, or null when not set on this extension. A
+     *         {@code -PtiaSelectAllTests} property overrides it, see {@link TiaRuntimeFlags}
+     */
+    @Input
+    @Optional
+    public Boolean getSelectAllTests() {
+        return selectAllTests;
+    }
+
+    /**
+     * @param selectAllTests run every test, overriding Tia's selection, while still updating the
+     *                       mapping, stats and history as configured
+     */
+    public void setSelectAllTests(Boolean selectAllTests) {
+        this.selectAllTests = selectAllTests;
+    }
+
+    /**
+     * @return the {@code reseed} setting, or null when not set on this extension. A
+     *         {@code -PtiaReseed} property overrides it, see {@link TiaRuntimeFlags}
+     */
+    @Input
+    @Optional
+    public Boolean getReseed() {
+        return reseed;
+    }
+
+    /**
+     * @param reseed run every test and rebuild the stored mapping from scratch when the run seals;
+     *               requires {@code updateDBMapping}
+     */
+    public void setReseed(Boolean reseed) {
+        this.reseed = reseed;
     }
 
     @Input

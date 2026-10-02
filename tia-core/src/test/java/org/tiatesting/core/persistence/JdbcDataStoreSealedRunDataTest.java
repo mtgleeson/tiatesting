@@ -87,7 +87,7 @@ class JdbcDataStoreSealedRunDataTest {
         // when
         dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), methods(),
                 Collections.emptyList(), Collections.emptyList(),
-                Collections.singletonList(library), CoreStatsIncrement.none()));
+                Collections.singletonList(library), CoreStatsIncrement.none(), false));
 
         // then
         assertEquals("commitC", dataStore.getTiaCore().getCommitValue());
@@ -108,7 +108,7 @@ class JdbcDataStoreSealedRunDataTest {
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), broken,
                         Collections.emptyList(), Collections.emptyList(), new ArrayList<>(),
-                        CoreStatsIncrement.none())));
+                        CoreStatsIncrement.none(), false)));
 
         // then - the seeded catalogue survived the rolled-back truncate, and the commit value
         // was never advanced; this only holds if the truncate is genuinely undone rather than
@@ -139,7 +139,7 @@ class JdbcDataStoreSealedRunDataTest {
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData("commitC"), replacementMethods,
                         Collections.emptyList(), Collections.emptyList(),
-                        Collections.singletonList(invalidLibrary), CoreStatsIncrement.none())));
+                        Collections.singletonList(invalidLibrary), CoreStatsIncrement.none(), false)));
 
         // then - the already-written replacement catalogue was rolled back along with the failed
         // library write and the commit value, proving the whole bundle commits or rolls back as
@@ -182,7 +182,7 @@ class JdbcDataStoreSealedRunDataTest {
         assertThrows(RuntimeException.class, () ->
                 dataStore.persistSealedRunData(new SealedRunData(coreData(overLength.toString()), methods(),
                         Collections.emptyList(), Collections.emptyList(), new ArrayList<>(),
-                        CoreStatsIncrement.none())));
+                        CoreStatsIncrement.none(), false)));
 
         // then - the flag survives: the in-transaction clear was rolled back along with the
         // rest of the bundle, not committed ahead of the failing persistTiaCore statement

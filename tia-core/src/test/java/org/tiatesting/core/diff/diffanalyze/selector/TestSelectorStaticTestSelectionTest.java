@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,7 +70,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
-                false, null, config, false);
+                false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT"), result.getTestsToRun());
@@ -89,7 +90,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
-                false, null, config, false);
+                false, null, config, false, SelectionMode.SELECTIVE);
 
         // then
         assertTrue(result.getTestsToRun().isEmpty());
@@ -105,7 +106,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
-                false, null, null, false);
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then
         assertTrue(result.getTestsToRun().isEmpty());
@@ -121,7 +122,7 @@ class TestSelectorStaticTestSelectionTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
-                false, null, StaticTestSelectionConfig.EMPTY, false);
+                false, null, StaticTestSelectionConfig.EMPTY, false, SelectionMode.SELECTIVE);
 
         // then
         assertTrue(result.getTestsToRun().isEmpty());

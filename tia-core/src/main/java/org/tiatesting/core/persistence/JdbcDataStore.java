@@ -8,6 +8,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
@@ -127,7 +128,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_SEALED_BY = "sealed_by";
     private static final String COL_SEALED_AT = "sealed_at";
     private static final String COL_DRAIN_RESULT = "drain_result";
-    private static final String COL_SEED_RUN = "seed_run";
+    private static final String COL_SELECTION_MODE = "selection_mode";
     private static final String COL_GROUPS_AVAILABLE = "groups_available";
     private static final String COL_GROUP_NUMBER = "group_number";
     private static final String COL_RUNNER_KEY = "runner_key";
@@ -625,6 +626,12 @@ public class JdbcDataStore implements DataStore {
                     persistTrackedLibrary(connection, library);
                 }
 
+                if (sealedRunData.isReseed()) {
+                    // Must precede clearUnsealedTestSuites: the unsealed flag is what marks the
+                    // suites this run rewrote, and the clear-out keeps exactly those.
+                    clearMappingNotRewrittenByThisRun(connection);
+                }
+
                 // Clear every currently-flagged suite before the commit value advances: those
                 // suites' mapping rows are now safe to trust against the commit about to become
                 // the stored one. Deliberately unconditional and not scoped to this run's own
@@ -733,6 +740,68 @@ public class JdbcDataStore implements DataStore {
      * @param connection the connection to update on
      * @throws SQLException if the update fails
      */
+    /**
+     * Re-seed clear-out: delete every piece of mapping data this run did not just rewrite, inside
+     * the seal's transaction. A suite this run executed had its edges rewritten and its unsealed
+     * flag set by persistTestSuiteClasses, so the flag is the "observed by this run" marker.
+     * Unobserved suites are deleted with their classes and edges, except developer-disabled ones,
+     * which keep their row, flag and stats and lose only their edges. Orphan class, edge and method
+     * rows - from earlier crashes, or suite deletions that never cascaded - are swept across the
+     * whole mapping, and failed-suite entries naming a suite that no longer exists are pruned. Core
+     * stats, history, library tables and id blocks are untouched. See the "Forced runs and
+     * re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param connection the seal's connection, already inside its transaction
+     * @throws SQLException if any delete fails; the caller rolls the whole seal back
+     */
+    private void clearMappingNotRewrittenByThisRun(Connection connection) throws SQLException {
+        String notObserved = "(" + COL_UNSEALED + " IS NULL OR " + COL_UNSEALED + " = FALSE)";
+        String unobservedSuiteIds = "SELECT " + COL_ID + " FROM " + TABLE_TIA_TEST_SUITE
+                + " WHERE " + notObserved;
+
+        try (Statement statement = connection.createStatement()) {
+            int edges = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD
+                    + " WHERE " + COL_TIA_SOURCE_CLASS_ID + " IN (SELECT " + COL_ID + " FROM "
+                    + TABLE_TIA_SOURCE_CLASS + " WHERE " + COL_TIA_TEST_SUITE_ID + " IN ("
+                    + unobservedSuiteIds + "))");
+            int classes = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS
+                    + " WHERE " + COL_TIA_TEST_SUITE_ID + " IN (" + unobservedSuiteIds + ")");
+            int suites = statement.executeUpdate("DELETE FROM " + TABLE_TIA_TEST_SUITE
+                    + " WHERE " + notObserved + " AND (" + COL_DEVELOPER_DISABLED + " IS NULL OR "
+                    + COL_DEVELOPER_DISABLED + " = FALSE)");
+            int orphanClasses = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_TEST_SUITE + " s WHERE s."
+                    + COL_ID + " = " + TABLE_TIA_SOURCE_CLASS + "." + COL_TIA_TEST_SUITE_ID + ")");
+            int orphanEdges = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_CLASS_METHOD
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_SOURCE_CLASS + " c WHERE c."
+                    + COL_ID + " = " + TABLE_TIA_SOURCE_CLASS_METHOD + "." + COL_TIA_SOURCE_CLASS_ID + ")");
+            int methods = statement.executeUpdate("DELETE FROM " + TABLE_TIA_SOURCE_METHOD
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_SOURCE_CLASS_METHOD + " e WHERE e."
+                    + COL_TIA_SOURCE_METHOD_ID + " = " + TABLE_TIA_SOURCE_METHOD + "." + COL_ID + ")");
+            int failed = statement.executeUpdate("DELETE FROM " + TABLE_TIA_TEST_SUITES_FAILED
+                    + " WHERE NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_TEST_SUITE + " s WHERE s."
+                    + COL_NAME + " = " + TABLE_TIA_TEST_SUITES_FAILED + "." + COL_TEST_SUITE_NAME + ")");
+
+            log.info("Re-seed: removed {} unobserved suite(s), {} class row(s) and {} edge(s) of "
+                            + "unobserved suites, {} orphan class row(s), {} orphan edge(s), {} "
+                            + "unreferenced method(s) and {} failed entr(ies) for deleted suites.",
+                    suites, classes, edges, orphanClasses, orphanEdges, methods, failed);
+        }
+    }
+
+    /**
+     * Read a history row's selection mode, keeping null for a row recorded before modes were
+     * rather than reading it as selective.
+     *
+     * @param resultSet the history result set, positioned on a row
+     * @return the row's mode, or null when none was recorded
+     * @throws SQLException if the column cannot be read
+     */
+    private static SelectionMode readSelectionMode(ResultSet resultSet) throws SQLException {
+        String mode = resultSet.getString(COL_SELECTION_MODE);
+        return mode == null ? null : SelectionMode.fromStoredName(mode);
+    }
+
     private void clearUnsealedTestSuites(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             int cleared = statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE
@@ -1460,7 +1529,7 @@ public class JdbcDataStore implements DataStore {
                             COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
                             COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY, COL_RERUN),
+                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1495,6 +1564,9 @@ public class JdbcDataStore implements DataStore {
             setNullableInt(ps, 23, entry.getNumUnsealedMapping());
             setNullableInt(ps, 24, entry.getNumPendingLibrary());
             ps.setBoolean(25, entry.isRerun());
+            // Nullable like the counters: a row whose mode was not recorded stores SQL NULL.
+            setNullableString(ps, 26, entry.getSelectionMode() == null ? null
+                    : entry.getSelectionMode().name());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1549,7 +1621,8 @@ public class JdbcDataStore implements DataStore {
                         getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
                         getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
                         getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),
-                        resultSet.getBoolean(COL_RERUN)));
+                        resultSet.getBoolean(COL_RERUN),
+                        readSelectionMode(resultSet)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -1701,7 +1774,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
                 + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
                 + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ", " + COL_SEED_RUN + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
+                + ", " + COL_SELECTION_MODE + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
                 + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
@@ -1745,7 +1818,7 @@ public class JdbcDataStore implements DataStore {
                     statement.setString(9, run.getSealedBy());
                     setNullableLong(statement, 10, run.getSealedAtMs());
                     setDrainResult(statement, 11, plan.getDrainResult());
-                    statement.setBoolean(12, run.isSeedRun());
+                    statement.setString(12, run.getSelectionMode().name());
                     statement.setInt(13, run.getGroupsAvailable());
                     setNullableString(statement, 14, run.getRunSource());
                     statement.executeUpdate();
@@ -1928,7 +2001,7 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getLong(COL_CREATED_AT),
                 resultSet.getString(COL_SEALED_BY),
                 getNullableLong(resultSet, COL_SEALED_AT),
-                resultSet.getBoolean(COL_SEED_RUN),
+                SelectionMode.fromStoredName(resultSet.getString(COL_SELECTION_MODE)),
                 resultSet.getString(COL_RUN_SOURCE));
     }
 
@@ -2245,7 +2318,8 @@ public class JdbcDataStore implements DataStore {
                 return TestRunSelectionDetails.empty();
             }
             return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary);
+                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
+                    SelectionMode.SELECTIVE);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {
@@ -2561,16 +2635,16 @@ public class JdbcDataStore implements DataStore {
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
 
-            // A seed run's assigned suite names come from a raw disk scan that over-includes classes
-            // JUnit never reports as observed - abstract bases, fixtures, anonymous $ classes - so
-            // observed can never reach assigned and the group would never complete. On a seed run the
-            // guard therefore takes what the runners observed as the run's source of truth: the group
-            // need only have observed at least one suite (or, when it was assigned nothing at all,
-            // nothing). Both inputs - the seed flag and the assigned count - are fixed at plan time,
-            // so reading the flag separately from the conditional update cannot race the guard. See
-            // the distributed test runs chapter in WIKI.md.
-            boolean seedRun = readIsSeedRun(connection, runId);
-            String observedThreshold = seedRun
+            // A full run's (seed or forced) assigned suite names come from a raw disk scan that
+            // over-includes classes JUnit never reports as observed - abstract bases, fixtures,
+            // anonymous $ classes - so observed can never reach assigned and the group would never
+            // complete. On a full run the guard therefore takes what the runners observed as the
+            // run's source of truth: the group need only have observed at least one suite (or, when
+            // it was assigned nothing at all, nothing). Both inputs - the mode and the assigned count
+            // - are fixed at plan time, so reading the mode separately from the conditional update
+            // cannot race the guard. See the distributed test runs chapter in WIKI.md.
+            boolean fullRun = readIsFullRun(connection, runId);
+            String observedThreshold = fullRun
                     ? "LEAST(1, " + assignedCountSubquery + ")"
                     : assignedCountSubquery;
             String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
@@ -2611,24 +2685,26 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Read whether a distributed run was planned as a seed run, on the caller's own connection. A
-     * seed run's group assignments come from a disk scan that over-includes non-test classes, so its
-     * completion guard is loosened to observed-as-truth - see {@link #completeGroup}. Read only on
-     * the completion path, which runs once per group at the end of a build, never on a hot read path.
+     * Read whether a distributed run was planned as a full run (seed or forced), on the caller's
+     * own connection. A full run's group assignments come from a disk scan that over-includes
+     * non-test classes, so its completion guard is loosened to observed-as-truth - see
+     * {@link #completeGroup}. Read only on the completion path, which runs once per group at the
+     * end of a build, never on a hot read path.
      *
      * @param connection the open connection to read on
-     * @param runId the distributed run to read the seed flag for
-     * @return true when the run row records this plan as a seed run; false when it does not, or no
-     *         such run row exists
+     * @param runId the distributed run to read the mode for
+     * @return true when the run row records a full-run mode; false when it does not, or no such
+     *         run row exists
      * @throws SQLException if the read fails
      */
-    private boolean readIsSeedRun(final Connection connection, final String runId) throws SQLException {
-        String sql = "SELECT " + COL_SEED_RUN + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
+    private boolean readIsFullRun(final Connection connection, final String runId) throws SQLException {
+        String sql = "SELECT " + COL_SELECTION_MODE + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
                 + " WHERE " + COL_RUN_ID + " = ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, runId);
             try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && resultSet.getBoolean(COL_SEED_RUN);
+                return resultSet.next()
+                        && SelectionMode.fromStoredName(resultSet.getString(1)).isFullRun();
             }
         }
     }
@@ -4287,7 +4363,9 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_PENDING_LIBRARY + " INT, "
                 // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
                 // which is credited no savings.
-                + COL_RERUN + " BOOLEAN DEFAULT FALSE)";
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE, "
+                // How the run's selection was decided (SELECTIVE, SEED, SELECT_ALL or RESEED).
+                + COL_SELECTION_MODE + " VARCHAR(16))";
     }
 
     /**
@@ -4359,6 +4437,10 @@ public class JdbcDataStore implements DataStore {
         // before this column, so each old row is read as the run it was recorded as.
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_RERUN + " BOOLEAN DEFAULT FALSE");
+        // Migration: add the selection mode. No DEFAULT, so old rows read back null - the mode
+        // was not recorded for them - rather than being retro-labelled selective.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_SELECTION_MODE + " VARCHAR(16)");
         ensureTestRunHistoryTriggerTableExists(connection);
     }
 
@@ -4540,7 +4622,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_SEALED_BY + " VARCHAR(255), "
                 + COL_SEALED_AT + " BIGINT, "
                 + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE, "
+                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE', "
                 + COL_GROUPS_AVAILABLE + " INT, "
                 + COL_RUN_SOURCE + " VARCHAR(32))";
     }
@@ -4615,25 +4697,29 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Build the migration that backfills the {@code tia_distributed_run.seed_run} column onto a run
-     * table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and
-     * a no-op on a table {@link #buildCreateDistributedRunTableSql} just created, since that DDL
-     * already names the column. Without it, a store whose run table predates the column would fail
-     * the next plan write with "column not found" - {@code CREATE TABLE IF NOT EXISTS} alone never
-     * alters an already-existing table.
-     *
-     * <p>Pre-existing rows default to {@code FALSE}, which is the safe way round: a run wrongly read
-     * as not-a-seed-run reports every tracked suite as ignored and so cannot become an all-tests
-     * run, whereas the opposite mistake would advance the full-suite baseline and every tracked
-     * library's mapping baseline off a build that ran almost nothing. The default is only ever
-     * observed by a run planned before this migration ran, since every plan write supplies the
-     * column explicitly.
+     * Build the migration adding {@code tia_distributed_run.selection_mode} to a run table created
+     * before modes were recorded. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and a no-op on a
+     * table {@link #buildCreateDistributedRunTableSql} just created. Pre-existing rows read
+     * {@code SELECTIVE}, the safe way round: a run wrongly read as selective reports every tracked
+     * suite it was not assigned as ignored and so cannot become an all-tests run. Tia is pre-release,
+     * so the {@code seed_run} flag it replaces is not backfilled; a seed run left open across the
+     * upgrade must be re-planned.
      *
      * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
      */
-    private String buildAddSeedRunColumnSql() {
+    private String buildAddSelectionModeColumnSql() {
         return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
-                + COL_SEED_RUN + " BOOLEAN DEFAULT FALSE";
+                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE'";
+    }
+
+    /**
+     * Build the migration dropping the {@code seed_run} column that {@code selection_mode}
+     * replaced. Idempotent via {@code DROP COLUMN IF EXISTS}.
+     *
+     * @return the {@code ALTER TABLE ... DROP COLUMN IF EXISTS} statement
+     */
+    private String buildDropSeedRunColumnSql() {
+        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " DROP COLUMN IF EXISTS seed_run";
     }
 
     /**
@@ -4677,23 +4763,21 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Ensure the four distributed-run tables, the group-status index, the additive {@code
-     * seed_run}, {@code groups_available} and {@code run_source} columns, and the method staging
-     * table's {@code line_ranges} column exist. Idempotent via
-     * {@code CREATE TABLE/INDEX IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}, so it both
-     * creates everything on a new database and backfills the run row's seed flag, groups available
-     * and run source onto a database created before they were recorded.
+     * selection_mode}, {@code groups_available} and {@code run_source} columns, and the method
+     * staging table's {@code line_ranges} column exist, and drop the {@code seed_run} column
+     * {@code selection_mode} replaced. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS},
+     * {@code ADD COLUMN IF NOT EXISTS} and {@code DROP COLUMN IF EXISTS}, so it both creates
+     * everything on a new database and migrates a database created before these were recorded.
      *
      * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
      * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
      * pre-release with no external databases to preserve, so a database is simply created with
-     * them. {@code seed_run} is backfilled because getting it wrong on an existing run row
-     * corrupts the full-suite baseline rather than merely failing the write, and {@code
-     * groups_available} and {@code run_source} because the plan write names them, so a store
-     * without either would fail the next plan.
+     * them. {@code selection_mode}, {@code groups_available} and {@code run_source} are added
+     * because the plan write names them, so a store without any of them would fail the next plan.
      *
-     * <p>All nine DDL statements are batched onto one {@link Statement} and sent with a single
+     * <p>All ten DDL statements are batched onto one {@link Statement} and sent with a single
      * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be nine wire round trips - paid on
+     * or Postgres connection this collapses what would otherwise be ten wire round trips - paid on
      * every build whether or not distributed runs are in use - into one.
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
@@ -4710,7 +4794,8 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
-            statement.addBatch(buildAddSeedRunColumnSql());
+            statement.addBatch(buildAddSelectionModeColumnSql());
+            statement.addBatch(buildDropSeedRunColumnSql());
             statement.addBatch(buildAddGroupsAvailableColumnSql());
             statement.addBatch(buildAddDistributedRunSourceColumnSql());
             statement.addBatch(buildAddMethodStageLineRangesColumnSql());

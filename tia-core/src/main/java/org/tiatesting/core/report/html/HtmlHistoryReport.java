@@ -256,7 +256,9 @@ public class HtmlHistoryReport {
         // otherwise dash marks the row without widening the table.
         cells.add(entry.isRerun()
                 ? td("rerun").attr("title", RERUN_HINT).attr("data-order", "0")
-                : td(savingsMs > 0 ? ReportUtils.prettyDuration(savingsMs, true) : "-")
+                : td(savingsMs > 0 ? ReportUtils.prettyDuration(savingsMs, true)
+                        : ReportUtils.selectionModeLabel(entry) != null
+                        ? ReportUtils.selectionModeLabel(entry) : "-")
                         .attr("data-order", String.valueOf(savingsMs)));
         cells.add(td(savingsMs > 0 ? entry.getWallClockSavingsPercent() + "%" : "-")
                 .attr("data-order", String.valueOf(entry.getWallClockSavingsPercent())));

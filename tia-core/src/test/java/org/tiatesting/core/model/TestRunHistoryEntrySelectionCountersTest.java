@@ -20,7 +20,7 @@ public class TestRunHistoryEntrySelectionCountersTest {
     public void createCopiesCountersFromSelectionDetails() {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(
-                Collections.emptyList(), 1, 2, 3, 4, 5);
+                Collections.emptyList(), 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc", 1000L,

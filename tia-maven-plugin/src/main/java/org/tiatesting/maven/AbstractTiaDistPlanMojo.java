@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.project.MavenProject;
@@ -60,9 +61,13 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
 
         List<MavenProject> reactorProjects = getReactorProjects();
         DistributedRunConfig config;
+        SelectionMode selectionMode = getSelectionMode();
         try {
             DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
                     getTiaDBDialect(), isTiaCheckLocalChanges(), isTiaUpdateDBMapping());
+            // The plan step decides the mode for the whole build: the runners take it from the
+            // run row, and the sealer re-seeds from it.
+            selectionMode.requireMappingOwner(isTiaUpdateDBMapping());
             config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
                     getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
                     getTiaDistributedRunnerKey(), getTiaRunSource());
@@ -96,13 +101,13 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
             // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
                     testFilesDirs, isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
-                    isTiaUpdateDBMapping());
+                    isTiaUpdateDBMapping(), selectionMode);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {
-                // The seed-suite provider is only invoked when this build is a seed run (no stored
-                // mapping yet); it reads the compiled test classes off disk so the seed can be
-                // split across groups instead of collapsing to one. Maven's test output directory
+                // The disk-suite provider is only invoked for a full run - a seed (no stored mapping
+                // yet) or a forced run; it reads the compiled test classes off disk so the run can
+                // be spread across groups and new suites are included. Maven's test output directory
                 // is the same one the agent mojo forwards to the fork as tiaTestClassesDirs.
                 Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
                         .scanTestSuiteNames(getProject().getBuild().getTestOutputDirectory());

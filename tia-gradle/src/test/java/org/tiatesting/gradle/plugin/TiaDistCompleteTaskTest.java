@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.tasks.TaskProvider;
@@ -220,7 +221,7 @@ class TiaDistCompleteTaskTest {
             suitesByGroup.put(groupNumber, Collections.<String>emptyList());
         }
         DistributedRun run = DistributedRun.open(runId, BRANCH, PLAN_COMMIT, groupCount, groupCount, null,
-                1000L * groupCount, 5000L, false, null);
+                1000L * groupCount, 5000L, SelectionMode.SELECTIVE, null);
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

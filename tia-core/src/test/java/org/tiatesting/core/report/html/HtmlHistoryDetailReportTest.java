@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 
@@ -35,7 +36,7 @@ class HtmlHistoryDetailReportTest {
                 "force-run-smoke-tests", 5);
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, highCountMethod, staticRule);
 
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12345L, true, 4000L, 40,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details, false);
@@ -149,6 +150,30 @@ class HtmlHistoryDetailReportTest {
 
         // then
         assertTrue(html.contains("Rerun: yes"), "Output:\n" + html);
+    }
+
+    /**
+     * A re-seed run names its mode and replaces the all-zero selection counters with one line
+     * saying the selection was overridden.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_reseed_rendersTheModeAndTheOverrideNote(@TempDir File tempDir) throws Exception {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
+                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED), false);
+
+        // when
+        String html = generateAndRead(entry, tempDir);
+
+        // then
+        assertTrue(html.contains("Selection: Re-seed"), "Output:\n" + html);
+        assertTrue(html.contains("Selection overridden - all tests run"), "Output:\n" + html);
+        assertFalse(html.contains("Modified test files"), "Output:\n" + html);
     }
 
     /**

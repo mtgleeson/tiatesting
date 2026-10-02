@@ -180,6 +180,7 @@ public class HtmlHistoryDetailReport {
                         ? "-" : entry.getRunOrigin().getHostName())), br(),
                 // A retry of failed tests, credited no savings - see TestRunHistoryEntry#isRerun.
                 span("Rerun: " + (entry.isRerun() ? "yes" : "no")), br(),
+                selectionModeLine(entry),
                 span("Suites ran: " + entry.getNumSuitesRan()
                         + ", ignored: " + entry.getNumSuitesIgnored()
                         + ", failed: " + entry.getNumSuitesFailed()), br(),
@@ -197,12 +198,17 @@ public class HtmlHistoryDetailReport {
     /**
      * Build the five-counter "selection sources" list: the scalar counts for the selection
      * sources that are not broken down into individual triggers. Each counter renders {@code "-"}
-     * when its {@link Integer} field is null (not recorded for this row).
+     * when its {@link Integer} field is null (not recorded for this row). A run that executed
+     * every test shows one line saying why instead - see {@link ReportUtils#selectionOverrideNote}.
      *
      * @param entry the history row this page describes
      * @return the selection-sources block content
      */
     private DomContent buildSelectionSourcesBlock(TestRunHistoryEntry entry) {
+        String overrideNote = ReportUtils.selectionOverrideNote(entry);
+        if (overrideNote != null) {
+            return p(span(overrideNote));
+        }
         return p(
                 span("Modified test files: " + counterOrDash(entry.getNumModifiedTestFiles())), br(),
                 span("New test files: " + counterOrDash(entry.getNumNewTestFiles())), br(),
@@ -210,6 +216,18 @@ public class HtmlHistoryDetailReport {
                 span("Unsealed-mapping: " + counterOrDash(entry.getNumUnsealedMapping())), br(),
                 span("Pending library: " + counterOrDash(entry.getNumPendingLibrary()))
         );
+    }
+
+    /**
+     * Build the "Selection:" line, shown only for a seed or forced run - see
+     * {@link ReportUtils#selectionModeLabel}.
+     *
+     * @param entry the history row this page describes
+     * @return the line followed by a break, or empty text for a selective run
+     */
+    private DomContent selectionModeLine(TestRunHistoryEntry entry) {
+        String label = ReportUtils.selectionModeLabel(entry);
+        return label == null ? text("") : span(text("Selection: " + label), br());
     }
 
     /**

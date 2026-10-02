@@ -1,5 +1,6 @@
 package org.tiatesting.spock;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
@@ -31,15 +32,18 @@ public class TiaSpockTestRunInitializer {
      * @param updateDBMapping whether this run owns mapping-DB updates.
      * @param libraryConfig the library impact analysis config; may be {@code null}.
      * @param staticMappingConfig the static test selection config; may be {@code null}.
+     * @param selectionMode {@link SelectionMode#SELECTIVE}, or a forced mode from the
+     *                      {@code tiaSelectAllTests} / {@code tiaReseed} flags.
      * @return the {@link TestSelectorResult} produced by {@link TestSelector#selectTestsToIgnore}.
      */
     TestSelectorResult selectTests(final VCSReader vcsReader, final List<String> sourceFilesDirs,
                                    final List<String> testFilesDirs,
                                    boolean checkLocalChanges, boolean updateDBMapping,
                                    LibraryImpactAnalysisConfig libraryConfig,
-                                   StaticTestSelectionConfig staticMappingConfig){
+                                   StaticTestSelectionConfig staticMappingConfig,
+                                   SelectionMode selectionMode){
         TestSelector testSelector = new TestSelector(dataStore);
         return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges,
-                libraryConfig, staticMappingConfig, updateDBMapping);
+                libraryConfig, staticMappingConfig, updateDBMapping, selectionMode);
     }
 }

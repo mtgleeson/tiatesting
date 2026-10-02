@@ -12,6 +12,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -238,7 +239,7 @@ class DatastoreEquivalenceTest {
         TestSelector selector = new TestSelector(store);
         VCSReader stubVcs = new SyntheticFooDiffVCSReader();
         return selector.selectTestsToIgnore(stubVcs, Collections.emptyList(), Collections.emptyList(),
-                false, null, null, false);
+                false, null, null, false, SelectionMode.SELECTIVE);
     }
 
     /**
@@ -394,7 +395,7 @@ class DatastoreEquivalenceTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
-                1, 2, 3, 4, 5);
+                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "equiv-c1", 1000L,
                 10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
 
@@ -458,7 +459,7 @@ class DatastoreEquivalenceTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
-                1, 2, 3, 4, 5);
+                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when
         store.persistDistributedRunSelectionDetails("run-equiv-1", details);

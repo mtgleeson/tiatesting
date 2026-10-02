@@ -334,6 +334,12 @@ the working tree.
 
 ### Edge cases and operational notes
 
+- **Forced runs and re-seed.** A `tiaSelectAllTests` / `tiaReseed` run still drains, so it deletes
+  exactly the stamps it applied. A re-seed never clears the pending tables: stamps above the
+  resolved sequence are for builds the app has not picked up yet, and method ids are name hashes, so
+  they stay valid after the mapping is rebuilt - see
+  [Forced runs and re-seed](forced-runs-and-reseed.md).
+
 - **Ledger retention.** Ledger rows are never deleted automatically (only the cascade when a
   library is removed from `tiaSourceLibs`). Rows at or below `last_applied_seq` are still read -
   the steady state looks up the currently-applied build on every run, and stale-resolve/downgrade

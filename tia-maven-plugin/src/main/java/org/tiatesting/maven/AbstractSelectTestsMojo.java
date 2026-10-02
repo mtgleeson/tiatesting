@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -54,15 +55,16 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // Read-only preview: no mapping writes (updateDBMapping=false).
             TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                    getSelectionMode());
             Set<String> testsToRun = result.getTestsToRun();
             System.out.println("Selected tests to run: ");
 
             if (result.isRunAllTests()) {
-                // No stored mapping for this branch yet: every test runs. testsToRun is empty in
-                // this case (see TestSelectorResult#isRunAllTests), so it is checked first and
+                // Every test runs: a seed (no stored mapping, testsToRun empty - see
+                // TestSelectorResult#isRunAllTests) or a forced run. Checked first so a seed is
                 // reported distinctly from "nothing selected" below.
-                System.out.println("all (no stored mapping for this branch yet)");
+                System.out.println(SelectTestsOutputFormatter.formatRunAllReason(result.getSelectionMode()));
                 printDistributedRunPreview(result, buildDistributedGroupingIfConfigured(result));
             } else if (testsToRun.isEmpty()){
                 System.out.println("none");
@@ -151,7 +153,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             return;
         }
         System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
-                getTiaDistributedTargetRunTime(), selection.isRunAllTests(), "\n"));
+                getTiaDistributedTargetRunTime(), selection.getSelectionMode(), "\n"));
     }
 
     /**

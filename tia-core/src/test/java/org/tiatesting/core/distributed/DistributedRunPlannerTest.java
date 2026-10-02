@@ -11,6 +11,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -102,7 +103,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
@@ -123,7 +124,7 @@ class DistributedRunPlannerTest {
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
                 60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, fixedOverheadMs,
-                false, TestRunSelectionDetails.empty());
+                SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
     }
 
     /**
@@ -141,7 +142,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), drainResult,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false,
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
@@ -161,7 +162,7 @@ class DistributedRunPlannerTest {
         runTimes.put("com.example.CTest", 10000L);
         Set<String> testsToRun = new HashSet<>(runTimes.keySet());
         return new TestSelectorResult(testsToRun, Collections.<String>emptySet(), null,
-                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, false, details);
+                60000L, Collections.<String>emptySet(), 0L, runTimes, 0L, 6000L, 0L, SelectionMode.SELECTIVE, details);
     }
 
     /**
@@ -201,6 +202,23 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Build a forced full-run selection over three tracked suites with stored run times - one heavy
+     * and two light - as {@code TestSelector} returns for a forced mode.
+     *
+     * @param mode the forced mode
+     * @return the selection
+     */
+    private static TestSelectorResult forcedSelection(SelectionMode mode) {
+        Map<String, Long> runTimes = new HashMap<>();
+        runTimes.put("com.example.HeavyTest", 900L);
+        runTimes.put("com.example.LightATest", 100L);
+        runTimes.put("com.example.LightBTest", 100L);
+        return new TestSelectorResult(new HashSet<>(runTimes.keySet()), Collections.<String>emptySet(),
+                null, 1100L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, 0L, mode,
+                TestRunSelectionDetails.forFullRun(mode));
+    }
+
+    /**
      * Build a selection with no suites at all, so tests can verify the planner produces a valid
      * (if trivial) plan rather than failing on an empty build.
      *
@@ -208,21 +226,21 @@ class DistributedRunPlannerTest {
      */
     private static TestSelectorResult emptySelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, false,
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
     }
 
     /**
      * Build a selection that signals "no stored mapping yet" - both {@code testsToRun} and
-     * {@code testsToIgnore} empty, {@code runAllTests} true - the shape
+     * {@code testsToIgnore} empty, mode SEED - the shape
      * {@link org.tiatesting.core.diff.diffanalyze.selector.TestSelector#selectTestsToIgnore}
      * returns on a fresh branch with nothing tracked yet.
      *
-     * @return a selection with {@code runAllTests} true
+     * @return a seed selection
      */
     private static TestSelectorResult runAllTestsSelection() {
         return new TestSelectorResult(Collections.<String>emptySet(), Collections.<String>emptySet(),
-                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, true,
+                null, 0L, Collections.<String>emptySet(), 0L, new HashMap<String, Long>(), 0L, 0L, 0L, SelectionMode.SEED,
                 TestRunSelectionDetails.empty());
     }
 
@@ -246,6 +264,87 @@ class DistributedRunPlannerTest {
      */
     private static Supplier<Set<String>> seedSuites(final String... names) {
         return () -> new LinkedHashSet<>(java.util.Arrays.asList(names));
+    }
+
+    /**
+     * A forced full run has stored run times, so it is balanced by them rather than split by even
+     * count like a seed: the heavy suite gets a group of its own. Every name the disk scan finds is
+     * assigned exactly once - tracked suites by weight, untracked ones at zero weight.
+     */
+    @Test
+    void aForcedPlanBalancesTheDiskScanByStoredRunTime() {
+        // given
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.NewTest", "com.example.Helper");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 2, null, null, scan);
+
+        // then
+        Set<String> assigned = new HashSet<>();
+        boolean heavyAlone = false;
+        for (SuiteGroup group : result.getGroups()) {
+            assigned.addAll(group.getSuiteNames());
+            if (group.getSuiteNames().contains("com.example.HeavyTest")) {
+                heavyAlone = !group.getSuiteNames().contains("com.example.LightATest")
+                        && !group.getSuiteNames().contains("com.example.LightBTest");
+            }
+        }
+        assertEquals(scan.get(), assigned);
+        assertTrue(heavyAlone, "the heavy suite should be balanced into a group of its own");
+        assertEquals(900L, result.getHeaviestGroupMs());
+    }
+
+    /**
+     * With more groups configured than tracked suites, a forced plan must not create a group made
+     * only of untracked disk-scan names: those are often non-test classes no runner observes, so
+     * such a group could never complete. The untracked names are spread across the groups that
+     * hold a tracked suite instead.
+     */
+    @Test
+    void aForcedPlanNeverCreatesAGroupOfOnlyUntrackedNames() {
+        // given - three tracked suites, five groups configured, two untracked names on disk
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.Helper", "com.example.Fixture");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 5, null, null, scan);
+
+        // then
+        Set<String> tracked = new HashSet<>(java.util.Arrays.asList("com.example.HeavyTest",
+                "com.example.LightATest", "com.example.LightBTest"));
+        Set<String> assigned = new HashSet<>();
+        assertEquals(3, result.getGroupCount());
+        for (SuiteGroup group : result.getGroups()) {
+            assigned.addAll(group.getSuiteNames());
+            Set<String> groupTracked = new HashSet<>(group.getSuiteNames());
+            groupTracked.retainAll(tracked);
+            assertFalse(groupTracked.isEmpty(), "every group needs a tracked suite: " + group);
+        }
+        assertEquals(scan.get(), assigned);
+    }
+
+    /**
+     * A forced plan records its mode on the run row and summary, and the conservation check does
+     * not reject it for carrying the untracked suites the disk scan added.
+     */
+    @Test
+    void aForcedPlanIsRecordedWithItsMode() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-forced", 2, null, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = forcedSelection(SelectionMode.RESEED);
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-1", true, true,
+                111222L, seedSuites("com.example.HeavyTest", "com.example.NewTest"));
+
+        // then
+        assertEquals(SelectionMode.RESEED, dataStore.readDistributedRun("run-forced").getSelectionMode());
+        assertEquals(SelectionMode.RESEED, summary.getSelectionMode());
+        assertEquals(4, summary.getSelectedSuiteCount());
     }
 
     /**
@@ -345,7 +444,7 @@ class DistributedRunPlannerTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
                         "com.example.Foo.bar()V", 2)),
-                1, 2, 3, 4, 5);
+                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 
@@ -775,7 +874,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(2, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(4, dataStore.readDistributedRun("run-seed-capped").getGroupsAvailable());
     }
 
@@ -802,10 +901,10 @@ class DistributedRunPlannerTest {
 
         // then the summary and persisted plan report four groups and a seed run
         assertEquals(4, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-split");
         assertEquals(4, readRun.getGroupCount());
-        assertTrue(readRun.isSeedRun());
+        assertEquals(SelectionMode.SEED, readRun.getSelectionMode());
 
         // and the eight suites are split evenly (two per group) with their union intact
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-split");
@@ -845,7 +944,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertTrue(dataStore.readDistributedRunGroupSuites("run-seed-empty", 0).isEmpty());
     }
 
@@ -866,7 +965,7 @@ class DistributedRunPlannerTest {
 
         // then - the summary reports exactly one group and a seed run
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(0, summary.getSelectedSuiteCount());
 
         // and - the persisted plan itself carries exactly one group with an empty suite list,
@@ -897,7 +996,7 @@ class DistributedRunPlannerTest {
 
         // then
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-target");
         assertEquals(1, readRun.getGroupCount());
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target");
@@ -922,7 +1021,7 @@ class DistributedRunPlannerTest {
 
         // then the seed fans out to the three-group ceiling with the suites split evenly
         assertEquals(3, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-seed-target-max");
         assertEquals(3, groups.size());
         Set<String> union = new HashSet<>();
@@ -950,7 +1049,7 @@ class DistributedRunPlannerTest {
 
         // then it stays a single group
         assertEquals(1, summary.getGroupCount());
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
     }
 
     /**
@@ -969,7 +1068,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-not-seed", false, true, 1L, noSeedSuites());
 
         // then
-        assertFalse(summary.isSeedRun());
+        assertEquals(SelectionMode.SELECTIVE, summary.getSelectionMode());
     }
 
     /**
@@ -992,11 +1091,11 @@ class DistributedRunPlannerTest {
                 "commit-no-scan", false, true, 1L, throwingProvider);
 
         // then
-        assertFalse(summary.isSeedRun());
+        assertEquals(SelectionMode.SELECTIVE, summary.getSelectionMode());
     }
 
     /**
-     * Verifies that {@code seedRun} reaches {@code tia-run-plan.json}: a seed run's summary
+     * Verifies that {@code selectionMode} reaches {@code tia-run-plan.json}: a seed run's summary
      * renders the field as JSON {@code true}, the signal a pipeline needs to explain why it only
      * received one job despite the configured group count.
      */
@@ -1011,7 +1110,7 @@ class DistributedRunPlannerTest {
         DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-seed-json", true, true, 1L, noSeedSuites());
 
         // then
-        assertTrue(summary.toJson().contains("\"seedRun\": true,"));
+        assertTrue(summary.toJson().contains("\"selectionMode\": \"SEED\","));
     }
 
     /**
@@ -1037,7 +1136,7 @@ class DistributedRunPlannerTest {
                 "commit-seed-no-coverage", false, true, 1L, noSeedSuites());
 
         // then - the plan still succeeds and is still a one-group seed run
-        assertTrue(summary.isSeedRun());
+        assertEquals(SelectionMode.SEED, summary.getSelectionMode());
         assertEquals(1, summary.getGroupCount());
         DistributedRun readRun = dataStore.readDistributedRun("run-seed-no-coverage");
         assertEquals(1, readRun.getGroupCount());
@@ -1304,7 +1403,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_sealedRun_returnsNull() {
         // given - a SEALED run whose groups happen to still be PENDING (irrelevant once sealed)
         DistributedRun sealedRun = new DistributedRun("run-sealed", "main", "commit-1",
-                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, false, null);
+                DistributedRunStatus.SEALED, 1, 1, null, 1000L, 1L, "runner-1", 2L, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = Collections.singletonList(
                 DistributedRunGroup.pending("run-sealed", 0, 1000L));
 
@@ -1326,7 +1425,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_allGroupsCompletedButRunNotSealed_returnsEmptyNonNullList() {
         // given - every group COMPLETED, but the run itself never reached SEALED
         DistributedRun unsealedRun = new DistributedRun("run-unsealed", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-unsealed", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));
@@ -1350,7 +1449,7 @@ class DistributedRunPlannerTest {
     void incompleteGroupsToWarnAbout_openRunWithIncompleteGroup_returnsPopulatedList() {
         // given - one COMPLETED group, one still PENDING
         DistributedRun openRun = new DistributedRun("run-incomplete", "main", "commit-1",
-                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, false, null);
+                DistributedRunStatus.OPEN, 2, 2, null, 2000L, 1L, null, null, SelectionMode.SELECTIVE, null);
         List<DistributedRunGroup> groups = new ArrayList<>();
         groups.add(new DistributedRunGroup("run-incomplete", 0, DistributedRunGroupStatus.COMPLETED,
                 "runner-1", 1L, 2L, 1000L, 900L, 5, 0, 5, 0L));

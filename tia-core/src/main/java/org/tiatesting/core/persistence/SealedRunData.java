@@ -33,6 +33,7 @@ public class SealedRunData {
     private final List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedBatchKeys;
     private final List<TrackedLibrary> librariesToPersist;
     private final CoreStatsIncrement statsIncrement;
+    private final boolean reseed;
 
     /**
      * Construct a seal payload.
@@ -46,19 +47,25 @@ public class SealedRunData {
      * @param statsIncrement this run's contribution to the Tia-level stats, as a delta the store
      *                       accumulates at write time rather than as merged absolutes - see
      *                       {@link CoreStatsIncrement}
+     * @param reseed whether the seal also deletes every piece of mapping data this run did not
+     *               rewrite - see the "Forced runs and re-seed" chapter in {@code WIKI.md}
      */
     public SealedRunData(TiaData tiaData, Map<Integer, MethodImpactTracker> methodsTracked,
                          List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodBatchKeys,
                          List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedBatchKeys,
                          List<TrackedLibrary> librariesToPersist,
-                         CoreStatsIncrement statsIncrement) {
+                         CoreStatsIncrement statsIncrement, boolean reseed) {
         this.tiaData = tiaData;
         this.methodsTracked = methodsTracked;
         this.drainedMethodBatchKeys = drainedMethodBatchKeys;
         this.drainedForcedBatchKeys = drainedForcedBatchKeys;
         this.librariesToPersist = librariesToPersist;
         this.statsIncrement = statsIncrement == null ? CoreStatsIncrement.none() : statsIncrement;
+        this.reseed = reseed;
     }
+
+    /** @return whether this seal re-seeds the mapping, deleting everything the run did not rewrite */
+    public boolean isReseed() { return reseed; }
 
     /** @return this run's contribution to the Tia-level stats, never null */
     public CoreStatsIncrement getStatsIncrement() { return statsIncrement; }
