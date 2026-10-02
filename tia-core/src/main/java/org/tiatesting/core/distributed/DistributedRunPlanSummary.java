@@ -19,13 +19,13 @@ import org.tiatesting.core.model.SelectionMode;
  *
  * <p>{@code selectionMode} is {@code SELECTIVE}, {@code SEED}, {@code SELECT_ALL} or
  * {@code RESEED}. It is {@code SEED} exactly when no stored mapping existed yet for this branch -
- * see {@link DistributedRunPlanner#plan}; the two forced modes are balanced by stored run time. That does not fix {@link #getGroupCount()} at one: when
- * suites are discovered on disk, the plan splits them across the configured group count by even
- * count - capped at one group per suite found - and {@code groupCount} is whatever that split
- * produced; only when nothing is found on
- * disk, or no group count applies, does the plan fall back to a single empty group. A pipeline
- * reading {@code tia-run-plan.json} can use {@code selectionMode} to explain why the mapping was
- * missing rather than assuming it will always receive exactly one job.
+ * see {@link DistributedRunPlanner#plan}; the two forced modes are balanced by stored run time.
+ * That does not fix {@link #getGroupCount()} at one: when suites are discovered on disk, the plan
+ * splits them across the configured group count by even count - capped at one group per suite found
+ * - and {@code groupCount} is whatever that split produced; only when nothing is found on disk, or
+ * no group count applies, does the plan fall back to a single empty group. A pipeline reading
+ * {@code tia-run-plan.json} can use {@code selectionMode} to explain why the mapping was missing
+ * rather than assuming it will always receive exactly one job.
  *
  * <p>{@code groupCount} is {@code 0} when a non-seed selection chose nothing. The plan step has
  * then already sealed the run itself, so a pipeline must start no runner jobs for it - see

@@ -528,9 +528,9 @@ public final class DistributedRunSealer {
      * ignores nothing. Its assignment shape does not matter: a fanned-out run carries disk-scanned
      * suite names and a collapsed seed carries none, but neither is a reliable tracked-vs-assigned
      * basis, and the barrier only released once every group observed at least one suite. Deciding
-     * this from {@link DistributedRun#isFullRun()} rather than from the assignment also makes it robust to a tracked
-     * suite whose name the disk scan did not enumerate (a {@code @Nested} binary name, say), which
-     * the general path below would otherwise miscount as ignored.
+     * this from {@link DistributedRun#isFullRun()} rather than from the assignment also makes it
+     * robust to a tracked suite whose name the disk scan did not enumerate (a {@code @Nested}
+     * binary name, say), which the general path below would otherwise miscount as ignored.
      *
      * <p>For a non-seed build the count is read from the plan's assignment, never from the execution
      * counter - see the {@code suites_ran} caveat below.
