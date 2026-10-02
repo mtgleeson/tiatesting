@@ -9,6 +9,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
@@ -127,7 +128,7 @@ public class TestSelector {
         TestRunSelectionDetails selectionDetails = new TestRunSelectionDetails(triggers,
                 runResult.getNumModifiedTestFiles(), runResult.getNumNewTestFiles(),
                 runResult.getNumPreviouslyFailed(), runResult.getNumUnsealedMapping(),
-                librarySelection.getNumPendingLibrary());
+                librarySelection.getNumPendingLibrary(), SelectionMode.SELECTIVE);
 
         return new TestSelectorResult(testsToRun, testsToIgnore, librarySelection.getDrainResult(),
                 estimate.getEstimatedRunTimeMs(), estimate.getSelectedTestsWithoutStats(),

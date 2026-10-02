@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestStats;
@@ -1277,7 +1278,7 @@ class DistributedRunSealerStatsHistoryTest {
                         "com.example.Source0.method()V", 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "force-rule", 1));
         dataStore.persistDistributedRunSelectionDetails(RUN_ID,
-                new TestRunSelectionDetails(triggers, 3, 1, 2, 0, 1));
+                new TestRunSelectionDetails(triggers, 3, 1, 2, 0, 1, SelectionMode.SELECTIVE));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);
 
         // when

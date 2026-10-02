@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 
@@ -35,7 +36,7 @@ class HtmlHistoryDetailReportTest {
                 "force-run-smoke-tests", 5);
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, highCountMethod, staticRule);
 
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
                 1_700_000_000_000L, 10, 2, 0, 12345L, true, 4000L, 40,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "build-host"), details, false);
