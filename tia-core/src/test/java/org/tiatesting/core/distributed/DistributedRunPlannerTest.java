@@ -202,6 +202,23 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * Build a forced full-run selection over three tracked suites with stored run times - one heavy
+     * and two light - as {@code TestSelector} returns for a forced mode.
+     *
+     * @param mode the forced mode
+     * @return the selection
+     */
+    private static TestSelectorResult forcedSelection(SelectionMode mode) {
+        Map<String, Long> runTimes = new HashMap<>();
+        runTimes.put("com.example.HeavyTest", 900L);
+        runTimes.put("com.example.LightATest", 100L);
+        runTimes.put("com.example.LightBTest", 100L);
+        return new TestSelectorResult(new HashSet<>(runTimes.keySet()), Collections.<String>emptySet(),
+                null, 1100L, Collections.<String>emptySet(), 0L, runTimes, 0L, 0L, 0L, mode,
+                TestRunSelectionDetails.forFullRun(mode));
+    }
+
+    /**
      * Build a selection with no suites at all, so tests can verify the planner produces a valid
      * (if trivial) plan rather than failing on an empty build.
      *
@@ -247,6 +264,57 @@ class DistributedRunPlannerTest {
      */
     private static Supplier<Set<String>> seedSuites(final String... names) {
         return () -> new LinkedHashSet<>(java.util.Arrays.asList(names));
+    }
+
+    /**
+     * A forced full run has stored run times, so it is balanced by them rather than split by even
+     * count like a seed: the heavy suite gets a group of its own. Every name the disk scan finds is
+     * assigned exactly once - tracked suites by weight, untracked ones at zero weight.
+     */
+    @Test
+    void aForcedPlanBalancesTheDiskScanByStoredRunTime() {
+        // given
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.NewTest", "com.example.Helper");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 2, null, null, scan);
+
+        // then
+        Set<String> assigned = new HashSet<>();
+        boolean heavyAlone = false;
+        for (SuiteGroup group : result.getGroups()) {
+            assigned.addAll(group.getSuiteNames());
+            if (group.getSuiteNames().contains("com.example.HeavyTest")) {
+                heavyAlone = !group.getSuiteNames().contains("com.example.LightATest")
+                        && !group.getSuiteNames().contains("com.example.LightBTest");
+            }
+        }
+        assertEquals(scan.get(), assigned);
+        assertTrue(heavyAlone, "the heavy suite should be balanced into a group of its own");
+        assertEquals(900L, result.getHeaviestGroupMs());
+    }
+
+    /**
+     * A forced plan records its mode on the run row and summary, and the conservation check does
+     * not reject it for carrying the untracked suites the disk scan added.
+     */
+    @Test
+    void aForcedPlanIsRecordedWithItsMode() {
+        // given
+        DistributedRunConfig config = DistributedRunConfig.validated("run-forced", 2, null, null, null, null);
+        DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+        TestSelectorResult selection = forcedSelection(SelectionMode.RESEED);
+
+        // when
+        DistributedRunPlanSummary summary = planner.plan(selection, "main", "commit-1", true, true,
+                111222L, seedSuites("com.example.HeavyTest", "com.example.NewTest"));
+
+        // then
+        assertEquals(SelectionMode.RESEED, dataStore.readDistributedRun("run-forced").getSelectionMode());
+        assertEquals(SelectionMode.RESEED, summary.getSelectionMode());
+        assertEquals(4, summary.getSelectedSuiteCount());
     }
 
     /**
