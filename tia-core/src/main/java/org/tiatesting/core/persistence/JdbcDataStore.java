@@ -18,6 +18,7 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
 import org.tiatesting.core.model.RunOrigin;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -2245,7 +2246,8 @@ public class JdbcDataStore implements DataStore {
                 return TestRunSelectionDetails.empty();
             }
             return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary);
+                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
+                    SelectionMode.SELECTIVE);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         } finally {

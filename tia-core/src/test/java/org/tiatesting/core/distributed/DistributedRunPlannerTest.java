@@ -11,6 +11,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -345,7 +346,7 @@ class DistributedRunPlannerTest {
         TestRunSelectionDetails details = new TestRunSelectionDetails(
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
                         "com.example.Foo.bar()V", 2)),
-                1, 2, 3, 4, 5);
+                1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
 

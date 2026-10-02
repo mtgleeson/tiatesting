@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
@@ -737,7 +738,7 @@ class JdbcDataStoreDistributedPlanTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.A.foo()V", 5),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "always-run-smoke", 9));
-        return new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5);
+        return new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
     }
 
     /**

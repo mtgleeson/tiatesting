@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TiaData;
@@ -108,7 +109,7 @@ class TiaSpockRunListenerHistoryDetailTest {
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", 2),
                 new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", 1));
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4, SelectionMode.SELECTIVE);
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,
                 details, null, RunAttempt.FIRST);

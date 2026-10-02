@@ -3,6 +3,7 @@ package org.tiatesting.core.report;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 
@@ -41,7 +42,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
         // than trust the caller's ordering.
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, staticRule, highCountMethod);
 
-        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 4, 0, 6);
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 2, 1, 4, 0, 6, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123def456",
                 1_700_000_000_000L, 42, 3, 1, 83_000L, true, 45_000L, 54,
                 RunOrigin.of("local", "host"), details, false);

@@ -2,6 +2,7 @@ package org.tiatesting.core.agent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
 
@@ -24,19 +25,22 @@ import java.util.List;
  * <p>File format, UTF-8, one record per line:
  * <pre>
  * counters&lt;TAB&gt;modified&lt;TAB&gt;new&lt;TAB&gt;prevFailed&lt;TAB&gt;unsealed&lt;TAB&gt;pendingLib
+ * mode&lt;TAB&gt;&lt;{@link SelectionMode} name&gt;
  * trigger&lt;TAB&gt;SOURCE_METHOD&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;name&gt;
  * trigger&lt;TAB&gt;STATIC_RULE&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;name&gt;
  * </pre>
  * The trigger name is always the last field on its line, so it may contain any character except a
  * newline or a tab; a tab (the field delimiter) or a newline (the record delimiter) embedded in a
  * name is replaced with a single space on write, since either would otherwise corrupt the record
- * on read.
+ * on read. The {@code mode} line is optional on read: a file written before modes existed has no
+ * such line and reads as {@link SelectionMode#SELECTIVE}.
  */
 public final class RunSelectionDetailsCodec {
 
     private static final Logger log = LoggerFactory.getLogger(RunSelectionDetailsCodec.class);
 
     private static final String COUNTERS_PREFIX = "counters";
+    private static final String MODE_PREFIX = "mode";
     private static final String TRIGGER_PREFIX = "trigger";
 
     private RunSelectionDetailsCodec() {
@@ -44,7 +48,7 @@ public final class RunSelectionDetailsCodec {
 
     /**
      * Write a {@link TestRunSelectionDetails} breakdown to {@code file} as UTF-8 text: a counters
-     * line followed by one line per trigger, in the order returned by {@link
+     * line, a mode line, then one line per trigger, in the order returned by {@link
      * TestRunSelectionDetails#getTriggers()}. Any missing parent directories of {@code file} are
      * created first, matching how the ignore-tests sidecar file is written.
      *
@@ -62,6 +66,7 @@ public final class RunSelectionDetailsCodec {
                 .append(details.getNumPreviouslyFailed()).append('\t')
                 .append(details.getNumUnsealedMapping()).append('\t')
                 .append(details.getNumPendingLibrary()).append('\n');
+        sb.append(MODE_PREFIX).append('\t').append(details.getSelectionMode().name()).append('\n');
 
         for (TestRunTrigger trigger : details.getTriggers()) {
             String safeName = trigger.getName() == null ? ""
@@ -86,11 +91,12 @@ public final class RunSelectionDetailsCodec {
     /**
      * Read a {@link TestRunSelectionDetails} breakdown back from a sidecar file previously written
      * by {@link #write(TestRunSelectionDetails, File)}. Parsing is defensive: a missing or blank
-     * file yields {@link TestRunSelectionDetails#empty()}, and any line that cannot be parsed -
-     * an unknown trigger type, a non-integer count, or a line with too few fields - is skipped
-     * (logged at debug) rather than failing the whole read, since a partially-corrupted sidecar
-     * file should still surface the records it does contain to the forked JVM writing the history
-     * row.
+     * file yields {@link TestRunSelectionDetails#empty()}, a missing or unrecognised mode line
+     * reads as {@link SelectionMode#SELECTIVE} (see {@link SelectionMode#fromStoredName(String)}),
+     * and any line that cannot be parsed - an unknown trigger type, a non-integer count, or a line
+     * with too few fields - is skipped (logged at debug) rather than failing the whole read, since
+     * a partially-corrupted sidecar file should still surface the records it does contain to the
+     * forked JVM writing the history row.
      *
      * @param file the sidecar file to read; may not exist
      * @return the parsed breakdown, or {@link TestRunSelectionDetails#empty()} if {@code file}
@@ -114,6 +120,7 @@ public final class RunSelectionDetailsCodec {
         int numPreviouslyFailed = 0;
         int numUnsealedMapping = 0;
         int numPendingLibrary = 0;
+        SelectionMode selectionMode = SelectionMode.SELECTIVE;
         List<TestRunTrigger> triggers = new ArrayList<>();
         boolean sawAnyContent = false;
 
@@ -130,6 +137,8 @@ public final class RunSelectionDetailsCodec {
                 numPreviouslyFailed = parseIntOrZero(fields, 3);
                 numUnsealedMapping = parseIntOrZero(fields, 4);
                 numPendingLibrary = parseIntOrZero(fields, 5);
+            } else if (line.startsWith(MODE_PREFIX + "\t")) {
+                selectionMode = SelectionMode.fromStoredName(line.substring(MODE_PREFIX.length() + 1).trim());
             } else if (line.startsWith(TRIGGER_PREFIX + "\t")) {
                 TestRunTrigger trigger = parseTriggerLine(line);
                 if (trigger != null) {
@@ -145,7 +154,7 @@ public final class RunSelectionDetailsCodec {
         }
 
         return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                numPreviouslyFailed, numUnsealedMapping, numPendingLibrary);
+                numPreviouslyFailed, numUnsealedMapping, numPendingLibrary, selectionMode);
     }
 
     /**
