@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.project.MavenProject;
@@ -96,7 +97,7 @@ public abstract class AbstractTiaDistPlanMojo extends AbstractTiaMojo {
             // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
                     testFilesDirs, isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
-                    isTiaUpdateDBMapping());
+                    isTiaUpdateDBMapping(), SelectionMode.SELECTIVE);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {

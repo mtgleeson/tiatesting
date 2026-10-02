@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -126,7 +127,7 @@ public class TiaDistPlanTask extends DefaultTask {
             // not updating the mapping and selecting against the local workspace is exactly what was
             // asked for. When updateDBMapping is on it has already been guaranteed false.
             TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping);
+                    testFilesDirs, checkLocalChanges, libraryConfig, staticMappingConfig, updateDBMapping, SelectionMode.SELECTIVE);
 
             DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
             try {

@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,7 +89,7 @@ class TestSelectorUnsealedSuitesTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
-                false, null, null, false);
+                false, null, null, false, SelectionMode.SELECTIVE);
 
         // then
         assertTrue(result.getTestsToRun().contains("com.example.UnsealedSpec"));
@@ -115,7 +116,7 @@ class TestSelectorUnsealedSuitesTest {
         // when
         TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
-                false, null, null, true);
+                false, null, null, true, SelectionMode.SELECTIVE);
 
         // then
         assertTrue(result.getTestsToRun().contains("com.example.UnsealedSpec"),

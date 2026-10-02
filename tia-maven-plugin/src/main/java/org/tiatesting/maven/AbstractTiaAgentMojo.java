@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.MojoExecution;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -216,7 +217,7 @@ public abstract class AbstractTiaAgentMojo extends AbstractTiaMojo {
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             TestSelectorResult testSelectorResult = testSelector.selectTestsToIgnore(gitReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, isTiaUpdateDBMapping());
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, isTiaUpdateDBMapping(), SelectionMode.SELECTIVE);
             getLog().debug("Time to analyze test selection data (sec): " + (System.currentTimeMillis() - startQueryTime) / 1000);
             return testSelectorResult;
         }

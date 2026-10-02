@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,7 +92,7 @@ class TestSelectorSelectionDetailsTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),
-                Collections.emptyList(), false, null, staticConfig, false);
+                Collections.emptyList(), false, null, staticConfig, false, SelectionMode.SELECTIVE);
 
         // then
         TestRunSelectionDetails details = result.getSelectionDetails();
@@ -116,7 +117,7 @@ class TestSelectorSelectionDetailsTest {
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),
-                Collections.emptyList(), false, null, null, false);
+                Collections.emptyList(), false, null, null, false, SelectionMode.SELECTIVE);
 
         // then - equivalent to TestRunSelectionDetails.empty() by field value (the type has no
         // equals/hashCode override, so reference comparison would not be meaningful here)

@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Plugin;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -275,7 +276,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
                 // The preview diffs the workspace, so it takes the identity's own reader rather
                 // than constructing a second one - the branch may be configured, the diff never is.
                 TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
-                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
+                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false, SelectionMode.SELECTIVE);
                 Set<String> testsToRun = result.getTestsToRun();
                 String lineSep = System.lineSeparator();
 

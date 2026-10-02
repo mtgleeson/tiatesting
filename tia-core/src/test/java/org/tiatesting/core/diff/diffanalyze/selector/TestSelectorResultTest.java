@@ -1,5 +1,6 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 
@@ -42,7 +43,7 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L, 0L, false,
+                estimatedRunTimeMs, withoutStats, medianRunTimeMsAppliedToMissing, perTestRunTimes, 0L, 0L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
 
         // then
@@ -56,8 +57,8 @@ class TestSelectorResultTest {
     }
 
     /**
-     * Verifies that {@code runAllTests} round-trips through the constructor to its getter, since
-     * this is the flag {@link org.tiatesting.core.distributed.DistributedRunPlanner#plan} relies
+     * Verifies that a seed mode reads back as a run-all selection, since this is what
+     * {@link org.tiatesting.core.distributed.DistributedRunPlanner#plan} relies
      * on to refuse planning against a selection that means "run everything" rather than "nothing
      * was impacted".
      */
@@ -69,7 +70,7 @@ class TestSelectorResultTest {
 
         // when
         TestSelectorResult result = new TestSelectorResult(testsToRun, testsToIgnore, null,
-                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true,
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, SelectionMode.SEED,
                 TestRunSelectionDetails.empty());
 
         // then
@@ -78,21 +79,21 @@ class TestSelectorResultTest {
 
     /**
      * Verifies that a seed run and a "nothing was impacted" selection - the two opposite
-     * instructions {@code runAllTests} exists to tell apart, both carrying an empty
+     * instructions the selection mode exists to tell apart, both carrying an empty
      * {@code testsToRun} and an empty {@code testsToIgnore} - are not equal, and do not share a
      * hash code either. Comparing only the two suite sets made them indistinguishable, which is
-     * exactly the confusion the flag was added to prevent.
+     * exactly the confusion the mode prevents.
      */
     @Test
     void equals_distinguishesASeedRunFromANothingImpactedSelection(){
         // given
         TestSelectorResult seedRun = new TestSelectorResult(new HashSet<>(), new HashSet<>(), null,
-                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, true,
+                0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, SelectionMode.SEED,
                 TestRunSelectionDetails.empty());
 
         // when
         TestSelectorResult nothingImpacted = new TestSelectorResult(new HashSet<>(), new HashSet<>(),
-                null, 0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, false,
+                null, 0L, Collections.emptySet(), 0L, Collections.emptyMap(), 0L, 0L, 0L, SelectionMode.SELECTIVE,
                 TestRunSelectionDetails.empty());
 
         // then
@@ -104,7 +105,7 @@ class TestSelectorResultTest {
 
     /**
      * Verifies that two results carrying the same selection decision still compare equal, so
-     * adding {@code runAllTests} to the comparison narrowed it only where it had to.
+     * adding the selection mode to the comparison narrowed it only where it had to.
      */
     @Test
     void equals_matchesTwoResultsCarryingTheSameSelection(){
@@ -115,10 +116,10 @@ class TestSelectorResultTest {
         // when
         TestSelectorResult first = new TestSelectorResult(new HashSet<>(testsToRun),
                 new HashSet<>(testsToIgnore), null, 100L, Collections.emptySet(), 0L,
-                Collections.emptyMap(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
+                Collections.emptyMap(), 0L, 0L, 0L, SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
         TestSelectorResult second = new TestSelectorResult(new HashSet<>(testsToRun),
                 new HashSet<>(testsToIgnore), null, 999L, Collections.emptySet(), 0L,
-                Collections.emptyMap(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
+                Collections.emptyMap(), 0L, 0L, 0L, SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
 
         // then
         assertEquals(first, second, "the estimate fields are not part of the selection decision");

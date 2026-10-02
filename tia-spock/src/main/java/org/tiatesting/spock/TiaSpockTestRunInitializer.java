@@ -1,5 +1,6 @@
 package org.tiatesting.spock;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
@@ -40,6 +41,6 @@ public class TiaSpockTestRunInitializer {
                                    StaticTestSelectionConfig staticMappingConfig){
         TestSelector testSelector = new TestSelector(dataStore);
         return testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs, testFilesDirs, checkLocalChanges,
-                libraryConfig, staticMappingConfig, updateDBMapping);
+                libraryConfig, staticMappingConfig, updateDBMapping, SelectionMode.SELECTIVE);
     }
 }

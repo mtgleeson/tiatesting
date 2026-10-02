@@ -1,5 +1,6 @@
 package org.tiatesting.core.distributed;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -539,7 +540,7 @@ class DistributedRunnerAssignmentTest {
                                      final long createdAtMs) {
         TestSelectorResult nothingSelected = new TestSelectorResult(Collections.<String>emptySet(),
                 Collections.<String>emptySet(), null, 0L, Collections.<String>emptySet(), 0L,
-                new HashMap<String, Long>(), 0L, 0L, 0L, false, TestRunSelectionDetails.empty());
+                new HashMap<String, Long>(), 0L, 0L, 0L, SelectionMode.SELECTIVE, TestRunSelectionDetails.empty());
         new DistributedRunPlanner(dataStore, DistributedRunConfig.validated(runId, 2, null, null, null, null))
                 .plan(nothingSelected, "main", commitValue, true, true, createdAtMs,
                         () -> Collections.<String>emptySet());

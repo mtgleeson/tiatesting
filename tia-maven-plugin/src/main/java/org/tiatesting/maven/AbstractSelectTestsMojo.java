@@ -1,5 +1,6 @@
 package org.tiatesting.maven;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -54,7 +55,7 @@ public abstract class AbstractSelectTestsMojo extends AbstractTiaMojo {
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // Read-only preview: no mapping writes (updateDBMapping=false).
             TestSelectorResult result = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
-                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false);
+                    testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false, SelectionMode.SELECTIVE);
             Set<String> testsToRun = result.getTestsToRun();
             System.out.println("Selected tests to run: ");
 

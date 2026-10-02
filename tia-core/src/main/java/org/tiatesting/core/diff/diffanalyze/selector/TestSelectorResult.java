@@ -1,6 +1,7 @@
 package org.tiatesting.core.diff.diffanalyze.selector;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 
 import java.util.Map;
@@ -39,7 +40,7 @@ public class TestSelectorResult {
 
     private final long fixedOverheadMs;
 
-    private final boolean runAllTests;
+    private final SelectionMode selectionMode;
 
     private final TestRunSelectionDetails selectionDetails;
 
@@ -76,13 +77,12 @@ public class TestSelectorResult {
      *                        dividing it, which is the whole reason it is carried separately from
      *                        {@code captureOverheadMs}. Added only for a coverage run; {@code 0}
      *                        for an empty selection, and until a distributed build has measured it
-     * @param runAllTests {@code true} only when no mapping is stored yet for the tracked branch
-     *                    and every test must run because Tia has nothing to select against;
-     *                    {@code false} for a normal selection. Both {@code testsToRun} and
-     *                    {@code testsToIgnore} are empty in the {@code true} case, which is why
-     *                    this flag exists - an empty {@code testsToRun} means "nothing impacted"
-     *                    only when this is {@code false}; when it is {@code true} it means the
-     *                    opposite, "everything must run"
+     * @param selectionMode how the selection was decided. Every mode except
+     *                      {@link SelectionMode#SELECTIVE} runs every test, so nothing is ignored;
+     *                      a {@link SelectionMode#SEED} run also has an empty {@code testsToRun}
+     *                      because nothing is tracked yet. An empty {@code testsToRun} means
+     *                      "nothing impacted" only for a selective run - for a seed it means the
+     *                      opposite, "everything must run"
      * @param selectionDetails the per-run selection breakdown - the method and rule triggers and
      *                         the scalar source counters - used to populate the run-history
      *                         detail. Must not be {@code null} (use
@@ -95,7 +95,7 @@ public class TestSelectorResult {
                                long medianRunTimeMsAppliedToMissing,
                                Map<String, Long> selectedTestRunTimesMs,
                                long allTestsRunTimeMs, long captureOverheadMs,
-                               long fixedOverheadMs, boolean runAllTests,
+                               long fixedOverheadMs, SelectionMode selectionMode,
                                TestRunSelectionDetails selectionDetails) {
         this.testsToRun = testsToRun;
         this.testsToIgnore = testsToIgnore;
@@ -107,7 +107,7 @@ public class TestSelectorResult {
         this.allTestsRunTimeMs = allTestsRunTimeMs;
         this.captureOverheadMs = captureOverheadMs;
         this.fixedOverheadMs = fixedOverheadMs;
-        this.runAllTests = runAllTests;
+        this.selectionMode = selectionMode;
         this.selectionDetails = selectionDetails;
     }
 
@@ -199,21 +199,26 @@ public class TestSelectorResult {
     }
 
     /**
-     * @return {@code true} only when no mapping is stored yet for the tracked branch and every
-     *         test had to be selected because Tia has nothing to select against; {@code false}
-     *         for a normal selection. An empty {@link #getTestsToRun()} means "nothing impacted"
-     *         only when this is {@code false} - callers that treat an empty {@code testsToRun} as
-     *         "run nothing" must check this flag first, since a {@code true} value means the
-     *         opposite: everything must run
+     * @return how this selection was decided: ordinary selection, a seed, or a forced full run
+     */
+    public SelectionMode getSelectionMode() {
+        return selectionMode;
+    }
+
+    /**
+     * @return {@code true} when every test runs - a seed or a forced full run - so nothing is
+     *         ignored; {@code false} for a normal selection. An empty {@link #getTestsToRun()}
+     *         means "nothing impacted" only when this is {@code false} - callers that treat an
+     *         empty {@code testsToRun} as "run nothing" must check this first
      */
     public boolean isRunAllTests() {
-        return runAllTests;
+        return selectionMode.isFullRun();
     }
 
     /**
      * @return the per-run selection breakdown - the method and rule triggers and the scalar
-     *         source counters - used to populate the run-history detail. Never null; an all-tests
-     *         run carries {@link TestRunSelectionDetails#empty()}.
+     *         source counters - used to populate the run-history detail. Never null; a full run
+     *         carries {@link TestRunSelectionDetails#forFullRun(SelectionMode)}.
      */
     public TestRunSelectionDetails getSelectionDetails() {
         return selectionDetails;
@@ -223,10 +228,10 @@ public class TestSelectorResult {
      * Compare two results by the selection decision they carry: the suites to run, the suites to
      * ignore, and {@link #isRunAllTests()}.
      *
-     * <p>{@code runAllTests} is part of the comparison because without it the two opposite
+     * <p>The selection mode is part of the comparison because without it the two opposite
      * instructions this class exists to tell apart compare equal: a seed run ("run everything")
      * and a selection that found nothing impacted ("run nothing") both carry an empty
-     * {@code testsToRun} and an empty {@code testsToIgnore}, and differ only in this flag. The
+     * {@code testsToRun} and an empty {@code testsToIgnore}, and differ only in their mode. The
      * remaining fields are estimates and diagnostics derived from the selection rather than part
      * of it, so they are deliberately left out.
      *
@@ -239,18 +244,18 @@ public class TestSelectorResult {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TestSelectorResult that = (TestSelectorResult) o;
-        return runAllTests == that.runAllTests && Objects.equals(testsToRun, that.testsToRun)
+        return selectionMode == that.selectionMode && Objects.equals(testsToRun, that.testsToRun)
                 && Objects.equals(testsToIgnore, that.testsToIgnore);
     }
 
     /**
      * Hash the same three fields {@link #equals(Object)} compares, so the two empty-list cases
-     * {@code runAllTests} distinguishes do not collide in a hash-based collection either.
+     * the selection mode distinguishes do not collide in a hash-based collection either.
      *
      * @return the hash of the selection decision this result carries
      */
     @Override
     public int hashCode() {
-        return Objects.hash(testsToRun, testsToIgnore, runAllTests);
+        return Objects.hash(testsToRun, testsToIgnore, selectionMode);
     }
 }
