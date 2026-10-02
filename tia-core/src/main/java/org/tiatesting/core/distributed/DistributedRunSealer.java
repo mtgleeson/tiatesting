@@ -8,6 +8,7 @@ import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunHistoryEntry;
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestStats;
 import org.tiatesting.core.model.TestSuiteTracker;
@@ -234,7 +235,8 @@ public final class DistributedRunSealer {
         }
 
         if (!ranNoExpectedSuites) {
-            seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement);
+            seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement,
+                    run.getSelectionMode() == SelectionMode.RESEED);
         }
 
         if (updateDBTestRunHistory) {
@@ -253,7 +255,8 @@ public final class DistributedRunSealer {
             // DataStore#readDistributedRunSelectionDetails - so a seed or pre-feature run reads
             // back TestRunSelectionDetails.empty() rather than forcing a null check here.
             TestRunSelectionDetails selectionDetails =
-                    dataStore.readDistributedRunSelectionDetails(context.getRunId());
+                    dataStore.readDistributedRunSelectionDetails(context.getRunId())
+                            .withSelectionMode(run.getSelectionMode());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
                     run.getGroupsAvailable(), run.getCreatedAtMs(), run.getRunSource(),
@@ -282,10 +285,14 @@ public final class DistributedRunSealer {
      * @param allTestsRun whether the groups between them ran every tracked suite
      * @param statsIncrement the build's contribution to the Tia-level stats, accumulated by the
      *                       store at write time
+     * @param reseed whether the plan was a re-seed, so the seal also deletes every piece of mapping
+     *               data no group rewrote - the suites any runner wrote are the ones flagged
+     *               unsealed. The sealer seals once per build, so there is no retry to guard against.
+     *               See the "Forced runs and re-seed" chapter in {@code WIKI.md}
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
                       final boolean updateDBMapping, final boolean allTestsRun,
-                      final CoreStatsIncrement statsIncrement) {
+                      final CoreStatsIncrement statsIncrement, final boolean reseed) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
@@ -309,7 +316,7 @@ public final class DistributedRunSealer {
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
-                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, false));
+                stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, reseed));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());
