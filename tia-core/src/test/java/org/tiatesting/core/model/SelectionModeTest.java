@@ -1,6 +1,7 @@
 package org.tiatesting.core.model;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -66,8 +67,11 @@ class SelectionModeTest {
         // given
         SelectionMode mode = SelectionMode.SELECT_ALL;
 
-        // when / then
-        assertDoesNotThrow(() -> mode.requireMappingOwner(false));
+        // when
+        Executable call = () -> mode.requireMappingOwner(false);
+
+        // then
+        assertDoesNotThrow(call);
     }
 
     @Test
