@@ -143,7 +143,7 @@ class TestRunHistoryDetailConsoleFormatterTest {
                 entry, Collections.<TestRunTrigger>emptyList(), LF);
 
         // then
-        assertTrue(output.contains("Selection:           All tests (forced)" + LF), output);
+        assertTrue(output.contains("Selection:           Forced" + LF), output);
         assertTrue(output.contains("  Selection overridden - all tests run" + LF), output);
         assertFalse(output.contains("Modified test files"), output);
     }

@@ -131,7 +131,7 @@ class HtmlHistoryReportSavingsTest {
         String html = new String(Files.readAllBytes(page.toPath()));
 
         // then
-        assertTrue(html.contains("data-order=\"0\">All tests (forced)</td>"), "Output:\n" + html);
+        assertTrue(html.contains("data-order=\"0\">Forced</td>"), "Output:\n" + html);
     }
 
     /**

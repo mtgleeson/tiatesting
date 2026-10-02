@@ -160,7 +160,7 @@ a warning that it is ignored there. See [Distributed test runs](distributed-test
 
 History rows show the mode only for a seed or forced run:
 
-- In the history list (console and HTML), the Savings cell names the mode (`All tests (forced)`,
+- In the history list (console and HTML), the Savings cell names the mode (`Forced`,
   `Re-seed`, `Seed`) where it would otherwise dash, as a rerun row does.
 - The run detail pages add a `Selection:` line and replace the five all-zero selection counters with
   "Selection overridden - all tests run" (or "No stored mapping yet - all tests run" for a seed).
