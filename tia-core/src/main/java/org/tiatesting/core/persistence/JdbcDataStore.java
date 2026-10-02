@@ -789,6 +789,19 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
+    /**
+     * Read a history row's selection mode, keeping null for a row recorded before modes were
+     * rather than reading it as selective.
+     *
+     * @param resultSet the history result set, positioned on a row
+     * @return the row's mode, or null when none was recorded
+     * @throws SQLException if the column cannot be read
+     */
+    private static SelectionMode readSelectionMode(ResultSet resultSet) throws SQLException {
+        String mode = resultSet.getString(COL_SELECTION_MODE);
+        return mode == null ? null : SelectionMode.fromStoredName(mode);
+    }
+
     private void clearUnsealedTestSuites(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             int cleared = statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE
@@ -1516,7 +1529,7 @@ public class JdbcDataStore implements DataStore {
                             COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
                             COL_NUM_MODIFIED_TEST_FILES,
                             COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY, COL_RERUN),
+                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE),
                     Collections.singletonList(COL_ID));
 
             PreparedStatement ps = connection.prepareStatement(sql);
@@ -1551,6 +1564,9 @@ public class JdbcDataStore implements DataStore {
             setNullableInt(ps, 23, entry.getNumUnsealedMapping());
             setNullableInt(ps, 24, entry.getNumPendingLibrary());
             ps.setBoolean(25, entry.isRerun());
+            // Nullable like the counters: a row whose mode was not recorded stores SQL NULL.
+            setNullableString(ps, 26, entry.getSelectionMode() == null ? null
+                    : entry.getSelectionMode().name());
             ps.executeUpdate();
             log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
         } catch (SQLException e) {
@@ -1605,7 +1621,8 @@ public class JdbcDataStore implements DataStore {
                         getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
                         getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
                         getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),
-                        resultSet.getBoolean(COL_RERUN)));
+                        resultSet.getBoolean(COL_RERUN),
+                        readSelectionMode(resultSet)));
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -4346,7 +4363,9 @@ public class JdbcDataStore implements DataStore {
                 + COL_NUM_PENDING_LIBRARY + " INT, "
                 // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
                 // which is credited no savings.
-                + COL_RERUN + " BOOLEAN DEFAULT FALSE)";
+                + COL_RERUN + " BOOLEAN DEFAULT FALSE, "
+                // How the run's selection was decided (SELECTIVE, SEED, SELECT_ALL or RESEED).
+                + COL_SELECTION_MODE + " VARCHAR(16))";
     }
 
     /**
@@ -4418,6 +4437,10 @@ public class JdbcDataStore implements DataStore {
         // before this column, so each old row is read as the run it was recorded as.
         statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
                 + COL_RERUN + " BOOLEAN DEFAULT FALSE");
+        // Migration: add the selection mode. No DEFAULT, so old rows read back null - the mode
+        // was not recorded for them - rather than being retro-labelled selective.
+        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
+                + COL_SELECTION_MODE + " VARCHAR(16)");
         ensureTestRunHistoryTriggerTableExists(connection);
     }
 

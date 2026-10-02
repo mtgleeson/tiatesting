@@ -1,11 +1,41 @@
 package org.tiatesting.core.report;
 
+import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 
 import java.time.Duration;
 import java.util.List;
 
 public class ReportUtils {
+
+    /**
+     * The label a report shows for a run's selection mode: nothing for an ordinary selective run
+     * or a row recorded before modes were, the mode's label otherwise. See the "Forced runs and
+     * re-seed" chapter in {@code WIKI.md}.
+     *
+     * @param entry the history row
+     * @return the label, e.g. {@code Re-seed}, or null when nothing should be shown
+     */
+    public static String selectionModeLabel(TestRunHistoryEntry entry) {
+        SelectionMode mode = entry.getSelectionMode();
+        return mode == null || mode == SelectionMode.SELECTIVE ? null : mode.getLabel();
+    }
+
+    /**
+     * The note a run-detail report shows in place of the selection-source counters when the run
+     * executed every test, so the empty counters are not read as "nothing drove the selection".
+     *
+     * @param entry the history row
+     * @return the note, or null for a selective run or a row recorded before modes were
+     */
+    public static String selectionOverrideNote(TestRunHistoryEntry entry) {
+        SelectionMode mode = entry.getSelectionMode();
+        if (mode == null || !mode.isFullRun()) {
+            return null;
+        }
+        return mode == SelectionMode.SEED ? "No stored mapping yet - all tests run"
+                : "Selection overridden - all tests run";
+    }
 
     /**
      * Build a user-friendly string showing a duration in hours, minutes, seconds and ms.

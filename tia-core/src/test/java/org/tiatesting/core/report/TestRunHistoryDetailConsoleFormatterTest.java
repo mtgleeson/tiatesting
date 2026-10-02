@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -123,6 +124,47 @@ class TestRunHistoryDetailConsoleFormatterTest {
         assertTrue(output.contains("Source:              " + RunOrigin.SOURCE_LOCAL + LF), output);
         assertTrue(output.contains("Host:                laptop" + LF), output);
         assertTrue(output.contains("Rerun:               no" + LF), output);
+    }
+
+    /**
+     * A forced run names its mode and replaces the all-zero selection counters with one line
+     * saying the selection was overridden.
+     */
+    @Test
+    void format_forcedRun_rendersTheModeAndTheOverrideNote() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
+                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL), false);
+
+        // when
+        String output = TestRunHistoryDetailConsoleFormatter.format(
+                entry, Collections.<TestRunTrigger>emptyList(), LF);
+
+        // then
+        assertTrue(output.contains("Selection:           All tests (forced)" + LF), output);
+        assertTrue(output.contains("  Selection overridden - all tests run" + LF), output);
+        assertFalse(output.contains("Modified test files"), output);
+    }
+
+    /**
+     * An ordinary selective run shows no selection line and keeps its counters.
+     */
+    @Test
+    void format_selectiveRun_rendersNoModeLine() {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 1, 9, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"), TestRunSelectionDetails.empty(), false);
+
+        // when
+        String output = TestRunHistoryDetailConsoleFormatter.format(
+                entry, Collections.<TestRunTrigger>emptyList(), LF);
+
+        // then
+        assertFalse(output.contains("Selection:"), output);
+        assertTrue(output.contains("Modified test files"), output);
     }
 
     /**

@@ -153,6 +153,30 @@ class HtmlHistoryDetailReportTest {
     }
 
     /**
+     * A re-seed run names its mode and replaces the all-zero selection counters with one line
+     * saying the selection was overridden.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_reseed_rendersTheModeAndTheOverrideNote(@TempDir File tempDir) throws Exception {
+        // given
+        TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
+                TestRunSelectionDetails.forFullRun(SelectionMode.RESEED), false);
+
+        // when
+        String html = generateAndRead(entry, tempDir);
+
+        // then
+        assertTrue(html.contains("Selection: Re-seed"), "Output:\n" + html);
+        assertTrue(html.contains("Selection overridden - all tests run"), "Output:\n" + html);
+        assertFalse(html.contains("Modified test files"), "Output:\n" + html);
+    }
+
+    /**
      * Generate one run's detail page into a temp directory and read it back as a string.
      *
      * @param entry the run the page describes

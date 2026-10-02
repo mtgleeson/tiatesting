@@ -58,7 +58,7 @@ class SummaryStatsTest {
         return new TestRunHistoryEntry("d" + timestampMs, timestampMs, "main", "c", 5, ignored, 0,
                 wallClockMs * groupsUsed, true, 0L, 0, wallClockSavingsMs, 0, "run-" + timestampMs,
                 Long.valueOf(wallClockMs), Integer.valueOf(groupsUsed), Integer.valueOf(groupsAvailable),
-                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null, false);
+                RunOrigin.of(RunOrigin.SOURCE_CI, null), null, null, null, null, null, false, null);
     }
 
     /**
