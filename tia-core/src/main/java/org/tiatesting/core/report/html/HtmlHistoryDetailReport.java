@@ -154,7 +154,7 @@ public class HtmlHistoryDetailReport {
      * single-host run, whose group lines are dashed. The timestamp is rendered like
      * {@link HtmlHistoryReport}'s table rows - an HTML5 {@code <time>} element carrying the UTC
      * epoch ms, localized client-side by {@link HtmlLayout#localTimeRenderingScript()} - but keeps
-     * its seconds, which the table drops.
+     * its seconds, which the table drops. Each label carries a hover tooltip explaining the field.
      *
      * @param entry the history row this page describes
      * @return the summary block content
@@ -171,27 +171,54 @@ public class HtmlHistoryDetailReport {
                 .toString();
 
         return p(
-                span(rawHtml("Date / time: <time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>")), br(),
-                span("Branch: " + (entry.getBranch() == null ? "" : entry.getBranch())), br(),
-                span("Commit: " + (entry.getCommit() == null ? "" : entry.getCommit())), br(),
-                span("Source: " + entry.getRunOrigin().getRunSource()), br(),
+                field("Date / time", "When the test run started, in your browser's local time.",
+                        rawHtml("<time data-epoch-ms=\"" + ms + "\">" + fallback + "</time>")),
+                field("Branch", "The VCS branch the run was against.",
+                        entry.getBranch() == null ? "" : entry.getBranch()),
+                field("Commit", "The VCS commit or changelist the run tested.",
+                        entry.getCommit() == null ? "" : entry.getCommit()),
+                field("Source", "Where the run came from: CI when a CI system's environment variable "
+                                + "(such as CI or BUILD_NUMBER) was present, otherwise LOCAL - typically "
+                                + "a developer's machine.",
+                        entry.getRunOrigin().getRunSource()),
                 // A distributed build spans several machines and names none, so it dashes.
-                span("Host: " + (entry.getRunOrigin().getHostName() == null
-                        ? "-" : entry.getRunOrigin().getHostName())), br(),
+                field("Host", "The machine that ran the tests. A dash for a distributed run, which "
+                                + "spans several machines, or when the hostname could not be resolved.",
+                        entry.getRunOrigin().getHostName() == null ? "-" : entry.getRunOrigin().getHostName()),
                 // A retry of failed tests, credited no savings - see TestRunHistoryEntry#isRerun.
-                span("Rerun: " + (entry.isRerun() ? "yes" : "no")), br(),
+                field("Rerun", "Whether this run was a retry of failed tests, such as by a test-retry "
+                                + "plugin, rather than the test task's real run. A rerun is credited no savings.",
+                        entry.isRerun() ? "yes" : "no"),
                 selectionModeLine(entry),
-                span("Suites ran: " + entry.getNumSuitesRan()
-                        + ", ignored: " + entry.getNumSuitesIgnored()
-                        + ", failed: " + entry.getNumSuitesFailed()), br(),
-                span("Wall clock: " + ReportUtils.prettyDuration(entry.getRunWallClockMs(), true)), br(),
-                span("Serial duration: " + ReportUtils.prettyDuration(entry.getDurationMs(), true)), br(),
-                span("Groups used: " + counterOrDash(entry.getGroupCount())), br(),
-                span("Groups available: " + counterOrDash(entry.getGroupsAvailable())), br(),
-                span("Wall-clock savings: " + ReportUtils.savingsText(entry.getWallClockSavingsMs(),
-                        entry.getWallClockSavingsPercent())), br(),
-                span("Serial savings: " + ReportUtils.savingsText(entry.getTimeSavingsMs(),
-                        entry.getSavingsPercent()))
+                field("Suites ran", "Ran: the test suites that executed. Ignored: the suites Tia skipped "
+                                + "because no change affected them - skips Tia did not cause, such as "
+                                + "@Disabled, are not counted. Failed: the suites with at least one failed test.",
+                        entry.getNumSuitesRan() + ", ignored: " + entry.getNumSuitesIgnored()
+                                + ", failed: " + entry.getNumSuitesFailed()),
+                field("Wall clock", "How long the tests took end to end. For a distributed run, the "
+                                + "slowest group's duration.",
+                        ReportUtils.prettyDuration(entry.getRunWallClockMs(), true)),
+                field("Serial duration", "The total test time across every machine, as if one machine "
+                                + "had run all the groups. Equal to the wall clock for a single-host run.",
+                        ReportUtils.prettyDuration(entry.getDurationMs(), true)),
+                field("Groups used", "How many groups the distributed run's selected tests were split "
+                                + "across. A dash for a single-host run.",
+                        counterOrDash(entry.getGroupCount())),
+                field("Groups available", "How many groups the distributed build had available - more "
+                                + "than were used when the selected tests needed fewer. A dash for a "
+                                + "single-host run.",
+                        counterOrDash(entry.getGroupsAvailable())),
+                field("Wall-clock savings", "The time a developer waiting on the build saved: the "
+                                + "all-tests run time spread across the groups available, minus this "
+                                + "run's wall clock. Fixed when the run was recorded; none for a run of "
+                                + "every test or a rerun.",
+                        ReportUtils.savingsText(entry.getWallClockSavingsMs(),
+                                entry.getWallClockSavingsPercent())),
+                field("Serial savings", "The total machine time saved: the all-tests run time minus "
+                                + "this run's serial duration. Fixed when the run was recorded; none for "
+                                + "a run of every test or a rerun. Equal to the wall-clock savings for a "
+                                + "single-host run.",
+                        ReportUtils.savingsText(entry.getTimeSavingsMs(), entry.getSavingsPercent()))
         );
     }
 
@@ -200,6 +227,7 @@ public class HtmlHistoryDetailReport {
      * sources that are not broken down into individual triggers. Each counter renders {@code "-"}
      * when its {@link Integer} field is null (not recorded for this row). A run that executed
      * every test shows one line saying why instead - see {@link ReportUtils#selectionOverrideNote}.
+     * Each counter's label carries a hover tooltip explaining what it counts.
      *
      * @param entry the history row this page describes
      * @return the selection-sources block content
@@ -210,11 +238,22 @@ public class HtmlHistoryDetailReport {
             return p(span(overrideNote));
         }
         return p(
-                span("Modified test files: " + counterOrDash(entry.getNumModifiedTestFiles())), br(),
-                span("New test files: " + counterOrDash(entry.getNumNewTestFiles())), br(),
-                span("Previously-failed: " + counterOrDash(entry.getNumPreviouslyFailed())), br(),
-                span("Unsealed-mapping: " + counterOrDash(entry.getNumUnsealedMapping())), br(),
-                span("Pending library: " + counterOrDash(entry.getNumPendingLibrary()))
+                field("Modified test files", "Test suites selected because their test file changed "
+                                + "since the commit the mapping was recorded against.",
+                        counterOrDash(entry.getNumModifiedTestFiles())),
+                field("New test files", "Test suites selected because their test file was added "
+                                + "since the commit the mapping was recorded against.",
+                        counterOrDash(entry.getNumNewTestFiles())),
+                field("Previously-failed", "Test suites selected because they failed in an earlier "
+                                + "run and have not passed since.",
+                        counterOrDash(entry.getNumPreviouslyFailed())),
+                field("Unsealed-mapping", "Test suites selected because their stored mapping was "
+                                + "written by a run that did not complete, so it is re-captured "
+                                + "against this commit.",
+                        counterOrDash(entry.getNumUnsealedMapping())),
+                field("Pending library", "Test suites selected because they cover library methods "
+                                + "changed in a library build this project now uses.",
+                        counterOrDash(entry.getNumPendingLibrary()))
         );
     }
 
@@ -227,7 +266,37 @@ public class HtmlHistoryDetailReport {
      */
     private DomContent selectionModeLine(TestRunHistoryEntry entry) {
         String label = ReportUtils.selectionModeLabel(entry);
-        return label == null ? text("") : span(text("Selection: " + label), br());
+        return label == null ? text("") : field("Selection", "Why every test ran. Seed: there was no "
+                        + "stored mapping yet, so all tests ran to build it. Forced: tiaSelectAllTests "
+                        + "overrode selection. Re-seed: tiaReseed ran all tests and rebuilt the mapping "
+                        + "from scratch.",
+                label);
+    }
+
+    /**
+     * Render one plain-text summary field - see {@link #field(String, String, DomContent)}.
+     *
+     * @param label the field name
+     * @param hint what the field means, shown as the label's hover tooltip
+     * @param value the field's value
+     * @return the field line followed by a break
+     */
+    private static DomContent field(String label, String hint, String value) {
+        return field(label, hint, text(value));
+    }
+
+    /**
+     * Render one summary field as {@code "<label>: <value>"} followed by a line break, the label
+     * carrying a hover tooltip that explains the field, so the page stays compact while each
+     * figure is explained where the reader is looking.
+     *
+     * @param label the field name
+     * @param hint what the field means, shown as the label's hover tooltip
+     * @param value the field's rendered value
+     * @return the field line followed by a break
+     */
+    private static DomContent field(String label, String hint, DomContent value) {
+        return each(span(HtmlLayout.hinted(label, hint), text(": "), value), br());
     }
 
     /**
