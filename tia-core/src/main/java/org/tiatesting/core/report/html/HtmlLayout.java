@@ -214,6 +214,19 @@ final class HtmlLayout {
     }
 
     /**
+     * Wrap text in a span that shows a hover tooltip. The {@code tia-stat-hint} class lets the
+     * tooltip wrap and anchors it to the text's left edge, since Pico's default truncates it to
+     * one line centred on the text - see {@code tia.css}.
+     *
+     * @param text the visible text
+     * @param hint the tooltip text
+     * @return the hinted span
+     */
+    static DomContent hinted(String text, String hint) {
+        return span(text).withClass("tia-stat-hint").attr("data-tooltip", hint);
+    }
+
+    /**
      * Attribute a {@code <time data-epoch-ms="…">} element carries to have
      * {@link #localTimeRenderingScript()} render it to the minute, without seconds.
      */
