@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -88,18 +89,19 @@ class HtmlHistoryDetailReportTest {
 
         // when
         String html = generateAndRead(entry, tempDir);
+        String text = visibleText(html);
 
         // then
-        assertTrue(html.contains("Wall clock: 2s"), "should show the wall clock. Output:\n" + html);
-        assertTrue(html.contains("Serial duration: 2s"), "should show the serial duration. Output:\n" + html);
-        assertTrue(html.contains("Groups used: 1"), "should show the groups used. Output:\n" + html);
-        assertTrue(html.contains("Groups available: 6"), "should show the groups available. Output:\n" + html);
-        assertTrue(html.contains("Wall-clock savings: 8s (80%)"),
+        assertTrue(text.contains("Wall clock: 2s"), "should show the wall clock. Output:\n" + html);
+        assertTrue(text.contains("Serial duration: 2s"), "should show the serial duration. Output:\n" + html);
+        assertTrue(text.contains("Groups used: 1"), "should show the groups used. Output:\n" + html);
+        assertTrue(text.contains("Groups available: 6"), "should show the groups available. Output:\n" + html);
+        assertTrue(text.contains("Wall-clock savings: 8s (80%)"),
                 "should show the wall-clock savings. Output:\n" + html);
-        assertTrue(html.contains("Serial savings: 58s (97%)"),
+        assertTrue(text.contains("Serial savings: 58s (97%)"),
                 "should show the serial savings. Output:\n" + html);
-        assertTrue(html.contains("Source: " + RunOrigin.SOURCE_CI), "should show the source. Output:\n" + html);
-        assertTrue(html.contains("Host: -"), "a distributed run names no host. Output:\n" + html);
+        assertTrue(text.contains("Source: " + RunOrigin.SOURCE_CI), "should show the source. Output:\n" + html);
+        assertTrue(text.contains("Host: -"), "a distributed run names no host. Output:\n" + html);
     }
 
     /**
@@ -120,16 +122,17 @@ class HtmlHistoryDetailReportTest {
 
         // when
         String html = generateAndRead(entry, tempDir);
+        String text = visibleText(html);
 
         // then
-        assertTrue(html.contains("Wall clock: 12s"), "the duration is the wall clock. Output:\n" + html);
-        assertTrue(html.contains("Groups used: -"), "no groups on a single host. Output:\n" + html);
-        assertTrue(html.contains("Groups available: -"), "no groups on a single host. Output:\n" + html);
-        assertTrue(html.contains("Wall-clock savings: 4s (25%)"), "Output:\n" + html);
-        assertTrue(html.contains("Serial savings: 4s (25%)"), "Output:\n" + html);
-        assertTrue(html.contains("Source: " + RunOrigin.SOURCE_LOCAL), "should show the source. Output:\n" + html);
-        assertTrue(html.contains("Host: laptop"), "should show the host. Output:\n" + html);
-        assertTrue(html.contains("Rerun: no"), "the real run is not a rerun. Output:\n" + html);
+        assertTrue(text.contains("Wall clock: 12s"), "the duration is the wall clock. Output:\n" + html);
+        assertTrue(text.contains("Groups used: -"), "no groups on a single host. Output:\n" + html);
+        assertTrue(text.contains("Groups available: -"), "no groups on a single host. Output:\n" + html);
+        assertTrue(text.contains("Wall-clock savings: 4s (25%)"), "Output:\n" + html);
+        assertTrue(text.contains("Serial savings: 4s (25%)"), "Output:\n" + html);
+        assertTrue(text.contains("Source: " + RunOrigin.SOURCE_LOCAL), "should show the source. Output:\n" + html);
+        assertTrue(text.contains("Host: laptop"), "should show the host. Output:\n" + html);
+        assertTrue(text.contains("Rerun: no"), "the real run is not a rerun. Output:\n" + html);
     }
 
     /**
@@ -147,9 +150,10 @@ class HtmlHistoryDetailReportTest {
 
         // when
         String html = generateAndRead(entry, tempDir);
+        String text = visibleText(html);
 
         // then
-        assertTrue(html.contains("Rerun: yes"), "Output:\n" + html);
+        assertTrue(text.contains("Rerun: yes"), "Output:\n" + html);
     }
 
     /**
@@ -169,11 +173,55 @@ class HtmlHistoryDetailReportTest {
 
         // when
         String html = generateAndRead(entry, tempDir);
+        String text = visibleText(html);
 
         // then
-        assertTrue(html.contains("Selection: Re-seed"), "Output:\n" + html);
+        assertTrue(text.contains("Selection: Re-seed"), "Output:\n" + html);
         assertTrue(html.contains("Selection overridden - all tests run"), "Output:\n" + html);
         assertFalse(html.contains("Modified test files"), "Output:\n" + html);
+    }
+
+    /**
+     * Every summary and selection-source field label carries a hover tooltip explaining it,
+     * including the Selection line a forced run adds.
+     *
+     * @param tempDir JUnit-supplied directory the report is written into
+     * @throws Exception if the page cannot be written or read back
+     */
+    @Test
+    void generateReport_everyFieldLabelCarriesATooltip(@TempDir File tempDir) throws Exception {
+        // given - a forced single-host run, so the Selection line renders, then a selective run
+        // with every selection counter recorded, so the selection-source lines render
+        TestRunHistoryEntry forced = TestRunHistoryEntry.create("main", "abc123",
+                1_700_000_000_000L, 10, 0, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_CI, "agent"),
+                TestRunSelectionDetails.forFullRun(SelectionMode.SELECT_ALL), false);
+        TestRunHistoryEntry selective = TestRunHistoryEntry.create("main", "def456",
+                1_700_000_500_000L, 10, 2, 0, 4_000L, true, 0L, 0,
+                RunOrigin.of(RunOrigin.SOURCE_LOCAL, "laptop"),
+                new TestRunSelectionDetails(Collections.<TestRunTrigger>emptyList(), 1, 1, 1, 1, 1,
+                        SelectionMode.SELECTIVE), false);
+
+        // when
+        String forcedHtml = generateAndRead(forced, tempDir);
+        String selectiveHtml = generateAndRead(selective, tempDir);
+
+        // then
+        List<String> forcedLabels = Arrays.asList("Date / time", "Branch", "Commit", "Source", "Host",
+                "Rerun", "Selection", "Suites ran", "Wall clock", "Serial duration", "Groups used",
+                "Groups available", "Wall-clock savings", "Serial savings");
+        for (String label : forcedLabels) {
+            assertTrue(Pattern.compile("<span class=\"tia-stat-hint\" data-tooltip=\"[^\"]+\">"
+                            + Pattern.quote(label) + "</span>: ").matcher(forcedHtml).find(),
+                    "'" + label + "' should carry a tooltip. Output:\n" + forcedHtml);
+        }
+        List<String> selectionSourceLabels = Arrays.asList("Modified test files", "New test files",
+                "Previously-failed", "Unsealed-mapping", "Pending library");
+        for (String label : selectionSourceLabels) {
+            assertTrue(Pattern.compile("<span class=\"tia-stat-hint\" data-tooltip=\"[^\"]+\">"
+                            + Pattern.quote(label) + "</span>: ").matcher(selectiveHtml).find(),
+                    "'" + label + "' should carry a tooltip. Output:\n" + selectiveHtml);
+        }
     }
 
     /**
@@ -190,6 +238,17 @@ class HtmlHistoryDetailReportTest {
         File page = new File(tempDir, "html" + File.separator + "html" + File.separator
                 + "history" + File.separator + entry.getId() + ".html");
         return new String(Files.readAllBytes(page.toPath()));
+    }
+
+    /**
+     * Strip the tags from a rendered page, leaving the text a reader sees, so a field's label and
+     * value can be matched as one string even though the label sits in its own tooltip span.
+     *
+     * @param html the rendered HTML
+     * @return the page text without tags
+     */
+    private static String visibleText(String html) {
+        return html.replaceAll("<[^>]+>", "");
     }
 
     @Test

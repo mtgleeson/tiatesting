@@ -115,27 +115,14 @@ public class HtmlSummaryReport {
         for (SummaryStats.Line line : section.getLines()) {
             lines.add(line.getHint() == null
                     ? span(line.toText())
-                    : span(hinted(line.getLabel(), line.getHint()), text(": " + line.getValue())));
+                    : span(HtmlLayout.hinted(line.getLabel(), line.getHint()), text(": " + line.getValue())));
             lines.add(br());
         }
         DomContent heading = section.getHint() == null
                 ? text(section.getHeading())
-                : hinted(section.getHeading(), section.getHint());
+                : HtmlLayout.hinted(section.getHeading(), section.getHint());
         return each(section.getDepth() == 0 ? h4(heading) : h5(heading),
                 p(each(lines, content -> content)));
-    }
-
-    /**
-     * Wrap text in a span that shows a hover tooltip. The {@code tia-stat-hint} class lets the
-     * tooltip wrap and anchors it to the text's left edge, since Pico's default truncates it to
-     * one line centred on the text - see {@code tia.css}.
-     *
-     * @param text the visible text
-     * @param hint the tooltip text
-     * @return the hinted span
-     */
-    private static DomContent hinted(String text, String hint) {
-        return span(text).withClass("tia-stat-hint").attr("data-tooltip", hint);
     }
 
     private DomContent renderPendingFailedTests(TiaData tiaData) {
