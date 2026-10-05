@@ -40,7 +40,7 @@ SELECT COUNT(*) FROM tia_source_class_method;
 
 …and pass `-PavgClassesPerSuite=<class_count / suite_count>` and `-PavgMethodsPerClass=<edge_count / class_count>`.
 
-The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per commit, autocommit off). At the reference scale it finishes in around 13 seconds. Table creation goes through `JdbcDataStore.getTiaData(true)` so the layout always matches what Tia produces in normal operation, including the `tia_source_class.tia_test_suite_id` index that the bulk-load query depends on.
+The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per commit, autocommit off). At the reference scale it finishes in around 13 seconds. Table creation goes through `JdbcDataStore.getTiaData()` so the layout always matches what Tia produces in normal operation, including the `tia_source_class.tia_test_suite_id` index that the bulk-load query depends on.
 
 ### Step 2 - time the select-tests read path
 
@@ -54,7 +54,7 @@ The generator uses raw JDBC + batched `PreparedStatement` inserts (10K rows per 
 The harness opens the DB you just generated and runs each iteration through three timed phases:
 
 1. **`JdbcDataStore` construction** - should always be near-zero. If this is non-trivial something is wrong with the connection setup.
-2. **`getTiaData(true)` full load** - the path being investigated. This is what `select-tests` calls into, and what the bulk-join + index work in `select-tests-perf-fix` targets.
+2. **`getTiaData()` full load** - the path being investigated. This is what `select-tests` calls into, and what the bulk-join + index work in `select-tests-perf-fix` targets.
 3. **`selectTestsToIgnore` with empty diffs** - exercises the rest of the selector logic on top of the just-loaded data, using a stub `VCSReader` that reports no source-file changes. With an empty diff the selector should be near-instant; if it isn't, the cost is somewhere in the post-load logic. Note that `TestSelector.selectTestsToIgnore` re-loads the DB internally (see `TestSelector.java`), so this phase's wall time is roughly the sum of "another full load" plus the actual selection logic.
 
 Each phase prints its own elapsed-ms line plus an iteration TOTAL. Three iterations is enough to distinguish steady-state from first-run JIT-warmup costs while keeping a single run under five minutes at the reference DB size.

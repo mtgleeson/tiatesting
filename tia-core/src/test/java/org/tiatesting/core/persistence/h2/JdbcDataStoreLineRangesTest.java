@@ -51,7 +51,7 @@ class JdbcDataStoreLineRangesTest {
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -146,7 +146,7 @@ class JdbcDataStoreLineRangesTest {
         // when - a fresh datastore re-runs ensureSchema, which must re-add both columns
         JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName("test", null));
-        Map<Integer, MethodImpactTracker> legacyRead = migrated.getTiaData(true).getMethodsTracked();
+        Map<Integer, MethodImpactTracker> legacyRead = migrated.getTiaData().getMethodsTracked();
         migrated.persistStagedMethodTrackers("run-1", catalogue());
         Map<Integer, MethodImpactTracker> stagedRead = migrated.readStagedMethodTrackers("run-1");
         migrated.close();

@@ -56,7 +56,7 @@ class DistributedRunnerPersistTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**

@@ -89,9 +89,9 @@ class SchemaPerBranchIsolationTest {
     private static void assertBranchesIsolated(DataStore storeA, DataStore storeB) {
         try {
             // when a distinct failed-suite set is persisted into each branch's schema
-            storeA.getTiaData(true);
+            storeA.getTiaData();
             storeA.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_A));
-            storeB.getTiaData(true);
+            storeB.getTiaData();
             storeB.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_B));
 
             // then each store reads back exactly its own branch's data, never the other's

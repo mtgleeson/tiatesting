@@ -57,7 +57,7 @@ class JdbcDataStoreEmbeddedFlushOnCloseTest {
     void trackedLibraryWrittenThenClosedSurvivesReopenByFreshDatastore() {
         // given a fresh embedded datastore that creates the schema, writes a tracked library, closes
         JdbcDataStore first = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("master", null));
-        first.getTiaData(true);
+        first.getTiaData();
         TrackedLibrary lib = new TrackedLibrary("org.example:lib", "/projects/lib", null);
         lib.setMappingBaselineCommit("baseline-abc");
         lib.setLastAppliedSeq(7L);

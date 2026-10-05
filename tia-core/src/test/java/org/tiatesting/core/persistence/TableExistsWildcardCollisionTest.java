@@ -69,7 +69,7 @@ class TableExistsWildcardCollisionTest {
         // given a seeded store on branch "v1x2" (schema tia_v1x2) whose Tia tables already exist
         DataStore seededStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_SEEDED, null);
         try {
-            seededStore.getTiaData(true);
+            seededStore.getTiaData();
             seededStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(Collections.singleton("seeded_only")));
         } finally {
             seededStore.close();
@@ -79,7 +79,7 @@ class TableExistsWildcardCollisionTest {
         // literal schema tia_v1x2 above) bootstraps against the same physical database
         DataStore freshStore = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, BRANCH_FRESH, null);
         try {
-            freshStore.getTiaData(true);
+            freshStore.getTiaData();
             freshStore.persistTestSuitesFailed(Collections.emptySet(), new HashSet<>(SUITES_FRESH));
 
             // then the fresh store was not fooled into believing it was already migrated by the

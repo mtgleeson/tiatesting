@@ -21,7 +21,7 @@ import java.util.Map;
  *
  * <p>Phases reported separately:
  * <ol>
- *     <li>{@code Phase A} - {@code dataStore.getTiaData(true)}, the legacy bulk load of every
+ *     <li>{@code Phase A} - {@code dataStore.getTiaData()}, the legacy bulk load of every
  *         suite + class + method edge (on {@link JdbcDataStore} this is {@code readTiaDataFromDB}).
  *         This is the same full-mapping read the {@code tia-html-report} task performs before
  *         rendering, and the read path already optimised for {@code select-tests} via
@@ -113,10 +113,10 @@ public final class ProfileHtmlReport {
 
         // Phase A - the legacy bulk mapping load the tia-html-report task runs before rendering.
         long tLoadStart = System.nanoTime();
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         long tLoadEnd = System.nanoTime();
-        long loadMs = printPhase("Phase A - getTiaData(true) full load", tLoadStart, tLoadEnd);
-        timings.record("Phase A - getTiaData(true) full load", loadMs);
+        long loadMs = printPhase("Phase A - getTiaData() full load", tLoadStart, tLoadEnd);
+        timings.record("Phase A - getTiaData() full load", loadMs);
         System.out.println("  suitesTracked=" + tiaData.getTestSuitesTracked().size()
                 + " sourceMethods=" + tiaData.getMethodsTracked().size());
 

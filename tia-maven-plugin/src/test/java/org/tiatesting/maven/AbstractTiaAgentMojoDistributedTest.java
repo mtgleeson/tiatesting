@@ -102,7 +102,7 @@ class AbstractTiaAgentMojoDistributedTest {
         dbDir.mkdirs();
         buildDir.mkdirs();
         try (DataStore dataStore = openStore(BRANCH)) {
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
         }
     }
 

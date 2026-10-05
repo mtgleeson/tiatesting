@@ -67,10 +67,10 @@ class TestRunnerServiceSealOrderTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         // Seed a known prior commit value so we can assert it survives mid-persist crashes.
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("prior-commit");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
@@ -103,7 +103,7 @@ class TestRunnerServiceSealOrderTest {
                 true, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then - stored commit value is unchanged
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
         assertEquals("prior-commit", reloaded.getCommitValue(),
                 "commit value must not advance when a mapping write fails");
     }
@@ -126,7 +126,7 @@ class TestRunnerServiceSealOrderTest {
                 true, false, "new-commit", "main", System.currentTimeMillis(), result, null));
 
         // then
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
         assertEquals("prior-commit", reloaded.getCommitValue());
     }
 
@@ -161,7 +161,7 @@ class TestRunnerServiceSealOrderTest {
                 "a non-mapping run must not rewrite the method catalogue");
 
         // and - a non-mapping run must not seal a new commit value
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
         assertEquals("prior-commit", reloaded.getCommitValue(),
                 "a non-mapping run must not advance the stored commit value");
     }
@@ -186,7 +186,7 @@ class TestRunnerServiceSealOrderTest {
                 System.currentTimeMillis(), makeResult(), null);
 
         // then - commit value is sealed to the new value
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
         assertEquals("new-commit", reloaded.getCommitValue(),
                 "happy path must advance the stored commit value");
 
@@ -350,7 +350,7 @@ class TestRunnerServiceSealOrderTest {
         }
 
         @Override
-        public TiaData getTiaData(boolean readFromDisk) { return delegate.getTiaData(readFromDisk); }
+        public TiaData getTiaData() { return delegate.getTiaData(); }
         @Override
         public TiaData getTiaCore() { return delegate.getTiaCore(); }
         @Override

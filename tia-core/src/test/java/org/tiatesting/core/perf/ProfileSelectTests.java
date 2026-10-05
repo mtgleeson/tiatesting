@@ -25,7 +25,7 @@ import java.util.Set;
  * <p>Phases reported separately:
  * <ol>
  *     <li>{@code JdbcDataStore} construction (cheap; just opens the URL)</li>
- *     <li>(optional, {@code fullLoad=true}) {@code dataStore.getTiaData(true)} - the legacy
+ *     <li>(optional, {@code fullLoad=true}) {@code dataStore.getTiaData()} - the legacy
  *         bulk load of suites + classes + methods + libraries. Kept as the baseline number;
  *         the targeted select path below no longer performs it.</li>
  *     <li>{@code TestSelector.selectTestsToIgnore} with a stub VCS reader - the targeted
@@ -108,9 +108,9 @@ public final class ProfileSelectTests {
         // path in isolation (e.g. when profiling with JFR).
         if (args.fullLoad) {
             long tLoadStart = System.nanoTime();
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
             long tLoadEnd = System.nanoTime();
-            printPhase("Phase 2 - getTiaData(true) legacy full load", tLoadStart, tLoadEnd);
+            printPhase("Phase 2 - getTiaData() legacy full load", tLoadStart, tLoadEnd);
         }
 
         // Phase 3 - selectTestsToIgnore with a synthetic-diff stub VCS reader. This drives

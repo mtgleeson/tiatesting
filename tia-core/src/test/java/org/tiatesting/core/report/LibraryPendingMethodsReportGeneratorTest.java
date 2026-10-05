@@ -45,7 +45,7 @@ class LibraryPendingMethodsReportGeneratorTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         generator = new LibraryPendingMethodsReportGenerator();
     }
 
@@ -177,7 +177,7 @@ class LibraryPendingMethodsReportGeneratorTest {
      * Seed tracked methods 10 (lines 2-8) and 20 (lines 10-20) through the core persist API.
      */
     private void seedTrackedMethods() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed");
         tiaData.setLastUpdated(Instant.now());
         Map<Integer, MethodImpactTracker> methods = new HashMap<>();

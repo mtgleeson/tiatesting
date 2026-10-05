@@ -59,7 +59,7 @@ class JdbcDataStoreDeveloperDisabledTest {
     @Test
     void persistAndLoad_developerDisabledFlag_roundTrips() {
         // given
-        dataStore.getTiaData(true); // bootstrap schema
+        dataStore.getTiaData(); // bootstrap schema
         TestSuiteTracker disabled = new TestSuiteTracker("com.example.FooTest");
         disabled.setDeveloperDisabled(true);
         TestSuiteTracker enabled = new TestSuiteTracker("com.example.BarTest");
@@ -86,7 +86,7 @@ class JdbcDataStoreDeveloperDisabledTest {
         // given - seed a suite, then drop the column to simulate a pre-migration DB. The engine
         // is kept alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh
         // datastore opened against the same file without closing this one.
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         TestSuiteTracker suite = new TestSuiteTracker("com.example.LegacyTest");
         Map<String, TestSuiteTracker> suites = new HashMap<>();
         suites.put(suite.getName(), suite);
@@ -104,7 +104,7 @@ class JdbcDataStoreDeveloperDisabledTest {
 
         // when - a fresh datastore re-runs ensureSchema (via getTiaData), which must re-add the column
         JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
-        Map<String, TestSuiteTracker> loaded = migrated.getTiaData(true).getTestSuitesTracked();
+        Map<String, TestSuiteTracker> loaded = migrated.getTiaData().getTestSuitesTracked();
         migrated.close();
 
         // then

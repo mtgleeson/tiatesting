@@ -60,9 +60,9 @@ class TestRunnerServiceForkedSuiteDeletionTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
-        TiaData core = dataStore.getTiaData(true);
+        TiaData core = dataStore.getTiaData();
         core.setCommitValue("commit-0");
         core.setLastUpdated(Instant.now());
         dataStore.persistCoreData(core);

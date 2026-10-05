@@ -75,7 +75,7 @@ class TestSelectorLibraryPreviewTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -219,7 +219,7 @@ class TestSelectorLibraryPreviewTest {
      * library publish/drain flow, not unsealed-suite force-selection.
      */
     private void seedLibraryMethodMapping() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed-commit");
         tiaData.setLastUpdated(Instant.now());
 

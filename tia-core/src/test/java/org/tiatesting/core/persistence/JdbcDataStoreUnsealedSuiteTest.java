@@ -54,7 +54,7 @@ class JdbcDataStoreUnsealedSuiteTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -139,9 +139,9 @@ class JdbcDataStoreUnsealedSuiteTest {
         // given
         dataStore.persistTestSuites(suites(withCoverage("SuiteI")));
 
-        // when - read back through the aliased join used by getTiaData(true), not the
+        // when - read back through the aliased join used by getTiaData(), not the
         // metadata-only path the other assertions in this class use
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
 
         // then
         assertTrue(tiaData.getTestSuitesTracked().get("SuiteI").isUnsealed(),

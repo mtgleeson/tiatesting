@@ -84,7 +84,7 @@ class JdbcDataStoreConnectionModeTest {
             JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(),
                     new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                     BranchSchema.schemaName("test", null));
-            dataStore.getTiaData(true); // force schema creation / open the DB
+            dataStore.getTiaData(); // force schema creation / open the DB
 
             // when / then
             assertDoesNotThrow(dataStore::close);

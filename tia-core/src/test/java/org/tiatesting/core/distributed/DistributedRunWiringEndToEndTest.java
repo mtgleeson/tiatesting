@@ -138,7 +138,7 @@ class DistributedRunWiringEndToEndTest {
         }
 
         dataStore = openStore();
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         TiaData tiaData = dataStore.getTiaCore();
         tiaData.setCommitValue(PRIOR_COMMIT);

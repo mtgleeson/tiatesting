@@ -65,9 +65,9 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
         tempDir.delete();
         tempDir.mkdirs();
         underlying = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        underlying.getTiaData(true);
+        underlying.getTiaData();
 
-        TiaData tiaData = underlying.getTiaData(true);
+        TiaData tiaData = underlying.getTiaData();
         tiaData.setCommitValue("prior");
         tiaData.setLastUpdated(Instant.now());
         underlying.persistCoreData(tiaData);
@@ -150,7 +150,7 @@ class TestRunnerServiceSuiteMappingPersistRoutingTest {
             this.delegate = delegate;
         }
 
-        @Override public TiaData getTiaData(boolean readFromDisk) { return delegate.getTiaData(readFromDisk); }
+        @Override public TiaData getTiaData() { return delegate.getTiaData(); }
         @Override public TiaData getTiaCore() { return delegate.getTiaCore(); }
         @Override public Map<String, TestSuiteTracker> getTestSuitesTracked() { return delegate.getTestSuitesTracked(); }
         @Override public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) { return delegate.readTestSuiteCoverage(suiteNames); }

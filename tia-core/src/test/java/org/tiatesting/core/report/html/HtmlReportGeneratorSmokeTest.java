@@ -164,7 +164,7 @@ class HtmlReportGeneratorSmokeTest {
         H2ConnectionSettings settings = H2ConnectionSettings.embedded(dbDir.getAbsolutePath());
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName("trigger-branch", null));
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setPendingLibraryImpactedMethods(Collections.emptyList());
 
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "abc123", 1_700_000_000_000L,
@@ -172,7 +172,7 @@ class HtmlReportGeneratorSmokeTest {
         dataStore.persistTestRunHistoryEntry(entry);
         dataStore.persistTestRunTriggers(entry.getId(),
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 3)));
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
 
         // when the report is generated with the DataStore wired through
         File reportRoot = new File(tempDir.toFile(), "report");

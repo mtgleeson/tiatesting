@@ -94,7 +94,7 @@ class PostgresDistributedPlanTest {
         cleanDistributedTables();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH, null);
-        postgresStore.getTiaData(true); // bootstrap the core schema on first contact
+        postgresStore.getTiaData(); // bootstrap the core schema on first contact
     }
 
     /**

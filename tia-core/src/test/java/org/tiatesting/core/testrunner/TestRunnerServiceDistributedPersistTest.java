@@ -83,9 +83,9 @@ class TestRunnerServiceDistributedPersistTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new RecordingDataStore(tempDir);
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("prior-commit");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
@@ -163,7 +163,7 @@ class TestRunnerServiceDistributedPersistTest {
                 "only the run's sealer may write the seal bundle");
         assertEquals(0, Collections.frequency(dataStore.callOrder, "persistCoreData"),
                 "a distributed runner must not write the core row");
-        assertEquals("prior-commit", dataStore.getTiaData(true).getCommitValue(),
+        assertEquals("prior-commit", dataStore.getTiaData().getCommitValue(),
                 "a distributed runner must not advance the stored commit value");
     }
 
@@ -515,7 +515,7 @@ class TestRunnerServiceDistributedPersistTest {
         // then
         assertEquals(1, Collections.frequency(dataStore.callOrder, "persistSealedRunData"),
                 "a single-host run must still seal exactly once");
-        assertEquals("new-commit", dataStore.getTiaData(true).getCommitValue(),
+        assertEquals("new-commit", dataStore.getTiaData().getCommitValue(),
                 "a single-host run must still advance the stored commit value");
         List<TestRunHistoryEntry> history = dataStore.readTestRunHistory();
         assertEquals(1, history.size(), "a single-host run must still write its own history row");
