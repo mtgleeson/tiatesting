@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.gradle.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Project;
 import org.gradle.testfixtures.ProjectBuilder;
@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.tiatesting.gradle.plugin.LibraryJarResolver;
-import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.io.File;
 import java.io.IOException;
@@ -24,10 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * is set the offline directory matcher is used and the dependency-graph resolver is not consulted;
  * when it is blank the dependency-graph resolver is used instead. Both feed the same CSV.
  */
-class TiaSpockGitGradlePluginLibraryJarsTest {
+class TiaTestTaskConfigurerLibraryJarsTest {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger(TiaSpockGitGradlePluginLibraryJarsTest.class);
+            LoggerFactory.getLogger(TiaTestTaskConfigurerLibraryJarsTest.class);
 
     /**
      * A resolver stub that records whether the dependency-graph path was consulted and returns a
@@ -77,7 +75,7 @@ class TiaSpockGitGradlePluginLibraryJarsTest {
         ext.setLibraryJarsDirs(libDir.toString());
 
         // when
-        String csv = TiaSpockGitGradlePluginTestExtension.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
 
         // then - resolved from the directory, graph resolver never consulted
         assertEquals(jar.getAbsolutePath(), csv);
@@ -94,7 +92,7 @@ class TiaSpockGitGradlePluginLibraryJarsTest {
         ext.setLibraryJarsDirs("  ");
 
         // when
-        String csv = TiaSpockGitGradlePluginTestExtension.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
 
         // then - the graph resolver supplied the result
         assertTrue(resolver.called);
@@ -112,7 +110,7 @@ class TiaSpockGitGradlePluginLibraryJarsTest {
         ext.setLibraryJarsDirs(libDir.toString());
 
         // when
-        String csv = TiaSpockGitGradlePluginTestExtension.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
 
         // then - nothing matched, and the graph resolver was still not used
         assertNull(csv);
@@ -132,7 +130,7 @@ class TiaSpockGitGradlePluginLibraryJarsTest {
         ext.setLibraryJarsDirs(dirA + "," + dirB);
 
         // when
-        String csv = TiaSpockGitGradlePluginTestExtension.resolveLibraryJarsCsv(ext, resolver, LOGGER);
+        String csv = TiaTestTaskConfigurer.resolveLibraryJarsCsv(ext, resolver, LOGGER);
 
         // then - both jars resolve, comma separated, in coordinate order
         assertEquals(widgets.getAbsolutePath() + "," + gadgets.getAbsolutePath(), csv);

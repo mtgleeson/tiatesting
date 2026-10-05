@@ -159,7 +159,7 @@ without the suite's coverage actually having been recaptured against the sealed 
   An explicit **command-line** test filter is *not* an instance of this escape, because Tia disables
   itself entirely rather than running a filtered selection: `AgentMojo` and
   `TiaTestExecutionListener` check `System.getProperty("test")` for Maven's
-  `-Dtest`, and `TiaSpockGitGradlePluginTestExtension` checks
+  `-Dtest`, and `TiaTestTaskConfigurer` checks
   `DefaultTestFilter.getCommandLineIncludePatterns()` for Gradle's `--tests`. When disabled, the
   listener returns before persisting, so there is no seal and therefore no clear - the flag survives
   and the next full run still force-runs the suite.

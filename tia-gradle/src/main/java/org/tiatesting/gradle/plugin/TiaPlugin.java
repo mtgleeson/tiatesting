@@ -5,6 +5,9 @@ import org.gradle.api.Plugin;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.AbstractArchiveTask;
@@ -20,6 +23,8 @@ import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.VCSReaderFactory;
+import org.tiatesting.core.vcs.VcsSettings;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
@@ -40,6 +45,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,12 +54,14 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * Base Gradle plugin for Tia. Creates the new standard tasks for interacting with Tia.
- * It's an abstract class intended to be extended for the implementation specific plugins.
+ * The Tia Gradle plugin ({@code org.tiatesting.tia}). Creates the {@code tia} extension and Tia's
+ * tasks, and when a test task is run wires Tia into the project's test tasks: the task action from
+ * {@link TiaTestTaskConfigurer}, the Tia module for the project's test framework on the test
+ * runtime classpath, and the jacoco plugin when a test task updates the mapping.
  */
-public abstract class TiaBasePlugin implements Plugin<Project> {
+public class TiaPlugin implements Plugin<Project> {
 
-    private static final Logger LOGGER = Logging.getLogger(TiaBasePlugin.class);
+    private static final Logger LOGGER = Logging.getLogger(TiaPlugin.class);
 
     /**
      * Name of the distributed-run completion task. Public because the build-tool bridge that wires
@@ -65,6 +73,9 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
 
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
+
+    /** The project's test framework adapter, detected once the project is evaluated. */
+    private TestFrameworkAdapter testFrameworkAdapter;
 
     @Override
     public void apply(Project project) {
@@ -82,6 +93,108 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         createDistPlanTask();
         createDistStatusTask();
         hookPublishStampTasks();
+        applyToTestTasksWhenRequested();
+    }
+
+    /**
+     * Wire Tia into the project's test tasks, but only when the build was asked to run one of them,
+     * so a build that runs no tests gets no Tia test runtime dependency and no jacoco plugin.
+     */
+    private void applyToTestTasksWhenRequested() {
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        for (Test task : project.getTasks().withType(Test.class)) {
+            if (taskNames.contains(task.getName())) {
+                applyToTestTasks();
+                return;
+            }
+        }
+    }
+
+    /**
+     * Attach Tia's task action to every test task, register the once-per-project hook that wires
+     * each one's {@code tia-dist-complete} finalizer, and configure the test runtime once the
+     * build script has set the {@code tia} extensions.
+     */
+    private void applyToTestTasks() {
+        TiaTestTaskConfigurer configurer = new TiaTestTaskConfigurer(this::getTestFrameworkAdapter);
+        project.getTasks().withType(Test.class).configureEach(configurer::applyTo);
+        configurer.wireDistCompleteFinalizers(project);
+        project.afterEvaluate(p -> configureTestRuntime());
+    }
+
+    /**
+     * After evaluation, for the test tasks Tia is enabled on: apply the jacoco plugin if any of them
+     * updates the mapping, detect the test framework, and add its Tia module to
+     * {@code testRuntimeOnly} at this plugin's version. Each flag is the test task's own value when
+     * set, otherwise the project's - the rule the task action applies when it merges the two.
+     */
+    void configureTestRuntime() {
+        boolean anyEnabled = false;
+        boolean anyUpdatingMapping = false;
+        for (Test testTask : project.getTasks().withType(Test.class)) {
+            Object extension = testTask.getExtensions().findByName("tia");
+            if (!(extension instanceof TiaBaseTaskExtension)) {
+                continue;
+            }
+            TiaBaseTaskExtension taskExtension = (TiaBaseTaskExtension) extension;
+            if (resolveFlag(taskExtension.getEnabled(), tiaTaskExtension.getEnabled())) {
+                anyEnabled = true;
+                anyUpdatingMapping |= resolveFlag(taskExtension.getUpdateDBMapping(),
+                        tiaTaskExtension.getUpdateDBMapping());
+            }
+        }
+        if (!anyEnabled) {
+            return;
+        }
+
+        if (anyUpdatingMapping) {
+            project.getPluginManager().apply("jacoco");
+        }
+        testFrameworkAdapter = TestFrameworkDetector.detect(tiaTaskExtension.getTestFramework(),
+                declaredTestDependencyGroups());
+        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
+                "org.tiatesting:" + testFrameworkAdapter.runtimeArtifactId() + ":" + TiaVersion.get());
+    }
+
+    /**
+     * The groups of the dependencies declared for the project's tests, including those inherited
+     * from {@code implementation} and friends, read without resolving any configuration.
+     *
+     * @return the declared dependency groups
+     */
+    private Set<String> declaredTestDependencyGroups() {
+        Set<String> groups = new HashSet<>();
+        for (String name : Arrays.asList(JavaPlugin.TEST_COMPILE_CLASSPATH_CONFIGURATION_NAME,
+                JavaPlugin.TEST_RUNTIME_CLASSPATH_CONFIGURATION_NAME)) {
+            Configuration configuration = project.getConfigurations().findByName(name);
+            if (configuration != null) {
+                for (Dependency dependency : configuration.getAllDependencies()) {
+                    groups.add(dependency.getGroup());
+                }
+            }
+        }
+        return groups;
+    }
+
+    /**
+     * @param taskValue the test task's own value for a flag, which wins when set
+     * @param projectValue the project-level extension's value, the fallback
+     * @return true only when the resolved value is {@link Boolean#TRUE}
+     */
+    private static boolean resolveFlag(final Boolean taskValue, final Boolean projectValue) {
+        return Boolean.TRUE.equals(taskValue != null ? taskValue : projectValue);
+    }
+
+    /**
+     * @return the project's test framework adapter
+     * @throws IllegalStateException if a test task runs before the framework was detected
+     */
+    TestFrameworkAdapter getTestFrameworkAdapter() {
+        if (testFrameworkAdapter == null) {
+            throw new IllegalStateException("Tia has not detected this project's test framework: Tia is "
+                    + "not enabled for any test task at configuration time.");
+        }
+        return testFrameworkAdapter;
     }
 
     /**
@@ -129,7 +242,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * plugin-apply time, this task must exist only for a distributed build: a non-distributed
      * Gradle build must gain no task and no finalizer. So this method is not called from {@link
      * #apply(Project)} at all - it is called from the build-tool bridge that applies Tia to a test
-     * task (currently only {@code TiaSpockGitGradlePluginTestExtension}), once that bridge has
+     * task (currently only {@code TiaTestTaskConfigurer}), once that bridge has
      * resolved the merged {@code tia { distributed = ... } } flag at configuration time (in a
      * {@code project.afterEvaluate} block, since the task graph - and therefore any {@code
      * finalizedBy} wiring - is built before execution, while the fully-merged flag is normally only
@@ -599,7 +712,18 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
         return null;
     }
 
-    public abstract VCSReader getVCSReader();
+    /**
+     * Construct a reader for the project's version control system from the VCS provider on this
+     * plugin's class path.
+     *
+     * @return a new reader; the caller must close it
+     * @throws GradleException if no VCS provider is available
+     */
+    public VCSReader getVCSReader() {
+        VcsSettings settings = VcsSettings.builder().projectDir(getProjectDir()).build();
+        return VCSReaderFactory.create(settings, TiaPlugin.class.getClassLoader())
+                .orElseThrow(() -> new GradleException("No Tia VCS provider is on the Tia plugin's class path."));
+    }
 
     /**
      * @return the configured branch override from the {@code tia { ... }} extension, or

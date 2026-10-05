@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for {@link TiaDistPlanTask} and its registration by {@link TiaBasePlugin}. The
+ * Tests for {@link TiaDistPlanTask} and its registration by {@link TiaPlugin}. The
  * preconditions checked by {@link org.tiatesting.core.distributed.DistributedRunPreconditions#check}
  * and {@link org.tiatesting.core.distributed.DistributedRunConfig#validated} run before any
  * datastore is opened, so each failure path is exercised here without a real database - the same
@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TiaDistPlanTaskTest {
 
     /** Concrete plugin with a stub VCS reader so the task can run without a real repo. */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader();
@@ -40,7 +40,7 @@ class TiaDistPlanTaskTest {
     }
 
     /**
-     * Verify that {@link TiaBasePlugin#createDistPlanTask()} registers a {@code tia-dist-plan}
+     * Verify that {@link TiaPlugin#createDistPlanTask()} registers a {@code tia-dist-plan}
      * task of type {@link TiaDistPlanTask}, mirroring the Maven module's {@code dist-plan}
      * goal name.
      */

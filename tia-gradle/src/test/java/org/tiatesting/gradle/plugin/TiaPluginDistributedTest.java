@@ -34,10 +34,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * extension property, the {@code tia.distributed} master switch, and the {@code tia-select-tests}
  * grouping preview never throwing out of {@code doLast} on a misconfigured distributed run.
  */
-class TiaBasePluginDistributedTest {
+class TiaPluginDistributedTest {
 
     /** Minimal concrete plugin so the abstract base can be applied and queried in tests. */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return null;
@@ -53,7 +53,7 @@ class TiaBasePluginDistributedTest {
      * @param plugin the plugin under test
      * @param selection the selection to balance and preview
      */
-    private static void previewFor(final TiaBasePlugin plugin, final TestSelectorResult selection) {
+    private static void previewFor(final TiaPlugin plugin, final TestSelectorResult selection) {
         plugin.printDistributedRunPreview(selection,
                 plugin.buildDistributedGroupingIfConfigured(selection), "\n");
     }
@@ -88,7 +88,7 @@ class TiaBasePluginDistributedTest {
     }
 
     /**
-     * Verifies that {@link TiaBasePlugin#getTiaBuildDir()} falls back to {@code
+     * Verifies that {@link TiaPlugin#getTiaBuildDir()} falls back to {@code
      * <project build dir>/tia} when {@code tia.buildDir} is not configured, matching the
      * pre-existing hardcoded behaviour so nothing breaks for projects that never set the property.
      */
@@ -130,7 +130,7 @@ class TiaBasePluginDistributedTest {
 
     /**
      * Verifies that {@code tia.distributed} round-trips through the extension and is readable via
-     * {@link TiaBasePlugin#getDistributed()}, the master switch the claim protocol branches on -
+     * {@link TiaPlugin#getDistributed()}, the master switch the claim protocol branches on -
      * readable on Maven ({@code isTiaDistributed()}) but for a time absent entirely on Gradle.
      */
     @Test
@@ -163,7 +163,7 @@ class TiaBasePluginDistributedTest {
 
     /**
      * Verifies at the Gradle entry point that {@link
-     * TiaBasePlugin#printDistributedRunPreview} with a distributed grouping
+     * TiaPlugin#printDistributedRunPreview} with a distributed grouping
      * configuration that {@link org.tiatesting.core.distributed.DistributedRunPlanner#balance}
      * rejects (both a fixed group count and a max-group ceiling, the shape a shared parent pom
      * makes easy to produce) does not throw out of what would otherwise be a
@@ -238,7 +238,7 @@ class TiaBasePluginDistributedTest {
 
     /**
      * Verifies the seed-run handling at the Gradle {@code createSelectTestsTask} branch this
-     * class tests indirectly: {@link TiaBasePlugin#printDistributedRunPreview} still
+     * class tests indirectly: {@link TiaPlugin#printDistributedRunPreview} still
      * renders a coherent preview - the seed-run notice, one group, no target verdict - when called
      * with a seed selection ({@link TestSelectorResult#isRunAllTests()} true), the exact selection
      * shape {@code createSelectTestsTask} passes on the "all (no stored mapping for this branch
@@ -283,9 +283,9 @@ class TiaBasePluginDistributedTest {
      * {@code test} task's {@code testClassesDirs} points at a directory holding two compiled test
      * classes, with a two-group distributed shape configured, splits a seed selection ({@link
      * TestSelectorResult#isRunAllTests()} true) into two non-empty groups whose suite names union to
-     * the two classes found on disk - proving {@link TiaBasePlugin#resolveTestClassesDirsCsv()} and
+     * the two classes found on disk - proving {@link TiaPlugin#resolveTestClassesDirsCsv()} and
      * {@link org.tiatesting.core.testrunner.TestClassScanner#scanTestSuiteNames(String)} are
-     * wired into {@link TiaBasePlugin#buildDistributedGroupingIfConfigured} in place of the Stage 1
+     * wired into {@link TiaPlugin#buildDistributedGroupingIfConfigured} in place of the Stage 1
      * placeholder supplier.
      *
      * @param projectDir a temporary directory to root the Gradle project at

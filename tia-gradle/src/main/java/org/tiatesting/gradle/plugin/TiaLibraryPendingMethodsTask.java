@@ -51,7 +51,7 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
     }
 
     /**
-     * Inject the VCS reader factory; called from {@code TiaBasePlugin} at task registration so
+     * Inject the VCS reader factory; called from {@code TiaPlugin} at task registration so
      * the reader is resolved lazily at execution time.
      *
      * @param workspaceIdentitySupplier supplier of this build's {@link WorkspaceIdentity}, which
@@ -63,7 +63,7 @@ public class TiaLibraryPendingMethodsTask extends DefaultTask {
     }
 
     /**
-     * Inject the datastore factory; called from {@code TiaBasePlugin} at task registration so the
+     * Inject the datastore factory; called from {@code TiaPlugin} at task registration so the
      * datastore is built at execution time rather than apply time.
      *
      * @param dataStoreFactory factory mapping a branch name to a constructed {@link DataStore}

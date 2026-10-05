@@ -178,7 +178,7 @@ group's `suites_failed` is right too, because the last round re-ran every suite 
 `Project#afterEvaluate` inside a `configureEach` action ("cannot be executed in the current
 context"), which is where the Tia plugin wired its `tia-dist-complete` finalizer - and applying
 `org.gradle.test-retry`, in either order, put Tia's action in that context. The hook is now
-registered once from the plugin's `apply` (`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizers`)
+registered once from the plugin's `apply` (`TiaTestTaskConfigurer.wireDistCompleteFinalizers`)
 and wires every Tia-applied test task after evaluation.
 
 ---

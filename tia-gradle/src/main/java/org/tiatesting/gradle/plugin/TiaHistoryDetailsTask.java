@@ -49,7 +49,7 @@ public class TiaHistoryDetailsTask extends DefaultTask {
     }
 
     /**
-     * Inject the VCS reader factory; called from {@code TiaBasePlugin.createHistoryDetailsTask} at
+     * Inject the VCS reader factory; called from {@code TiaPlugin.createHistoryDetailsTask} at
      * task registration so the reader is resolved lazily at execution time.
      *
      * @param workspaceIdentitySupplier supplier of this build's {@link WorkspaceIdentity}, which
@@ -61,7 +61,7 @@ public class TiaHistoryDetailsTask extends DefaultTask {
     }
 
     /**
-     * Inject the datastore factory; called from {@code TiaBasePlugin.createHistoryDetailsTask} at
+     * Inject the datastore factory; called from {@code TiaPlugin.createHistoryDetailsTask} at
      * task registration so the datastore (which depends on the consumer's {@code tia { ... }}
      * extension and the run's branch) is built at execution time rather than apply time. The
      * factory takes the branch name and returns a constructed {@link DataStore}.

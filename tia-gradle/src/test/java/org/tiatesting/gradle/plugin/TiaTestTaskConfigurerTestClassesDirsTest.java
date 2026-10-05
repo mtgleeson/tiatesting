@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.gradle.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -8,7 +8,6 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.testrunner.TestJvmSequence;
-import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.io.File;
 
@@ -27,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * independent of how the run was split - which is why the Maven path, which has always forwarded
  * them, was never exposed to this.
  */
-class TiaSpockGitGradlePluginTestClassesDirsTest {
+class TiaTestTaskConfigurerTestClassesDirsTest {
 
     /**
      * The test task's own compiled output directories reach the fork.
@@ -113,9 +112,9 @@ class TiaSpockGitGradlePluginTestClassesDirsTest {
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply("jacoco");
-        project.getPlugins().apply(TiaSpockGitGradlePluginSchemaSuffixTest.TestPlugin.class);
+        project.getPlugins().apply(TiaTestTaskConfigurerSchemaSuffixTest.TestPlugin.class);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 

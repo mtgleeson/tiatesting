@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.gradle.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
@@ -31,13 +31,6 @@ import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
-import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
-import org.tiatesting.gradle.plugin.LibraryJarResolver;
-import org.tiatesting.gradle.plugin.TiaBasePlugin;
-import org.tiatesting.gradle.plugin.TiaRuntimeFlags;
-import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
-import org.tiatesting.gradle.plugin.TiaSchemaResolver;
-import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -47,19 +40,40 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Set;
+import java.util.function.Supplier;
 
-public class TiaSpockGitGradlePluginTestExtension {
-    private static final Logger LOGGER = Logging.getLogger(TiaSpockGitGradlePluginTestExtension.class);
+/**
+ * Wires Tia into a project's Gradle {@link Test} tasks: adds the task-level {@code tia { }}
+ * extension and the task action that, before the test JVM forks, resolves the branch and commit,
+ * then either runs the test selection or claims a distributed run's group, and forwards what the
+ * fork needs. Framework-agnostic; the framework-specific hand-off goes through a
+ * {@link TestFrameworkAdapter}.
+ */
+public class TiaTestTaskConfigurer {
+    private static final Logger LOGGER = Logging.getLogger(TiaTestTaskConfigurer.class);
 
-    public TiaSpockGitGradlePluginTestExtension(){
+    private final Supplier<TestFrameworkAdapter> frameworkAdapter;
+
+    /**
+     * @param frameworkAdapter supplies the project's test framework adapter when a test task runs;
+     *                         a supplier because the plugin detects the framework after the
+     *                         project is evaluated, which is after this configurer is attached
+     */
+    public TiaTestTaskConfigurer(final Supplier<TestFrameworkAdapter> frameworkAdapter){
+        this.frameworkAdapter = frameworkAdapter;
     }
 
+    /**
+     * Attach the task-level {@code tia { }} extension and Tia's task action to a test task.
+     *
+     * @param task the test task
+     * @param <T> the test task type
+     */
     public <T extends Test & JavaForkOptions> void applyTo(final T task) {
         String taskName = task.getName();
         LOGGER.debug("Applying Tia to " + taskName);
         TiaBaseTaskExtension tiaProjectExtension = task.getProject().getExtensions().findByType(TiaBaseTaskExtension.class);
         TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
-        JacocoTaskExtension jacocoTaskExtension = task.getExtensions().findByType(JacocoTaskExtension.class);
 
         // The tia-dist-complete finalizer is not wired here: this method runs as a configureEach
         // action, where Gradle disallows Project#afterEvaluate. It is wired once per project by
@@ -199,6 +213,16 @@ public class TiaSpockGitGradlePluginTestExtension {
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
+                        // Looked up here, not when the action was attached: the plugin applies the
+                        // jacoco plugin after the project is evaluated, once it knows a test task
+                        // updates the mapping.
+                        JacocoTaskExtension jacocoTaskExtension = testTask.getExtensions()
+                                .findByType(JacocoTaskExtension.class);
+                        if (jacocoTaskExtension == null) {
+                            throw new GradleException("Tia updates the mapping for test task '"
+                                    + testTask.getPath() + "' but the jacoco plugin is not applied to "
+                                    + "its project. Apply the 'jacoco' plugin.");
+                        }
                         LOGGER.debug("Enabling Jacoco in TCP server mode");
                         jacocoTaskExtension.setEnabled(true);
                         jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
@@ -386,7 +410,7 @@ public class TiaSpockGitGradlePluginTestExtension {
      * and {@code distributed} - are resolved here, with {@link #populateTestTaskExtension}'s same
      * "task extension wins, project extension is the fallback" rule.
      *
-     * <p>Resolves the {@link TiaBasePlugin} applied to this project the same way {@link
+     * <p>Resolves the {@link TiaPlugin} applied to this project the same way {@link
      * #claimDistributedRun} does, via {@code withType} rather than {@code findPlugin}. Finding none
      * is not escalated here: with no plugin applied, {@link #claimDistributedRun} will already fail
      * this build with a clear error the first time the test task's {@code doFirst} action actually
@@ -417,13 +441,13 @@ public class TiaSpockGitGradlePluginTestExtension {
             return;
         }
 
-        TiaBasePlugin plugin = testTask.getProject().getPlugins().withType(TiaBasePlugin.class)
+        TiaPlugin plugin = testTask.getProject().getPlugins().withType(TiaPlugin.class)
                 .stream().findFirst().orElse(null);
         if (plugin == null) {
             return;
         }
 
-        if (testTask.getProject().getTasks().getNames().contains(TiaBasePlugin.DIST_COMPLETE_TASK_NAME)) {
+        if (testTask.getProject().getTasks().getNames().contains(TiaPlugin.DIST_COMPLETE_TASK_NAME)) {
             // A second distributed test task in the same build. Registering the finalizer again
             // would fail with Gradle's own "a task with that name already exists" message, which
             // says nothing about why two distributed test tasks cannot work - the same reason
@@ -563,10 +587,10 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     private void selectTestsAndHandOff(final Test testTask, final TiaBaseTaskExtension tiaTaskExtension,
                                        final WorkspaceIdentity workspaceIdentity,
                                        final LibraryJarResolver resolver, final SelectionMode selectionMode) {
-        TiaBasePlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(testTask);
         if (plugin == null) {
             throw new IllegalStateException("Tia test selection requires the Tia Gradle plugin (a "
-                    + TiaBasePlugin.class.getName() + ") to be applied to project '"
+                    + TiaPlugin.class.getName() + ") to be applied to project '"
                     + testTask.getProject().getPath() + "'.");
         }
 
@@ -578,9 +602,9 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             checkLocalChanges = false;
         }
 
-        LibraryImpactAnalysisConfig libraryConfig = TiaBasePlugin.buildLibraryImpactAnalysisConfig(
+        LibraryImpactAnalysisConfig libraryConfig = TiaPlugin.buildLibraryImpactAnalysisConfig(
                 tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir(), resolver);
-        StaticTestSelectionConfig staticConfig = TiaBasePlugin.buildStaticTestSelectionConfig(
+        StaticTestSelectionConfig staticConfig = TiaPlugin.buildStaticTestSelectionConfig(
                 tiaTaskExtension.getStaticTestSelectionRules());
 
         TestSelectorResult result;
@@ -594,16 +618,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
 
         SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(), result.getTestsToIgnore(),
                 result.getTestsToRun(), result.getLibraryImpactDrainResult(), result.getSelectionDetails());
-        testTask.systemProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE,
-                handoff.getIgnoredTestsFile().getAbsolutePath());
-        testTask.systemProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE,
-                handoff.getSelectedTestsFile().getAbsolutePath());
-        testTask.systemProperty(SelectionHandoff.PROP_SELECTION_DETAILS_FILE,
-                handoff.getSelectionDetailsFile().getAbsolutePath());
-        if (handoff.getDrainResultFile() != null) {
-            testTask.systemProperty(SelectionHandoff.PROP_DRAIN_RESULT_FILE,
-                    handoff.getDrainResultFile().getAbsolutePath());
-        }
+        frameworkAdapter.get().handOffSelection(testTask, handoff);
         if (result.isRunAllTests()) {
             // A seed or forced run carries an empty run list meaning "run everything".
             LOGGER.info("Tia runs every test suite for test task '{}' (selection mode {}).",
@@ -643,7 +658,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      */
     private WorkspaceIdentity workspaceIdentity(final Test testTask,
                                                 final TiaBaseTaskExtension tiaTaskExtension) {
-        TiaBasePlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(testTask);
         return WorkspaceIdentity.resolving(tiaTaskExtension.getBranch(),
                 tiaTaskExtension.getCommitValue(),
                 plugin == null ? () -> null : plugin::getVCSReader);
@@ -653,16 +668,14 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * Find the Tia plugin applied to this test task's project.
      *
      * <p>{@code withType}, not {@code findPlugin}: {@code findPlugin(Class)} only matches a plugin's
-     * exact registered class and would never find the concrete {@code TiaSpockGitGradlePlugin}
-     * instance this project actually has applied, since it is a {@link TiaBasePlugin} subclass
-     * rather than a {@code TiaBasePlugin} itself. {@code withType} does assignability-based matching
-     * and finds it correctly.
+     * exact registered class, so it would miss a {@link TiaPlugin} subclass (as the tests apply).
+     * {@code withType} does assignability-based matching and finds either.
      *
      * @param testTask the test task whose project to search
      * @return the applied Tia plugin, or null when the project has none
      */
-    private TiaBasePlugin findTiaPlugin(final Test testTask) {
-        return testTask.getProject().getPlugins().withType(TiaBasePlugin.class)
+    private TiaPlugin findTiaPlugin(final Test testTask) {
+        return testTask.getProject().getPlugins().withType(TiaPlugin.class)
                 .stream().findFirst().orElse(null);
     }
 
@@ -718,12 +731,11 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * to read back. Claiming here fixes both: one claim per test task, and a result the daemon
      * itself can see.
      *
-     * <p>Resolves the {@link TiaBasePlugin} applied to this project for its datastore and VCS
+     * <p>Resolves the {@link TiaPlugin} applied to this project for its datastore and VCS
      * reader, since neither is available from the task extension alone. Looked up via {@link
      * org.gradle.api.plugins.PluginCollection#withType(Class)}, not {@code
      * PluginContainer#findPlugin(Class)}: {@code findPlugin} matches a plugin's exact registered
-     * class, never a supertype, so it can never find the concrete {@code TiaSpockGitGradlePlugin}
-     * (or any other {@link TiaBasePlugin} subclass) a real project actually has applied - only
+     * class, never a supertype, so it would miss a {@link TiaPlugin} subclass - only
      * {@code withType} does assignability-based matching.
      *
      * <p>Then enforces {@link DistributedRunPreconditions#check} with this build's real reactor
@@ -790,10 +802,10 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             return null;
         }
 
-        TiaBasePlugin plugin = findTiaPlugin(testTask);
+        TiaPlugin plugin = findTiaPlugin(testTask);
         if (plugin == null) {
             throw new IllegalStateException("Tia distributed test runs require the Tia Gradle "
-                    + "plugin (a " + TiaBasePlugin.class.getName() + ") to be applied to project '"
+                    + "plugin (a " + TiaPlugin.class.getName() + ") to be applied to project '"
                     + testTask.getProject().getPath() + "' - the claim needs its datastore and VCS "
                     + "reader, and none was found.");
         }
@@ -884,7 +896,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     private void refuseCollidingSchemas(final Test currentTask,
                                         final TiaBaseTaskExtension tiaProjectExtension,
                                         final WorkspaceIdentity workspaceIdentity) {
-        TiaBasePlugin plugin = findTiaPlugin(currentTask);
+        TiaPlugin plugin = findTiaPlugin(currentTask);
         if (plugin == null) {
             // Nothing to check against without a VCS reader to resolve the branch. A project with
             // no Tia plugin applied cannot be writing to a Tia datastore either.

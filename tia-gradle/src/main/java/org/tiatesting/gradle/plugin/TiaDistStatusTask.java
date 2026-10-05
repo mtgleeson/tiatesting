@@ -35,18 +35,18 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
  */
 public class TiaDistStatusTask extends DefaultTask {
 
-    private TiaBasePlugin plugin;
+    private TiaPlugin plugin;
     private String runId;
     private boolean suites;
 
     /**
-     * Inject the owning plugin; called from {@link TiaBasePlugin#createDistStatusTask()} at task
+     * Inject the owning plugin; called from {@link TiaPlugin#createDistStatusTask()} at task
      * registration so the datastore, VCS reader and configured run id are resolved lazily at
      * execution time rather than at plugin-apply time.
      *
-     * @param plugin the {@link TiaBasePlugin} instance that registered this task
+     * @param plugin the {@link TiaPlugin} instance that registered this task
      */
-    public void setPlugin(TiaBasePlugin plugin) {
+    public void setPlugin(TiaPlugin plugin) {
         this.plugin = plugin;
     }
 

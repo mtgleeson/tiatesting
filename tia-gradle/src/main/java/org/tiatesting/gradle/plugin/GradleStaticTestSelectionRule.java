@@ -8,7 +8,7 @@ import java.util.List;
  * {@code staticTestSelectionRules} list inside the {@code tia} extension block.
  *
  * <p>The fields here are the Gradle configuration surface;
- * {@link TiaBasePlugin#buildStaticTestSelectionConfig()} converts these into the core
+ * {@link TiaPlugin#buildStaticTestSelectionConfig()} converts these into the core
  * {@link org.tiatesting.core.staticselection.StaticTestSelectionRule} (compiling regexes and
  * validating mode-specific constraints).
  */
