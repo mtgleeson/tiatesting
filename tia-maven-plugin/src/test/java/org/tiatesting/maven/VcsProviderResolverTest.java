@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Verifies {@link VcsProviderResolver}: the resolution request it builds (coordinates, scope, the
  * {@code tia-core} exclusion), that the provider class loader shares the plugin's types, that a
  * provider is resolved once and then served from the cache, and that a failed resolution names the
- * offline-build fix. {@link RepositorySystem} is stubbed with a dynamic proxy. The loader cache is
+ * fixes: VCS-free runner settings, a plugin dependency, or a prefetch. {@link RepositorySystem} is stubbed with a dynamic proxy. The loader cache is
  * static and keyed by the parent loader, so each test uses its own parent.
  */
 class VcsProviderResolverTest {
@@ -97,7 +97,7 @@ class VcsProviderResolverTest {
     }
 
     @Test
-    void failedResolutionNamesThePluginDependencyFix() {
+    void failedResolutionNamesEveryFix() {
         // given
         RepositorySystem failing = (RepositorySystem) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{RepositorySystem.class}, (proxy, method, args) -> {
@@ -114,8 +114,10 @@ class VcsProviderResolverTest {
                 () -> resolver.classLoaderFor("perforce"));
 
         // then
-        assertTrue(exception.getMessage().contains("org.tiatesting:tia-vcs-perforce:jar:9.9.9"), exception.getMessage());
-        assertTrue(exception.getMessage().contains("dependency of tia-maven-plugin"), exception.getMessage());
+        String message = exception.getMessage();
+        assertTrue(message.contains("tiaBranch and tiaCommitValue"), message);
+        assertTrue(message.contains("dependency of tia-maven-plugin"), message);
+        assertTrue(message.contains("dependency:get -Dartifact=org.tiatesting:tia-vcs-perforce:9.9.9"), message);
     }
 
     /**
