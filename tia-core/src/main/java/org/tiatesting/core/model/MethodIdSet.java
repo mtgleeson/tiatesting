@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.AbstractSet;
 import java.util.Arrays;
 import java.util.Collection;
@@ -32,8 +31,7 @@ import java.util.NoSuchElementException;
  * equality, sum-of-element-hashes — so a {@code MethodIdSet} compares equal to any other
  * {@code Set<Integer>} with the same contents.
  */
-public final class MethodIdSet extends AbstractSet<Integer> implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class MethodIdSet extends AbstractSet<Integer> {
 
     private static final int[] EMPTY = new int[0];
 
@@ -242,7 +240,7 @@ public final class MethodIdSet extends AbstractSet<Integer> implements Serializa
 
     /**
      * Returns the contents as a defensive copy of the internal array trimmed to {@link #size()}.
-     * Mostly useful for tests and serialization-style use cases.
+     * Mostly useful for tests.
      *
      * @return a fresh {@code int[]} of length {@link #size()} containing the set's ids in
      *         ascending order; modifications to the returned array do not affect this set.

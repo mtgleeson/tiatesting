@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
@@ -17,8 +16,7 @@ import java.util.UUID;
  * {@link System#currentTimeMillis()}, which is inherently UTC). The HTML report renders it in
  * the viewer's local time on the client.
  */
-public final class TestRunHistoryEntry implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class TestRunHistoryEntry {
 
     private final String id;
     private final long runTimestampMs;

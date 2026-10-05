@@ -1,12 +1,10 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Supplier;
 
-public class TiaData implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class TiaData {
 
     /**
      * The version of project used to generate the saved class/method impact analysis for the test stuites.
@@ -63,11 +61,10 @@ public class TiaData implements Serializable {
 
     /**
      * When set, supplies the pending-method list on first access via
-     * {@link #getPendingLibraryImpactedMethods()}. Marked {@code transient} because the
-     * supplier typically closes over the {@code DataStore} and is not part of TiaData's
-     * persistable state.
+     * {@link #getPendingLibraryImpactedMethods()}. The supplier typically closes over the
+     * {@code DataStore} and is not part of TiaData's persistable state.
      */
-    private transient Supplier<List<PendingLibraryImpactedMethod>> pendingLibraryImpactedMethodsLoader;
+    private Supplier<List<PendingLibraryImpactedMethod>> pendingLibraryImpactedMethodsLoader;
 
     /**
      * Tracks whether {@link #pendingLibraryImpactedMethods} reflects a real load (eagerly
@@ -75,7 +72,7 @@ public class TiaData implements Serializable {
      * default empty list at construction. {@link #setPendingLibraryImpactedMethodsLoader} flips
      * it to {@code false} so the next getter call triggers the loader exactly once.
      */
-    private transient boolean pendingLibraryImpactedMethodsLoaded = true;
+    private boolean pendingLibraryImpactedMethodsLoaded = true;
 
     /**
      * The publish-ledger rows across all tracked libraries. Lazy for the same reason as the
@@ -87,17 +84,17 @@ public class TiaData implements Serializable {
 
     /**
      * When set, supplies the publish ledger on first access via {@link #getLibraryPublishes()}.
-     * Marked {@code transient} because the supplier typically closes over the
-     * {@code DataStore} and is not part of TiaData's persistable state.
+     * The supplier typically closes over the {@code DataStore} and is not part of TiaData's
+     * persistable state.
      */
-    private transient Supplier<List<LibraryPublish>> libraryPublishesLoader;
+    private Supplier<List<LibraryPublish>> libraryPublishesLoader;
 
     /**
      * Tracks whether {@link #libraryPublishes} reflects a real load. Starts {@code true} for
      * the default empty list; {@link #setLibraryPublishesLoader} flips it to {@code false} so
      * the next getter call triggers the loader exactly once.
      */
-    private transient boolean libraryPublishesLoaded = true;
+    private boolean libraryPublishesLoaded = true;
 
     /**
      * Log of past Tia test runs on the current branch, ordered most-recent-first.
@@ -239,18 +236,17 @@ public class TiaData implements Serializable {
 
     /**
      * When set, supplies the pending forced-selection list on first access via
-     * {@link #getPendingLibraryForcedSelections()}. Marked {@code transient} because the
-     * supplier typically closes over the {@code DataStore} and is not part of TiaData's
-     * persistable state.
+     * {@link #getPendingLibraryForcedSelections()}. The supplier typically closes over the
+     * {@code DataStore} and is not part of TiaData's persistable state.
      */
-    private transient Supplier<List<PendingLibraryForcedSelection>> pendingLibraryForcedSelectionsLoader;
+    private Supplier<List<PendingLibraryForcedSelection>> pendingLibraryForcedSelectionsLoader;
 
     /**
      * Tracks whether {@link #pendingLibraryForcedSelections} reflects a real load. Starts
      * {@code true} for the default empty list; {@link #setPendingLibraryForcedSelectionsLoader}
      * flips it to {@code false} so the next getter call triggers the loader exactly once.
      */
-    private transient boolean pendingLibraryForcedSelectionsLoaded = true;
+    private boolean pendingLibraryForcedSelectionsLoaded = true;
 
     /**
      * Return the pending forced-selection list. On first call after

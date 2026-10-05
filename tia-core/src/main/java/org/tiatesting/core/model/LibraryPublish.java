@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -11,8 +10,7 @@ import java.util.Objects;
  * the artifact the consumer actually holds to its ledger row and drains every pending stamp at or
  * below that row's sequence. See the library publish-time stamping chapter in {@code WIKI.md}.
  */
-public class LibraryPublish implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class LibraryPublish {
 
     /** {@code groupId:artifactId} of the tracked library this publish belongs to. */
     private String groupArtifact;

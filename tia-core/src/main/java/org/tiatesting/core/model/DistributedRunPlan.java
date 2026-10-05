@@ -17,11 +17,6 @@ import java.util.Set;
  *
  * <p>Consistency is validated at construction, because an inconsistent plan is a planner defect
  * and is far cheaper to diagnose there than as a runner claiming a group with no suites.
- *
- * <p>Unlike {@link DistributedRun} and {@link DistributedRunGroup}, this class does not implement
- * {@code Serializable}. It is a transient write bundle assembled in memory for the duration of a
- * single {@code persistDistributedRunPlan} call and is never itself persisted, cached, or sent
- * across a process boundary as an object - only the value objects it carries are.
  */
 public final class DistributedRunPlan {
 
