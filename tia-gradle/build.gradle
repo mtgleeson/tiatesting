@@ -23,9 +23,6 @@ gradlePlugin {
 
 dependencies {
     implementation project(':tia-core')
-    // Interim: the VCS provider is found on the plugin's own class path until it is resolved at
-    // run time into an isolated class loader (the tiaVcs configuration).
-    implementation project(':tia-vcs-git')
     implementation gradleApi()
     implementation 'org.gradle:gradle-tooling-api:8.10'
 
