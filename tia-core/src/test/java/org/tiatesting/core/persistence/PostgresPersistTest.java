@@ -111,7 +111,7 @@ class PostgresPersistTest {
         cleanPostgres();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH, null);
-        postgresStore.getTiaData(true);
+        postgresStore.getTiaData();
         postgresStore.persistTestSuitesFailed(Collections.emptySet(),
                 new HashSet<>(Arrays.asList("SuiteFoo", "SuiteBar")));
 
@@ -136,7 +136,7 @@ class PostgresPersistTest {
         cleanPostgres();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH, null);
-        postgresStore.getTiaData(true);
+        postgresStore.getTiaData();
         postgresStore.persistTestSuites(buildSuites());
 
         // when
@@ -197,7 +197,7 @@ class PostgresPersistTest {
         cleanPostgres();
         postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                 null, BRANCH, null);
-        postgresStore.getTiaData(true); // bootstrap the core schema on first contact
+        postgresStore.getTiaData(); // bootstrap the core schema on first contact
 
         // when a tracked library is persisted twice with a changed field, to hit the tia_library
         // ON CONFLICT (group_artifact) DO UPDATE branch on the second persist

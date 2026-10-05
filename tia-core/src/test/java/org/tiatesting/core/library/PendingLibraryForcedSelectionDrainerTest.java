@@ -40,7 +40,7 @@ class PendingLibraryForcedSelectionDrainerTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         drainer = new PendingLibraryImpactedMethodsDrainer();
     }
 
@@ -282,7 +282,7 @@ class PendingLibraryForcedSelectionDrainerTest {
      * @param suiteNames the suite names to track
      */
     private void setupTrackedSuites(String... suiteNames) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 
@@ -300,7 +300,7 @@ class PendingLibraryForcedSelectionDrainerTest {
      * @param methodId the source method id the suite covers
      */
     private void setupTrackedSuitesWithMethod(String suiteName, int methodId) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 

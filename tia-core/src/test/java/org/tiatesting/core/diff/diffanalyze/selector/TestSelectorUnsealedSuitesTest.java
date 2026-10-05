@@ -57,7 +57,7 @@ class TestSelectorUnsealedSuitesTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -136,7 +136,7 @@ class TestSelectorUnsealedSuitesTest {
      * @param unsealed whether the suite should be left flagged unsealed after seeding
      */
     private void seedTrackedSuite(String suiteName, int methodId, boolean unsealed) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 

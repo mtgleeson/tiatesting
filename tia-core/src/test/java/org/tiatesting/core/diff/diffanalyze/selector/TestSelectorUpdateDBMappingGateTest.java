@@ -77,7 +77,7 @@ class TestSelectorUpdateDBMappingGateTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -224,7 +224,7 @@ class TestSelectorUpdateDBMappingGateTest {
     }
 
     private void seedStoredCommit(String commit) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue(commit);
         tiaData.setLastUpdated(Instant.now());
         Map<String, TestSuiteTracker> testSuites = new HashMap<>();
@@ -251,7 +251,7 @@ class TestSelectorUpdateDBMappingGateTest {
      * @param testSuiteName the test suite name to register as tracked with that coverage
      */
     private void seedStoredCommitWithTestMapping(String commit, int methodId, String testSuiteName) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue(commit);
         tiaData.setLastUpdated(Instant.now());
 
@@ -372,7 +372,7 @@ class TestSelectorUpdateDBMappingGateTest {
             this.delegate = delegate;
         }
 
-        @Override public TiaData getTiaData(boolean readFromDisk) { return delegate.getTiaData(readFromDisk); }
+        @Override public TiaData getTiaData() { return delegate.getTiaData(); }
         @Override public TiaData getTiaCore() { return delegate.getTiaCore(); }
         @Override public Map<String, TestSuiteTracker> getTestSuitesTracked() { return delegate.getTestSuitesTracked(); }
         @Override public Map<String, List<ClassImpactTracker>> readTestSuiteCoverage(Set<String> suiteNames) { return delegate.readTestSuiteCoverage(suiteNames); }

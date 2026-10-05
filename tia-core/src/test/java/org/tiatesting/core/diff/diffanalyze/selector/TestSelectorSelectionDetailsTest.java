@@ -59,7 +59,7 @@ class TestSelectorSelectionDetailsTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -136,7 +136,7 @@ class TestSelectorSelectionDetailsTest {
      * covered by two suites, so the method-trigger's covering-suite count is 2.
      */
     private void seedMapping() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed-commit");
         tiaData.setLastUpdated(Instant.now());
 

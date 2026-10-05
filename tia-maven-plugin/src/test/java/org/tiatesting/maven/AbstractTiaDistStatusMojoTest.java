@@ -62,7 +62,7 @@ class AbstractTiaDistStatusMojoTest {
         dbDir = new File(tempDir, "db");
         dbDir.mkdirs();
         try (DataStore dataStore = openStore()) {
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
         }
     }
 

@@ -68,7 +68,7 @@ class AbstractTiaDistCompleteMojoDistributedTest {
         dbDir.mkdirs();
         buildDir.mkdirs();
         try (DataStore dataStore = openStore()) {
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
         }
     }
 

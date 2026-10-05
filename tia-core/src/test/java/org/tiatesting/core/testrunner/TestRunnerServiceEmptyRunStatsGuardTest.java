@@ -55,10 +55,10 @@ class TestRunnerServiceEmptyRunStatsGuardTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         service = new TestRunnerService(dataStore);
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("initial");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
@@ -80,7 +80,7 @@ class TestRunnerServiceEmptyRunStatsGuardTest {
      * credited or withheld.
      */
     private void establishBaseline() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.getTestStats().setAllTestsRunTime(BASELINE_MS);
         dataStore.persistCoreData(tiaData);
     }

@@ -42,7 +42,7 @@ class StatusReportUnsealedTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true); // force schema creation
+        dataStore.getTiaData(); // force schema creation
     }
 
     @AfterEach
@@ -65,7 +65,7 @@ class StatusReportUnsealedTest {
      * @param suiteNames the test suite names to register as tracked and leave flagged unsealed
      */
     private void seedUnsealedSuites(String... suiteNames) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 
@@ -107,7 +107,7 @@ class StatusReportUnsealedTest {
     @Test
     void statusReportOmitsUnsealedLineWhenNothingIsUnsealed() {
         // given - no suites tracked at all, so nothing can be flagged unsealed
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);

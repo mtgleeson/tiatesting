@@ -45,9 +45,9 @@ class LibraryImpactEndToEndTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("initial");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
@@ -290,7 +290,7 @@ class LibraryImpactEndToEndTest {
      * @param methodIds the tracked method ids to seed
      */
     private void setupTestMappingWithMethods(int... methodIds) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 

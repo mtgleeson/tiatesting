@@ -45,7 +45,7 @@ class JdbcDataStoreBatchedPersistTest {
         tempDir.mkdirs();
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -89,7 +89,7 @@ class JdbcDataStoreBatchedPersistTest {
 
         // when
         dataStore.persistTestSuites(suites);
-        TiaData loaded = dataStore.getTiaData(true);
+        TiaData loaded = dataStore.getTiaData();
 
         // then - the suite's two tracked classes and their method ids are read back
         TestSuiteTracker round = loaded.getTestSuitesTracked().get("com.example.FooTest");
@@ -152,7 +152,7 @@ class JdbcDataStoreBatchedPersistTest {
         dataStore.persistTestSuites(update);
 
         // then - ATest now maps A2.java(4); BTest still maps B.java(3)
-        TiaData loaded = dataStore.getTiaData(true);
+        TiaData loaded = dataStore.getTiaData();
         TestSuiteTracker a = loaded.getTestSuitesTracked().get("com.example.ATest");
         assertEquals(1, a.getClassesImpacted().size());
         assertEquals("com/example/A2.java", a.getClassesImpacted().get(0).getSourceFilename());
@@ -174,7 +174,7 @@ class JdbcDataStoreBatchedPersistTest {
 
         // when
         dataStore.persistTestSuites(suites);
-        TiaData loaded = dataStore.getTiaData(true);
+        TiaData loaded = dataStore.getTiaData();
 
         // then - all 1200 classes and 1200 edges round-trip across the chunk boundary
         TestSuiteTracker round = loaded.getTestSuitesTracked().get("com.example.BigTest");

@@ -83,7 +83,7 @@ class SummaryReportStatsTest {
         // given
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(
                 H2ConnectionSettings.embedded(tempDir.toString())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         dataStore.persistCoreData(coreData());
         history().forEach(dataStore::persistTestRunHistoryEntry);
 
