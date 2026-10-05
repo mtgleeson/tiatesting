@@ -196,7 +196,7 @@ For the **Maven** side on Windows the same `gpg` install serves - but note the p
 The repo ships IntelliJ run configurations under `.idea/runConfigurations/` so a release is one click rather than a sequence of remembered commands. The orchestrator is **`Deploy all Tia modules`**: it is a Maven `deploy` configuration (run with the `release` profile active) whose before-launch task chain runs, in order:
 
 1. `Gradle: publishToCentral -Prelease` — builds, signs (in-memory key), bundles, and uploads every Gradle module. This task cleans each subproject first (see below), so there is no separate clean step in the chain.
-2. The five Maven `deploy` configs (`Maven deploy: tia-maven-plugin` and the four wrapper plugins), each with the `release` profile active so `gpg.skip` flips to `false` and the artifacts get signed and pushed through the `central-publishing-maven-plugin`.
+2. The three Maven `deploy` configs (`Maven deploy: tia-maven-plugin` and the two wrapper plugins), each with the `release` profile active so `gpg.skip` flips to `false` and the artifacts get signed and pushed through the `central-publishing-maven-plugin`.
 
 So both build tools' release paths run from a single invocation. There are matching `Maven install: *` and `Install all Tia modules` configs for the non-publishing local-install equivalent. These configs only encode *which tasks run with which flags*; they still rely on the per-tool credentials from the sections above (the Gradle properties in `~/.gradle/gradle.properties` and the Maven `settings.xml` `central` server plus `ossrh` gpg profile), so a fresh machine must complete that setup before the one-click deploy works. Note the Maven passphrase is entered interactively during the run unless you stored `gpg.passphrase`.
 

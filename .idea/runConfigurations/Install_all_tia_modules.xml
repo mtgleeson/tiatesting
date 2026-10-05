@@ -25,8 +25,6 @@
     <method v="2">
       <option name="RunConfigurationTask" enabled="true" run_configuration_name="Gradle: publishToMavenLocal" run_configuration_type="GradleRunConfiguration" />
       <option name="RunConfigurationTask" enabled="true" run_configuration_name="Maven install: tia-maven-plugin" run_configuration_type="MavenRunConfiguration" />
-      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Maven install: tia-junit4-git-maven-plugin" run_configuration_type="MavenRunConfiguration" />
-      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Maven install: tia-junit4-perforce-maven-plugin" run_configuration_type="MavenRunConfiguration" />
       <option name="RunConfigurationTask" enabled="true" run_configuration_name="Maven install: tia-junit5-git-maven-plugin" run_configuration_type="MavenRunConfiguration" />
     </method>
   </configuration>

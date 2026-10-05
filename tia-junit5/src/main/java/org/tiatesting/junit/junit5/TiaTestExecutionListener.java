@@ -42,8 +42,7 @@ import java.util.stream.Stream;
 
 /**
  * Notes:
- * 1. unlike Junit4 where the same instance of RunListener is used for failed re-runs,
- * each re-run in Junit5 creates a new instance of this class - true up to Surefire 3.5.3, where each re-run
+ * 1. each re-run in Junit5 creates a new instance of this class - true up to Surefire 3.5.3, where each re-run
  * opens a new launcher session. The listener does not rely on it: state that must span re-runs lives in
  * {@link SharedTestRunData}, and per-attempt state is cleared when each test plan starts.
  * <p>
@@ -106,7 +105,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     ran, not the cumulative count carried across retries by the shared testSuiteTrackers map.
      */
     private final Set<String> suitesFinishedThisAttempt = ConcurrentHashMap.newKeySet();
-    private final boolean enabled; // is the Tia Junit4Listener enabled for updating the DB?
+    private final boolean enabled; // is the Tia listener enabled for updating the DB?
     private final boolean updateDBMapping;
     private final boolean updateDBTestRunHistory;
     private long testRunStartTime;
