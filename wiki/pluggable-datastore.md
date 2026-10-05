@@ -123,7 +123,7 @@ step, because Tia's own code runs on **two separate classpaths** for a single te
    project itself declares as a (test-scope) dependency - it has no visibility into the Maven or
    Gradle plugin's own classpath.
 2. **The build-tool JVM.** `AbstractTiaMojo.buildDataStore` (Maven) and
-   `TiaBasePlugin.buildDataStore` (Gradle) call `DataStoreFactory.fromConfig(...)` from inside the
+   `TiaPlugin.buildDataStore` (Gradle) call `DataStoreFactory.fromConfig(...)` from inside the
    build tool's own process - the JVM running `mvn` or the Gradle daemon. This is where
    `select-tests`, the HTML/text reports, `reconcile`, and the library tasks (`libraries`,
    `library-publishes`, `library-pending-methods`) all run. Its classpath is the Tia plugin's own

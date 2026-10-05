@@ -1,0 +1,137 @@
+package org.tiatesting.maven;
+
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.tiatesting.core.model.SelectionMode;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.project.MavenProject;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedRunConfig;
+import org.tiatesting.core.distributed.DistributedRunPlanSummary;
+import org.tiatesting.core.distributed.DistributedRunPlanWriter;
+import org.tiatesting.core.distributed.DistributedRunPlanner;
+import org.tiatesting.core.distributed.DistributedRunPreconditions;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.TestClassScanner;
+import org.tiatesting.core.util.StringUtil;
+import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Supplier;
+
+/**
+ * Mojo that plans a distributed test run: it runs the same test selection a normal build would,
+ * then splits the selected suites into groups persisted to the shared database, so the CI
+ * pipeline can fan out one job per group and every runner can later claim a group from the same
+ * source of truth. It does not run any tests itself.
+ *
+ * <p>Wherever {@code DistributedRunPlanner} and its collaborators in {@code tia-core} refer to
+ * "collecting coverage", the value supplied is this mojo's {@link #isTiaUpdateDBMapping()} - the
+ * same flag that controls whether a normal, non-distributed run would update the stored mapping.
+ * The plan must weight suites the same way the real distributed run will pay for them, so this
+ * mojo passes that flag straight through rather than introducing a second name for the same
+ * concept.
+ *
+ * <p>The selection this goal runs is a real one, so it performs the library-impact drain - deleting
+ * pending rows and advancing sequences - before the plan is built. That drain cannot be repeated,
+ * and repeating it per-runner would race, so its outcome must outlive this process. It does: the
+ * {@link TestSelectorResult} handed to {@code DistributedRunPlanner#plan} carries the drain result,
+ * and the planner stores it on the persisted run row. Nothing extra is passed alongside the
+ * selection deliberately, since a second copy of the same value could disagree with it.
+ *
+ * <p>The goal's sequence is: validate the distributed-run preconditions and configuration; open
+ * the datastore and run the selection exactly as {@link SelectTestsMojo} does, but with
+ * {@code updateDBMapping} set to the real run's {@link #isTiaUpdateDBMapping()} rather than always
+ * {@code false}; hand the selection to {@code DistributedRunPlanner#plan} to balance and persist
+ * the plan; print the resulting summary to the console; and write it to {@code
+ * <tiaBuildDir>/tia-run-plan.json} via {@link DistributedRunPlanWriter}.
+ */
+@Mojo(name = "dist-plan", defaultPhase = LifecyclePhase.NONE)
+public class TiaDistPlanMojo extends AbstractTiaMojo {
+
+    @Override
+    public void execute() throws MojoExecutionException, MojoFailureException {
+        System.out.println("Planning a distributed Tia test run:");
+
+        List<MavenProject> reactorProjects = getReactorProjects();
+        DistributedRunConfig config;
+        SelectionMode selectionMode = getSelectionMode();
+        try {
+            DistributedRunPreconditions.check(isTiaEnabled(), reactorProjects.size(), getTiaDBUrl(),
+                    getTiaDBDialect(), isTiaCheckLocalChanges(), isTiaUpdateDBMapping());
+            // The plan step decides the mode for the whole build: the runners take it from the
+            // run row, and the sealer re-seeds from it.
+            selectionMode.requireMappingOwner(isTiaUpdateDBMapping());
+            config = DistributedRunConfig.validated(getTiaRunId(), getTiaDistributedGroupCount(),
+                    getTiaDistributedTargetRunTime(), getTiaDistributedMaxGroups(),
+                    getTiaDistributedRunnerKey(), getTiaRunSource());
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            throw new MojoExecutionException("Distributed run configuration is invalid: "
+                    + withReactorProjectNamesIfRelevant(e.getMessage(), reactorProjects), e);
+        }
+
+        // The plan's branch and commit go through the same resolution the runners use, so a
+        // configured tiaBranch writes the plan to the schema those runners will claim from. A plan
+        // written to the branch the VCS happened to report while its runners claim from a schema
+        // tiaBranch named would leave every runner unable to find it.
+        DistributedRunPlanSummary summary;
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+             DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
+            VCSReader vcsReader = workspaceIdentity.openVCSReader();
+            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null
+                    ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(sourceFilesDirs);
+            List<String> testFilesDirs = getTiaTestFilesDirs() != null
+                    ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
+            StringUtil.sanitizeInputArray(testFilesDirs);
+
+            TestSelector testSelector = new TestSelector(dataStore);
+            LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+            StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+            // The raw isTiaCheckLocalChanges() drives selection here. It can legitimately be true:
+            // DistributedRunPreconditions.check above rejects it only when tiaUpdateDBMapping is
+            // also on, so whenever this point is reached with local-change checking enabled the run
+            // is not updating the mapping and selecting against the local workspace is exactly what
+            // was asked for. When tiaUpdateDBMapping is on it has already been guaranteed false.
+            TestSelectorResult selection = testSelector.selectTestsToIgnore(vcsReader, sourceFilesDirs,
+                    testFilesDirs, isTiaCheckLocalChanges(), libraryConfig, staticMappingConfig,
+                    isTiaUpdateDBMapping(), selectionMode);
+
+            DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);
+            try {
+                // The disk-suite provider is only invoked for a full run - a seed (no stored mapping
+                // yet) or a forced run; it reads the compiled test classes off disk so the run can
+                // be spread across groups and new suites are included. Maven's test output directory
+                // is the same one the agent mojo forwards to the fork as tiaTestClassesDirs.
+                Supplier<Set<String>> seedTestSuiteProvider = () -> TestClassScanner
+                        .scanTestSuiteNames(getProject().getBuild().getTestOutputDirectory());
+                summary = planner.plan(selection, workspaceIdentity.getBranch(),
+                        workspaceIdentity.getCommitValue(), isTiaUpdateDBMapping(),
+                        isTiaUpdateDBTestRunHistory(), System.currentTimeMillis(),
+                        seedTestSuiteProvider);
+            } catch (IllegalStateException e) {
+                throw new MojoExecutionException("Failed to plan the distributed test run: " + e.getMessage(), e);
+            }
+        }
+
+        System.out.println(summary.toConsoleSummary());
+
+        try {
+            Path written = DistributedRunPlanWriter.write(getTiaBuildDir(), summary.toJson());
+            System.out.println("Wrote the distributed run plan to " + written);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to write the distributed run plan under "
+                    + getTiaBuildDir() + " - the run was still persisted to the database, but the "
+                    + "pipeline has no file to read the group count from: " + e.getMessage(), e);
+        }
+    }
+}

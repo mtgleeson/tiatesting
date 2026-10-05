@@ -3,6 +3,7 @@ package org.tiatesting.maven;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
@@ -13,6 +14,7 @@ import org.apache.maven.settings.building.SettingsProblem;
 import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
+import org.eclipse.aether.RepositorySystem;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.model.SelectionMode;
@@ -22,7 +24,11 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.VCSReaderFactory;
+import org.tiatesting.core.vcs.VcsDetector;
+import org.tiatesting.core.vcs.VcsSettings;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.util.ArrayList;
@@ -30,6 +36,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -37,7 +44,7 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      * Name of the fork properties file written under {@link #getTiaBuildDir()}, carrying the
      * system properties the forked test JVM needs plus the distributed-run handoff (resolved
      * runner key, claimed group number). Shared here, rather than declared separately by the
-     * writer and the reader, so {@link AbstractTiaAgentMojo#writeForkPropertiesFile} and the
+     * writer and the reader, so {@link AgentMojo#writeForkPropertiesFile} and the
      * {@code dist-complete} goal that reads it back can never drift apart on the filename.
      */
     static final String FORK_PROPERTIES_FILENAME = "fork.properties";
@@ -269,7 +276,16 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     boolean tiaReseed;
 
     /**
-     * Specifies the server URI of the VCS system.
+     * The version control system to read changes from: {@code git} or {@code perforce}. Optional:
+     * when unset, a configured {@code tiaVcsServerUri} means Perforce, and a {@code .git} entry in
+     * the project directory or a parent means Git.
+     */
+    @Parameter(property = "tiaVcs")
+    String tiaVcs;
+
+    /**
+     * Specifies the server URI of the VCS system. Setting it selects Perforce when {@code tiaVcs}
+     * is not set.
      */
     @Parameter(property = "tiaVcsServerUri")
     String tiaVcsServerUri;
@@ -406,6 +422,18 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      */
     @Parameter(defaultValue = "${session}", readonly = true)
     protected MavenSession session;
+
+    /**
+     * Maven's resolver, used to resolve the VCS provider module at run time.
+     */
+    @Component
+    protected RepositorySystem repositorySystem;
+
+    /**
+     * This plugin's descriptor; its version is the version the VCS provider module is resolved at.
+     */
+    @Parameter(defaultValue = "${plugin}", readonly = true)
+    protected PluginDescriptor pluginDescriptor;
 
     public MavenProject getProject(){
         return project;
@@ -828,6 +856,13 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaDistributedRunnerKey;
     }
 
+    /**
+     * @return the configured VCS name, or {@code null} to detect it
+     */
+    public String getTiaVcs() {
+        return tiaVcs;
+    }
+
     public String getTiaVcsServerUri() {
         return tiaVcsServerUri;
     }
@@ -865,7 +900,71 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         return tiaCommitValue;
     }
 
-    public abstract VCSReader getVCSReader();
+    /**
+     * Construct a reader for the project's version control system. A VCS provider declared as a
+     * dependency of this plugin is used directly (the offline-build path). Otherwise the VCS is
+     * detected from the configuration and the project directory, and only that VCS's provider
+     * module is resolved and loaded in an isolated class loader, so the plugin never pulls in a
+     * VCS library the project does not use.
+     *
+     * <p>Callers should go through {@link #workspaceIdentity()} rather than calling this directly.
+     *
+     * @return a new reader; the caller must close it
+     * @throws org.tiatesting.core.vcs.VCSAnalyzerException if the VCS cannot be detected or its
+     *         provider cannot be resolved
+     */
+    public VCSReader getVCSReader() {
+        VcsSettings settings = buildVcsSettings();
+        Optional<VCSReader> declared = VCSReaderFactory.create(settings, pluginClassLoader());
+        if (declared.isPresent()) {
+            return declared.get();
+        }
+
+        String vcsName = VcsDetector.detect(settings);
+        return VCSReaderFactory.create(settings, vcsProviderClassLoader(vcsName))
+                .orElseThrow(() -> new VCSAnalyzerException("The resolved "
+                        + VCSReaderFactory.providerArtifactId(vcsName) + " module registers no VCS provider."));
+    }
+
+    /**
+     * Build the VCS settings from this mojo's parameters.
+     *
+     * @return the VCS settings
+     */
+    VcsSettings buildVcsSettings() {
+        return VcsSettings.builder()
+                .projectDir(getTiaProjectDir())
+                .enabled(isTiaEnabled())
+                .vcsName(getTiaVcs())
+                .serverUri(getTiaVcsServerUri())
+                .userName(getTiaVcsUserName())
+                .password(getTiaVcsPassword())
+                .clientName(getTiaVcsClientName())
+                .build();
+    }
+
+    /**
+     * The class loader holding this plugin and the dependencies the user declared on it, searched
+     * first for a VCS provider. Overridable for tests.
+     *
+     * @return the plugin's class loader
+     */
+    protected ClassLoader pluginClassLoader() {
+        return AbstractTiaMojo.class.getClassLoader();
+    }
+
+    /**
+     * Resolve the provider module for the VCS and return an isolated class loader holding it.
+     * Overridable for tests.
+     *
+     * @param vcsName the detected or configured VCS name
+     * @return a class loader on which the provider is registered
+     */
+    protected ClassLoader vcsProviderClassLoader(final String vcsName) {
+        return new VcsProviderResolver(repositorySystem, session.getRepositorySession(),
+                getProject().getRemotePluginRepositories(), pluginDescriptor.getVersion(), pluginClassLoader())
+                .classLoaderFor(vcsName);
+    }
 
     /**
      * Resolve this build's branch and commit, from the configured overrides where they are set and

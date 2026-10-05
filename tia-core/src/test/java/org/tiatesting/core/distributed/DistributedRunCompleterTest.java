@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Cover {@link DistributedRunCompleter#completeAndSeal}, the sequence that replaced the JVM shutdown
  * hook this project used to release the distributed barrier from. Every completion here is driven by
- * an explicit call, the way {@code AbstractTiaDistCompleteMojo} and {@code TiaDistCompleteTask} now
+ * an explicit call, the way {@code TiaDistCompleteMojo} and {@code TiaDistCompleteTask} now
  * make it, rather than by simulating a JVM exit - a test cannot exit the JVM it runs in, and there is
  * no longer any pending state for it to simulate exiting into.
  *

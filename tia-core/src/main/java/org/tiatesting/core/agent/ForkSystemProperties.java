@@ -35,8 +35,8 @@ public final class ForkSystemProperties {
 
     /**
      * Property name, in the fork properties file, for whether this run updates the mapping DB.
-     * The single source of truth for this name: {@code AbstractTiaAgentMojo} writes it and
-     * {@code AbstractTiaDistCompleteMojo} reads it, and both must agree on the literal or the
+     * The single source of truth for this name: {@code AgentMojo} writes it and
+     * {@code TiaDistCompleteMojo} reads it, and both must agree on the literal or the
      * read side silently sees {@code false} regardless of what the write side wrote.
      */
     public static final String PROP_UPDATE_DB_MAPPING = "tiaUpdateDBMapping";
@@ -60,9 +60,8 @@ public final class ForkSystemProperties {
     public static final String PROP_TEST_CLASSES_DIRS = "tiaTestClassesDirs";
 
     /**
-     * Property name for the {@code tiaSelectAllTests} flag forwarded to a Gradle test JVM, where the
-     * Spock extension runs the selection. See the "Forced runs and re-seed" chapter in
-     * {@code WIKI.md}.
+     * Property name for the {@code tiaSelectAllTests} flag, as the Gradle plugin reads it from a
+     * {@code -P} project property. See the "Forced runs and re-seed" chapter in {@code WIKI.md}.
      */
     public static final String PROP_SELECT_ALL_TESTS = "tiaSelectAllTests";
 

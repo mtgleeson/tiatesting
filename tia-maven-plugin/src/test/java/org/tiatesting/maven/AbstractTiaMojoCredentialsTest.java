@@ -295,11 +295,11 @@ class AbstractTiaMojoCredentialsTest {
     }
 
     /**
-     * Concrete agent mojo for the test, supplying only the members the real wrapper plugins supply.
+     * Agent mojo for the test, overriding only the members Maven would otherwise inject.
      * Nothing here reaches the VCS or a datastore: these tests drive the credential resolution and
      * the fork-properties write directly.
      */
-    private static final class TestMojo extends AbstractTiaAgentMojo {
+    private static final class TestMojo extends AgentMojo {
 
         private final MavenProject mavenProject;
 
@@ -334,7 +334,7 @@ class AbstractTiaMojoCredentialsTest {
         }
 
         /**
-         * @return the agent artifact name the wrapper plugin would supply
+         * @return the agent artifact name; the injected plugin artifact map is not populated in tests
          */
         @Override
         public String getAgentArtifactName() {

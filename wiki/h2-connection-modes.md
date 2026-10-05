@@ -14,7 +14,7 @@ Branch isolation is a separate, later step. `DataStoreFactory.fromConfig(dbFileP
 
 The build tools each build their connection settings from their own config surface and converge on the same object:
 - **Maven**: `AbstractTiaMojo.buildDataStore(branch)` resolves connection settings from the `tiaDBUrl` / `tiaDBFilePath` parameters via `DataStoreFactory.fromConfig`. The forked test JVM gets the same values from a `fork.properties` file the agent mojo writes and the Tia javaagent replays into system properties at `premain` (see the "How Tia exchanges data with the test runner" chapter) - the user no longer has to mirror them into Surefire `systemPropertyVariables`.
-- **Gradle**: `TiaBasePlugin.buildDataStore(branch)` for the daemon-side tasks; the forked test JVM gets the values forwarded as system properties by `TiaSpockGitGradlePluginTestExtension` (only when set, so the embedded case never sends the literal string `"null"`).
+- **Gradle**: `TiaPlugin.buildDataStore(branch)` for the daemon-side tasks; the forked test JVM gets the values forwarded as system properties by `TiaTestTaskConfigurer` (only when set, so the embedded case never sends the literal string `"null"`).
 
 ### What actually differs between the modes
 

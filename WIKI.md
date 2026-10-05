@@ -13,8 +13,8 @@ wiki can also be read front to back.
   offline-safe `tiaLibraryJarsDirs` mode that resolves `tiaSourceLibs` coverage jars by filename
   inside a deployment `lib/` directory instead of through the source project's dependency graph.
 - [How Tia exchanges data with the test runner (Gradle vs Maven)](wiki/test-runner-data-exchange.md) -
-  why Maven hands state to the forked test JVM via files while Gradle/Spock uses system
-  properties, and when each plugin can compute what.
+  both build tools select in the build JVM and hand the result to the forked test JVM through
+  files; why only the way the fork finds them differs, and why VCS libraries never reach the fork.
 - [Logging conventions (TRACE vs DEBUG)](wiki/logging-conventions.md) - why daemon-side code must
   log at DEBUG and only test-JVM code may use TRACE.
 - [Why Tia requires Maven 3.8.1+](wiki/maven-version-requirement.md) - the CVE-driven floor and
