@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for {@link TiaHistoryDetailsTask} and its registration by {@link TiaBasePlugin}.
+ * Tests for {@link TiaHistoryDetailsTask} and its registration by {@link TiaPlugin}.
  *
  * <p>Runs against a real embedded-H2 datastore rooted in a temp directory, rather than a stubbed
  * one, so the task's own resolution of the datastore and branch is exercised rather than bypassed -
@@ -123,7 +123,7 @@ class TiaHistoryDetailsTaskTest {
     /**
      * Build a {@link TiaHistoryDetailsTask}, injecting a fixed-branch workspace identity supplier
      * (so no VCS reader is needed), a datastore factory rooted at {@code projectDir}, and a
-     * single-schema suffix supplier - matching how {@code TiaBasePlugin.createHistoryDetailsTask}
+     * single-schema suffix supplier - matching how {@code TiaPlugin.createHistoryDetailsTask}
      * wires the real task, minus the plugin's own extension resolution.
      *
      * @param projectDir the temp directory the embedded datastore is rooted in

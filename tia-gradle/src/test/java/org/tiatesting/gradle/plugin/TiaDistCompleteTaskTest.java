@@ -39,10 +39,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for {@link TiaDistCompleteTask}: the daemon-side finalizer that completes a runner's
  * claimed group and, when elected, seals a distributed run. This is the Gradle half of the
- * completion step, mirrored on the Maven side by {@code AbstractTiaDistCompleteMojo}.
+ * completion step, mirrored on the Maven side by {@code TiaDistCompleteMojo}.
  *
  * <p>Driven directly against a real embedded-H2 {@link JdbcDataStore}, the same fixture style
- * {@link org.tiatesting.spock.git.gradle.plugin.TiaSpockGitGradlePluginTestExtensionDistributedTest}
+ * {@link TiaTestTaskConfigurerDistributedTest}
  * uses on the claim side of this same feature: the claim registry is seeded exactly as the daemon's
  * claim action would leave it, so what is under test is the actual database rows the task's action
  * reads and writes, not a mock of the classes it is already known to call.
@@ -54,11 +54,11 @@ class TiaDistCompleteTaskTest {
     private static final String TEST_TASK_PATH = ":test";
 
     /**
-     * Minimal concrete {@link TiaBasePlugin}: a stub VCS reader fixed to {@link #BRANCH}, and a
+     * Minimal concrete {@link TiaPlugin}: a stub VCS reader fixed to {@link #BRANCH}, and a
      * datastore construction pointed at a temp directory rather than any configured connection
      * settings, or - for the datastore-failure test - one that always throws.
      */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         private File dbDir;
         private boolean throwOnBuildDataStore;
         private boolean failSeal;

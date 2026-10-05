@@ -350,7 +350,7 @@ class AbstractTiaMojoServerIdTest {
      * Concrete agent mojo for the test. Nothing here reaches the VCS or a datastore: these tests
      * drive the credential resolution and the fork-properties write directly.
      */
-    private static final class TestMojo extends AbstractTiaAgentMojo {
+    private static final class TestMojo extends AgentMojo {
 
         private final MavenProject mavenProject;
 
@@ -385,7 +385,7 @@ class AbstractTiaMojoServerIdTest {
         }
 
         /**
-         * @return the agent artifact name the wrapper plugin would supply
+         * @return the agent artifact name; the injected plugin artifact map is not populated in tests
          */
         @Override
         public String getAgentArtifactName() {

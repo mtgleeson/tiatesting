@@ -12,7 +12,7 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 /**
  * Gradle task that prints the state of a distributed test run: the run itself, every group in its
  * plan, and the runner that claimed each one. The Gradle equivalent of the Maven {@code dist-status}
- * goal ({@code AbstractTiaDistStatusMojo}), sharing its whole report with it through {@link
+ * goal ({@code TiaDistStatusMojo}), sharing its whole report with it through {@link
  * DistributedRunStatusReport} so the two build tools cannot drift on what a run's state is called.
  *
  * <p>Read-only: it claims, completes, seals and clears nothing, so it is safe to run against a build
@@ -35,18 +35,18 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
  */
 public class TiaDistStatusTask extends DefaultTask {
 
-    private TiaBasePlugin plugin;
+    private TiaPlugin plugin;
     private String runId;
     private boolean suites;
 
     /**
-     * Inject the owning plugin; called from {@link TiaBasePlugin#createDistStatusTask()} at task
+     * Inject the owning plugin; called from {@link TiaPlugin#createDistStatusTask()} at task
      * registration so the datastore, VCS reader and configured run id are resolved lazily at
      * execution time rather than at plugin-apply time.
      *
-     * @param plugin the {@link TiaBasePlugin} instance that registered this task
+     * @param plugin the {@link TiaPlugin} instance that registered this task
      */
-    public void setPlugin(TiaBasePlugin plugin) {
+    public void setPlugin(TiaPlugin plugin) {
         this.plugin = plugin;
     }
 

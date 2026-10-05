@@ -13,6 +13,7 @@ dependencies {
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation 'org.mockito:mockito-core:4.11.0'
     // slf4j-api is compileOnly above, so the listener's logger needs a binding (and the api it
     // binds to) on the test runtime classpath.
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
@@ -29,7 +30,7 @@ publishing {
 
             pom {
                 name = 'Tia JUnit5'
-                description = 'This library contains the base logic for running Tia with JUnit5.'
+                description = 'This library contains the logic for running Tia with JUnit5. Add it as a test dependency; it works with any VCS.'
             }
         }
     }

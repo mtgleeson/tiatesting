@@ -30,7 +30,7 @@ and never backwards.
 
 ### What the plan step does
 
-The plan is written by the Maven `dist-plan` goal (`AbstractTiaDistPlanMojo`) or the Gradle
+The plan is written by the Maven `dist-plan` goal (`TiaDistPlanMojo`) or the Gradle
 `tia-dist-plan` task (`TiaDistPlanTask`). The two are deliberately the same sequence, and share
 every piece of logic that produces a value:
 
@@ -207,7 +207,7 @@ report at all.
 **Caveat: a partially-run seed group can seal as all-tests-run.** The loosened threshold is also
 what a *partial* seed run passes. `dist-complete` is designed to run whether the test step passed
 or failed - the Gradle finalizer runs even when the test task it finalizes fails
-(`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
+(`TiaTestTaskConfigurer.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
 and the Maven completion is documented as an `if: always()` step (see "Maven: the completion must
 be its own always-run step" below). So if a test step runs some but not all of its assigned suites
 and then crashes or is killed (a fork crash, an OOM, `--fail-fast`, a CI timeout), `dist-complete`
@@ -428,13 +428,13 @@ the distributed path rather than the single-host one. How the properties travel,
 suite lists get derived, follows each build tool's existing handoff - see the
 [test-runner data exchange](test-runner-data-exchange.md) chapter:
 
-- **Maven** claims in `prepare-agent` (`AbstractTiaAgentMojo`), before Surefire forks, via
+- **Maven** claims in `prepare-agent` (`AgentMojo`), before Surefire forks, via
   `DistributedRunnerAssignment.claim` - which claims *and* derives the two suite lists in the build
   JVM, since that is where Maven already writes `ignored-tests.txt` and `selected-tests.txt` for the
   fork to read. The claim's own values go into `${tiaBuildDir}/fork.properties`, which the Tia agent
   republishes as system properties at `premain` time, before any listener constructs.
 - **Gradle** claims in the daemon, inside the test task's `doFirst` action
-  (`TiaSpockGitGradlePluginTestExtension.claimDistributedRun`), before the test task forks, and sets
+  (`TiaTestTaskConfigurer.claimDistributedRun`), before the test task forks, and sets
   the values as ordinary `Test` task system properties, which Gradle forwards into the forked JVM
   itself. It stops at `DistributedRunCoordinator.claim`'s `ClaimOutcome` rather than deriving suite
   lists nothing in the daemon would read; the fork derives them for itself with
@@ -844,7 +844,7 @@ system exposes one: `${{ github.run_id }}`, `$CI_PIPELINE_ID`, `$BUILD_TAG`, `$C
 ### Maven: the completion must be its own always-run step
 
 **Maven aborts the lifecycle when the test goal fails.** A pipeline that chains goals in one
-command (`mvn verify tia-junit5-git:dist-complete`) will never reach the completion on a runner
+command (`mvn verify tia:dist-complete`) will never reach the completion on a runner
 whose tests failed. That runner's group stays `CLAIMED`, the barrier never opens, and **the run never
 seals**, even though every other runner did its job. The build then looks like a plain test failure
 while quietly having thrown away the whole run's mapping work.
@@ -863,7 +863,7 @@ result**:
 
 - name: Complete this runner's group
   if: always()          # <- the whole point: runs even when the tests failed
-  run: mvn tia-junit5-git:dist-complete
+  run: mvn tia:dist-complete
 ```
 
 and the planning job that produced the matrix:
@@ -871,7 +871,7 @@ and the planning job that produced the matrix:
 ```yaml
 - name: Plan
   run: >
-    mvn tia-junit5-git:dist-plan
+    mvn tia:dist-plan
     -DtiaDistributed=true
     -DtiaRunId=${{ github.run_id }}
     -DtiaDistributedTargetRunTime=1500000
@@ -903,13 +903,13 @@ test:
   script:
     - set +e; mvn verify -DtiaDistributed=true -DtiaRunId=$CI_PIPELINE_ID
                          -DtiaDistributedRunnerKey=$CI_NODE_INDEX; rc=$?; set -e
-    - mvn tia-junit5-git:dist-complete    # always runs, and its failure is visible
+    - mvn tia:dist-complete    # always runs, and its failure is visible
     - exit $rc
 ```
 
 ### Gradle: no pipeline change needed
 
-Gradle needs none of the above. `TiaBasePlugin.createDistCompleteTask` registers the
+Gradle needs none of the above. `TiaPlugin.createDistCompleteTask` registers the
 `tia-dist-complete` task and wires it as `testTask.finalizedBy(...)`, and **a finalizer runs even
 when the task it finalizes fails**. The plan step is still an ordinary task:
 
@@ -1196,7 +1196,7 @@ run, and that task's claim would never satisfy the completeness guard either way
 
 The refusal is enforced twice, at two different times, because each catches a case the other cannot:
 
-- `TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` throws at **configuration time**
+- `TiaTestTaskConfigurer.wireDistCompleteFinalizer` throws at **configuration time**
   when a second distributed test task would need a second `tia-dist-complete` task. Without this,
   Gradle's own "a task with that name already exists" error would stand in for it, saying nothing
   about why two distributed test tasks cannot work.

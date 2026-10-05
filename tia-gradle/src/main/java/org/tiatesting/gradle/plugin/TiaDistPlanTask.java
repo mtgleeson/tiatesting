@@ -34,7 +34,7 @@ import java.util.function.Supplier;
  * pipeline can fan out one job per group and every runner can later claim a group from the same
  * source of truth. It does not run any tests itself.
  *
- * <p>Mirrors the Maven {@code dist-plan} goal ({@code AbstractTiaDistPlanMojo}) sequence
+ * <p>Mirrors the Maven {@code dist-plan} goal ({@code TiaDistPlanMojo}) sequence
  * exactly: validate the distributed-run preconditions and configuration; open the datastore and
  * run the selection exactly as {@code tia-select-tests} does, but with {@code updateDBMapping} set
  * to the real run's configured value rather than always {@code false}; hand the selection to
@@ -51,22 +51,22 @@ import java.util.function.Supplier;
  * selection deliberately, since a second copy of the same value could disagree with it.
  *
  * <p>Implemented as a {@link DefaultTask} subclass, like {@link TiaHistoryTask} and {@link
- * TiaLibraryPublishesTask}, with its one dependency - the owning {@link TiaBasePlugin}, which
+ * TiaLibraryPublishesTask}, with its one dependency - the owning {@link TiaPlugin}, which
  * exposes every configuration getter and helper this task needs - injected at registration time
- * via {@link #setPlugin(TiaBasePlugin)} rather than resolved when the plugin is applied.
+ * via {@link #setPlugin(TiaPlugin)} rather than resolved when the plugin is applied.
  */
 public class TiaDistPlanTask extends DefaultTask {
 
-    private TiaBasePlugin plugin;
+    private TiaPlugin plugin;
 
     /**
-     * Inject the owning plugin; called from {@link TiaBasePlugin#createDistPlanTask()} at task
+     * Inject the owning plugin; called from {@link TiaPlugin#createDistPlanTask()} at task
      * registration so every configuration getter this task needs is resolved lazily at execution
      * time rather than at plugin-apply time.
      *
-     * @param plugin the {@link TiaBasePlugin} instance that registered this task
+     * @param plugin the {@link TiaPlugin} instance that registered this task
      */
-    public void setPlugin(TiaBasePlugin plugin) {
+    public void setPlugin(TiaPlugin plugin) {
         this.plugin = plugin;
     }
 
@@ -167,7 +167,7 @@ public class TiaDistPlanTask extends DefaultTask {
      * multi-project rule, so a user reading this task's console output sees exactly which projects
      * were found in the build - information {@code DistributedRunPreconditions.check} cannot
      * supply itself, since {@code tia-core} has no Gradle type to name them with. Converts {@link
-     * TiaBasePlugin#getReactorProjects()}'s {@link Project} set to plain name strings and delegates
+     * TiaPlugin#getReactorProjects()}'s {@link Project} set to plain name strings and delegates
      * the "only when relevant" gate to {@link
      * DistributedRunPreconditions#withReactorProjectNamesIfRelevant}, the same core helper the
      * Maven plan goal's equivalent wrapper ({@code AbstractTiaMojo.withReactorProjectNamesIfRelevant})
@@ -175,7 +175,7 @@ public class TiaDistPlanTask extends DefaultTask {
      *
      * @param message the failure message from {@code DistributedRunPreconditions.check}
      * @param tiaEnabled the resolved {@code tia.enabled} value this run started {@code check} with
-     * @param reactorProjects the projects {@link TiaBasePlugin#getReactorProjects()} resolved for
+     * @param reactorProjects the projects {@link TiaPlugin#getReactorProjects()} resolved for
      *                        this build
      * @return {@code message} unchanged, or with the build's project names appended when Tia is
      *         enabled and more than one project took part in the build

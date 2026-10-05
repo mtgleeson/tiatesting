@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'java-gradle-plugin'
     id 'signing'
     id 'maven-publish'
 }
@@ -9,6 +10,15 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 
 repositories {
     maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+}
+
+gradlePlugin {
+    plugins {
+        tiaPlugin {
+            id = 'org.tiatesting.tia'
+            implementationClass = 'org.tiatesting.gradle.plugin.TiaPlugin'
+        }
+    }
 }
 
 dependencies {
@@ -21,19 +31,73 @@ dependencies {
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
 }
 
+// The plugin adds the Tia module for the project's test framework at its own version, read from
+// this generated resource (see TiaVersion).
+def generateTiaVersionResource = tasks.register('generateTiaVersionResource') {
+    def outputDir = layout.buildDirectory.dir('generated/resources/tia-version')
+    def tiaVersion = project.version.toString()
+    inputs.property('version', tiaVersion)
+    outputs.dir(outputDir)
+    doLast {
+        def file = outputDir.get().file('org/tiatesting/gradle/plugin/tia-version.properties').asFile
+        file.parentFile.mkdirs()
+        file.text = "version=${tiaVersion}\n"
+    }
+}
+sourceSets.main.resources.srcDir(generateTiaVersionResource)
+
 test {
     useJUnitPlatform()
 }
 
+// The java-gradle-plugin seems to override the generated pom from maven-publish https://github.com/gradle/gradle/issues/14993
 publishing {
     publications {
-        mavenJava(MavenPublication) {
-            artifactId = 'tia-gradle'
-
+        it.withType(MavenPublication).configureEach {
             pom {
+                artifactId = 'tia-gradle'
                 name = 'Tia Gradle'
-                description = 'This library contains the core classes used for Gradle in the Tia selective testing library.'
+                description = 'The Tia Gradle plugin (org.tiatesting.tia): selects the tests impacted by a change and wires Tia into the test tasks.'
+                url = 'github.com/mtgleeson/tiatesting'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'mtgleeson'
+                        name = 'Matt Gleeson'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/mtgleeson/tiatesting.git'
+                    developerConnection = 'scm:git:ssh://github.com/mtgleeson/tiatesting.git'
+                    url = 'github.com/mtgleeson/tiatesting'
+                }
             }
         }
     }
+}
+
+/**
+ * When publishAllPublicationsToMavenRepository, using java-gradle-plugin creates an extra (unneeded) plugin
+ * marker folder (org/tiatesting/tia for the org.tiatesting.tia id). Delete it.
+ */
+tasks.register('deleteExtraGeneratedPluginMarkerFolder', Delete) {
+    dependsOn 'publishAllPublicationsToMavenRepository'
+    delete layout.buildDirectory.dir('repos/releases/org/tiatesting/tia')
+}
+
+tasks.named('packageDistribution') {
+    dependsOn 'deleteExtraGeneratedPluginMarkerFolder'
+}
+
+// The java-gradle-plugin clashes with the maven-publish plugin. The pom will be overwritten from the java-gradle-plugin.
+// The file contents for the pom are correct but the file has the wrong signature. So make sure publishMavenJavaPublicationToMavenRepository
+// is executed after publishPluginMavenPublicationToMavenRepository so the correctly signed pom.xml ends up last in the repo.
+// https://github.com/gradle/gradle/issues/14993
+tasks.named('publishMavenJavaPublicationToMavenRepository') {
+    dependsOn 'publishPluginMavenPublicationToMavenRepository'
 }

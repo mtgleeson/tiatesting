@@ -4,7 +4,7 @@ Tia uses SLF4J throughout. Whether `log.trace(...)` is actually emitted depends 
 
 ### Rule
 
-- **Code reachable from the Gradle daemon must use `DEBUG` or higher.** That includes everything in `tia-gradle` and `tia-spock-git-gradle`, *plus* anything in `tia-core` that is called from a daemon-side path (TestSelector, the drainer/recorder, `H2DataStore`, diff and method-impact analysis, JaCoCo coverage parsing, etc.).
+- **Code reachable from the Gradle daemon must use `DEBUG` or higher.** That includes everything in `tia-gradle`, *plus* anything in `tia-core` that is called from a daemon-side path (TestSelector, the drainer/recorder, `H2DataStore`, diff and method-impact analysis, JaCoCo coverage parsing, etc.).
 - **`TRACE` is only safe in code that exclusively runs inside the forked test JVM.** In practice today, that's a small subset of `tia-spock`. There are no TRACE call sites in `tia-core` — they were all converted to DEBUG because `tia-core` is shared between the two runtimes.
 - **Maven runs in the Maven build process**, which uses Plexus logging via SLF4J. It does honour TRACE, but `tia-core` follows the daemon rule for consistency — so don't add TRACE to shared code on Maven's behalf either.
 

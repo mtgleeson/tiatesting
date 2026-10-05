@@ -1,0 +1,976 @@
+package org.tiatesting.gradle.plugin;
+
+import org.gradle.api.Action;
+import org.gradle.api.GradleException;
+import org.gradle.api.Project;
+import org.gradle.api.Task;
+import org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter;
+import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.TaskProvider;
+import org.gradle.api.tasks.testing.Test;
+import org.gradle.process.JavaForkOptions;
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
+import org.slf4j.Logger;
+import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.agent.SelectionHandoff;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.ClaimOutcome;
+import org.tiatesting.core.distributed.DistributedForkProperties;
+import org.tiatesting.core.distributed.DistributedRunConfig;
+import org.tiatesting.core.distributed.DistributedRunCoordinator;
+import org.tiatesting.core.distributed.DistributedRunPreconditions;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.library.LibraryJarDirectoryResolver;
+import org.tiatesting.core.model.SelectionMode;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.CredentialResolver;
+import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.testrunner.RunEnvironment;
+import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.util.StringUtil;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.function.Supplier;
+
+/**
+ * Wires Tia into a project's Gradle {@link Test} tasks: adds the task-level {@code tia { }}
+ * extension and the task action that, before the test JVM forks, resolves the branch and commit,
+ * then either runs the test selection or claims a distributed run's group, and forwards what the
+ * fork needs. Framework-agnostic; the framework-specific hand-off goes through a
+ * {@link TestFrameworkAdapter}.
+ */
+public class TiaTestTaskConfigurer {
+    private static final Logger LOGGER = Logging.getLogger(TiaTestTaskConfigurer.class);
+
+    private final Supplier<TestFrameworkAdapter> frameworkAdapter;
+
+    /**
+     * @param frameworkAdapter supplies the project's test framework adapter when a test task runs;
+     *                         a supplier because the plugin detects the framework after the
+     *                         project is evaluated, which is after this configurer is attached
+     */
+    public TiaTestTaskConfigurer(final Supplier<TestFrameworkAdapter> frameworkAdapter){
+        this.frameworkAdapter = frameworkAdapter;
+    }
+
+    /**
+     * Attach the task-level {@code tia { }} extension and Tia's task action to a test task.
+     *
+     * @param task the test task
+     * @param <T> the test task type
+     */
+    public <T extends Test & JavaForkOptions> void applyTo(final T task) {
+        String taskName = task.getName();
+        LOGGER.debug("Applying Tia to " + taskName);
+        TiaBaseTaskExtension tiaProjectExtension = task.getProject().getExtensions().findByType(TiaBaseTaskExtension.class);
+        TiaBaseTaskExtension tiaTaskExtension = task.getExtensions().create("tia", TiaBaseTaskExtension.class);
+
+        // The tia-dist-complete finalizer is not wired here: this method runs as a configureEach
+        // action, where Gradle disallows Project#afterEvaluate. It is wired once per project by
+        // wireDistCompleteFinalizers, registered from the plugin's apply.
+
+        Action<Task> action = new Action<Task>() {
+            @Override
+            public void execute(Task task) {
+                Test testTask = (Test)task;
+                populateTestTaskExtension(tiaProjectExtension, tiaTaskExtension);
+                boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
+
+                if (!isTiaEnabled){
+                    testTask.systemProperty("tiaEnabled", false);
+                    return;
+                }
+
+                // One identity for the whole action. When tia.branch and tia.commitValue are both
+                // configured nothing below constructs a VCS reader at all, which is what lets a
+                // distributed runner hold nothing but a checked-out tree; when they are not, the
+                // fallback opens one repository handle rather than one per step - and closes it,
+                // which the inline getVCSReader() calls this replaces never did.
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity(testTask, tiaTaskExtension)) {
+                    if (Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())){
+                        refuseCollidingSchemas(testTask, tiaProjectExtension, workspaceIdentity);
+                    }
+
+                    // set the system properties needed by Tia passed in as configuration from the Gradle plugin
+                    testTask.systemProperty("tiaEnabled", true);
+                    // The branch and commit this daemon already resolved. Forwarded for every build,
+                    // not only a distributed one, so the forked test JVM never resolves them for
+                    // itself and the two can never disagree about which branch's schema the run
+                    // belongs to.
+                    testTask.systemProperty(WorkspaceIdentity.PROP_BRANCH, workspaceIdentity.getBranch());
+                    testTask.systemProperty(WorkspaceIdentity.PROP_COMMIT_VALUE,
+                            workspaceIdentity.getCommitValue());
+                    testTask.systemProperty("tiaUpdateDBMapping", tiaTaskExtension.getUpdateDBMapping());
+                    testTask.systemProperty("tiaUpdateDBTestRunHistory", tiaTaskExtension.getUpdateDBTestRunHistory());
+                    testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
+                    testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
+                    testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
+                    // Server-mode H2 connection settings. Forwarded only when set so that in the
+                    // common embedded case the listener does not see the literal string "null"
+                    // and mistake it for a server URL.
+                    if (tiaTaskExtension.getDbUrl() != null){
+                        testTask.systemProperty("tiaDBUrl", tiaTaskExtension.getDbUrl());
+                    }
+                    if (tiaTaskExtension.getDbUser() != null){
+                        testTask.systemProperty("tiaDBUser", tiaTaskExtension.getDbUser());
+                    }
+                    // The password travels in the worker's environment, never as a system
+                    // property: Gradle turns a system property into a -D on the worker command
+                    // line, which any local user can read out of the process table. A password
+                    // file is referenced by path instead, so the secret stays in the file the user
+                    // owns and nothing sensitive is forwarded at all.
+                    //
+                    // Null-checked rather than blank-checked on purpose: an explicit dbPassword = ''
+                    // means the database has no password and must reach the worker as a set-but-
+                    // empty value. Forwarding nothing there would let a TIA_DB_PASSWORD that
+                    // happened to be set in the daemon's environment win in the worker while the
+                    // daemon used the empty value, and the two would connect as different users.
+                    if (tiaTaskExtension.getDbPasswordFile() != null){
+                        testTask.systemProperty(CredentialResolver.PROP_DB_PASSWORD_FILE,
+                                tiaTaskExtension.getDbPasswordFile());
+                    } else if (tiaTaskExtension.getDbPassword() != null){
+                        testTask.environment(CredentialResolver.ENV_DB_PASSWORD,
+                                tiaTaskExtension.getDbPassword());
+                    }
+                    if (tiaTaskExtension.getDbDialect() != null){
+                        testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
+                    }
+                    // The runtime flags, resolved here (a -P property wins over the extension) and
+                    // refused up front when a re-seed has no mapping to rebuild.
+                    SelectionMode selectionMode = TiaRuntimeFlags.selectionMode(testTask.getProject(),
+                            tiaTaskExtension);
+                    try {
+                        selectionMode.requireMappingOwner(
+                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
+                    } catch (IllegalStateException e) {
+                        throw new GradleException(e.getMessage(), e);
+                    }
+                    // Number this task execution's test JVMs. The test-retry plugin re-runs failed
+                    // tests in fresh JVMs inside this same task action, each with these same
+                    // properties, so a counter reset here - once per execution, before any JVM
+                    // starts - is what lets a retry round know it is not the real run and persist
+                    // as an addition to it rather than overwrite it. See TestJvmSequence.
+                    File testJvmSequenceFile = new File(testTask.getTemporaryDir(), TestJvmSequence.FILE_NAME);
+                    TestJvmSequence.reset(testJvmSequenceFile);
+                    testTask.systemProperty(TestJvmSequence.PROP_TEST_JVM_SEQUENCE_FILE,
+                            testJvmSequenceFile.getAbsolutePath());
+                    // The compiled test classes this task owns. They tell the forked JVM which
+                    // suites still exist in the project, so a suite it did not run is not mistaken
+                    // for one deleted from the repository - which is what a run split across JVMs
+                    // (maxParallelForks > 1, forkEvery > 0) would otherwise conclude about every
+                    // suite the other forks were given. Identical for every fork of this task, so
+                    // the answer no longer depends on how the run was split.
+                    String testClassesDirs = testTask.getTestClassesDirs().getFiles().stream()
+                            .map(File::getAbsolutePath)
+                            .collect(Collectors.joining(","));
+                    if (!testClassesDirs.isEmpty()) {
+                        testTask.systemProperty(ForkSystemProperties.PROP_TEST_CLASSES_DIRS, testClassesDirs);
+                    }
+                    // Forwarded only when declared. Unset means "let Tia detect it" - forwarding the
+                    // literal string "null" would be stored verbatim as the run's source.
+                    if (tiaTaskExtension.getRunSource() != null){
+                        testTask.systemProperty(RunEnvironment.PROP_RUN_SOURCE, tiaTaskExtension.getRunSource());
+                    }
+                    // Likewise forwarded only when declared: an unset suffix must leave the fork
+                    // resolving the plain tia_<branch> schema, not one named "null".
+                    if (tiaTaskExtension.getSchemaSuffix() != null){
+                        testTask.systemProperty(DataStoreFactory.PROP_DB_SCHEMA_SUFFIX,
+                                tiaTaskExtension.getSchemaSuffix());
+                    }
+
+                    LibraryJarResolver resolver = new LibraryJarResolver(testTask.getProject(), LOGGER);
+                    String libraryJarsCsv = resolveLibraryJarsCsv(tiaTaskExtension, resolver, LOGGER);
+                    if (libraryJarsCsv != null && !libraryJarsCsv.isEmpty()){
+                        testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
+                    }
+
+                    if (Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
+                        if (selectionMode.isForced()) {
+                            LOGGER.warn("selectAllTests / reseed are ignored on a distributed runner: "
+                                    + "the mode is decided by tia-dist-plan and recorded on the run.");
+                        }
+                        // Claims this test task's share of a distributed run right here in the
+                        // daemon, before the test JVM forks - see claimDistributedRun for why the
+                        // fork can no longer make this claim itself. The claim is recorded in the
+                        // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
+                        // finalizer reads it back from there after the test task's forked JVM(s)
+                        // finish - see the "Distributed test runs" chapter in WIKI.md.
+                        claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
+                    } else {
+                        selectTestsAndHandOff(testTask, tiaTaskExtension, workspaceIdentity, resolver,
+                                selectionMode);
+                    }
+
+                    // only apply and configure the jacoco task extension if we're updating the tia DB
+                    if (tiaTaskExtension.getUpdateDBMapping()) {
+                        // Looked up here, not when the action was attached: the plugin applies the
+                        // jacoco plugin after the project is evaluated, once it knows a test task
+                        // updates the mapping.
+                        JacocoTaskExtension jacocoTaskExtension = testTask.getExtensions()
+                                .findByType(JacocoTaskExtension.class);
+                        if (jacocoTaskExtension == null) {
+                            throw new GradleException("Tia updates the mapping for test task '"
+                                    + testTask.getPath() + "' but the jacoco plugin is not applied to "
+                                    + "its project. Apply the 'jacoco' plugin.");
+                        }
+                        LOGGER.debug("Enabling Jacoco in TCP server mode");
+                        jacocoTaskExtension.setEnabled(true);
+                        jacocoTaskExtension.setOutput(JacocoTaskExtension.Output.TCP_SERVER);
+                    }
+                }
+            }
+        };
+
+        task.doFirst(action);
+    }
+
+    /**
+     * Register, once per project, the hook that wires a {@code tia-dist-complete} finalizer onto
+     * every test task Tia was applied to, when the project finishes evaluating.
+     *
+     * <p>The wiring has to happen at configuration time rather than in the test task's {@code
+     * doFirst}: the task graph, and with it any {@code finalizedBy}, is built before execution. It
+     * is registered here, from the plugin's {@code apply}, rather than from {@link #applyTo}: that
+     * method runs as a {@code configureEach} action, and Gradle refuses {@code
+     * Project#afterEvaluate} inside one ("cannot be executed in the current context") - which it
+     * did as soon as another plugin, such as {@code org.gradle.test-retry}, also configured the
+     * test tasks. A test task without Tia's {@code tia} extension is skipped. See {@link
+     * #wireDistCompleteFinalizer} for why each task needs its own, narrower resolution of the
+     * "distributed" flag.
+     *
+     * @param project the project whose test tasks to finalize once it is evaluated
+     */
+    public void wireDistCompleteFinalizers(final Project project) {
+        project.afterEvaluate(p -> {
+            TiaBaseTaskExtension tiaProjectExtension = p.getExtensions().findByType(TiaBaseTaskExtension.class);
+            for (Test testTask : p.getTasks().withType(Test.class)) {
+                Object tiaTaskExtension = testTask.getExtensions().findByName("tia");
+                if (tiaTaskExtension instanceof TiaBaseTaskExtension) {
+                    wireDistCompleteFinalizer(testTask, tiaProjectExtension, (TiaBaseTaskExtension) tiaTaskExtension);
+                }
+            }
+        });
+    }
+
+    /**
+     * Override the task extension object properties with the project object extension.
+     *
+     * This allows the user to define the Tia configuration at the project level, and override it for each test task
+     * configuration type like 'test' and 'integrationTest'.
+     *
+     * @param tiaProjectExt the project-level {@code tia { ... }} extension, the source of any value
+     *                      the test task did not set for itself
+     * @param tiaTaskExt the test task's own {@code tia { ... }} extension, populated in place
+     */
+    private void populateTestTaskExtension(TiaBaseTaskExtension tiaProjectExt, TiaBaseTaskExtension tiaTaskExt){
+        if (tiaTaskExt.getEnabled() == null){
+            tiaTaskExt.setEnabled(tiaProjectExt.getEnabled());
+        }
+
+        if (tiaTaskExt.getUpdateDBMapping() == null){
+            tiaTaskExt.setUpdateDBMapping(tiaProjectExt.getUpdateDBMapping());
+        }
+
+        if (tiaTaskExt.getUpdateDBTestRunHistory() == null){
+            // Project extension may not have set it explicitly. Default to true so users
+            // get the history log without having to opt in.
+            tiaTaskExt.setUpdateDBTestRunHistory(
+                    tiaProjectExt.getUpdateDBTestRunHistory() != null
+                            ? tiaProjectExt.getUpdateDBTestRunHistory()
+                            : Boolean.TRUE);
+        }
+
+        if (tiaTaskExt.getProjectDir() == null){
+            tiaTaskExt.setProjectDir(tiaProjectExt.getProjectDir());
+        }
+
+        if (tiaTaskExt.getClassFilesDirs() == null){
+            tiaTaskExt.setClassFilesDirs(tiaProjectExt.getClassFilesDirs());
+        }
+
+        if (tiaTaskExt.getSourceFilesDirs() == null){
+            tiaTaskExt.setSourceFilesDirs(tiaProjectExt.getSourceFilesDirs());
+        }
+
+        if (tiaTaskExt.getTestFilesDirs() == null){
+            tiaTaskExt.setTestFilesDirs(tiaProjectExt.getTestFilesDirs());
+        }
+
+        if (tiaTaskExt.getDbFilePath() == null){
+            tiaTaskExt.setDbFilePath(tiaProjectExt.getDbFilePath());
+        }
+
+        if (tiaTaskExt.getDbUrl() == null){
+            tiaTaskExt.setDbUrl(tiaProjectExt.getDbUrl());
+        }
+
+        if (tiaTaskExt.getDbUser() == null){
+            tiaTaskExt.setDbUser(tiaProjectExt.getDbUser());
+        }
+
+        if (tiaTaskExt.getDbPassword() == null){
+            tiaTaskExt.setDbPassword(tiaProjectExt.getDbPassword());
+        }
+
+        if (tiaTaskExt.getDbPasswordFile() == null){
+            tiaTaskExt.setDbPasswordFile(tiaProjectExt.getDbPasswordFile());
+        }
+
+        if (tiaTaskExt.getDbDialect() == null){
+            tiaTaskExt.setDbDialect(tiaProjectExt.getDbDialect());
+        }
+
+        if (tiaTaskExt.getCheckLocalChanges() == null){
+            tiaTaskExt.setCheckLocalChanges(tiaProjectExt.getCheckLocalChanges());
+        }
+
+        if (tiaTaskExt.getSelectAllTests() == null){
+            tiaTaskExt.setSelectAllTests(tiaProjectExt.getSelectAllTests());
+        }
+
+        if (tiaTaskExt.getReseed() == null){
+            tiaTaskExt.setReseed(tiaProjectExt.getReseed());
+        }
+
+        // Like the distributed settings below, the run source describes the build rather than any
+        // one test task, so it is normally declared once at the project level and must reach every
+        // test task from there.
+        if (tiaTaskExt.getRunSource() == null){
+            tiaTaskExt.setRunSource(tiaProjectExt.getRunSource());
+        }
+
+        // The suffix is the opposite case - it exists to tell test tasks apart, so it is normally
+        // declared per task. The project-level fallback is still honoured, for the project that
+        // wants every task in one named schema rather than the unsuffixed default.
+        if (tiaTaskExt.getSchemaSuffix() == null){
+            tiaTaskExt.setSchemaSuffix(tiaProjectExt.getSchemaSuffix());
+        }
+
+        if (tiaTaskExt.getSourceLibs() == null){
+            tiaTaskExt.setSourceLibs(tiaProjectExt.getSourceLibs());
+        }
+
+        if (tiaTaskExt.getSourceProjectDir() == null){
+            tiaTaskExt.setSourceProjectDir(tiaProjectExt.getSourceProjectDir());
+        }
+
+        if (tiaTaskExt.getLibraryJarsDirs() == null){
+            tiaTaskExt.setLibraryJarsDirs(tiaProjectExt.getLibraryJarsDirs());
+        }
+
+        // A distributed run is configured per pipeline, not per test task: the run id and the
+        // runner key identify this CI job, so they are almost always set once at the project level
+        // (or on the command line) and must reach every test task that participates.
+        if (tiaTaskExt.getDistributed() == null){
+            tiaTaskExt.setDistributed(tiaProjectExt.getDistributed());
+        }
+
+        if (tiaTaskExt.getRunId() == null){
+            tiaTaskExt.setRunId(tiaProjectExt.getRunId());
+        }
+
+        if (tiaTaskExt.getDistributedRunnerKey() == null){
+            tiaTaskExt.setDistributedRunnerKey(tiaProjectExt.getDistributedRunnerKey());
+        }
+
+        // The branch and the commit describe the build, not any one test task, so like the
+        // distributed settings above they are declared once at the project level (or on the command
+        // line) and must reach every test task from there.
+        if (tiaTaskExt.getBranch() == null){
+            tiaTaskExt.setBranch(tiaProjectExt.getBranch());
+        }
+
+        if (tiaTaskExt.getCommitValue() == null){
+            tiaTaskExt.setCommitValue(tiaProjectExt.getCommitValue());
+        }
+    }
+
+    /**
+     * Register the {@code tia-dist-complete} finalizer for this test task, and wire it as {@code
+     * testTask.finalizedBy(...)}, but only when Tia is enabled and this test task is configured for
+     * a distributed run - an ordinary, non-distributed Gradle build must gain no task and no
+     * finalizer, and neither must a build that has Tia switched off, whatever else it configures.
+     *
+     * <p>Called from {@code project.afterEvaluate}, after the user's build script has finished
+     * setting both the project-level and this task's own {@code tia { ... } } extension, since the
+     * task graph - and therefore any {@code finalizedBy} wiring - is built before execution, while
+     * {@link #populateTestTaskExtension} only merges the two extensions inside the test task's
+     * {@code doFirst} action, which runs too late to affect the task graph. Rather than duplicate
+     * that whole merge this early, only the two flags a finalizer decision needs - {@code enabled}
+     * and {@code distributed} - are resolved here, with {@link #populateTestTaskExtension}'s same
+     * "task extension wins, project extension is the fallback" rule.
+     *
+     * <p>Resolves the {@link TiaPlugin} applied to this project the same way {@link
+     * #claimDistributedRun} does, via {@code withType} rather than {@code findPlugin}. Finding none
+     * is not escalated here: with no plugin applied, {@link #claimDistributedRun} will already fail
+     * this build with a clear error the first time the test task's {@code doFirst} action actually
+     * attempts a claim, so failing a second time from this configuration-time hook would only
+     * duplicate that message.
+     *
+     * @param testTask the test task to finalize with a {@code tia-dist-complete} task, if this
+     *                  build turns out to be distributed
+     * @param tiaProjectExtension the project-level {@code tia { ... } } extension
+     * @param tiaTaskExtension the test task's own {@code tia { ... } } extension
+     */
+    private void wireDistCompleteFinalizer(final Test testTask, final TiaBaseTaskExtension tiaProjectExtension,
+                                           final TiaBaseTaskExtension tiaTaskExtension) {
+        // Disabled Tia is inert, as it is on the Maven side, where
+        // TiaDistCompleteMojo.execute short-circuits on !isTiaEnabled() as its very first
+        // statement. Not quite the same gate - see resolveFlagAtConfigurationTime for the one case
+        // (--tests) this cannot see this early, and why it is harmless. Without this, a build with
+        // tia.distributed = true and Tia switched off would
+        // still register tia-dist-complete, still finalize the test task with it, and - with two
+        // distributed test tasks - still fail at configuration time on a guard for a run it was
+        // never going to make.
+        if (!resolveFlagAtConfigurationTime(tiaTaskExtension.getEnabled(), tiaProjectExtension.getEnabled())) {
+            return;
+        }
+
+        if (!resolveFlagAtConfigurationTime(tiaTaskExtension.getDistributed(),
+                tiaProjectExtension.getDistributed())) {
+            return;
+        }
+
+        TiaPlugin plugin = testTask.getProject().getPlugins().withType(TiaPlugin.class)
+                .stream().findFirst().orElse(null);
+        if (plugin == null) {
+            return;
+        }
+
+        if (testTask.getProject().getTasks().getNames().contains(TiaPlugin.DIST_COMPLETE_TASK_NAME)) {
+            // A second distributed test task in the same build. Registering the finalizer again
+            // would fail with Gradle's own "a task with that name already exists" message, which
+            // says nothing about why two distributed test tasks cannot work - the same reason
+            // DistributedClaimRegistry.recordClaim refuses the second claim, only reached at
+            // execution time, after this configuration-time registration would already have failed.
+            // Checked against the task names rather than by looking the task up, so an ordinary
+            // build never realizes a task just to find out it is absent.
+            throw new GradleException("Test task '" + testTask.getPath() + "' is configured for a "
+                    + "distributed test run, but another test task in this build already is. A "
+                    + "distributed run supports exactly one test task per runner: the plan groups "
+                    + "suites across the whole project, so a second test task's group could hold "
+                    + "suites the first task cannot run, the completeness guard would never be "
+                    + "satisfied, and the run would never seal. Configure only one test task as "
+                    + "distributed per runner - run the other test task's share of the plan as a "
+                    + "separate runner (a separate CI job/process) instead.");
+        }
+
+        TaskProvider<TiaDistCompleteTask> completeTask = plugin.createDistCompleteTask(testTask.getPath());
+        testTask.finalizedBy(completeTask);
+    }
+
+    /**
+     * Resolve one of the Tia extension's boolean flags the same way {@link
+     * #populateTestTaskExtension} would, but standalone and safe to call at configuration time:
+     * this test task's own value if it set one, otherwise the project-level extension's value.
+     *
+     * <p>Used for both flags a finalizer decision needs - {@code enabled} and {@code distributed} -
+     * rather than duplicating the merge rule per flag, so the two cannot drift apart from each
+     * other or from {@link #populateTestTaskExtension}.
+     *
+     * <p>For {@code enabled} this is narrower than {@link #isEnabled}, which additionally switches
+     * Tia off when the user passes {@code --tests} - a decision that cannot be made this early,
+     * since the finalizer wiring happens before the task's filter is read. So {@code ./gradlew test
+     * --tests Foo} on a distributed build still registers and wires {@code tia-dist-complete}, which
+     * is a wider gate than Maven's {@code !isTiaEnabled()} short-circuit, not an equal one. It is
+     * harmless: no claim is made, so the finalizer finds no {@link DistributedClaimRegistry} entry
+     * for the test task and exits at its no-claim branch without touching the datastore.
+     *
+     * @param taskValue the test task's own value for the flag, which wins when set
+     * @param projectValue the project-level extension's value for the flag, the fallback
+     * @return true only when the resolved value is {@link Boolean#TRUE}
+     */
+    private boolean resolveFlagAtConfigurationTime(final Boolean taskValue, final Boolean projectValue) {
+        return Boolean.TRUE.equals(taskValue != null ? taskValue : projectValue);
+    }
+
+    /**
+     * Check if Tia is enabled. Used to determine if we should load the Tia agent and analyse the
+     * changes and @Ignore tests not impacted by the changes.
+     *
+     * Note: It's not ideal we need to cast to the DefaultTestFilter as it's the internals of Gradle and
+     * could change in future versions. Another way of getting the command line --tests parameter is using the
+     * @Option(option = "tests", description = "Sets test class or method name to be included, '*' is supported.")
+     * https://github.com/gradle/gradle/blob/b131fefc8d9efb8e154abd09f7eb91c854df1310/subprojects/testing-base/src/main/java/org/gradle/api/tasks/testing/AbstractTestTask.java#L104
+     * annotation. But again this is currently only intended for the internals of Gradle.
+     * i.e. Gradle doesn't currently provide a good way to publicly expose the command line parameters.
+     *
+     * @param tiaTaskExtension
+     * @param task
+     * @return
+     */
+    private boolean isEnabled(final TiaBaseTaskExtension tiaTaskExtension, Test task){
+        boolean enabled = tiaTaskExtension.getEnabled() != null ? tiaTaskExtension.getEnabled() : false;
+        boolean updateDBMapping = tiaTaskExtension.getUpdateDBMapping() != null ? tiaTaskExtension.getUpdateDBMapping() : false;
+        boolean updateDBTestRunHistory = tiaTaskExtension.getUpdateDBTestRunHistory() != null
+                ? tiaTaskExtension.getUpdateDBTestRunHistory() : true;
+LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and stats): " + updateDBMapping
+                + ", update test run history: " + updateDBTestRunHistory);
+
+        /**
+         * If the user specified specific individual tests to run, disable Tia so those tests are run
+         * and guaranteed to be the only tests to run.
+         */
+        if (enabled){
+            Set<String> userSpecifiedTests = ((DefaultTestFilter)task.getFilter()).getCommandLineIncludePatterns();
+            boolean hasUserSpecifiedTests = userSpecifiedTests != null && !userSpecifiedTests.isEmpty();
+
+            if (hasUserSpecifiedTests){
+                LOGGER.info("Users has specified tests, disabling Tia");
+                enabled = false;
+            }
+        }
+
+        return enabled;
+    }
+
+    /**
+     * Resolve the {@code sourceLibs} coverage jars to a CSV of absolute paths, choosing the producer
+     * by whether {@link TiaBaseTaskExtension#getLibraryJarsDirs()} is configured: directory filename
+     * matching via the shared {@link LibraryJarDirectoryResolver} when it is (the offline-safe path,
+     * see the "Directory-based library-jar resolution" chapter in {@code WIKI.md}), Gradle
+     * dependency-graph resolution via {@link LibraryJarResolver} otherwise. Both feed the same
+     * {@code tiaLibraryJars} system property.
+     *
+     * @param tiaTaskExtension the resolved task extension carrying {@code sourceLibs},
+     *                         {@code libraryJarsDirs} and {@code sourceProjectDir}
+     * @param resolver the dependency-graph resolver used when directory mode is not selected
+     * @param logger the plugin logger, used as the directory matcher's warn/debug sinks
+     * @return the CSV of resolved absolute jar paths, or null when nothing resolved
+     */
+    static String resolveLibraryJarsCsv(TiaBaseTaskExtension tiaTaskExtension,
+                                        LibraryJarResolver resolver, Logger logger) {
+        String jarsDirsCsv = tiaTaskExtension.getLibraryJarsDirs();
+        if (jarsDirsCsv != null && !jarsDirsCsv.trim().isEmpty()) {
+            List<String> directories = new ArrayList<>();
+            for (String dir : jarsDirsCsv.split(",")) {
+                if (!dir.trim().isEmpty()) {
+                    directories.add(dir.trim());
+                }
+            }
+            List<String> jars = LibraryJarDirectoryResolver.resolveLibraryJars(
+                    tiaTaskExtension.getSourceLibs(), directories, logger::warn, logger::debug);
+            return jars.isEmpty() ? null : String.join(",", jars);
+        }
+
+        return resolver.resolveLibraryJarsCsv(
+                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir());
+    }
+
+    /**
+     * Run the test selection for an ordinary (non-distributed) build here in the daemon, once per
+     * test task, and hand the result to the forked test JVM(s) through files.
+     *
+     * <p>The fork used to select for itself, which meant every forked JVM ({@code maxParallelForks},
+     * test-retry rounds) repeated the diff and the library-impact drain, and the fork needed a VCS
+     * library on its classpath. Selecting here matches Maven: the daemon writes the
+     * {@link SelectionHandoff} files into the test task's temporary directory and names them in
+     * system properties, which {@code TiaSpockGlobalExtension} reads. See the "How Tia exchanges
+     * data with the test runner" chapter in {@code WIKI.md}.
+     *
+     * @param testTask the test task whose forks receive the selection
+     * @param tiaTaskExtension that task's merged Tia extension
+     * @param workspaceIdentity this build's branch and commit, and the reader the diff is read through
+     * @param resolver the library metadata resolver for {@code sourceLibs}
+     * @param selectionMode the selection mode resolved from the runtime flags
+     */
+    private void selectTestsAndHandOff(final Test testTask, final TiaBaseTaskExtension tiaTaskExtension,
+                                       final WorkspaceIdentity workspaceIdentity,
+                                       final LibraryJarResolver resolver, final SelectionMode selectionMode) {
+        TiaPlugin plugin = findTiaPlugin(testTask);
+        if (plugin == null) {
+            throw new IllegalStateException("Tia test selection requires the Tia Gradle plugin (a "
+                    + TiaPlugin.class.getName() + ") to be applied to project '"
+                    + testTask.getProject().getPath() + "'.");
+        }
+
+        boolean updateDBMapping = Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping());
+        boolean checkLocalChanges = Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges());
+        if (updateDBMapping && checkLocalChanges) {
+            // The mapping must only ever reflect committed changes.
+            LOGGER.info("Disabling the check for local changes as Tia is configured to update the DB.");
+            checkLocalChanges = false;
+        }
+
+        LibraryImpactAnalysisConfig libraryConfig = TiaPlugin.buildLibraryImpactAnalysisConfig(
+                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir(), resolver);
+        StaticTestSelectionConfig staticConfig = TiaPlugin.buildStaticTestSelectionConfig(
+                tiaTaskExtension.getStaticTestSelectionRules());
+
+        TestSelectorResult result;
+        // try-with-resources: an embedded H2 database must be released before the fork opens it.
+        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
+                tiaTaskExtension.getSchemaSuffix())) {
+            result = new TestSelector(dataStore).selectTestsToIgnore(workspaceIdentity.openVCSReader(),
+                    csvToList(tiaTaskExtension.getSourceFilesDirs()), csvToList(tiaTaskExtension.getTestFilesDirs()),
+                    checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
+        }
+
+        SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(), result.getTestsToIgnore(),
+                result.getTestsToRun(), result.getLibraryImpactDrainResult(), result.getSelectionDetails());
+        frameworkAdapter.get().handOffSelection(testTask, handoff);
+        if (result.isRunAllTests()) {
+            // A seed or forced run carries an empty run list meaning "run everything".
+            LOGGER.info("Tia runs every test suite for test task '{}' (selection mode {}).",
+                    testTask.getPath(), result.getSelectionMode());
+        } else {
+            LOGGER.info("Tia selected {} test suite(s) to run and {} to skip for test task '{}'.",
+                    result.getTestsToRun().size(), result.getTestsToIgnore().size(), testTask.getPath());
+        }
+    }
+
+    /**
+     * Split a comma-separated directory list into trimmed entries.
+     *
+     * @param csv the configured CSV; may be null
+     * @return the entries, or null when none is configured (as {@code TestSelector} expects)
+     */
+    private static List<String> csvToList(final String csv) {
+        if (csv == null) {
+            return null;
+        }
+        List<String> values = new ArrayList<>(Arrays.asList(csv.split(",")));
+        StringUtil.sanitizeInputArray(values);
+        return values;
+    }
+
+    /**
+     * Resolve this test task's branch and commit, from the configured overrides where they are set
+     * and from the version control system where they are not.
+     *
+     * <p>Built from the test task's own merged extension rather than the plugin's project-level one,
+     * since {@link #populateTestTaskExtension} has already merged the project's values into it and a
+     * task-level override must win here as it does everywhere else.
+     *
+     * @param testTask the test task whose action is running
+     * @param tiaTaskExtension that task's merged Tia extension
+     * @return an identity resolving each value on demand; the caller must close it
+     */
+    private WorkspaceIdentity workspaceIdentity(final Test testTask,
+                                                final TiaBaseTaskExtension tiaTaskExtension) {
+        TiaPlugin plugin = findTiaPlugin(testTask);
+        return WorkspaceIdentity.resolving(tiaTaskExtension.getBranch(),
+                tiaTaskExtension.getCommitValue(),
+                plugin == null ? () -> null : plugin::getVCSReader);
+    }
+
+    /**
+     * Find the Tia plugin applied to this test task's project.
+     *
+     * <p>{@code withType}, not {@code findPlugin}: {@code findPlugin(Class)} only matches a plugin's
+     * exact registered class, so it would miss a {@link TiaPlugin} subclass (as the tests apply).
+     * {@code withType} does assignability-based matching and finds either.
+     *
+     * @param testTask the test task whose project to search
+     * @return the applied Tia plugin, or null when the project has none
+     */
+    private TiaPlugin findTiaPlugin(final Test testTask) {
+        return testTask.getProject().getPlugins().withType(TiaPlugin.class)
+                .stream().findFirst().orElse(null);
+    }
+
+    /**
+     * Tell a distributed runner that it is about to read the version control system for a value it
+     * could have been handed, naming the property that would avoid it.
+     *
+     * <p>Logged at INFO rather than warned about: a developer running a distributed build from a
+     * workspace that has a repository is the ordinary case for this path, and there is nothing wrong
+     * with it. It is worth saying once all the same, because the same build on a CI runner holding
+     * only a checked-out tree is the one that fails, and the message names the fix before it becomes
+     * a failure.
+     *
+     * @param tiaTaskExtension the test task's merged Tia extension, holding the two values
+     */
+    private void logVcsFallbackForARunner(final TiaBaseTaskExtension tiaTaskExtension) {
+        List<String> unset = new ArrayList<>(2);
+        if (isBlank(tiaTaskExtension.getBranch())) {
+            unset.add(WorkspaceIdentity.PROP_BRANCH);
+        }
+        if (isBlank(tiaTaskExtension.getCommitValue())) {
+            unset.add(WorkspaceIdentity.PROP_COMMIT_VALUE);
+        }
+        if (!unset.isEmpty()) {
+            LOGGER.info("Tia distributed run: {} {} not set, so this runner reads {} from the "
+                            + "version control system. Set {} to run on a machine with no version "
+                            + "control access.", String.join(" and ", unset),
+                    unset.size() == 1 ? "is" : "are",
+                    unset.size() == 1 ? "that value" : "those values",
+                    unset.size() == 1 ? "it" : "them");
+        }
+    }
+
+    /**
+     * @param value the value to test
+     * @return true when the value is null or contains only whitespace
+     */
+    private static boolean isBlank(final String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    /**
+     * Claim this test task's share of a distributed run in the daemon, at task-action time, before
+     * the test JVM forks - and forward only the claim's result to that JVM.
+     *
+     * <p>Gradle used to claim inside the forked test JVM instead ({@code
+     * TiaSpockTestRunInitializer#claimDistributedRunGroup}, now removed), because that was the
+     * only place the claim protocol could be called from at the time. That made Gradle claim once
+     * per forked test JVM rather than once per test task - a build with {@code maxParallelForks > 1} could
+     * claim several groups for what is meant to be a single runner - and left no daemon-side
+     * record of which group a task's JVM held, which is what a later daemon-side "this group is
+     * finished" step ({@code tia-dist-complete}, mirroring the Maven {@code dist-complete} goal) needs
+     * to read back. Claiming here fixes both: one claim per test task, and a result the daemon
+     * itself can see.
+     *
+     * <p>Resolves the {@link TiaPlugin} applied to this project for its datastore and VCS
+     * reader, since neither is available from the task extension alone. Looked up via {@link
+     * org.gradle.api.plugins.PluginCollection#withType(Class)}, not {@code
+     * PluginContainer#findPlugin(Class)}: {@code findPlugin} matches a plugin's exact registered
+     * class, never a supertype, so it would miss a {@link TiaPlugin} subclass - only
+     * {@code withType} does assignability-based matching.
+     *
+     * <p>Then enforces {@link DistributedRunPreconditions#check} with this build's real reactor
+     * size. The forked test JVM used to enforce three of those four rules itself and always passed
+     * a literal {@code 1} for the fourth (the reactor-size rule), because it had no {@code Project}
+     * reference at all to count projects with - planning already refused any multi-project Gradle
+     * build, so that literal was never reachable as a gap, just unable to add a second layer of
+     * defence. This action runs in the daemon with {@code task.getProject()} available, so it can
+     * and does pass the real count, catching a multi-project reactor at claim time as well as at
+     * plan time.
+     *
+     * <p>{@link DistributedRunConfig#forRunner} builds the claim's configuration - a runner
+     * configures only the run it belongs to and who it is, never a group count or a target run
+     * time, since that shape is the planning job's decision and is already recorded in the plan
+     * being claimed from. The claim itself is made through {@link DistributedRunCoordinator#claim}
+     * directly rather than through {@link org.tiatesting.core.distributed.DistributedRunnerAssignment#claim},
+     * the same coordinator method the Maven {@code prepare-agent} goal calls, so a Maven and a
+     * Gradle runner cannot disagree by even one suite about which suites a group owns - but this
+     * daemon-side caller stops at the coordinator's {@link ClaimOutcome} rather than going on to
+     * derive the two suite lists {@code DistributedRunnerAssignment} would: nothing here reads
+     * them, the fork derives them for itself from the forwarded run id, runner key and group
+     * number, and deriving a copy that is immediately discarded would be work with no consumer.
+     * Only the resolved run id, runner key and group number are forwarded, via {@link
+     * DistributedForkProperties#forkProperties} - the exact property set and rendering Maven
+     * already writes to {@code fork.properties} - so {@link
+     * DistributedForkProperties#contextFromSystemProperties()} resolves the same context on either
+     * build tool. The suite lists themselves are not forwarded: they can be large, and the fork
+     * reads them from the shared database instead.
+     *
+     * <p>The claim is also recorded in this build's {@link DistributedClaimRegistry}, keyed by
+     * this test task's path. A second test task attempting a claim in the same build finds that
+     * entry and fails loudly - splitting a runner across two test tasks cannot be made to work, see
+     * {@link DistributedClaimRegistry#recordClaim} for why - rather than the two test tasks'
+     * claims silently colliding, one group being claimed twice and another left {@code PENDING}
+     * forever with the run never sealing and nothing telling the user why.
+     *
+     * @param testTask the test task whose forked JVM receives the claimed run id, runner key and
+     *                 group number
+     * @param tiaTaskExtension the test task's own resolved Tia extension - already merged with the
+     *                         project-level extension by {@link #populateTestTaskExtension} - which
+     *                         carries the distributed master switch, the run id, the configured
+     *                         runner key and the update-DB flags the registry records for the finalizer
+     * @param workspaceIdentity this build's branch and commit - the branch whose schema the plan
+     *                          lives in, and the commit the claim is verified against, so a runner
+     *                          given both claims with no version control system present at all
+     * @return this test task's recorded claim, or null when this build is not a distributed runner
+     *         (nothing is forwarded to the fork or recorded in the registry in that case, either)
+     * @throws IllegalStateException if the distributed-run preconditions fail (Tia disabled, a
+     *                                multi-project reactor, an embedded database, or local-changes
+     *                                checking enabled), if this test task would run its group in
+     *                                more than one JVM (see {@link
+     *                                #refuseATestTaskThatForksMoreThanOneJvm}), if no run is planned
+     *                                under the configured
+     *                                run id, if the plan was built against a different commit than
+     *                                this workspace is on, or if a different test task already
+     *                                claimed in this build - all of which must fail this test
+     *                                task's build rather than let it start a forked JVM with no
+     *                                claim to run against, or with a claim that collides with
+     *                                another test task's
+     */
+    private DistributedClaimRegistry.Claim claimDistributedRun(Test testTask,
+            TiaBaseTaskExtension tiaTaskExtension, WorkspaceIdentity workspaceIdentity) {
+        if (!Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
+            return null;
+        }
+
+        TiaPlugin plugin = findTiaPlugin(testTask);
+        if (plugin == null) {
+            throw new IllegalStateException("Tia distributed test runs require the Tia Gradle "
+                    + "plugin (a " + TiaPlugin.class.getName() + ") to be applied to project '"
+                    + testTask.getProject().getPath() + "' - the claim needs its datastore and VCS "
+                    + "reader, and none was found.");
+        }
+
+        // Checked here, in the daemon, against this build's real project count - see this
+        // method's javadoc for why the old test-JVM claim could only ever pass a literal 1.
+        // tiaEnabled is already true whenever this method runs: the caller only reaches it inside
+        // applyTo's isTiaEnabled branch.
+        DistributedRunPreconditions.check(true, plugin.getReactorProjects().size(),
+                plugin.getDbUrl(), plugin.getDbDialect(),
+                Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges()),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()));
+        refuseATestTaskThatForksMoreThanOneJvm(testTask);
+
+        DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
+                tiaTaskExtension.getDistributedRunnerKey());
+        logVcsFallbackForARunner(tiaTaskExtension);
+        ClaimOutcome outcome;
+        // try-with-resources: this connection is only needed long enough to make the claim: it
+        // must not stay open for the rest of the build, since nothing else this daemon-side action
+        // does touches the datastore, and holding a shared-database connection open across the
+        // whole test run would tie up a resource none of that work needs.
+        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch())) {
+            outcome = new DistributedRunCoordinator(dataStore, config)
+                    .claim(workspaceIdentity.getCommitValue(), System.currentTimeMillis());
+        }
+
+        Integer groupNumber = outcome.isClaimed()
+                ? Integer.valueOf(outcome.getGroup().getGroupNumber()) : null;
+
+        if (outcome.isClaimed()) {
+            LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",
+                    config.getRunId(), testTask.getPath(), groupNumber);
+        } else {
+            LOGGER.info("Tia distributed run '{}': test task '{}' claimed no group, so this test "
+                            + "task will run no tests. This is expected when the pipeline fans out "
+                            + "to more jobs than the plan has groups, or starts a runner for a plan "
+                            + "with no groups because nothing was selected.", config.getRunId(),
+                    testTask.getPath());
+        }
+
+        Map<String, String> properties = DistributedForkProperties.forkProperties(config.getRunId(),
+                outcome.getRunnerKey(), groupNumber);
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            testTask.systemProperty(property.getKey(), property.getValue());
+        }
+
+        DistributedClaimRegistry registry =
+                DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
+        return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
+                groupNumber, workspaceIdentity.getBranch(),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+    }
+
+    /**
+     * Refuse a project whose Tia-enabled test tasks would write to the same schema, rather than let
+     * them corrupt each other silently.
+     *
+     * <p>Two mapping-owning test tasks sharing a datastore delete each other's suites - each sees
+     * only its own source set, so every suite the other owns looks deleted to it - and share the one
+     * stored commit value, so whichever ran less recently diffs from a commit it never covered. The
+     * first costs all selectivity; the second silently under-selects. Neither fails a build, and
+     * both are invisible short of noticing that Tia stopped saving time, so a hard failure here is
+     * the only thing that makes the schema suffix's opt-in shape safe.
+     *
+     * <p><b>Every defined test task counts, not only the ones in this build.</b> The corruption
+     * spans invocations: a pipeline running {@code test} in one stage and {@code integrationTest} in
+     * another produces it just as reliably as one command running both, because the datastore
+     * outlives either build.
+     *
+     * <p><b>Only mapping-owning tasks count.</b> A task with {@code updateDBMapping} off writes no
+     * mapping and deletes nothing - {@code TestRunnerService.updateTestSuiteMapping} returns before
+     * touching the suite table - so it cannot collide with anything. Including it would fail builds
+     * that are perfectly safe.
+     *
+     * <p>Refused at task-action time rather than during configuration because the effective settings
+     * are the task's own merged over the project's, and the merge for a task that has not run is not
+     * in its extension yet - so the check resolves each task's effective values itself rather than
+     * reading a merge that may not have happened.
+     *
+     * @param currentTask the test task whose action is running, used to reach the project
+     * @param tiaProjectExtension the project-level Tia extension each task's settings fall back to
+     * @param workspaceIdentity this build's workspace identity, supplying the branch the schema
+     *                          names are built from
+     * @throws IllegalStateException if two or more mapping-owning test tasks resolve to one schema
+     */
+    private void refuseCollidingSchemas(final Test currentTask,
+                                        final TiaBaseTaskExtension tiaProjectExtension,
+                                        final WorkspaceIdentity workspaceIdentity) {
+        TiaPlugin plugin = findTiaPlugin(currentTask);
+        if (plugin == null) {
+            // Nothing to check against without a VCS reader to resolve the branch. A project with
+            // no Tia plugin applied cannot be writing to a Tia datastore either.
+            return;
+        }
+
+        Map<String, List<String>> taskPathsBySchema = TiaSchemaResolver.taskPathsBySchema(
+                currentTask.getProject(), tiaProjectExtension, workspaceIdentity.getBranch());
+
+        for (Map.Entry<String, List<String>> entry : taskPathsBySchema.entrySet()) {
+            if (entry.getValue().size() > 1) {
+                throw new IllegalStateException("Tia: the test tasks " + entry.getValue()
+                        + " all update the mapping in the same datastore and schema (" + entry.getKey()
+                        + "). They would delete each other's tracked test suites and share one stored"
+                        + " commit value, which silently costs selectivity and can silently"
+                        + " under-select. Give each test task its own schema, e.g."
+                        + " test { tia { schemaSuffix = \"unit\" } } and"
+                        + " integrationTest { tia { schemaSuffix = \"integration\" } }.");
+            }
+        }
+    }
+
+    /**
+     * Refuse a distributed test task that would run its group in more than one JVM, rather than let
+     * the run hang, for a failure that is even less legible without the refusal.
+     *
+     * <p>Called from {@link #claimDistributedRun}, which runs in the test task's own {@code doFirst}
+     * action - so this fails the build when the test task <b>starts</b>, not at configuration time
+     * like {@link #wireDistCompleteFinalizer}'s two-distributed-test-tasks guard. That is the right
+     * moment for this particular check rather than merely the convenient one: it reads the final
+     * value of {@code maxParallelForks} and {@code forkEvery}, after everything that configures the
+     * task has had its say, and it still fails before a single worker JVM is forked.
+     *
+     * <p>{@code suites_observed} - the figure the completion's completeness guard reads - depends on
+     * one JVM working one group end to end, because it is written as {@code GREATEST(stored, value)}
+     * over a set that is only cumulative within a single JVM. See {@link
+     * DataStore#reportGroupProgress} for that contract. Both {@code maxParallelForks > 1} and
+     * {@code forkEvery > 0} break it here: {@link #claimDistributedRun} claims once, in the daemon,
+     * and forwards the one run id, runner key and group number as system properties, which Gradle
+     * hands to every worker JVM. Worse, Gradle really does split the group's suites across those
+     * workers, so no single worker ever observes the whole group: {@code GREATEST} settles on the
+     * largest worker's count, strictly less than the group's assigned total, the guard never passes,
+     * the group never completes and the run never seals. Nothing fails while that happens - the
+     * completion is a no-op both build tools treat as normal - so the user would get a green build
+     * and a Tia database that silently stopped advancing.
+     *
+     * <p>The check is exact rather than a heuristic: this action runs in the daemon, which holds the
+     * {@link Test} task, so it reads the two settings straight off it. Nothing beyond those two
+     * properties is inspected.
+     *
+     * @param testTask the distributed test task to check the forking settings of
+     * @throws IllegalStateException if the test task sets {@code maxParallelForks} above one or
+     *                                {@code forkEvery} above zero
+     */
+    private void refuseATestTaskThatForksMoreThanOneJvm(final Test testTask) {
+        String forkingSetting = null;
+        if (testTask.getMaxParallelForks() > 1) {
+            forkingSetting = "maxParallelForks = " + testTask.getMaxParallelForks();
+        } else if (testTask.getForkEvery() > 0) {
+            forkingSetting = "forkEvery = " + testTask.getForkEvery();
+        }
+
+        if (forkingSetting == null) {
+            return;
+        }
+
+        throw new IllegalStateException("Test task '" + testTask.getPath() + "' is configured for a "
+                + "distributed test run, but also sets " + forkingSetting + ". A distributed run "
+                + "needs one JVM per group: the group is claimed once here in the daemon and its "
+                + "run id, runner key and group number are forwarded to every worker JVM Gradle "
+                + "starts, while Gradle splits the group's suites across those workers - so no "
+                + "single worker ever observes the whole group, the completion's suites-observed "
+                + "guard would never be satisfied, the group would never complete and the run would "
+                + "never seal. Remove that setting from this test task and take the parallelism from "
+                + "the plan instead - more CI jobs, each one runner claiming one group.");
+    }
+}

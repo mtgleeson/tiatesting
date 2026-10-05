@@ -1,0 +1,1289 @@
+package org.tiatesting.gradle.plugin;
+
+import org.tiatesting.core.model.SelectionMode;
+import org.gradle.api.Plugin;
+import org.gradle.api.GradleException;
+import org.gradle.api.Project;
+import org.gradle.api.Task;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.TaskProvider;
+import org.gradle.api.tasks.bundling.AbstractArchiveTask;
+import org.gradle.api.tasks.testing.Test;
+import org.tiatesting.core.library.LibraryPublishStamper;
+import org.tiatesting.core.testrunner.TestClassScanner;
+import org.slf4j.Logger;
+import org.tiatesting.core.model.TiaData;
+import org.tiatesting.core.report.html.HtmlReportGenerator;
+import org.tiatesting.core.util.StringUtil;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionRule;
+import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.vcs.VCSReaderFactory;
+import org.tiatesting.core.vcs.VcsDetector;
+import org.tiatesting.core.vcs.VcsSettings;
+import org.tiatesting.core.vcs.WorkspaceIdentity;
+import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.DistributedRunPlanner;
+import org.tiatesting.core.distributed.DistributedRunPreviewFormatter;
+import org.tiatesting.core.distributed.GroupingResult;
+import org.tiatesting.core.persistence.DataStore;
+import org.tiatesting.core.persistence.CredentialResolver;
+import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.report.LibrariesReportGenerator;
+import org.tiatesting.core.report.StatusReportGenerator;
+import org.tiatesting.core.report.ReportGenerator;
+import org.tiatesting.core.report.plaintext.TextReportGenerator;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+/**
+ * The Tia Gradle plugin ({@code org.tiatesting.tia}). Creates the {@code tia} extension and Tia's
+ * tasks, and when a test task is run wires Tia into the project's test tasks: the task action from
+ * {@link TiaTestTaskConfigurer}, the Tia module for the project's test framework on the test
+ * runtime classpath, and the jacoco plugin when a test task updates the mapping.
+ */
+public class TiaPlugin implements Plugin<Project> {
+
+    private static final Logger LOGGER = Logging.getLogger(TiaPlugin.class);
+
+    /**
+     * Name of the distributed-run completion task. Public because the build-tool bridge that wires
+     * it as a test task's finalizer needs to know whether this build already registered one - a
+     * distributed run supports exactly one test task per runner, and the bridge fails with that
+     * explanation rather than letting Gradle's duplicate-task-name error stand in for it.
+     */
+    public static final String DIST_COMPLETE_TASK_NAME = "tia-dist-complete";
+
+    /**
+     * Name of the configuration holding the VCS provider module. Defaults to
+     * {@code org.tiatesting:tia-vcs-<detected VCS>} at this plugin's version; a dependency the user
+     * declares in it replaces the default.
+     */
+    public static final String VCS_CONFIGURATION_NAME = "tiaVcs";
+
+    private TiaBaseTaskExtension tiaTaskExtension;
+    private Project project;
+
+    /** The project's test framework adapter, detected once the project is evaluated. */
+    private TestFrameworkAdapter testFrameworkAdapter;
+
+    @Override
+    public void apply(Project project) {
+        this.project = project;
+        this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
+        createVcsConfiguration();
+        createStatusTask();
+        createLibrariesTask();
+        createTextReportTask();
+        createHtmlReportTask();
+        createSelectTestsTask();
+        createHistoryTask();
+        createHistoryDetailsTask();
+        createLibraryPublishesTask();
+        createLibraryPendingMethodsTask();
+        createDistPlanTask();
+        createDistStatusTask();
+        hookPublishStampTasks();
+        applyToTestTasksWhenRequested();
+    }
+
+    /**
+     * Wire Tia into the project's test tasks, but only when the build was asked to run one of them,
+     * so a build that runs no tests gets no Tia test runtime dependency and no jacoco plugin.
+     */
+    private void applyToTestTasksWhenRequested() {
+        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
+        for (Test task : project.getTasks().withType(Test.class)) {
+            if (taskNames.contains(task.getName())) {
+                applyToTestTasks();
+                return;
+            }
+        }
+    }
+
+    /**
+     * Attach Tia's task action to every test task, register the once-per-project hook that wires
+     * each one's {@code tia-dist-complete} finalizer, and configure the test runtime once the
+     * build script has set the {@code tia} extensions.
+     */
+    private void applyToTestTasks() {
+        TiaTestTaskConfigurer configurer = new TiaTestTaskConfigurer(this::getTestFrameworkAdapter);
+        project.getTasks().withType(Test.class).configureEach(configurer::applyTo);
+        configurer.wireDistCompleteFinalizers(project);
+        project.afterEvaluate(p -> configureTestRuntime());
+    }
+
+    /**
+     * After evaluation, for the test tasks Tia is enabled on: apply the jacoco plugin if any of them
+     * updates the mapping, detect the test framework, and add its Tia module to
+     * {@code testRuntimeOnly} at this plugin's version. Each flag is the test task's own value when
+     * set, otherwise the project's - the rule the task action applies when it merges the two.
+     */
+    void configureTestRuntime() {
+        boolean anyEnabled = false;
+        boolean anyUpdatingMapping = false;
+        for (Test testTask : project.getTasks().withType(Test.class)) {
+            Object extension = testTask.getExtensions().findByName("tia");
+            if (!(extension instanceof TiaBaseTaskExtension)) {
+                continue;
+            }
+            TiaBaseTaskExtension taskExtension = (TiaBaseTaskExtension) extension;
+            if (resolveFlag(taskExtension.getEnabled(), tiaTaskExtension.getEnabled())) {
+                anyEnabled = true;
+                anyUpdatingMapping |= resolveFlag(taskExtension.getUpdateDBMapping(),
+                        tiaTaskExtension.getUpdateDBMapping());
+            }
+        }
+        if (!anyEnabled) {
+            return;
+        }
+
+        if (anyUpdatingMapping) {
+            project.getPluginManager().apply("jacoco");
+        }
+        testFrameworkAdapter = TestFrameworkDetector.detect(tiaTaskExtension.getTestFramework(),
+                declaredTestDependencyGroups());
+        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
+                "org.tiatesting:" + testFrameworkAdapter.runtimeArtifactId() + ":" + TiaVersion.get());
+    }
+
+    /**
+     * The groups of the dependencies declared for the project's tests, including those inherited
+     * from {@code implementation} and friends, read without resolving any configuration.
+     *
+     * @return the declared dependency groups
+     */
+    private Set<String> declaredTestDependencyGroups() {
+        Set<String> groups = new HashSet<>();
+        for (String name : Arrays.asList(JavaPlugin.TEST_COMPILE_CLASSPATH_CONFIGURATION_NAME,
+                JavaPlugin.TEST_RUNTIME_CLASSPATH_CONFIGURATION_NAME)) {
+            Configuration configuration = project.getConfigurations().findByName(name);
+            if (configuration != null) {
+                for (Dependency dependency : configuration.getAllDependencies()) {
+                    groups.add(dependency.getGroup());
+                }
+            }
+        }
+        return groups;
+    }
+
+    /**
+     * @param taskValue the test task's own value for a flag, which wins when set
+     * @param projectValue the project-level extension's value, the fallback
+     * @return true only when the resolved value is {@link Boolean#TRUE}
+     */
+    private static boolean resolveFlag(final Boolean taskValue, final Boolean projectValue) {
+        return Boolean.TRUE.equals(taskValue != null ? taskValue : projectValue);
+    }
+
+    /**
+     * @return the project's test framework adapter
+     * @throws IllegalStateException if a test task runs before the framework was detected
+     */
+    TestFrameworkAdapter getTestFrameworkAdapter() {
+        if (testFrameworkAdapter == null) {
+            throw new IllegalStateException("Tia has not detected this project's test framework: Tia is "
+                    + "not enabled for any test task at configuration time.");
+        }
+        return testFrameworkAdapter;
+    }
+
+    /**
+     * Register the {@code tia-dist-plan} task - plans a distributed test run by running the same
+     * test selection a normal build would, then splitting the selected suites into groups
+     * persisted to the shared database so a CI pipeline can fan out one job per group. Mirrors the
+     * Maven {@code dist-plan} goal's sequence exactly: both call {@link
+     * org.tiatesting.core.distributed.DistributedRunPreconditions#check}, build a {@code
+     * DistributedRunConfig}, run selection, hand it to {@link
+     * org.tiatesting.core.distributed.DistributedRunPlanner#plan}, and write the result via {@link
+     * org.tiatesting.core.distributed.DistributedRunPlanWriter} - the same writer class the Maven
+     * goal uses, so the two build tools cannot drift on the file's format. Registered like {@link
+     * #createHistoryTask()} and {@link #createLibraryPublishesTask()}: a dedicated task class with
+     * its dependencies injected at registration time rather than resolved at plugin-apply time.
+     */
+    public void createDistPlanTask() {
+        project.getTasks().register("tia-dist-plan", TiaDistPlanTask.class, task -> {
+            task.setPlugin(this);
+        });
+    }
+
+    /**
+     * Register the {@code tia-dist-status} task - prints the state of a distributed test run: the
+     * run itself, every group in its plan, and the runner that claimed each one. The Gradle
+     * equivalent of the Maven {@code dist-status} goal, sharing its whole report with it through
+     * {@link org.tiatesting.core.distributed.DistributedRunStatusReport}.
+     *
+     * <p>Registered unconditionally, like {@link #createDistPlanTask()} and unlike {@link
+     * #createDistCompleteTask(String)}: the task is read-only and reports the shared database's view
+     * of a run rather than anything this build did, so it is useful from a workspace that took no
+     * part in the run - including one whose build is not configured for distributed mode at all.
+     */
+    public void createDistStatusTask() {
+        project.getTasks().register("tia-dist-status", TiaDistStatusTask.class, task -> {
+            task.setPlugin(this);
+        });
+    }
+
+    /**
+     * Register the {@code tia-dist-complete} task for one distributed test task - completes that
+     * test task's claimed group and, if this runner happens to be the last one to finish, seals the
+     * distributed build. The Gradle equivalent of the Maven {@code dist-complete} goal.
+     *
+     * <p>Unlike {@link #createDistPlanTask()}, which every build registers unconditionally at
+     * plugin-apply time, this task must exist only for a distributed build: a non-distributed
+     * Gradle build must gain no task and no finalizer. So this method is not called from {@link
+     * #apply(Project)} at all - it is called from the build-tool bridge that applies Tia to a test
+     * task (currently only {@code TiaTestTaskConfigurer}), once that bridge has
+     * resolved the merged {@code tia { distributed = ... } } flag at configuration time (in a
+     * {@code project.afterEvaluate} block, since the task graph - and therefore any {@code
+     * finalizedBy} wiring - is built before execution, while the fully-merged flag is normally only
+     * available inside the test task's own {@code doFirst} action).
+     *
+     * @param testTaskPath the {@link org.gradle.api.Task#getPath()} of the test task whose claim
+     *                      the registered task completes; injected into the task at registration via
+     *                      {@link TiaDistCompleteTask#setTestTaskPath(String)}
+     * @return the registered task's provider, for the caller to wire {@code testTask.finalizedBy(...)}
+     *         with
+     */
+    public TaskProvider<TiaDistCompleteTask> createDistCompleteTask(final String testTaskPath) {
+        return project.getTasks().register(DIST_COMPLETE_TASK_NAME, TiaDistCompleteTask.class, task -> {
+            task.setPlugin(this);
+            task.setTestTaskPath(testTaskPath);
+        });
+    }
+
+    /**
+     * Register the {@code tia-library-publishes} task - prints a tracked library's publish
+     * ledger as a table. The library is selected with the {@code --library=groupId:artifactId}
+     * option; mirrors {@link #createHistoryTask()} in shape.
+     */
+    public void createLibraryPublishesTask() {
+        project.getTasks().register("tia-library-publishes", TiaLibraryPublishesTask.class, task -> {
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
+            task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
+        });
+    }
+
+    /**
+     * Register the {@code tia-library-pending-methods} task - prints a tracked library's pending
+     * impacted methods as a table. The library is selected with the
+     * {@code --library=groupId:artifactId} option; mirrors {@link #createHistoryTask()} in shape.
+     */
+    public void createLibraryPendingMethodsTask() {
+        project.getTasks().register("tia-library-pending-methods", TiaLibraryPendingMethodsTask.class, task -> {
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
+            task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
+        });
+    }
+
+    public void createStatusTask() {
+        project.task("tia-status").doLast(task -> {
+            Set<String> suffixes = reportingSchemaSuffixes();
+            for (String suffix : suffixes) {
+                TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                     DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
+                    StatusReportGenerator reportGenerator = new StatusReportGenerator();
+                    System.out.println(reportGenerator.generateSummaryReport(dataStore));
+                }
+            }
+        });
+    }
+
+    /**
+     * Task to print the tracked libraries and their state (project dir, source dirs, versions,
+     * pending impacted-method batches) to stdout. Mirrors {@link #createStatusTask()} in shape;
+     * the status task intentionally no longer includes library information.
+     */
+    public void createLibrariesTask() {
+        project.task("tia-libraries").doLast(task -> {
+            Set<String> suffixes = reportingSchemaSuffixes();
+            for (String suffix : suffixes) {
+                TiaSchemaResolver.printSchemaHeadingIfNeeded(suffix, suffixes.size());
+                try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                     DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), suffix)) {
+                    LibrariesReportGenerator reportGenerator = new LibrariesReportGenerator();
+                    System.out.println(reportGenerator.generateLibrariesReport(dataStore));
+                }
+            }
+        });
+    }
+
+    public void createTextReportTask() {
+        project.task("tia-text-report").doLast(task -> {
+            System.out.println("Starting text report generation");
+            String branch;
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+                branch = workspaceIdentity.getBranch();
+            }
+            for (String suffix : reportingSchemaSuffixes()) {
+                try (DataStore dataStore = buildDataStore(branch, suffix)) {
+                    TiaData tiaData = dataStore.getTiaData();
+                    File reportOutputDir = getReportOutputDir();
+                    // One report tree per schema, scoped by the same folder mechanism that already
+                    // scopes them per branch - a project with no suffix keeps its existing folder.
+                    ReportGenerator reportGenerator = new TextReportGenerator(
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir);
+                    reportGenerator.generateReports(tiaData);
+                    System.out.println("Text report generated successfully at " + reportOutputDir.getAbsolutePath());
+                }
+            }
+        });
+    }
+
+    public void createHtmlReportTask() {
+        project.task("tia-html-report").doLast(task -> {
+            System.out.println("Starting HTML report generation");
+            String branch;
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+                branch = workspaceIdentity.getBranch();
+            }
+            for (String suffix : reportingSchemaSuffixes()) {
+                try (DataStore dataStore = buildDataStore(branch, suffix)) {
+                    TiaData tiaData = dataStore.getTiaData();
+                    File reportOutputDir = getReportOutputDir();
+                    // One report tree per schema, scoped by the same folder mechanism that already
+                    // scopes them per branch - a project with no suffix keeps its existing folder.
+                    ReportGenerator reportGenerator = new HtmlReportGenerator(
+                            TiaSchemaResolver.reportFolderName(branch, suffix), reportOutputDir, dataStore);
+                    reportGenerator.generateReports(tiaData);
+                    System.out.println("HTML report generated successfully at " + reportOutputDir.getAbsolutePath());
+                }
+            }
+        });
+    }
+
+    /**
+     * Task to show the tests Tia will select for the workspace. Used to preview what tests Tia will select to run
+     * without actually running the tests. Selection runs with {@code updateDBMapping=false}: library reconcile
+     * and pending-stamp persistence are skipped, but drain analysis still runs (read-only) so the preview
+     * matches what the test task would select.
+     */
+    public void createSelectTestsTask() {
+        project.task("tia-select-tests").doLast(task -> {
+            System.out.println("Displaying the tests selected by Tia.");
+            Set<String> selectSuffixes = reportingSchemaSuffixes();
+            for (String selectSuffix : selectSuffixes) {
+            TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
+            try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
+                 DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
+                List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
+                StringUtil.sanitizeInputArray(sourceFilesDirs);
+                List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
+                StringUtil.sanitizeInputArray(testFilesDirs);
+                TestSelector testSelector = new TestSelector(dataStore);
+                LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
+                StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
+                // Read-only preview: no mapping writes (updateDBMapping=false).
+                // The preview diffs the workspace, so it takes the identity's own reader rather
+                // than constructing a second one - the branch may be configured, the diff never is.
+                TestSelectorResult result = testSelector.selectTestsToIgnore(workspaceIdentity.openVCSReader(), sourceFilesDirs,
+                        testFilesDirs, isCheckLocalChanges(), libraryConfig, staticMappingConfig, false,
+                        getSelectionMode());
+                Set<String> testsToRun = result.getTestsToRun();
+                String lineSep = System.lineSeparator();
+
+                System.out.println("Selected tests to run: ");
+                if (result.isRunAllTests()) {
+                    // Every test runs: a seed (no stored mapping, testsToRun empty - see
+                    // TestSelectorResult#isRunAllTests) or a forced run. Checked first so a seed is
+                    // reported distinctly from "nothing selected" below.
+                    System.out.println(SelectTestsOutputFormatter.formatRunAllReason(
+                            result.getSelectionMode()));
+                    printDistributedRunPreview(result, buildDistributedGroupingIfConfigured(result),
+                            lineSep);
+                } else if (testsToRun.isEmpty()){
+                    System.out.println("none");
+                } else {
+                    System.out.println(SelectTestsOutputFormatter.formatSelectedTestsList(result, lineSep));
+                    // Balanced before the estimate is printed, not inside the preview below it,
+                    // because the estimate block reports the heaviest group as the time a
+                    // distributed build waits for. Balancing once and passing the result down also
+                    // keeps the balancer's debug logging to a single account of the packing.
+                    GroupingResult grouping = buildDistributedGroupingIfConfigured(result);
+                    // Include the mapping overhead in the estimate when the actual run being
+                    // previewed will collect coverage (the configured updateDBMapping).
+                    System.out.println(SelectTestsOutputFormatter.formatEstimateBlock(result, lineSep,
+                            Boolean.TRUE.equals(getUpdateDBMapping()),
+                            grouping == null ? null : Long.valueOf(grouping.getHeaviestGroupMs())));
+                    printDistributedRunPreview(result, grouping, lineSep);
+                }
+            }
+            }
+        });
+    }
+
+    /**
+     * Balance the selection into groups for preview purposes when the user has configured a
+     * distributed run group count or target run time in the {@code tia { ... }} extension, so a
+     * developer running
+     * {@code tia-select-tests} can see how the selection would be split across runners without
+     * creating an actual plan. A user who has not configured either property sees no change at all
+     * in this task's output - {@link #getDistributedGroupCount()} and {@link
+     * #getDistributedTargetRunTime()} are both {@code null} unless explicitly set, so this returns
+     * {@code null} for every non-distributed build.
+     *
+     * <p>Separate from {@link #printDistributedRunPreview} because the grouping is needed before the
+     * preview is printed: the estimate block above it reports the heaviest group as the time a
+     * distributed build waits for. Balancing once and passing the result to both consumers also
+     * keeps {@code TestGroupBalancer}'s debug logging to one account of how the suites were packed.
+     *
+     * <p>Calls {@link DistributedRunPlanner#balance}, never {@link DistributedRunPlanner#plan} -
+     * {@code plan} persists a claimable run to the shared database, which a preview must not do.
+     * It also does not build a {@code DistributedRunConfig} or call {@code
+     * DistributedRunPreconditions.check}: a config requires a {@code tia.runId} this task does not
+     * have, and previewing against an embedded database - which a real distributed run would
+     * reject - is a legitimate thing to want here since nothing is written.
+     *
+     * <p>{@code tia-select-tests} is a read-only task every developer runs, often against a shared
+     * convention plugin's distributed-run properties that developer did not set and may not even
+     * be aware of; a misconfiguration in those properties (for example both {@link
+     * #getDistributedGroupCount()} and {@link #getDistributedTargetRunTime()} set) must not throw
+     * out of this task's {@code doLast} closure and abort the build. {@link
+     * DistributedRunPlanner#balance} throws {@link IllegalArgumentException} for every way the
+     * grouping shape can be invalid, so that is caught here and printed as a skip notice instead of
+     * propagating - the real {@code tia-dist-plan} task is still the one place a bad configuration
+     * fails the build.
+     *
+     * @param selection the test selection already computed by {@link #createSelectTestsTask()},
+     *                   whose selected suites and their estimated run times are what the preview
+     *                   balances
+     * @return the grouping to preview, or null when no distributed shape is configured or the
+     *         configured one is invalid (in which case a skip notice has been printed)
+     */
+    GroupingResult buildDistributedGroupingIfConfigured(final TestSelectorResult selection) {
+        if (!isDistributedPreviewConfigured()) {
+            return null;
+        }
+        try {
+            Supplier<Set<String>> seedTestSuiteProvider =
+                    () -> TestClassScanner.scanTestSuiteNames(resolveTestClassesDirsCsv());
+            return DistributedRunPlanner.balance(selection, Boolean.TRUE.equals(getUpdateDBMapping()),
+                    getDistributedGroupCount(), getDistributedTargetRunTime(), getDistributedMaxGroups(),
+                    seedTestSuiteProvider);
+        } catch (IllegalArgumentException e) {
+            System.out.println("Distributed run grouping preview skipped: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Print the grouping preview block for an already-balanced grouping, or nothing at all when
+     * there is none - a non-distributed build, or one whose configured shape {@link
+     * #buildDistributedGroupingIfConfigured} rejected and already reported.
+     *
+     * @param selection the test selection the grouping was balanced from; its {@link
+     *                   TestSelectorResult#isRunAllTests()} is what tells the formatter to render
+     *                   the block as a seed run's
+     * @param grouping the balanced grouping to describe, or null to print nothing
+     * @param lineSep the line separator to use between lines, matching the rest of this task's
+     *                output
+     */
+    void printDistributedRunPreview(final TestSelectorResult selection, final GroupingResult grouping,
+                                     final String lineSep) {
+        if (grouping == null) {
+            return;
+        }
+        System.out.println(DistributedRunPreviewFormatter.formatPreview(grouping,
+                getDistributedTargetRunTime(), selection.getSelectionMode(), lineSep));
+    }
+
+    /**
+     * Report whether this build has configured a distributed run shape, and therefore whether a
+     * grouping is balanced for the estimate block and the preview below it.
+     *
+     * @return true when either a group count or a target run time is configured
+     */
+    private boolean isDistributedPreviewConfigured() {
+        return getDistributedGroupCount() != null || getDistributedTargetRunTime() != null;
+    }
+
+    /**
+     * Task to print the most recent rows from {@code tia_test_run_history} to stdout.
+     * Mirrors {@link #createSelectTestsTask()} in shape but registers a {@link TiaHistoryTask}
+     * subclass instead of an inline {@code doLast} closure so the {@code --last N} CLI flag
+     * can be wired in via Gradle's {@code @Option} machinery. Default cap is 20.
+     */
+    public void createHistoryTask() {
+        project.getTasks().register("tia-history", TiaHistoryTask.class, task -> {
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
+            task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
+        });
+    }
+
+    /**
+     * Task to print one recorded test run's full selection breakdown to stdout, looked up by the
+     * {@code --id} option. Mirrors {@link #createHistoryTask()} in shape but registers a
+     * {@link TiaHistoryDetailsTask} subclass instead of an inline {@code doLast} closure so the
+     * {@code --id} CLI flag can be wired in via Gradle's {@code @Option} machinery.
+     */
+    public void createHistoryDetailsTask() {
+        project.getTasks().register("tia-history-details", TiaHistoryDetailsTask.class, task -> {
+            task.setWorkspaceIdentitySupplier(this::workspaceIdentity);
+            task.setDataStoreFactory(this::buildDataStore);
+            task.setSchemaSuffixes(this::reportingSchemaSuffixes);
+        });
+    }
+
+    /**
+     * Check if Tia should analyze local changes.
+     * If we're updating the DB, we shouldn't check for local changes as the DB needs to be in sync with
+     * committed changes only.
+     *
+     * @return should Tia check for unsubmitted changes
+     */
+    private boolean isCheckLocalChanges(){
+        if (getUpdateDBMapping()){
+            return false;
+        } else {
+            return getCheckLocalChanges();
+        }
+    }
+
+    /**
+     * Hook the Tia publish stamp onto this project's Maven publish tasks so a library module
+     * publishing an artifact records the build in the publish ledger and stamps the source
+     * methods impacted since its mapping baseline. Matches the aggregate {@code publish} task
+     * (remote repositories) and {@code publishToMavenLocal} (the local {@code ~/.m2} analog of
+     * {@code mvn install}, where a local consumer build resolves from) by name via
+     * {@code configureEach}, so the hook attaches whether the {@code maven-publish} plugin is
+     * applied before or after Tia and is a silent no-op on projects that never publish.
+     * See the library publish-time stamping chapter in {@code WIKI.md}.
+     */
+    private void hookPublishStampTasks() {
+        project.getTasks().configureEach(task -> {
+            if ("publish".equals(task.getName()) || "publishToMavenLocal".equals(task.getName())) {
+                task.doLast(t -> stampPublish());
+            }
+        });
+    }
+
+    /**
+     * Record this project's publish in the Tia publish ledger and stamp its impacted methods,
+     * evaluating this project's own configured static test selection rules (built the same way
+     * as the {@code tia-select-tests} task, via {@link #buildStaticTestSelectionConfig()}) against
+     * the files changed since the previous publish. No-ops when Tia is disabled or this build does
+     * not own mapping-DB writes ({@code updateDBMapping=false}, e.g. a developer machine against a
+     * shared DB - the local development flow is covered app-side without persisted stamps). The
+     * stamper itself skips, with a warning, when this project is not a tracked library in the Tia DB.
+     */
+    private void stampPublish() {
+        if (!Boolean.TRUE.equals(getEnabled())) {
+            LOGGER.debug("Tia is disabled - skipping publish stamp.");
+            return;
+        }
+        if (!Boolean.TRUE.equals(getUpdateDBMapping())) {
+            LOGGER.info("Tia publish stamp skipped: this build does not own mapping-DB writes "
+                    + "(updateDBMapping=false).");
+            return;
+        }
+
+        String groupArtifact = project.getGroup() + ":" + project.getName();
+        String publishedVersion = String.valueOf(project.getVersion());
+        String jarFilePath = resolveBuiltArchivePath();
+
+        StaticTestSelectionConfig staticConfig = buildStaticTestSelectionConfig();
+
+        // Unlike the reporting tasks this one cannot be satisfied by a configured branch alone -
+        // the stamper reads the publish's own commit from the VCS - but it still opens one reader
+        // for the whole publish rather than one per consuming schema, and closes it.
+        try (WorkspaceIdentity workspaceIdentity = workspaceIdentity()) {
+            stampPublishToEachConsumingSchema(groupArtifact, publishedVersion, jarFilePath,
+                    workspaceIdentity.openVCSReader(), workspaceIdentity.getBranch(), staticConfig);
+        }
+    }
+
+    /**
+     * Write the publish stamp into every schema that consumes this library.
+     *
+     * <p>The list is declared, never derived. The consuming app is a separate build, so this
+     * project cannot see its schemas - and a stamp written to a schema no consumer reads is never
+     * drained, leaving the suites the library change affects un-run. Unset means the single schema
+     * this project itself resolves to, which is where the stamp has always gone and is right
+     * whenever the consumers use the plain {@code tia_<branch>} schema.
+     *
+     * <p><b>Stamping several schemas is not atomic.</b> Each is its own connection and its own
+     * transaction, and the publish itself has already happened by the time this runs, so a failure
+     * part-way leaves some schemas recording the publish and others not - and the ones that missed
+     * it will never force-run the affected suites. Every schema is therefore attempted rather than
+     * failing at the first, so the damage is as small as it can be, and the build then fails naming
+     * exactly which schemas hold the stamp and which do not. A warning would not do: the failure it
+     * describes is silent under-selection, which nobody discovers from a log line.
+     *
+     * @param groupArtifact the published library's {@code groupId:artifactId}
+     * @param publishedVersion the version being published
+     * @param jarFilePath the built archive's path, for content hashing; may be null
+     * @param vcsReader this project's VCS reader
+     * @param branch the branch whose schemas are stamped
+     * @param staticConfig this project's static test selection configuration
+     */
+    private void stampPublishToEachConsumingSchema(final String groupArtifact,
+                                                   final String publishedVersion,
+                                                   final String jarFilePath,
+                                                   final VCSReader vcsReader,
+                                                   final String branch,
+                                                   final StaticTestSelectionConfig staticConfig) {
+        List<String> targetSuffixes = declaredLibraryStampSchemas();
+        if (targetSuffixes.isEmpty()) {
+            targetSuffixes = new ArrayList<>(reportingSchemaSuffixes());
+        }
+
+        List<String> stamped = new ArrayList<>();
+        Map<String, String> failed = new LinkedHashMap<>();
+
+        for (String suffix : targetSuffixes) {
+            String schemaLabel = suffix == null ? "(none)" : suffix;
+            try (DataStore dataStore = buildDataStore(branch, suffix)) {
+                LibraryPublishStamper.PublishStampResult result = new LibraryPublishStamper()
+                        .stampPublish(dataStore, vcsReader, groupArtifact, publishedVersion,
+                                jarFilePath, staticConfig);
+                LOGGER.info("Tia publish stamp for {} {} into schema {}: {} (seq {}, {} methods).",
+                        groupArtifact, publishedVersion, schemaLabel, result.getOutcome(),
+                        result.getPublishSeq(), result.getStampedMethodIds().size());
+                stamped.add(schemaLabel);
+            } catch (RuntimeException e) {
+                LOGGER.error("Tia publish stamp for {} {} FAILED for schema {}.", groupArtifact,
+                        publishedVersion, schemaLabel, e);
+                failed.put(schemaLabel, String.valueOf(e.getMessage()));
+            }
+        }
+
+        if (!failed.isEmpty()) {
+            throw new GradleException("Tia: the publish stamp for " + groupArtifact + " "
+                    + publishedVersion + " reached " + stamped + " but FAILED for " + failed.keySet()
+                    + ". Those schemas have no record of this publish, so they will never drain the"
+                    + " methods it changed and never re-run the suites those methods affect - a"
+                    + " silent gap in their selection until the library publishes again. Re-run the"
+                    + " publish stamp once the cause is fixed. Failures: " + failed);
+        }
+    }
+
+    /**
+     * The consuming schema suffixes declared for a library publish stamp, parsed from the
+     * comma-separated setting.
+     *
+     * @return the declared suffixes with blanks discarded, or an empty list when none is declared
+     */
+    private List<String> declaredLibraryStampSchemas() {
+        List<String> suffixes = new ArrayList<>();
+        String declared = tiaTaskExtension.getLibraryStampSchemas();
+        if (declared == null || declared.trim().isEmpty()) {
+            return suffixes;
+        }
+
+        for (String entry : declared.split(",")) {
+            String trimmed = entry.trim();
+            if (!trimmed.isEmpty()) {
+                suffixes.add(trimmed);
+            }
+        }
+        return suffixes;
+    }
+
+    /**
+     * Resolve the file path of the archive this project's {@code jar} task produced, for
+     * content-hashing into the ledger row. When no built archive is available the publish is
+     * still recorded, with a null hash - the drain then identifies the build by exact version
+     * for releases.
+     *
+     * @return the built jar's absolute path, or null when the jar task or its output is absent.
+     */
+    private String resolveBuiltArchivePath() {
+        Task jarTask = project.getTasks().findByName("jar");
+        if (jarTask instanceof AbstractArchiveTask) {
+            File archive = ((AbstractArchiveTask) jarTask).getArchiveFile().get().getAsFile();
+            if (archive.exists()) {
+                return archive.getAbsolutePath();
+            }
+        }
+        LOGGER.warn("No built jar archive found - the publish will be recorded without a jar hash.");
+        return null;
+    }
+
+    /**
+     * Create the {@value #VCS_CONFIGURATION_NAME} configuration. It is resolved only when a task
+     * needs a VCS reader, and kept off the buildscript class path - its jars are loaded in an
+     * isolated class loader - so JGit or p4java can never clash with another plugin's copy, and a
+     * project only downloads the VCS library it uses. The default dependency is worked out when the
+     * configuration is resolved, after the build script has configured the {@code tia} extension.
+     * {@code tia-core} is excluded: the plugin already has it, and the provider must share its types.
+     */
+    private void createVcsConfiguration() {
+        Configuration configuration = project.getConfigurations().create(VCS_CONFIGURATION_NAME);
+        configuration.setCanBeConsumed(false);
+        configuration.setVisible(false);
+        configuration.setDescription("The Tia VCS provider module, resolved when a Tia task reads the VCS.");
+        Map<String, String> tiaCore = new HashMap<>();
+        tiaCore.put("group", VCSReaderFactory.PROVIDER_GROUP_ID);
+        tiaCore.put("module", "tia-core");
+        configuration.exclude(tiaCore);
+        configuration.defaultDependencies(dependencies -> dependencies.add(project.getDependencies().create(
+                VCSReaderFactory.PROVIDER_GROUP_ID + ":"
+                        + VCSReaderFactory.providerArtifactId(VcsDetector.detect(buildVcsSettings()))
+                        + ":" + TiaVersion.get())));
+    }
+
+    /**
+     * Construct a reader for the project's version control system. A VCS provider on the plugin's
+     * own class path (the buildscript class path) is used directly; otherwise the
+     * {@value #VCS_CONFIGURATION_NAME} configuration is resolved and its provider loaded in an
+     * isolated class loader owned by the build.
+     *
+     * @return a new reader; the caller must close it
+     * @throws GradleException if the resolved configuration holds no VCS provider
+     */
+    public VCSReader getVCSReader() {
+        VcsSettings settings = buildVcsSettings();
+        Optional<VCSReader> declared = VCSReaderFactory.create(settings, TiaPlugin.class.getClassLoader());
+        if (declared.isPresent()) {
+            return declared.get();
+        }
+        return VCSReaderFactory.create(settings, vcsProviderClassLoader())
+                .orElseThrow(() -> new GradleException("The " + VCS_CONFIGURATION_NAME + " configuration of "
+                        + "project '" + project.getPath() + "' holds no Tia VCS provider."));
+    }
+
+    /**
+     * Resolve the {@value #VCS_CONFIGURATION_NAME} configuration and get the build's class loader
+     * over its jars.
+     *
+     * @return a class loader on which the VCS provider is registered
+     */
+    ClassLoader vcsProviderClassLoader() {
+        List<File> files = new ArrayList<>(project.getConfigurations().getByName(VCS_CONFIGURATION_NAME).getFiles());
+        VcsProviderClassLoaders loaders = project.getGradle().getSharedServices()
+                .registerIfAbsent(VcsProviderClassLoaders.NAME, VcsProviderClassLoaders.class, spec -> { })
+                .get();
+        return loaders.get(files, TiaPlugin.class.getClassLoader());
+    }
+
+    /**
+     * The configured project directory as an absolute path, resolved against the Gradle project's
+     * directory when relative (the daemon's working directory is not necessarily the project's), and
+     * the Gradle project's directory when unset.
+     *
+     * @return the absolute project directory the VCS is detected and read from
+     */
+    private String resolveVcsProjectDir() {
+        String configured = getProjectDir();
+        if (configured == null || configured.trim().isEmpty()) {
+            return project.getProjectDir().getAbsolutePath();
+        }
+        File dir = new File(configured);
+        return dir.isAbsolute() ? dir.getPath() : new File(project.getProjectDir(), configured).getPath();
+    }
+
+    /**
+     * Build the VCS settings from the project-level {@code tia} extension.
+     *
+     * @return the VCS settings
+     */
+    VcsSettings buildVcsSettings() {
+        return VcsSettings.builder()
+                .projectDir(resolveVcsProjectDir())
+                .enabled(true)
+                .vcsName(tiaTaskExtension.getVcs())
+                .serverUri(tiaTaskExtension.getVcsServerUri())
+                .userName(tiaTaskExtension.getVcsUserName())
+                .password(tiaTaskExtension.getVcsPassword())
+                .clientName(tiaTaskExtension.getVcsClientName())
+                .build();
+    }
+
+    /**
+     * @return the configured branch override from the {@code tia { ... }} extension, or
+     *         {@code null} to read the branch from the version control system
+     */
+    public String getBranch() {
+        return tiaTaskExtension.getBranch();
+    }
+
+    /**
+     * @return the configured commit override from the {@code tia { ... }} extension, or
+     *         {@code null} to read the head commit from the version control system
+     */
+    public String getCommitValue() {
+        return tiaTaskExtension.getCommitValue();
+    }
+
+    /**
+     * Resolve this build's branch and commit, from the configured overrides where they are set and
+     * from the version control system where they are not.
+     *
+     * <p>Every task that needs either value goes through this rather than calling {@link
+     * #getVCSReader()} itself, for two reasons. A configured value must never cause a reader to be
+     * constructed - that is what lets a distributed runner with no {@code .git} directory resolve
+     * its schema at all. And the tasks must agree on the answer: a plan written to the schema the
+     * version control system reported while its runners claim from the schema {@code tia.branch}
+     * named would leave every runner unable to find the plan.
+     *
+     * <p>The returned identity holds at most one reader and closes it, so callers must close it -
+     * use try-with-resources. A caller that also needs diffs takes the same reader from it through
+     * {@code openVCSReader()} rather than constructing a second one. That closing also ends a
+     * long-standing leak: the task actions used to call {@link #getVCSReader()} inline and never
+     * close the JGit repository it opened.
+     *
+     * @return this build's workspace identity; never null
+     */
+    public WorkspaceIdentity workspaceIdentity() {
+        return WorkspaceIdentity.resolving(getBranch(), getCommitValue(), this::getVCSReader);
+    }
+
+    public String getProjectDir() {
+        return tiaTaskExtension.getProjectDir();
+    }
+
+    public String getClassFilesDirs() {
+        return tiaTaskExtension.getClassFilesDirs();
+    }
+
+    public String getSourceFilesDirs() {
+        return tiaTaskExtension.getSourceFilesDirs();
+    }
+
+    public String getTestFilesDirs() {
+        return tiaTaskExtension.getTestFilesDirs();
+    }
+
+    public String getDbFilePath() {
+        return tiaTaskExtension.getDbFilePath();
+    }
+
+    public String getDbUrl() {
+        return tiaTaskExtension.getDbUrl();
+    }
+
+    public String getDbUser() {
+        return tiaTaskExtension.getDbUser();
+    }
+
+    public String getDbPassword() {
+        return tiaTaskExtension.getDbPassword();
+    }
+
+    /**
+     * @return the configured SQL dialect override from the {@code tia { ... }} extension, or
+     *         {@code null} to infer the dialect from {@link #getDbUrl()}
+     */
+    public String getDbDialect() {
+        return tiaTaskExtension.getDbDialect();
+    }
+
+    /**
+     * Resolve the H2 connection settings for the daemon-side Tia tasks. Picks server mode when
+     * {@code dbUrl} is configured, otherwise embedded mode using {@link #resolveDbFilePath()}
+     * (which resolves a relative {@code dbFilePath} against the project dir, not the daemon cwd).
+     *
+     * @return the resolved embedded- or server-mode connection settings
+     */
+    public H2ConnectionSettings buildH2ConnectionSettings() {
+        return H2ConnectionSettings.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
+                resolveDbPassword());
+    }
+
+    /**
+     * Resolve the database password from the channels a build can supply it through, in precedence
+     * order: the configured {@code dbPassword}, then {@code dbPasswordFile}, then the
+     * {@value CredentialResolver#ENV_DB_PASSWORD} environment variable.
+     *
+     * <p>Shared by both daemon-side datastore paths so they cannot disagree about which credential
+     * this build is using. Returns null rather than an empty string when nothing is configured, so
+     * the environment fallback stays with {@code DataStoreFactory} and the null-vs-empty rule -
+     * where an explicitly empty password bypasses the environment - is preserved.
+     *
+     * @return the configured password, or null when only the environment supplies one
+     */
+    public String resolveDbPassword() {
+        String configured = tiaTaskExtension.getDbPassword();
+        if (configured != null) {
+            return configured;
+        }
+        String passwordFile = tiaTaskExtension.getDbPasswordFile();
+        if (passwordFile != null && !passwordFile.trim().isEmpty()) {
+            return CredentialResolver.readPasswordFile(passwordFile);
+        }
+        return null;
+    }
+
+    /**
+     * Build the {@link DataStore} for the daemon-side Tia tasks, resolving the SQL dialect from
+     * the {@code tia { ... }} extension's connection properties via {@link DataStoreFactory}.
+     * Shares {@link #resolveDbFilePath()} with {@link #buildH2ConnectionSettings()} so both
+     * paths agree on the daemon-cwd-vs-projectDir resolution described there.
+     *
+     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
+     *               connection
+     * @return the constructed datastore for the resolved dialect
+     */
+    public DataStore buildDataStore(String branch) {
+        return buildDataStore(branch, null);
+    }
+
+    /**
+     * Open the datastore for a branch and a schema suffix. A null suffix is the unsuffixed
+     * {@code tia_<branch>} schema Tia has always used, so a project that declares none is
+     * unaffected.
+     *
+     * @param branch the VCS branch, the base of the schema name
+     * @param schemaSuffix the schema suffix isolating one test task's datastore, or null for none
+     * @return an open datastore the caller owns and closes
+     */
+    public DataStore buildDataStore(String branch, String schemaSuffix) {
+        return DataStoreFactory.fromConfig(resolveDbFilePath(), getDbUrl(), getDbUser(),
+                resolveDbPassword(), getDbDialect(), branch, schemaSuffix);
+    }
+
+    /**
+     * Open the datastore of this project's one distributed test task.
+     *
+     * <p>Derived rather than selected: a build that configures a second distributed test task is
+     * refused at configuration time, so there is exactly one schema a distributed run can belong to.
+     * The daemon-side distributed tasks must address the same schema the runner's forked test JVM
+     * persists to, or the plan is written where no runner will look for it.
+     *
+     * @param branch the VCS branch, the base of the schema name
+     * @return an open datastore the caller owns and closes
+     */
+    public DataStore buildDistributedDataStore(String branch) {
+        return buildDataStore(branch,
+                TiaSchemaResolver.distributedSchemaSuffix(project, tiaTaskExtension));
+    }
+
+    /**
+     * Resolve every {@code Test} task's compiled test-class directories in this project into a
+     * comma-separated absolute-path CSV, for the seed-run disk scan. Reads the same {@code
+     * getTestClassesDirs()} the Spock/JUnit test extension forwards to the fork as {@code
+     * tiaTestClassesDirs}, so the daemon-side plan scans exactly the directories the runners run
+     * from. A build with a single distributed test task yields that task's directories; the scan
+     * over-includes safely, so gathering every {@code Test} task's directories is fine.
+     *
+     * @return the test-class directories as a comma-separated absolute-path string, empty when the
+     *         project has no {@code Test} task or none has a test-class directory
+     */
+    public String resolveTestClassesDirsCsv() {
+        return project.getTasks().withType(Test.class).stream()
+                .flatMap(task -> task.getTestClassesDirs().getFiles().stream())
+                .map(File::getAbsolutePath)
+                .distinct()
+                .collect(Collectors.joining(","));
+    }
+
+    /**
+     * The schema suffixes this project's reporting tasks iterate: one per distinct suffix declared
+     * across the Tia-enabled test tasks. A single-test-task project yields exactly one entry - null
+     * - so every reporting task behaves as it always has.
+     *
+     * @return the suffixes to report over, possibly containing null
+     */
+    private Set<String> reportingSchemaSuffixes() {
+        return TiaSchemaResolver.schemaSuffixes(project, tiaTaskExtension);
+    }
+
+    /**
+     * Daemon-side tasks ({@code tia-select-tests}, {@code tia-status}, {@code tia-text-report},
+     * {@code tia-html-report}) construct JdbcDataStore directly in the Gradle daemon. The daemon's
+     * {@code user.dir} is set when the daemon process first starts and does not change between
+     * builds, so a relative path like {@code "."} in {@code dbFilePath} resolves against the
+     * daemon's cwd - not the project dir. The forked test JVM doesn't hit this because it gets a
+     * per-build {@code workingDir = projectDir}. Resolve relative paths against {@code projectDir}
+     * so daemon-side tasks find the same DB the test task wrote.
+     *
+     * @return the configured {@code dbFilePath} as an absolute path; relative paths are resolved
+     *         against {@code project.getProjectDir()}.
+     */
+    public String resolveDbFilePath() {
+        String path = getDbFilePath();
+        if (path == null) {
+            return null;
+        }
+        File f = new File(path);
+        if (f.isAbsolute()) {
+            return path;
+        }
+        return new File(project.getProjectDir(), path).getAbsolutePath();
+    }
+
+    public Boolean getEnabled() {
+        return tiaTaskExtension.getEnabled();
+    }
+
+    /**
+     * Resolve every project taking part in the current Gradle build - the root project and all of
+     * its subprojects, regardless of whether Tia is applied to each one - so {@link
+     * TiaDistPlanTask} can reject a multi-project build before opening any datastore, the Gradle
+     * equivalent of a Maven reactor of more than one module. Counting the whole build rather than
+     * only the projects Tia is applied to matters because {@code tia-dist-plan} runs against
+     * whichever project it is invoked on: a build with Tia applied to only one subproject of a
+     * multi-project build still has more than one project taking part, and is still broken the same
+     * way - each project's plan write would clear the previous project's plan from the shared
+     * distributed-run tables, whether or not the other projects have Tia applied to them.
+     *
+     * @return the root project and every subproject of the current build
+     */
+    public Set<Project> getReactorProjects() {
+        return project.getRootProject().getAllprojects();
+    }
+
+    public Boolean getUpdateDBMapping() {
+        return tiaTaskExtension.getUpdateDBMapping();
+    }
+
+    /**
+     * @return whether the current run should log a row to {@code tia_test_run_history}.
+     */
+    public Boolean getUpdateDBTestRunHistory() {
+        return tiaTaskExtension.getUpdateDBTestRunHistory();
+    }
+
+    public Boolean getCheckLocalChanges() {
+        return tiaTaskExtension.getCheckLocalChanges();
+    }
+
+    /**
+     * @return the selection mode the {@code selectAllTests} / {@code reseed} runtime flags ask
+     *         for, with a {@code -P} property winning over the extension - see
+     *         {@link TiaRuntimeFlags}
+     */
+    public SelectionMode getSelectionMode() {
+        return TiaRuntimeFlags.selectionMode(project, tiaTaskExtension);
+    }
+
+    public String getSourceLibs() {
+        return tiaTaskExtension.getSourceLibs();
+    }
+
+    /**
+     * @return whether this build participates in a distributed test run - the master switch the
+     *         claim branches on. The claim is made in the build JVM on both build tools (Gradle's
+     *         daemon test-task action, before the test task forks); see the "Distributed test
+     *         runs" chapter in {@code WIKI.md}.
+     */
+    public Boolean getDistributed() {
+        return tiaTaskExtension.getDistributed();
+    }
+
+    /**
+     * @return the configured distributed run's shared identifier, or {@code null} if not
+     *         configured
+     */
+    public String getRunId() {
+        return tiaTaskExtension.getRunId();
+    }
+
+    /**
+     * @return the configured fixed group count for a distributed run, or {@code null} to use a
+     *         target run time instead
+     */
+    public Integer getDistributedGroupCount() {
+        return tiaTaskExtension.getDistributedGroupCount();
+    }
+
+    /**
+     * @return the configured target wall-clock run time in ms for a distributed run, or {@code
+     *         null} to use a fixed group count instead
+     */
+    public Long getDistributedTargetRunTime() {
+        return tiaTaskExtension.getDistributedTargetRunTime();
+    }
+
+    /**
+     * @return the configured ceiling on the group count for a distributed run, or {@code null}
+     *         for no ceiling
+     */
+    public Integer getDistributedMaxGroups() {
+        return tiaTaskExtension.getDistributedMaxGroups();
+    }
+
+    /**
+     * @return the configured per-runner identity value for a distributed run, or {@code null} to
+     *         let the claim protocol derive one
+     */
+    public String getDistributedRunnerKey() {
+        return tiaTaskExtension.getDistributedRunnerKey();
+    }
+
+    /**
+     * The run source label declared on the project's {@code tia} extension, which the {@code
+     * tia-dist-plan} task records on the distributed run row so the sealed build's history row
+     * carries it whichever runner seals.
+     *
+     * @return the declared run source, or {@code null} to let the planner detect it
+     */
+    public String getRunSource() {
+        return tiaTaskExtension.getRunSource();
+    }
+
+    /**
+     * Resolve the directory the {@code tia-dist-plan} task writes {@code tia-run-plan.json} under.
+     * Defaults to {@code <project build dir>/tia} - the Gradle analog of the Maven goal's {@code
+     * tiaBuildDir} default of {@code ${project.build.directory}/tia} - but is overridable via the
+     * {@code tia { buildDir = ... } } extension property, the Gradle analog of Maven's {@code
+     * -DtiaBuildDir=...}. This lever matters on a multi-project build where the plugin is applied
+     * to a subproject: a CI pipeline that looks for the plan file at a fixed path needs to be able
+     * to point it somewhere predictable, the same way the Maven side already can via {@code
+     * tiaBuildDir}.
+     *
+     * @return the absolute path of the directory the distributed run plan file is written under
+     */
+    public String getTiaBuildDir() {
+        String configured = tiaTaskExtension.getBuildDir();
+        if (configured != null && !configured.trim().isEmpty()) {
+            return configured;
+        }
+        return project.getLayout().getBuildDirectory().getAsFile().get().getPath()
+                + File.separator + "tia";
+    }
+
+    public String getSourceProjectDir() {
+        String dir = tiaTaskExtension.getSourceProjectDir();
+        if (dir == null || dir.trim().isEmpty()) {
+            return getProjectDir();
+        }
+        return dir;
+    }
+
+    public File getReportOutputDir() {
+        if (tiaTaskExtension.getReportOutputDir() != null){
+            return tiaTaskExtension.getReportOutputDir();
+        }else{
+            return new File(project.getLayout().getBuildDirectory().getAsFile().get().getPath() + File.separator + "tia/reports");
+        }
+    }
+
+    /**
+     * Build a {@link LibraryImpactAnalysisConfig} from the Gradle extension properties.
+     *
+     * @return the library impact analysis configuration parsed from the Gradle extension.
+     */
+    protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
+        return buildLibraryImpactAnalysisConfig(getSourceLibs(), getSourceProjectDir(),
+                new LibraryJarResolver(project, LOGGER));
+    }
+
+    /**
+     * Build a {@link LibraryImpactAnalysisConfig} from a {@code sourceLibs} CSV. Shared by the
+     * plugin's own tasks and the test task action, which passes its test task's merged values.
+     *
+     * @param libs the {@code sourceLibs} CSV of {@code groupId:artifactId} or
+     *             {@code groupId:artifactId:projectDir} entries; may be null
+     * @param sourceProjectDir the source project directory the libraries are resolved against
+     * @param reader the resolver used to read library metadata
+     * @return the library impact analysis configuration; an empty one when no libraries are set
+     */
+    public static LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig(final String libs,
+                                                                               final String sourceProjectDir,
+                                                                               final LibraryJarResolver reader) {
+        if (libs == null || libs.trim().isEmpty()) {
+            return new LibraryImpactAnalysisConfig(null, null, null, null);
+        }
+
+        List<String> coordinates = new ArrayList<>();
+        Map<String, String> libraryProjectDirs = new HashMap<>();
+        for (String raw : libs.split(",")) {
+            String entry = raw.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            String[] segments = entry.split(":");
+            if (segments.length == 3) {
+                String coord = segments[0].trim() + ":" + segments[1].trim();
+                coordinates.add(coord);
+                libraryProjectDirs.put(coord, segments[2].trim());
+            } else if (segments.length == 2) {
+                coordinates.add(entry);
+            } else {
+                LOGGER.warn("Invalid tiaSourceLibs entry '{}' - expected groupId:artifactId or groupId:artifactId:projectDir, skipping.", entry);
+            }
+        }
+
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, sourceProjectDir, reader);
+    }
+
+    /**
+     * Build the static test selection configuration from the Gradle extension's
+     * {@code staticTestSelectionRules} list. Validates each entry, parses its mode, and
+     * pre-compiles its regex patterns. Returns {@link StaticTestSelectionConfig#EMPTY} when
+     * no rules are configured.
+     *
+     * @return the parsed static test selection config.
+     * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
+     *                                  mode, or contains an invalid regex.
+     */
+    protected StaticTestSelectionConfig buildStaticTestSelectionConfig() {
+        return buildStaticTestSelectionConfig(tiaTaskExtension.getStaticTestSelectionRules());
+    }
+
+    /**
+     * Build a {@link StaticTestSelectionConfig} from a list of Gradle-side rule POJOs.
+     * Shared by the in-plugin {@code tia-select-tests} task and by the Spock-Gradle bridge
+     * that forwards the config to the forked test JVM via system properties, so both paths
+     * apply identical validation and parsing.
+     *
+     * @param rawRules the rule POJOs collected from the {@code tia} extension; {@code null}
+     *                 or empty yields {@link StaticTestSelectionConfig#EMPTY}.
+     * @return the parsed static test selection config.
+     * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
+     *                                  mode, or contains an invalid regex.
+     */
+    public static StaticTestSelectionConfig buildStaticTestSelectionConfig(
+            final List<GradleStaticTestSelectionRule> rawRules) {
+        if (rawRules == null || rawRules.isEmpty()) {
+            return StaticTestSelectionConfig.EMPTY;
+        }
+
+        List<StaticTestSelectionRule> compiledRules = new ArrayList<>(rawRules.size());
+        for (GradleStaticTestSelectionRule raw : rawRules) {
+            StaticTestSelectionRuleMode mode = parseStaticTestSelectionRuleMode(raw.getMode(), raw.getFilePathPattern());
+            compiledRules.add(new StaticTestSelectionRule(
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns()));
+        }
+        return new StaticTestSelectionConfig(compiledRules);
+    }
+
+    /**
+     * Parse the raw mode string from the Gradle DSL into the core enum. Empty or unknown
+     * values produce a clear error rather than a silent default; we'd rather fail the build
+     * than mis-route a rule.
+     *
+     * @param raw the raw mode string from the Gradle DSL.
+     * @param filePathPattern the rule's file-path pattern, used in the error message.
+     * @return the parsed enum value.
+     * @throws IllegalArgumentException if the value does not match a known mode.
+     */
+    private static StaticTestSelectionRuleMode parseStaticTestSelectionRuleMode(final String raw,
+                                                                                final String filePathPattern) {
+        if (raw == null || raw.trim().isEmpty()) {
+            throw new IllegalArgumentException("Static test selection rule '" + filePathPattern
+                    + "': mode is required (one of RUN_ALL, SUITE_NAMES).");
+        }
+        try {
+            return StaticTestSelectionRuleMode.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Static test selection rule '" + filePathPattern
+                    + "': unknown mode '" + raw + "'. Expected one of RUN_ALL, SUITE_NAMES.");
+        }
+    }
+
+}

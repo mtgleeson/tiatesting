@@ -252,7 +252,7 @@ class DistributedForkPropertiesTest {
      * context directly from a {@link Properties} instance, without touching any system property -
      * the entry point a build-JVM step needs when it reads a fork properties file back without
      * publishing it into its own process's system properties, such as {@code
-     * AbstractTiaDistCompleteMojo} in {@code tia-maven-plugin}.
+     * TiaDistCompleteMojo} in {@code tia-maven-plugin}.
      */
     @Test
     void shouldResolveAClaimedContextFromPropertiesWithoutTouchingSystemProperties() {

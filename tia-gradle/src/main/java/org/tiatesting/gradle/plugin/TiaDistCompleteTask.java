@@ -12,7 +12,7 @@ import org.tiatesting.core.persistence.DataStore;
 /**
  * Gradle task that closes out one runner's share of a distributed test run: completes its claimed
  * group and, if this runner happens to be the last one to finish, seals the build. The Gradle
- * equivalent of the Maven {@code dist-complete} goal ({@code AbstractTiaDistCompleteMojo}).
+ * equivalent of the Maven {@code dist-complete} goal ({@code TiaDistCompleteMojo}).
  *
  * <p>This task exists because only the build tool knows when a test task's retries are finished.
  * Gradle wires it as a {@code finalizedBy} finalizer of the distributed test task, which runs once
@@ -22,13 +22,13 @@ import org.tiatesting.core.persistence.DataStore;
  * <p>Everything this task needs about the claim it is closing out - the run id, the resolved runner
  * key, the claimed group number and the update-DB flags - was already decided when the test task's
  * {@code doFirst} action claimed the group in the daemon (see {@code
- * TiaSpockGitGradlePluginTestExtension#claimDistributedRun}), and recorded in this build's {@link
+ * TiaTestTaskConfigurer#claimDistributedRun}), and recorded in this build's {@link
  * DistributedClaimRegistry}. This task reads that record back by test task path rather than
  * re-deriving any of its values: a runner key it derived for itself would not match the claimed row,
  * and the guarded completion write would match no row and the group would never close.
  *
  * <p>Registered only for a distributed build, so a non-distributed Gradle build gains no task and no
- * finalizer - see {@link TiaBasePlugin#createDistCompleteTask(String)}, called from the build-tool
+ * finalizer - see {@link TiaPlugin#createDistCompleteTask(String)}, called from the build-tool
  * bridge that resolves the merged {@code tia { distributed = ... } } flag at configuration time.
  * With no claim recorded for its test task, this task's action logs at INFO and exits successfully:
  * that is what a build that turned out not to be distributed looks like from here.
@@ -39,13 +39,13 @@ import org.tiatesting.core.persistence.DataStore;
  * nothing stops a pipeline pointing the completion at a different database from the one the claim
  * used. Gradle structurally cannot reach that state: the claim already enforces {@link
  * org.tiatesting.core.distributed.DistributedRunPreconditions#check} against the owning {@link
- * TiaBasePlugin}'s connection settings, this task reads its connection from that same plugin in
+ * TiaPlugin}'s connection settings, this task reads its connection from that same plugin in
  * that same daemon, and running it standalone finds no {@link DistributedClaimRegistry} entry and
  * exits at the no-claim branch above. Adding a check here would guard a case that cannot arise.
  *
  * <p>Implemented as a {@link DefaultTask} subclass, like {@link TiaDistPlanTask}, with its
- * dependencies - the owning {@link TiaBasePlugin} and the test task path whose claim it completes -
- * injected at registration time via {@link #setPlugin(TiaBasePlugin)} and {@link
+ * dependencies - the owning {@link TiaPlugin} and the test task path whose claim it completes -
+ * injected at registration time via {@link #setPlugin(TiaPlugin)} and {@link
  * #setTestTaskPath(String)} rather than resolved when the plugin is applied.
  *
  * <p>See the distributed test runs chapter in {@code WIKI.md} for the lifecycle this task closes.
@@ -54,23 +54,23 @@ public class TiaDistCompleteTask extends DefaultTask {
 
     private static final Logger LOGGER = Logging.getLogger(TiaDistCompleteTask.class);
 
-    private TiaBasePlugin plugin;
+    private TiaPlugin plugin;
     private String testTaskPath;
 
     /**
-     * Inject the owning plugin; called from {@link TiaBasePlugin#createDistCompleteTask(String)} at
+     * Inject the owning plugin; called from {@link TiaPlugin#createDistCompleteTask(String)} at
      * task registration so every configuration getter and datastore/VCS helper this task needs is
      * resolved lazily at execution time rather than at plugin-apply time.
      *
-     * @param plugin the {@link TiaBasePlugin} instance that registered this task
+     * @param plugin the {@link TiaPlugin} instance that registered this task
      */
-    public void setPlugin(TiaBasePlugin plugin) {
+    public void setPlugin(TiaPlugin plugin) {
         this.plugin = plugin;
     }
 
     /**
      * Inject the path of the test task whose distributed-run claim this task completes; called from
-     * {@link TiaBasePlugin#createDistCompleteTask(String)} at task registration.
+     * {@link TiaPlugin#createDistCompleteTask(String)} at task registration.
      *
      * @param testTaskPath the {@link org.gradle.api.Task#getPath()} of the finalized test task
      */
@@ -122,7 +122,7 @@ public class TiaDistCompleteTask extends DefaultTask {
      * the completion and, when elected, the seal.
      *
      * <p>A failure is reported differently depending on which side of the completion/seal barrier it
-     * happened on, mirroring {@code AbstractTiaDistCompleteMojo#completeAndSeal}, which is why this
+     * happened on, mirroring {@code TiaDistCompleteMojo#completeAndSeal}, which is why this
      * catches {@link DistributedRunCompleter.SealFailedAfterCompletionException} separately from any
      * other {@link RuntimeException}: a failure while completing the group (or opening the
      * datastore) leaves the group exactly as it was, safe for the next build to redo; a failure

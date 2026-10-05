@@ -31,6 +31,12 @@ public class TiaBaseTaskExtension {
     private Boolean selectAllTests;
     private Boolean reseed;
     private String runSource;
+    private String testFramework;
+    private String vcs;
+    private String vcsServerUri;
+    private String vcsUserName;
+    private String vcsPassword;
+    private String vcsClientName;
     private String schemaSuffix;
     private String libraryStampSchemas;
     private File reportOutputDir;
@@ -275,6 +281,112 @@ public class TiaBaseTaskExtension {
     }
 
     /**
+     * The test framework Tia wires into the project's test tasks, overriding detection from the
+     * declared test dependencies. Needed when detection cannot see the framework (declared only
+     * through a BOM or platform) or sees more than one. Read from the project-level extension.
+     *
+     * @return the configured framework name, e.g. {@code spock}, or null to detect it
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getTestFramework() {
+        return testFramework;
+    }
+
+    /**
+     * @param testFramework the test framework name, e.g. {@code spock}, or null to detect it
+     */
+    public void setTestFramework(String testFramework) {
+        this.testFramework = testFramework;
+    }
+
+    /**
+     * The version control system to read changes from: {@code git} or {@code perforce}. When
+     * unset, a configured {@link #getVcsServerUri()} means Perforce and a {@code .git} entry in the
+     * project directory or a parent means Git. Read from the project-level extension.
+     *
+     * @return the configured VCS name, or null to detect it
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getVcs() {
+        return vcs;
+    }
+
+    /**
+     * @param vcs the VCS name, or null to detect it
+     */
+    public void setVcs(String vcs) {
+        this.vcs = vcs;
+    }
+
+    /**
+     * The VCS server URI (Perforce). Setting it selects Perforce when {@link #getVcs()} is unset.
+     *
+     * @return the server URI, or null
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getVcsServerUri() {
+        return vcsServerUri;
+    }
+
+    /**
+     * @param vcsServerUri the VCS server URI
+     */
+    public void setVcsServerUri(String vcsServerUri) {
+        this.vcsServerUri = vcsServerUri;
+    }
+
+    /**
+     * @return the user name for connecting to the VCS (Perforce), or null
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getVcsUserName() {
+        return vcsUserName;
+    }
+
+    /**
+     * @param vcsUserName the VCS user name
+     */
+    public void setVcsUserName(String vcsUserName) {
+        this.vcsUserName = vcsUserName;
+    }
+
+    /**
+     * @return the password for connecting to the VCS (Perforce), or null
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getVcsPassword() {
+        return vcsPassword;
+    }
+
+    /**
+     * @param vcsPassword the VCS password
+     */
+    public void setVcsPassword(String vcsPassword) {
+        this.vcsPassword = vcsPassword;
+    }
+
+    /**
+     * @return the client / workspace name used when connecting to the VCS (Perforce), or null
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getVcsClientName() {
+        return vcsClientName;
+    }
+
+    /**
+     * @param vcsClientName the VCS client name
+     */
+    public void setVcsClientName(String vcsClientName) {
+        this.vcsClientName = vcsClientName;
+    }
+
+    /**
      * The schema suffix isolating this test task's datastore from the other test tasks in the
      * project.
      *
@@ -409,7 +521,7 @@ public class TiaBaseTaskExtension {
 
     /**
      * @return the configured directory the {@code tia-dist-plan} task writes {@code
-     *         tia-run-plan.json} under, or {@code null} to use {@link TiaBasePlugin#getTiaBuildDir()}'s
+     *         tia-run-plan.json} under, or {@code null} to use {@link TiaPlugin#getTiaBuildDir()}'s
      *         default of {@code <project build dir>/tia} - the Gradle analog of the Maven goal's
      *         {@code tiaBuildDir} property
      */
