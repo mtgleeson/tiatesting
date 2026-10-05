@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.*;
 
 /**
@@ -10,8 +9,7 @@ import java.util.*;
  * The consumer's drain runs the tests covering every batch at or below the sequence of the build
  * it resolved. See the ledger and drain sections of the library publish-time stamping chapter in {@code WIKI.md}.
  */
-public class PendingLibraryImpactedMethod implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class PendingLibraryImpactedMethod {
 
     /** {@code groupId:artifactId} of the tracked library. */
     private String groupArtifact;
