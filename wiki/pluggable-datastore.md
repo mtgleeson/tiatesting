@@ -116,8 +116,8 @@ Tia bundles only the H2 driver (H2 is a `tia-core` compile dependency). For ever
 the JDBC driver has to be supplied by the user - but "add the driver as a dependency" is not one
 step, because Tia's own code runs on **two separate classpaths** for a single test run:
 
-1. **The forked test JVM.** `TiaTestExecutionListener` (JUnit 5), `TiaJunit4Listener` (JUnit 4) and
-   `TiaSpockGlobalExtension` (Spock) all call `DataStoreFactory.fromSystemProperties(branch)` from
+1. **The forked test JVM.** `TiaTestExecutionListener` (JUnit 5) and
+   `TiaSpockGlobalExtension` (Spock) both call `DataStoreFactory.fromSystemProperties(branch)` from
    inside the JVM that Surefire/Failsafe/Gradle forks to actually run the tests. That JVM persists
    the coverage mapping and statistics at the end of the run. Its classpath is whatever the test
    project itself declares as a (test-scope) dependency - it has no visibility into the Maven or

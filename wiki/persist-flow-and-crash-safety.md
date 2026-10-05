@@ -16,10 +16,9 @@ This chapter explains how Tia avoids that state, what failure modes remain, and 
 A Tia-instrumented test run accumulates state in-process (suite trackers, method-id trackers, failed-suite set, drain results) and persists once at the end via `TestRunnerService.persistTestRunData`. The listener invokes it from:
 
 - **JUnit 5**: `TiaTestExecutionListener.testPlanExecutionFinished`.
-- **JUnit 4**: `TiaJunit4Listener.testRunFinished`.
 - **Spock**: `TiaSpockRunListener.finishAllTests`, called from the global extension's `stop()` once per JVM.
 
-On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 / JUnit 4 (each retry's listener writes its own row). Spock collapses retries within a JVM - one call per JVM - but a Gradle test-retry round is a fresh JVM and persists again. Every retry persist is told it is one (`RunAttempt`), and a fresh-JVM round adds to what the first attempt stored rather than replacing it; see "Retries" in [Failed-suite tracking](failed-suite-tracking.md). See the "Test-run history log" chapter for the per-attempt counters that decouple retry semantics from the mapping accumulator.
+On Surefire retries, `persistTestRunData` is called per attempt for JUnit 5 (each retry's listener writes its own row). Spock collapses retries within a JVM - one call per JVM - but a Gradle test-retry round is a fresh JVM and persists again. Every retry persist is told it is one (`RunAttempt`), and a fresh-JVM round adds to what the first attempt stored rather than replacing it; see "Retries" in [Failed-suite tracking](failed-suite-tracking.md). See the "Test-run history log" chapter for the per-attempt counters that decouple retry semantics from the mapping accumulator.
 
 ### Write sequence: the seal-last invariant
 
@@ -158,8 +157,8 @@ without the suite's coverage actually having been recaptured against the sealed 
     listener still reaches its persist and its seal.
 
   An explicit **command-line** test filter is *not* an instance of this escape, because Tia disables
-  itself entirely rather than running a filtered selection: `AbstractTiaAgentMojo` and both
-  `TiaTestExecutionListener` and `TiaJunit4Listener` check `System.getProperty("test")` for Maven's
+  itself entirely rather than running a filtered selection: `AbstractTiaAgentMojo` and
+  `TiaTestExecutionListener` check `System.getProperty("test")` for Maven's
   `-Dtest`, and `TiaSpockGitGradlePluginTestExtension` checks
   `DefaultTestFilter.getCommandLineIncludePatterns()` for Gradle's `--tests`. When disabled, the
   listener returns before persisting, so there is no seal and therefore no clear - the flag survives
@@ -168,8 +167,7 @@ without the suite's coverage actually having been recaptured against the sealed 
   A Surefire/Failsafe retry is **not** an instance of this escape, despite `persistTestRunData`
   running once per attempt (see "One persist per run" above). The suite trackers are shared across
   attempts: `SharedTestRunData` is a `private static final` field on `TiaLauncherSessionListener`,
-  so its `testSuiteTrackers` map lives for the JVM, and JUnit 4 gets the same effect because
-  Surefire reuses the same `TiaJunit4Listener` instance across re-runs. That sharing exists so a
+  so its `testSuiteTrackers` map lives for the JVM. That sharing exists so a
   re-run - which only covers the retried subset - cannot overwrite a suite's mapping with that
   subset. It has the side effect of keeping every suite the earlier attempt covered in the later
   attempt's persist, so those suites are re-written and re-flagged, and the seal that follows clears

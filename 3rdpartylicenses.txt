@@ -38,11 +38,6 @@ License: Apache 2.0
 Reference: https://docs.gradle.org/current/userguide/licenses.html
 License Text: See appendix.
 
-junit:junit:4.13.2
-License: Eclipse Public License 1.0
-Reference: https://junit.org/junit4/license.html
-License Text: See appendix.
-
 commons-io:commons-io:2.15.1
 License: Apache 2.0
 Reference: https://github.com/apache/commons-io/blob/master/LICENSE.txt

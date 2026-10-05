@@ -237,7 +237,7 @@ public class TiaSpockRunListener extends AbstractRunListener {
         // own specSkipped hook. Merged here, once, rather than as each skip happens, since this is
         // the one point every skip this JVM will ever see has already been recorded by.
         suitesObserved.addAll(SharedSpockSkipObservation.suitesObservedViaSkip());
-        // Spock is not affected by the JUnit5/JUnit4 retry-inflation bug: finishAllTests fires
+        // Spock is not affected by the JUnit5 retry-inflation bug: finishAllTests fires
         // exactly once per JVM (guarded by stopStepRan) and beforeSpec uses Map.put so retried
         // specs overwrite the same key. So the cumulative testSuiteTrackers.size() equals the
         // per-attempt count - there's no separate counter to thread through. The same holds for the
