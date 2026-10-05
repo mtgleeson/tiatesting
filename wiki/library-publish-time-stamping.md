@@ -133,7 +133,7 @@ The producer side is a goal/task on the **library** module's build, firing on ev
 ```xml
 <plugin>
   <groupId>org.tiatesting</groupId>
-  <artifactId>tia-junit5-git-maven-plugin</artifactId>
+  <artifactId>tia-maven-plugin</artifactId>
   <executions>
     <execution>
       <goals><goal>publish-lib-stamp</goal></goals>

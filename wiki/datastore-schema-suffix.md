@@ -114,7 +114,7 @@ Maven cannot iterate: a reporting goal is a standalone invocation with no view o
 exist. It selects one schema per invocation instead, which the mojo parameter already supports:
 
 ```bash
-mvn tia-junit5-git:history -DtiaDBSchemaSuffix=integration
+mvn tia:history -DtiaDBSchemaSuffix=integration
 ```
 
 The distributed goals need no selector at all. A build configuring a second distributed test task is

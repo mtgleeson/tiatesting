@@ -3,7 +3,7 @@
 Publishing Tia to Maven Central requires every artifact to be GPG-signed. This chapter is the step-by-step runbook for getting a fresh machine to the point where the release tasks succeed. Both build tools sign the same way - by shelling out to the `gpg` binary - so the setup is shared:
 
 - **Gradle** signs via `useGpgCmd()` in `buildSrc/shared.gradle`, driven by the `signing.gnupg.*` properties. It runs `gpg`, selecting the key by `signing.gnupg.keyName`.
-- **Maven** signs via the `maven-gpg-plugin` (the `release` profile in each `*-maven-plugin/pom.xml`), which also runs `gpg` and reads the key from your GnuPG keyring.
+- **Maven** signs via the `maven-gpg-plugin` (the `release` profile in `tia-maven-plugin/pom.xml`), which also runs `gpg` and reads the key from your GnuPG keyring.
 
 In both cases the passphrase is supplied by **gpg-agent + a pinentry program**, never stored in a build file. So a release machine needs a working `gpg` install, your secret key imported, and a pinentry that can unlock it - plus the Central Portal upload token. The rest of this chapter sets those up.
 
@@ -73,7 +73,7 @@ The first run triggers the pinentry passphrase prompt (and the Keychain save on 
 `publishToCentral` is a bespoke task (a `packageDistribution` `Zip` feeding a `curl` `Exec` that POSTs the bundle to the Central Portal's `publisher/upload` endpoint) rather than a plugin. This is a deliberate choice given the current tooling landscape, not an oversight:
 
 - **There is still no official Gradle plugin for the Central Portal.** Sonatype's own guidance (as of mid-2026) states there is no official Gradle plugin and that Gradle support is only "on our roadmap." The legacy OSSRH service the old Nexus plugins targeted reached end-of-life on 30 June 2025, so the Portal upload API this task calls is now the only route.
-- **The Maven side is already on the official path.** The five Maven plugins publish through Sonatype's own `central-publishing-maven-plugin`, which *is* the official Maven tool. So the asymmetry (plugin for Maven, hand-rolled task for Gradle) exists only because Sonatype ships one for Maven and not for Gradle.
+- **The Maven side is already on the official path.** The Maven plugin (`tia-maven-plugin`) publishes through Sonatype's own `central-publishing-maven-plugin`, which *is* the official Maven tool. So the asymmetry (plugin for Maven, hand-rolled task for Gradle) exists only because Sonatype ships one for Maven and not for Gradle.
 - **Community Gradle plugins exist but are explicitly unsupported by Sonatype.** The documented options are `GradleUp/nmcp`, `vanniktech/gradle-maven-publish-plugin`, `SgtSilvio/gradle-maven-central-publishing`, `lukebemishprojects/CentralPortalPublishing`, and JReleaser. Any of these could replace the `packageDistribution` + `curl` machinery while leaving the existing `publishing {}` publication and `useGpgCmd()` signing block intact - `nmcp` is the lightest-touch fit because it adds Portal upload tasks over the standard `maven-publish` setup rather than taking over the publication config. Adopting one is a possible future simplification, deferred while the hand-rolled task works and no official plugin exists.
 
 If a first-party Sonatype Gradle plugin ships, revisit this task: it would likely let us delete the manual zip-and-`curl` step and get clearer upload diagnostics.
@@ -196,7 +196,7 @@ For the **Maven** side on Windows the same `gpg` install serves - but note the p
 The repo ships IntelliJ run configurations under `.idea/runConfigurations/` so a release is one click rather than a sequence of remembered commands. The orchestrator is **`Deploy all Tia modules`**: it is a Maven `deploy` configuration (run with the `release` profile active) whose before-launch task chain runs, in order:
 
 1. `Gradle: publishToCentral -Prelease` — builds, signs (in-memory key), bundles, and uploads every Gradle module. This task cleans each subproject first (see below), so there is no separate clean step in the chain.
-2. The three Maven `deploy` configs (`Maven deploy: tia-maven-plugin` and the two wrapper plugins), each with the `release` profile active so `gpg.skip` flips to `false` and the artifacts get signed and pushed through the `central-publishing-maven-plugin`.
+2. The configuration itself then runs `deploy` in `tia-maven-plugin` with the `release` profile active, so `gpg.skip` flips to `false` and the artifacts get signed and pushed through the `central-publishing-maven-plugin`.
 
 So both build tools' release paths run from a single invocation. There are matching `Maven install: *` and `Install all Tia modules` configs for the non-publishing local-install equivalent. These configs only encode *which tasks run with which flags*; they still rely on the per-tool credentials from the sections above (the Gradle properties in `~/.gradle/gradle.properties` and the Maven `settings.xml` `central` server plus `ossrh` gpg profile), so a fresh machine must complete that setup before the one-click deploy works. Note the Maven passphrase is entered interactively during the run unless you stored `gpg.passphrase`.
 
