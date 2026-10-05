@@ -29,9 +29,6 @@ run in its stats.
   ancestor that names a class. For `@Nested`, that is the nested class, the same name its own
   container is tracked under. A failure with no class on the path to the root (the engine
   container) is ignored.
-- **JUnit 4** (`TiaJunit4Listener`). `testFailure` records a failure, including one reported against
-  the class itself (`@BeforeClass`), which resolves to the same suite. `testAssumptionFailure`
-  records nothing.
 - **Spock** (`TiaSpockRunListener.error`). Spock does not notify its listeners of an opentest4j
   `TestAbortedException` or `TestSkippedException` at all (`MasterRunSupervisor.error`), so every
   `error` call is a real failure. The spec is resolved as `error.getMethod().getParent().getBottomSpec()`,
@@ -58,8 +55,6 @@ How each listener gets there:
   session, and so reuses one listener, behaves identically, because the per-attempt sets are
   cleared in `testPlanExecutionStarted` rather than relying on a fresh instance. A retry of only a
   suite's failing methods still starts its class container, so the suite is judged on the retry.
-- **JUnit 4.** Surefire reuses one listener instance for retries, so its failed set already spans
-  attempts. `testSuiteStarted` removes a suite being run again, and `testFailure` adds it back.
 - **Spock.** `finishAllTests` persists once per JVM, so there is only one attempt per JVM to
   track. A Gradle test-retry round is a fresh JVM that persists after the previous one, so the
   latest outcome still wins across rounds - see "Retries" below.
@@ -127,7 +122,7 @@ own. `TestRunResult` carries which attempt a persist describes, as a `RunAttempt
 - `FIRST` - the test task's real run.
 - `RERUN_SAME_JVM` - a Surefire rerun (`rerunFailingTestsCount`). It runs in the first attempt's
   JVM, so the listener's trackers already carry every attempt's coverage and suites. JUnit 5 numbers
-  test plans in `SharedTestRunData`; JUnit 4 numbers `testRunStarted` calls on its reused listener.
+  test plans in `SharedTestRunData`.
 - `RERUN_NEW_JVM` - a Gradle `org.gradle.test-retry` round. Each round is a **fresh test JVM**
   (a separate `delegate.execute`, which starts and stops its own worker processes) with the same
   system properties, knowing only what it ran itself. A round only happens when every failure of

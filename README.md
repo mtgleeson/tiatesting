@@ -6,8 +6,6 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 - [Getting started](#getting-started)
 	- [Maven, Junit5, Git](#maven-junit5-and-git)
   	- [Maven, Junit5, Perforce](#maven-junit5-and-perforce)
-  	- [Maven, Junit4, Git](#maven-junit4-and-git)
-  	- [Maven, Junit4, Perforce](#maven-junit4-and-perforce)
   	- [Gradle, Spock, Git](#gradle-spock-and-git)
 - [Usage](#usage)
 	- [Seeing Tia's log output](#seeing-tias-log-output)
@@ -29,7 +27,7 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ### Requirements
 
-- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit4-git-maven-plugin`, `tia-junit4-perforce-maven-plugin`, `tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
+- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer.
 - **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
 - **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so your test project must already provide them. Most projects do. See [Seeing Tia's log output](#seeing-tias-log-output).
@@ -132,114 +130,6 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
 Use the configuration documented above for [Maven, Junit5 and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit5-git` with `tia-junit5-perforce` and `tia-junit5-git-maven-plugin` with `tia-junit5-perforce-maven-plugin`.
 
 For the latest versions, see [tia-junit5-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce-maven-plugin&smo=true) and [tia-junit5-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce&smo=true).
-
-### Maven, JUnit4 and Git
-Include the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
-For the latest versions, see [tia-junit4-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-git-maven-plugin&smo=true) and [tia-junit4-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-git&smo=true).
-
-**Note:** If your tests live in the same project as your source code, you need to include and configure Jacoco to run in TCP server mode (see below). If your source code lives in a different project to your tests, you need to ensure your project that contains your source code is configured to run with Jacoco in TCP server mode. You can then omit the Jacoco configuration below from your test project pom.xml.
-
-`pom.xml`
-```xml
-<properties>
-    <tiaEnabled>true</tiaEnabled>
-    <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
-    <tiaUpdateDBTestRunHistory>true</tiaUpdateDBTestRunHistory>
-    <tiaCheckLocalChanges>false</tiaCheckLocalChanges>
-    <tiaProjectDir>.</tiaProjectDir>
-    <tiaClassFilesDirs>/target/classes</tiaClassFilesDirs>
-    <tiaSourceFilesDirs>/src/main/java</tiaSourceFilesDirs>
-    <tiaTestFilesDirs>/src/test/java</tiaTestFilesDirs>
-    <tiaDBFilePath>/some/path</tiaDBFilePath>    
-</properties>
-
-<dependencies>
-    <!-- tia-junit4-git is needed for the Tia test listener used by Surefire/Failsafe. -->
-    <dependency>
-        <groupId>org.tiatesting</groupId>
-        <artifactId>tia-junit4-git</artifactId>
-        <version>0.1.18</version>
-        <scope>test</scope>
-    </dependency>
-</dependencies>
-
-<build>
-    <plugins>        
-        <plugin>
-            <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
-            <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit4-git-maven-plugin</artifactId>
-            <version>0.1.18</version>
-            <executions>
-                <execution>
-                    <id>pre-test</id>
-                    <goals>
-                        <goal>prepare-agent</goal>
-                    </goals>
-                    <phase>test-compile</phase>
-                </execution>
-            </executions>
-            <configuration>
-                <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
-                <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
-                <tiaSourceFilesDirs>${tiaSourceFilesDirs}</tiaSourceFilesDirs>
-                <tiaTestFilesDirs>${tiaTestFilesDirs}</tiaTestFilesDirs>                
-                <tiaCheckLocalChanges>${tiaCheckLocalChanges}</tiaCheckLocalChanges>
-                <tiaEnabled>${tiaEnabled}</tiaEnabled>
-            </configuration>
-        </plugin>
-        <plugin>
-            <!-- Configure Surefire to use Tia. Used to update the Tia test to source code mapping and/or stats when running the tests. -->
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <version>2.19</version>
-            <configuration>
-                <includes>
-                    <include>**/*Test.java</include>
-                </includes>
-                <systemPropertyVariables>
-                    <tiaProjectDir>${tiaProjectDir}</tiaProjectDir>
-                    <tiaClassFilesDirs>${tiaClassFilesDirs}</tiaClassFilesDirs>
-                    <tiaDBFilePath>${tiaDBFilePath}</tiaDBFilePath>
-                    <tiaEnabled>${tiaEnabled}</tiaEnabled>
-                    <tiaUpdateDBMapping>${tiaUpdateDBMapping}</tiaUpdateDBMapping>
-                    <tiaUpdateDBTestRunHistory>${tiaUpdateDBTestRunHistory}</tiaUpdateDBTestRunHistory>
-                    <testClassesDir>${project.build.testOutputDirectory}</testClassesDir>
-                </systemPropertyVariables>
-                <properties>
-                    <property>
-                        <name>listener</name>
-                        <value>org.tiatesting.junit.junit4.TiaJunit4GitListener</value>
-                    </property>
-                </properties>
-            </configuration>
-        </plugin>
-        <plugin>
-            <!-- Configure Jacoco as a TCP server, needed by Tia (which has a Jacoco client) for collecting the coverage data for each test suite. -->
-            <groupId>org.jacoco</groupId>
-            <artifactId>jacoco-maven-plugin</artifactId>            
-            <version>0.8.7</version>
-            <executions>
-                <execution>
-                    <id>pre-test</id>
-                    <goals>
-                        <goal>prepare-agent</goal>
-                    </goals>
-                    <phase>test-compile</phase>
-                    <configuration>
-                        <output>tcpserver</output>
-                    </configuration>
-                </execution>
-            </executions>
-        </plugin>
-    </plugins>
-</build>
-```
-
-### Maven, JUnit4 and Perforce
-Use the configuration documented above for [Maven, Junit4 and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit4-git` with `tia-junit4-perforce` and `tia-junit4-git-maven-plugin` with `tia-junit4-perforce-maven-plugin`.
-
-For the latest versions, see [tia-junit4-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce-maven-plugin&smo=true) and [tia-junit4-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit4-perforce&smo=true).
 
 ### Gradle, Spock and Git
 Include the following configuration in your project where you execute your tests. 
@@ -461,16 +351,6 @@ mvn tia-junit5-git:status
 mvn tia-junit5-perforce:status
 ```
 
-**Maven, Junit4 and Git**
-```
-mvn tia-junit4-git:status
-```
-
-**Maven, Junit4 and Perforce**
-```
-mvn tia-junit4-perforce:status
-```
-
 **Gradle, Spock and Git**
 ```
 gradle tia-status
@@ -498,16 +378,6 @@ mvn tia-junit5-git:libraries
 **Maven, Junit5 and Perforce**
 ```
 mvn tia-junit5-perforce:libraries
-```
-
-**Maven, Junit4 and Git**
-```
-mvn tia-junit4-git:libraries
-```
-
-**Maven, Junit4 and Perforce**
-```
-mvn tia-junit4-perforce:libraries
 ```
 
 **Gradle, Spock and Git**
@@ -592,16 +462,6 @@ See [Seeing Tia's log output](#seeing-tias-log-output) for more on Tia's logging
 tia-junit5-perforce:select-tests
 ```
 
-**Maven, Junit4 and Git**
-```
-tia-junit4-git:select-tests
-```
-
-**Maven, Junit4 and Perforce**
-```
-tia-junit4-perforce:select-tests
-```
-
 **Gradle, Spock and Git**
 ```
 gradle tia-select-tests
@@ -673,16 +533,6 @@ tia-junit5-git:history -DtiaHistoryLast=50
 tia-junit5-perforce:history
 ```
 
-**Maven, Junit4 and Git**
-```
-tia-junit4-git:history
-```
-
-**Maven, Junit4 and Perforce**
-```
-tia-junit4-perforce:history
-```
-
 **Gradle, Spock and Git**
 ```
 gradle tia-history
@@ -714,16 +564,6 @@ mvn tia-junit5-git:html-report
 mvn tia-junit5-perforce:html-report
 ```
 
-**Maven, Junit4 and Git**
-```
-mvn tia-junit4-git:html-report
-```
-
-**Maven, Junit4 and Perforce**
-```
-mvn tia-junit4-perforce:html-report
-```
-
 **Gradle, Spock and Git**
 ```
 gradle tia-html-report
@@ -740,16 +580,6 @@ mvn tia-junit5-git:html-report
 **Maven, Junit5 and Perforce**
 ```
 mvn tia-junit5-perforce:html-report
-```
-
-**Maven, Junit4 and Git**
-```
-mvn tia-junit4-git:text-report
-```
-
-**Maven, Junit4 and Perforce**
-```
-mvn tia-junit4-perforce:text-report
 ```
 
 **Gradle, Spock and Git**
@@ -949,7 +779,7 @@ Run once per build, before the runner jobs start. Writes the plan to the shared 
 ```
 mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedTargetRunTime=1500000 -DtiaDistributedMaxGroups=10
 ```
-(substitute `tia-junit5-perforce`, `tia-junit4-git` or `tia-junit4-perforce` for the other flavours)
+(substitute `tia-junit5-perforce` for Perforce)
 
 **Gradle, Spock and Git**
 ```
@@ -1454,7 +1284,6 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 
 | |Git|Perforce|
 |-|---|--------|
-|Junit 4|✔|✔|
 |Junit 5|✔|✔|
 |Spock 2|x|x|
 
@@ -1462,7 +1291,6 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 
 | |Git|Perforce|
 |-|---|--------|
-|Junit 4|x|x|
 |Junit 5|x|x|
 |Spock 2|✔|x|
 

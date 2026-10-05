@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * Covers the one thing this wrapper is responsible for: constructing the JUnit 5 listener without
  * reaching a Perforce server.
  *
- * <p>Unlike the JUnit 4 side, {@code TiaLauncherSessionListener} only constructs this listener when
+ * <p>{@code TiaLauncherSessionListener} only constructs this listener when
  * {@code tiaEnabled} is true, so a disabled build does not reach the constructor through JUnit's
  * service path. The constructor is held to the rule anyway: the branch and the commit are the only
  * things it ever needed the version control system for, and once they are supplied it must work on a
