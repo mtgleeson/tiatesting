@@ -24,6 +24,7 @@ import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VCSReaderFactory;
+import org.tiatesting.core.vcs.VcsDetector;
 import org.tiatesting.core.vcs.VcsSettings;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.core.diff.diffanalyze.selector.SelectTestsOutputFormatter;
@@ -49,6 +50,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -71,6 +73,13 @@ public class TiaPlugin implements Plugin<Project> {
      */
     public static final String DIST_COMPLETE_TASK_NAME = "tia-dist-complete";
 
+    /**
+     * Name of the configuration holding the VCS provider module. Defaults to
+     * {@code org.tiatesting:tia-vcs-<detected VCS>} at this plugin's version; a dependency the user
+     * declares in it replaces the default.
+     */
+    public static final String VCS_CONFIGURATION_NAME = "tiaVcs";
+
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
 
@@ -81,6 +90,7 @@ public class TiaPlugin implements Plugin<Project> {
     public void apply(Project project) {
         this.project = project;
         this.tiaTaskExtension = project.getExtensions().create("tia", TiaBaseTaskExtension.class);
+        createVcsConfiguration();
         createStatusTask();
         createLibrariesTask();
         createTextReportTask();
@@ -713,16 +723,93 @@ public class TiaPlugin implements Plugin<Project> {
     }
 
     /**
-     * Construct a reader for the project's version control system from the VCS provider on this
-     * plugin's class path.
+     * Create the {@value #VCS_CONFIGURATION_NAME} configuration. It is resolved only when a task
+     * needs a VCS reader, and kept off the buildscript class path - its jars are loaded in an
+     * isolated class loader - so JGit or p4java can never clash with another plugin's copy, and a
+     * project only downloads the VCS library it uses. The default dependency is worked out when the
+     * configuration is resolved, after the build script has configured the {@code tia} extension.
+     * {@code tia-core} is excluded: the plugin already has it, and the provider must share its types.
+     */
+    private void createVcsConfiguration() {
+        Configuration configuration = project.getConfigurations().create(VCS_CONFIGURATION_NAME);
+        configuration.setCanBeConsumed(false);
+        configuration.setVisible(false);
+        configuration.setDescription("The Tia VCS provider module, resolved when a Tia task reads the VCS.");
+        Map<String, String> tiaCore = new HashMap<>();
+        tiaCore.put("group", VCSReaderFactory.PROVIDER_GROUP_ID);
+        tiaCore.put("module", "tia-core");
+        configuration.exclude(tiaCore);
+        configuration.defaultDependencies(dependencies -> dependencies.add(project.getDependencies().create(
+                VCSReaderFactory.PROVIDER_GROUP_ID + ":"
+                        + VCSReaderFactory.providerArtifactId(VcsDetector.detect(buildVcsSettings()))
+                        + ":" + TiaVersion.get())));
+    }
+
+    /**
+     * Construct a reader for the project's version control system. A VCS provider on the plugin's
+     * own class path (the buildscript class path) is used directly; otherwise the
+     * {@value #VCS_CONFIGURATION_NAME} configuration is resolved and its provider loaded in an
+     * isolated class loader owned by the build.
      *
      * @return a new reader; the caller must close it
-     * @throws GradleException if no VCS provider is available
+     * @throws GradleException if the resolved configuration holds no VCS provider
      */
     public VCSReader getVCSReader() {
-        VcsSettings settings = VcsSettings.builder().projectDir(getProjectDir()).build();
-        return VCSReaderFactory.create(settings, TiaPlugin.class.getClassLoader())
-                .orElseThrow(() -> new GradleException("No Tia VCS provider is on the Tia plugin's class path."));
+        VcsSettings settings = buildVcsSettings();
+        Optional<VCSReader> declared = VCSReaderFactory.create(settings, TiaPlugin.class.getClassLoader());
+        if (declared.isPresent()) {
+            return declared.get();
+        }
+        return VCSReaderFactory.create(settings, vcsProviderClassLoader())
+                .orElseThrow(() -> new GradleException("The " + VCS_CONFIGURATION_NAME + " configuration of "
+                        + "project '" + project.getPath() + "' holds no Tia VCS provider."));
+    }
+
+    /**
+     * Resolve the {@value #VCS_CONFIGURATION_NAME} configuration and get the build's class loader
+     * over its jars.
+     *
+     * @return a class loader on which the VCS provider is registered
+     */
+    ClassLoader vcsProviderClassLoader() {
+        List<File> files = new ArrayList<>(project.getConfigurations().getByName(VCS_CONFIGURATION_NAME).getFiles());
+        VcsProviderClassLoaders loaders = project.getGradle().getSharedServices()
+                .registerIfAbsent(VcsProviderClassLoaders.NAME, VcsProviderClassLoaders.class, spec -> { })
+                .get();
+        return loaders.get(files, TiaPlugin.class.getClassLoader());
+    }
+
+    /**
+     * The configured project directory as an absolute path, resolved against the Gradle project's
+     * directory when relative (the daemon's working directory is not necessarily the project's), and
+     * the Gradle project's directory when unset.
+     *
+     * @return the absolute project directory the VCS is detected and read from
+     */
+    private String resolveVcsProjectDir() {
+        String configured = getProjectDir();
+        if (configured == null || configured.trim().isEmpty()) {
+            return project.getProjectDir().getAbsolutePath();
+        }
+        File dir = new File(configured);
+        return dir.isAbsolute() ? dir.getPath() : new File(project.getProjectDir(), configured).getPath();
+    }
+
+    /**
+     * Build the VCS settings from the project-level {@code tia} extension.
+     *
+     * @return the VCS settings
+     */
+    VcsSettings buildVcsSettings() {
+        return VcsSettings.builder()
+                .projectDir(resolveVcsProjectDir())
+                .enabled(true)
+                .vcsName(tiaTaskExtension.getVcs())
+                .serverUri(tiaTaskExtension.getVcsServerUri())
+                .userName(tiaTaskExtension.getVcsUserName())
+                .password(tiaTaskExtension.getVcsPassword())
+                .clientName(tiaTaskExtension.getVcsClientName())
+                .build();
     }
 
     /**
