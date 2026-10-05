@@ -844,7 +844,7 @@ system exposes one: `${{ github.run_id }}`, `$CI_PIPELINE_ID`, `$BUILD_TAG`, `$C
 ### Maven: the completion must be its own always-run step
 
 **Maven aborts the lifecycle when the test goal fails.** A pipeline that chains goals in one
-command (`mvn verify tia-junit5-git:dist-complete`) will never reach the completion on a runner
+command (`mvn verify tia:dist-complete`) will never reach the completion on a runner
 whose tests failed. That runner's group stays `CLAIMED`, the barrier never opens, and **the run never
 seals**, even though every other runner did its job. The build then looks like a plain test failure
 while quietly having thrown away the whole run's mapping work.
@@ -863,7 +863,7 @@ result**:
 
 - name: Complete this runner's group
   if: always()          # <- the whole point: runs even when the tests failed
-  run: mvn tia-junit5-git:dist-complete
+  run: mvn tia:dist-complete
 ```
 
 and the planning job that produced the matrix:
@@ -871,7 +871,7 @@ and the planning job that produced the matrix:
 ```yaml
 - name: Plan
   run: >
-    mvn tia-junit5-git:dist-plan
+    mvn tia:dist-plan
     -DtiaDistributed=true
     -DtiaRunId=${{ github.run_id }}
     -DtiaDistributedTargetRunTime=1500000
@@ -903,7 +903,7 @@ test:
   script:
     - set +e; mvn verify -DtiaDistributed=true -DtiaRunId=$CI_PIPELINE_ID
                          -DtiaDistributedRunnerKey=$CI_NODE_INDEX; rc=$?; set -e
-    - mvn tia-junit5-git:dist-complete    # always runs, and its failure is visible
+    - mvn tia:dist-complete    # always runs, and its failure is visible
     - exit $rc
 ```
 

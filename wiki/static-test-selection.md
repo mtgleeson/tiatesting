@@ -27,27 +27,9 @@ The two build tools take different paths from "user wrote a rule" to "the test s
 
 **Maven.** The rules are evaluated in the Maven JVM. `AgentMojo.execute()` and `SelectTestsMojo.execute()` both call `buildStaticTestSelectionConfig()`, then hand the resulting `StaticTestSelectionConfig` to `TestSelector` *in-process* — no Surefire fork required. The result of selection (the ignored / selected test lists) is then written to disk, where Surefire reads it when it launches the test JVM. The static rules never need to cross a process boundary because they're applied entirely on the Maven side.
 
-**Gradle.** The Gradle daemon owns the `tia` extension and can read the user's rule list, but selection itself runs in the **forked test JVM** — `TiaSpockGlobalExtension.launcherSessionOpened()` opens the Tia DB and calls `TestSelector` inside the test worker. So the rule list has to cross from daemon to test JVM. It's forwarded as a single system property, `tiaStaticTestSelectionRules`, using the same `-D` mechanism `tiaLibrariesMetadata` uses; the property is added in `TiaTestTaskConfigurer`'s test-task configuration block (alongside `forwardLibraryMetadata(...)`) and decoded by `StaticTestSelectionSystemProperties.fromSystemProperties()` in the test JVM.
+**Gradle.** The same: the rules are evaluated in the Gradle daemon. The test task's action (`TiaTestTaskConfigurer`) builds the `StaticTestSelectionConfig` from the test task's merged `tia` extension with `TiaPlugin.buildStaticTestSelectionConfig(rawRules)` and hands it to `TestSelector` in the daemon, once per test task; the selection result reaches the test JVM through the same hand-off files Maven uses. Invalid regex / unknown mode / missing field therefore surfaces in the daemon before any test JVM starts, and the in-plugin `tia-select-tests` task uses the same builder, so both paths see identical validation.
 
-The rules are still *built* on the Gradle side first, even though they'll be evaluated in the test JVM — `TiaPlugin.buildStaticTestSelectionConfig(rawRules)` is called from the test-extension's `forwardStaticTestSelectionRules` so that invalid regex / unknown mode / missing field surfaces at Gradle configuration time, not when the forked JVM is mid-launch. The same builder is also used by the in-plugin `tia-select-tests` task, so both paths see identical validation.
-
-### Wire format for the Gradle bridge
-
-`StaticTestSelectionSystemProperties` formats the config as:
-
-```
-nameB64:filePathPatternB64:MODE:suitePatternB64|suitePatternB64,
-nameB64:filePathPatternB64:MODE:...
-```
-
-- Rules are comma-separated.
-- Fields within a rule are colon-separated.
-- Suite-name patterns within a rule are pipe-separated.
-- Every "text" field (name, file-path regex, each suite-name regex) is URL-safe Base64 encoded. The mode is a plain enum name.
-
-The reason for Base64-per-field is that regex patterns routinely contain `,`, `:`, and `|` — all of which are used as delimiters here. URL-safe Base64 restricts each field's encoded form to `[A-Za-z0-9_-]` plus `=` padding, none of which collide, so the encoded string parses unambiguously regardless of what's inside the regex. The alternative (escaping with backslashes) interacts badly with the user's own regex escapes and produces unreadable encoded strings; Base64 is a cleaner separation of concerns at a small encoded-size cost.
-
-Malformed rules in the encoded property are logged at WARN and skipped rather than aborting the whole config; the upstream encoder writes well-formed rules, so a malformed entry would have to come from someone setting the system property by hand — and one bad entry shouldn't disable static selection entirely. Good-rule entries on either side of the bad one still take effect.
+(The Gradle selection used to run in the forked test JVM, which meant encoding the rules into a `tiaStaticTestSelectionRules` system property; that bridge is gone.)
 
 ### How the static and dynamic mappings compose
 

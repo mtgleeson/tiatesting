@@ -4,9 +4,10 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ## Starting Points
 - [Getting started](#getting-started)
-	- [Maven, Junit5, Git](#maven-junit5-and-git)
-  	- [Maven, Junit5, Perforce](#maven-junit5-and-perforce)
-  	- [Gradle, Spock, Git](#gradle-spock-and-git)
+	- [Maven and JUnit 5](#maven-and-junit-5)
+	- [Gradle and Spock](#gradle-and-spock)
+	- [Choosing the version control system](#choosing-the-version-control-system)
+	- [Offline and pre-bundled builds](#offline-and-pre-bundled-builds)
 - [Usage](#usage)
 	- [Seeing Tia's log output](#seeing-tias-log-output)
 - [Configuration Options](#configuration-options)
@@ -25,24 +26,34 @@ Tia (pronounced Tee-ä, or Tina without the 'n') stands for test impact analysis
 
 ## Getting Started
 
+Tia ships one plugin per build tool, plus a small module for your test framework:
+
+| Build tool | Plugin | Test framework module | VCS |
+|---|---|---|---|
+| Maven 3.8.1+ | `tia-maven-plugin` (goal prefix `tia:`) | `tia-junit5` (JUnit 5), declared as a test dependency | Git or Perforce |
+| Gradle | `org.tiatesting.tia` (artifact `tia-gradle`) | `tia-spock` (Spock), added by the plugin | Git or Perforce |
+
+You never declare a VCS library. The plugin works out which VCS the project uses and resolves only that one (`tia-vcs-git` or `tia-vcs-perforce`) into its own isolated class loader, so a Git project never downloads p4java, a Perforce project never downloads JGit, and neither ever reaches your test classpath. See [Choosing the version control system](#choosing-the-version-control-system).
+
 ### Requirements
 
-- **Maven**: 3.8.1 or newer is required for any of the Maven-based Tia plugins (`tia-junit5-git-maven-plugin`, `tia-junit5-perforce-maven-plugin`). The floor is enforced automatically via `<prerequisites>` in each plugin's POM — invoking a Tia plugin under an older Maven will fail with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
+- **Maven**: 3.8.1 or newer is required for `tia-maven-plugin`. The floor is enforced automatically via `<prerequisites>` in the plugin's POM - invoking the plugin under an older Maven fails with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer.
 - **Gradle**: no version floor is enforced beyond what the Spock plugin's runtime requires.
 - **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so your test project must already provide them. Most projects do. See [Seeing Tia's log output](#seeing-tias-log-output).
 
-### Maven, JUnit5 and Git
-Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5-git` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
+### Maven and JUnit 5
+Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
 
 Configure your test project POM for Tia by including the following configuration in the project where you execute your tests. The following configuration is for Surefire, but Tia can be configured with Failsafe as well.
-For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git-maven-plugin&smo=true) and [tia-junit5-git](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-git&smo=true).
+For the latest versions, see [tia-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-maven-plugin&smo=true) and [tia-junit5](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5&smo=true).
 
 **Note:** If your tests live in the same project as your source code, you need to include and configure Jacoco to run in TCP server mode (see below). If your source code lives in a different project to your tests, you need to ensure your project that contains your source code is configured to run with Jacoco in TCP server mode. You can then omit the Jacoco configuration below from your test project pom.xml.
 
 `pom.xml`
 ```xml
 <properties>
+    <tia.version>0.1.20</tia.version>
     <tiaEnabled>true</tiaEnabled>
     <tiaUpdateDBMapping>true</tiaUpdateDBMapping>
     <tiaUpdateDBTestRunHistory>true</tiaUpdateDBTestRunHistory>
@@ -55,11 +66,11 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
 </properties>
 
 <dependencies>
-    <!-- tia-junit5-git is needed for the Tia test listener used by Surefire/Failsafe. -->
+    <!-- tia-junit5 is needed for the Tia test listener used by Surefire/Failsafe. -->
     <dependency>
         <groupId>org.tiatesting</groupId>
-        <artifactId>tia-junit5-git</artifactId>
-        <version>0.1.18</version>
+        <artifactId>tia-junit5</artifactId>
+        <version>${tia.version}</version>
         <scope>test</scope>
     </dependency>
 </dependencies>
@@ -69,8 +80,8 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
         <plugin>
             <!-- Include the Maven plugin, used to select which tests to run and ignore the rest. -->
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.18</version>
+            <artifactId>tia-maven-plugin</artifactId>
+            <version>${tia.version}</version>
             <executions>
                 <execution>
                     <id>pre-test</id>
@@ -126,14 +137,23 @@ For the latest versions, see [tia-junit5-git-maven-plugin](https://central.sonat
 </build>
 ```
 
-### Maven, JUnit5 and Perforce
-Use the configuration documented above for [Maven, Junit5 and Git](https://github.com/mtgleeson/tiatesting/edit/main/README.md#getting-started), but replace `tia-junit5-git` with `tia-junit5-perforce` and `tia-junit5-git-maven-plugin` with `tia-junit5-perforce-maven-plugin`.
+The goals are invoked with the `tia:` prefix, for example `mvn tia:status` or `mvn tia:select-tests`.
 
-For the latest versions, see [tia-junit5-perforce-maven-plugin](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce-maven-plugin&smo=true) and [tia-junit5-perforce](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-junit5-perforce&smo=true).
+**Perforce:** use the same configuration and add the Perforce connection settings to the plugin's `<configuration>`. Setting `tiaVcsServerUri` is what tells Tia the project uses Perforce:
 
-### Gradle, Spock and Git
-Include the following configuration in your project where you execute your tests. 
-For the latest version, see [tia-spock-git-gradle](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-spock-git-gradle&smo=true).
+```xml
+<configuration>
+    ...
+    <tiaVcsServerUri>p4java://perforce.example.com:1666</tiaVcsServerUri>
+    <tiaVcsUserName>builder</tiaVcsUserName>
+    <tiaVcsPassword>${env.P4PASSWD}</tiaVcsPassword>
+    <tiaVcsClientName>builder-ws</tiaVcsClientName>
+</configuration>
+```
+
+### Gradle and Spock
+Include the following configuration in your project where you execute your tests. The plugin detects Spock from your declared test dependencies and adds Tia's Spock module (`tia-spock`) to the test runtime classpath itself - you do not declare it.
+For the latest version, see [tia-gradle](https://central.sonatype.com/search?q=g%3Aorg.tiatesting+a%3Atia-gradle&smo=true).
 
 `settings.gradle`
 ```
@@ -142,7 +162,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.18'
+        classpath 'org.tiatesting:tia-gradle:0.1.20'
     }
 }
 ```
@@ -150,11 +170,16 @@ buildscript {
 `build.gradle`
 ```
 plugins {
-    id 'org.tiatesting.spock.gradle.git'
+    id 'groovy'
+    id 'org.tiatesting.tia'
 }
 
 repositories {
     mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.spockframework:spock-core:2.3-groovy-3.0'
 }
 
 // global Tia config applied to all tasks of type test
@@ -179,6 +204,80 @@ test {
 }
 ```
 
+The plugin applies the `jacoco` plugin itself when a test task updates the mapping. Tia selects the tests once per test task, in the Gradle daemon, and hands the result to the test JVM(s).
+
+If detection cannot see Spock (for example it is declared only through a BOM or platform), or the project also declares JUnit 5, set the framework explicitly:
+
+```
+tia {
+    testFramework = 'spock'
+}
+```
+
+JUnit 5 on Gradle is not supported yet.
+
+**Perforce:** add the Perforce connection settings to the `tia` block. Setting `vcsServerUri` is what tells Tia the project uses Perforce:
+
+```
+tia {
+    ...
+    vcsServerUri = "p4java://perforce.example.com:1666"
+    vcsUserName = "builder"
+    vcsPassword = providers.environmentVariable("P4PASSWD").get()
+    vcsClientName = "builder-ws"
+}
+```
+
+### Choosing the version control system
+Tia works out which VCS a project uses, in this order:
+
+1. **An explicit setting** - `<tiaVcs>` (Maven) or `tia { vcs = ... }` (Gradle), set to `git` or `perforce`.
+2. **A Perforce server URI** - `tiaVcsServerUri` / `vcsServerUri` is a Perforce-only setting, so setting it means Perforce.
+3. **A `.git` entry** in the project directory or any parent means Git.
+
+Perforce is never guessed from the environment (`P4CONFIG`, `P4PORT`): a project that relies on those alone sets `tiaVcs` / `vcs` to `perforce`. If nothing identifies the VCS, the build fails naming these settings.
+
+The plugin then resolves only that VCS's provider module, `org.tiatesting:tia-vcs-git` or `org.tiatesting:tia-vcs-perforce`, at the plugin's own version, from your project's repositories (Maven: the plugin repositories), and loads it in an isolated class loader. On Gradle it is a normal configuration, `tiaVcs`, which `gradle dependencies` shows and which you can override:
+
+```
+dependencies {
+    tiaVcs 'org.tiatesting:tia-vcs-perforce:0.1.20'
+}
+```
+
+Only steps that actually read the VCS need a provider. A distributed test runner given `tiaBranch` and `tiaCommitValue` never reads the VCS, so it needs no provider at all - see [Runners do not need VCS access](#runners-do-not-need-vcs-access).
+
+### Offline and pre-bundled builds
+The VCS provider is downloaded the first time a VCS-reading Tia step runs, then served from the local repository like any other artifact. A build with access to its usual repository or mirror needs nothing extra. A build that runs a VCS-reading step **offline** needs the provider to be in its local repository beforehand.
+
+For example, a Git project whose CI runs `mvn tia:dist-plan` online on an agent, then fans the tests out to offline containers started with `-DtiaBranch=$CI_BRANCH -DtiaCommitValue=$CI_COMMIT`, needs nothing extra: only the online plan step reads the VCS, and the containers need no `.git`, no VCS provider and no access to a repository.
+
+When a VCS-reading step does run offline:
+
+- **Maven, local repository filled by running the build** (for example a bundling step that runs the build online and packages the local repository): declare the provider as a dependency of the plugin. Maven downloads it with the plugin, and Tia uses it directly:
+
+  ```xml
+  <plugin>
+      <groupId>org.tiatesting</groupId>
+      <artifactId>tia-maven-plugin</artifactId>
+      <version>${tia.version}</version>
+      <dependencies>
+          <dependency>
+              <groupId>org.tiatesting</groupId>
+              <artifactId>tia-vcs-git</artifactId>
+              <version>${tia.version}</version>
+          </dependency>
+      </dependencies>
+      ...
+  </plugin>
+  ```
+
+  Declare it in the plugin's `<dependencies>`, never the project's - a project dependency would put the VCS library on your test classpath.
+- **Maven, local repository filled with `dependency:go-offline`**: `go-offline` does not download a plugin's own `<dependencies>`, so prefetch the provider explicitly in the same step: `mvn dependency:get -Dartifact=org.tiatesting:tia-vcs-git:<version>`.
+- **Gradle**: `tiaVcs` is an ordinary configuration, so `--offline` and dependency locking work with it once it has been resolved.
+
+If the provider cannot be resolved, the build fails naming these fixes.
+
 ### Tracking coverage for libraries
 If your source project depends on in-repo libraries (also published as artifacts in the same repository) and you want Tia to track and react to changes in those libraries too, use the `sourceLibs` configuration. Tia resolves the `groupId:artifactId` coordinates against the source project's resolved dependencies, locates the matching JAR file for the version actually in use, and adds it to Jacoco's analysis so library classes are included in the test-to-source mapping.
 
@@ -202,8 +301,8 @@ The Maven plugin reads the source project's resolved dependencies by loading its
     <plugins>
         <plugin>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.18</version>
+            <artifactId>tia-maven-plugin</artifactId>
+            <version>${tia.version}</version>
             <configuration>
                 <!-- ...existing Tia plugin configuration... -->
                 <tiaSourceLibs>${tiaSourceLibs}</tiaSourceLibs>
@@ -221,7 +320,7 @@ publishes are recorded (see "How library change tracking works" below):
 ```xml
 <plugin>
     <groupId>org.tiatesting</groupId>
-    <artifactId>tia-junit5-git-maven-plugin</artifactId>
+    <artifactId>tia-maven-plugin</artifactId>
     <executions>
         <execution>
             <goals><goal>publish-lib-stamp</goal></goals>
@@ -261,7 +360,7 @@ publish stamp onto the module's `publish` and `publishToMavenLocal` tasks automa
 Tia publish ledger. The library module's `tia { ... }` block needs `enabled`, `updateDBMapping`
 and the shared DB location.
 
-The Gradle plugin pre-resolves library metadata (declared version, source directories, resolved version, JAR path) at task-action time and forwards it to the forked test JVM via system properties — TIA's library partitioning, reconcile, stamp, and drain phases all run inside the test JVM as part of Spock's selection lifecycle. No state is exchanged via files; the wire format is internal and not part of the public configuration surface.
+The Gradle plugin resolves library metadata (declared version, source directories, resolved version, JAR path) in the Gradle daemon, at test-task-action time, and runs the selection there - including Tia's library partitioning, reconcile, stamp and drain phases - once per test task. The result is handed to the forked test JVM(s) through files, the same way the Maven plugin does it; the format is internal and not part of the public configuration surface.
 
 **Single-fork recommendation when `updateDBMapping=true`.** Keep `maxParallelForks=1` and `forkEvery=0` (Gradle's defaults) when persisting mapping data, unless you have validated otherwise for your project.
 
@@ -341,17 +440,12 @@ See [Which time is which](#which-time-is-which).
 
 Library information is not part of the status output - see the [libraries task](#libraries--tracked-libraries-and-their-pending-changes) below. Pending failed tests (forced to re-run) are shown by the select-tests task.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:status
-```
-
-**Maven, Junit5 and Perforce**
-```
-mvn tia-junit5-perforce:status
+mvn tia:status
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-status
 ```
@@ -370,17 +464,12 @@ Tracked libraries:
 			seq 3 @ 1.1.0 - 3 methods pending
 ```
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:libraries
-```
-
-**Maven, Junit5 and Perforce**
-```
-mvn tia-junit5-perforce:libraries
+mvn tia:libraries
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-libraries
 ```
@@ -396,12 +485,12 @@ Seq | Version        | Jar hash        | Commit          | Published at         
 2   | 1.1.0          | a1b2c3d4e5f6... | 1c63c66aa01b... | 2026-07-12T08:30:11Z | 3
 ```
 
-**Maven (per flavor plugin, e.g. Junit5 and Git)**
+**Maven**
 ```
-mvn tia-junit5-git:library-publishes -DtiaLibrary=com.example:libA
+mvn tia:library-publishes -DtiaLibrary=com.example:libA
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-library-publishes --library=com.example:libA
 ```
@@ -416,12 +505,12 @@ Seq | Version | Method id  | Method                                            |
 2   | 1.1.0   | -495364344 | org/example/lib/TireService.getRecommendedPressure.(Ljava/lang/String;)I | 14-23
 ```
 
-**Maven (per flavor plugin, e.g. Junit5 and Git)**
+**Maven**
 ```
-mvn tia-junit5-git:library-pending-methods -DtiaLibrary=com.example:libA
+mvn tia:library-pending-methods -DtiaLibrary=com.example:libA
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-library-pending-methods --library=com.example:libA
 ```
@@ -446,23 +535,18 @@ The bracket after each test is its average run time; the percentages compare aga
 
 When the test run is configured to update the mapping (`updateDBMapping=true`, i.e. the primary build that collects JaCoCo coverage), the "Estimated total run time" also includes an allowance for per-suite coverage capture plus other whole-run overhead (JVM/agent startup, the final persist), derived from the recorded full-suite run time and amortised across the selected suites. A run that does not update the mapping collects no coverage, so no overhead is added and the estimate is the plain sum of the per-suite times.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-tia-junit5-git:select-tests
+tia:select-tests
 ```
 
 Note: to see extra debugging including what test suites are being selected broken down by source methods:
 ```
-tia-junit5-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+tia:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
 ```
 See [Seeing Tia's log output](#seeing-tias-log-output) for more on Tia's logging.
 
-**Maven, Junit5 and Perforce**
-```
-tia-junit5-perforce:select-tests
-```
-
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-select-tests
 ```
@@ -522,18 +606,13 @@ Date/time         Commit    Ran  Ignored  Failed  Wall clock  Savings  Savings %
 2026-05-15 09:30  abc123de   42        3       1  1m 23s      5m 12s         79%  CI      yes      550e8400
 ```
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-tia-junit5-git:history
-tia-junit5-git:history -DtiaHistoryLast=50
-```
-
-**Maven, Junit5 and Perforce**
-```
-tia-junit5-perforce:history
+tia:history
+tia:history -DtiaHistoryLast=50
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-history
 gradle tia-history --last=50
@@ -554,17 +633,12 @@ Generate a HTML report showing the current information about the Tia DB, the tes
 
 <kbd><img width="992" alt="Screen Shot 2024-05-14 at 10 04 34 PM" src="https://github.com/mtgleeson/tiatesting/assets/1771850/d04b527c-f88d-452a-ab20-2d864d7a4424"></kbd>
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:html-report
-```
-
-**Maven, Junit5 and Perforce**
-```
-mvn tia-junit5-perforce:html-report
+mvn tia:html-report
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-html-report
 ```
@@ -572,17 +646,12 @@ gradle tia-html-report
 ### Text Report
 Generate a basic text report showing the current information about the Tia DB, the test suites and the source code.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:html-report
-```
-
-**Maven, Junit5 and Perforce**
-```
-mvn tia-junit5-perforce:html-report
+mvn tia:text-report
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-text-report
 ```
@@ -598,7 +667,7 @@ Nothing to configure - this output appears on the console out of the box. Under 
 To see Tia's debug logging (for example, the breakdown of which source methods caused each test suite to be selected):
 
 ```
-mvn tia-junit5-git:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
+mvn tia:select-tests -Dorg.slf4j.simpleLogger.log.org.tiatesting=debug
 ```
 
 `mvn -X` works too, but it turns on debug for the entire build. Note that Maven supplies its own SLF4J binding for this process, so a `logback.xml` in your project has no effect on it - use the system property above.
@@ -663,10 +732,12 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaDBSchemaSuffix|schemaSuffix|<string>|Isolates this test task's datastore into its own schema, `tia_<branch>_<suffix>`. Declare one per test task (Gradle) or per test execution (Maven) where a project runs more than one Tia-enabled test run: two that share a schema delete each other's tracked test suites and share one stored commit value, which costs selectivity and can silently under-select. Both build systems refuse a configuration whose Tia-enabled test runs resolve to the same schema, naming them and this setting. Leave unset for a single-test-task project - the schema is then the `tia_<branch>` Tia has always used, so nothing moves.| (none - the plain `tia_<branch>` schema)                                                    |false|
 |tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance. Set one of the two when tests run inside a Docker container or a hosted build service (e.g. Google Cloud Build), which do not pass the CI system's marker variables through, e.g. `docker run -e TIA_RUN_SOURCE=CI`. A distributed build takes its source from the plan step, so there it only needs to be set where the plan runs.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
-|tiaVcsServerUri|N/A|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
-|tiaVcsUserName|N/A|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
-|tiaVcsPassword|N/A|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
-|tiaVcsClientName|N/A|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaVcs|vcs|git, perforce|The version control system to read changes from. Optional: when unset, a configured server URI means Perforce and a `.git` entry in the project directory or a parent means Git. See [Choosing the version control system](#choosing-the-version-control-system).| detected |false|
+|N/A|testFramework|spock|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. Needed when Spock is only declared through a BOM or platform, or when JUnit 5 is declared too.| detected |false|
+|tiaVcsServerUri|vcsServerUri|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce; setting it selects Perforce when `tiaVcs` / `vcs` is unset.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaVcsUserName|vcsUserName|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaVcsPassword|vcsPassword|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
+|tiaVcsClientName|vcsClientName|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaBranch|branch|<string>|The branch this build is running against, overriding the branch Tia would otherwise read from the VCS. The branch selects the datastore schema, so it has to be known before any database connection is opened and cannot be read back out of the database. Set it on a build with **no VCS access** - a distributed test run's runner job holding nothing but a checked-out tree - and Tia never opens a repository to resolve it. On a runner, take it from the `branch` field of `tia-run-plan.json`, which matches the plan's schema by construction. See [Where each value should come from](#where-each-value-should-come-from).| read from the VCS |false|
 |tiaCommitValue|commitValue|<string>|The commit this build is running against, overriding the head commit Tia would otherwise read from the VCS. On a distributed runner this is what the claim compares against the commit the plan was built by diffing, so it should be the commit **the pipeline actually checked out** (`$GITHUB_SHA` and equivalents) - the plan's own `commit` field fed back in compares a value with itself and checks nothing. See [Where each value should come from](#where-each-value-should-come-from).| read from the VCS |false|
 |tiaDistributed|distributed|true, false|When true this build takes part in a [distributed test run](#distributed-test-runs): the selection is split into groups across CI runners that coordinate through a shared database. Requires `tiaDBUrl` / `dbUrl` (a shared datastore - embedded H2 is rejected). `tiaCheckLocalChanges` / `checkLocalChanges` may be on only when `tiaUpdateDBMapping` / `updateDBMapping` is off (fan test execution out across runners against uncommitted changes without writing the mapping); enabling both is rejected.| false |false|
@@ -775,13 +846,12 @@ Step 3 is not optional on Maven, and it is the one thing people get wrong. A tes
 
 Run once per build, before the runner jobs start. Writes the plan to the shared database and `tia-run-plan.json` alongside a console summary.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedTargetRunTime=1500000 -DtiaDistributedMaxGroups=10
+mvn tia:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedTargetRunTime=1500000 -DtiaDistributedMaxGroups=10
 ```
-(substitute `tia-junit5-perforce` for Perforce)
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-dist-plan
 ```
@@ -888,12 +958,12 @@ Your pipeline should skip the runner jobs entirely when `groupCount` is `0`. Tha
 
 Run once per runner job, after its tests, **whatever the result**. Completes the group, and if this runner finished last, seals the build.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:dist-complete
+mvn tia:dist-complete
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 (nothing - the tia-dist-complete task is wired as a finalizer of the test task automatically)
 ```
@@ -911,7 +981,7 @@ It is safe to run unconditionally: on a build that was not distributed - no `for
 Two ways to land in that state:
 
 - Passing `-DtiaEnabled=false` on the completion step while the runners ran with it true.
-- Driving `tiaEnabled` from the command line only. It has no default value, so an unset `tiaEnabled` is false: if your runners use `mvn verify -DtiaEnabled=true` and your pom has no `<tiaEnabled>`, then a bare `mvn tia-junit5-git:dist-complete` silently no-ops.
+- Driving `tiaEnabled` from the command line only. It has no default value, so an unset `tiaEnabled` is false: if your runners use `mvn verify -DtiaEnabled=true` and your pom has no `<tiaEnabled>`, then a bare `mvn tia:dist-complete` silently no-ops.
 
 So: if `tiaEnabled` lives in your pom (as in the [getting started](#getting-started) configuration), there is nothing to do - this goal picks it up like every other goal does. If you pass it on the command line for the test run, pass the same value on the completion step. When a run is stuck `OPEN` with a group still `CLAIMED`, this is the first thing to check - [`dist-status`](#status---inspect-a-run-in-flight) shows both.
 
@@ -919,12 +989,12 @@ So: if `tiaEnabled` lives in your pom (as in the [getting started](#getting-star
 
 Prints the state of a distributed run: the run itself, every group in its plan, and the runner that claimed each one. Read-only - it claims, completes, seals and clears nothing - so it is safe to run against a build whose runners are still going, from your own machine or from a CI step watching the fan-out.
 
-**Maven, Junit5 and Git**
+**Maven**
 ```
-mvn tia-junit5-git:dist-status [-DtiaRunId=$CI_RUN_ID] [-DtiaDistStatusSuites=true]
+mvn tia:dist-status [-DtiaRunId=$CI_RUN_ID] [-DtiaDistStatusSuites=true]
 ```
 
-**Gradle, Spock and Git**
+**Gradle**
 ```
 gradle tia-dist-status [--runId=$CI_RUN_ID] [--suites]
 ```
@@ -977,13 +1047,13 @@ Set both on the runner jobs and no Tia step opens a repository or a Perforce con
 
 ```
 # the planning job needs the repository
-mvn tia-junit5-git:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedGroupCount=5
+mvn tia:dist-plan -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID -DtiaDistributedGroupCount=5
 
 # the runner jobs do not. $PLAN_BRANCH is the plan file's own branch field; $CI_COMMIT_SHA
 # is your CI system's checkout SHA - see "Where each value should come from" below.
 mvn verify -DtiaDistributed=true -DtiaRunId=$CI_RUN_ID \
     -DtiaBranch=$PLAN_BRANCH -DtiaCommitValue=$CI_COMMIT_SHA
-mvn tia-junit5-git:dist-complete
+mvn tia:dist-complete
 ```
 
 #### Where each value should come from
@@ -1029,7 +1099,7 @@ plan:
     branch: ${{ steps.plan.outputs.branch }}
   steps:
     - run: >
-        mvn tia-junit5-git:dist-plan
+        mvn tia:dist-plan
         -DtiaDistributed=true
         -DtiaRunId=${{ github.run_id }}
         -DtiaDistributedTargetRunTime=1500000
@@ -1058,7 +1128,7 @@ test:
 
     - name: Complete this runner's group
       if: always()          # <- the whole point: runs even when the tests failed
-      run: mvn tia-junit5-git:dist-complete
+      run: mvn tia:dist-complete
 ```
 
 Three details worth copying: `fail-fast: false`, so one failing group does not cancel the others and strand their claims; a `tiaDistributedRunnerKey` taken from the matrix index, so a retried job resumes its own group rather than claiming a second one; and the `if:` on the test job, since a build that selected nothing plans no groups and GitHub Actions rejects an empty matrix.
@@ -1224,8 +1294,8 @@ Maven - `pom.xml`:
     <plugins>
         <plugin>
             <groupId>org.tiatesting</groupId>
-            <artifactId>tia-junit5-git-maven-plugin</artifactId>
-            <version>0.1.18</version>
+            <artifactId>tia-maven-plugin</artifactId>
+            <version>${tia.version}</version>
             <!-- 2. Plugin dependency: for the build-tool side (select-tests, reports, reconcile). -->
             <dependencies>
                 <dependency>
@@ -1257,7 +1327,7 @@ Gradle - `build.gradle`:
 ```groovy
 buildscript {
     dependencies {
-        classpath 'org.tiatesting:tia-spock-git-gradle:0.1.18'
+        classpath 'org.tiatesting:tia-gradle:0.1.20'
         // 2. Plugin classpath dependency: for the build-tool side (select-tests, reports, reconcile).
         classpath 'org.postgresql:postgresql:42.7.4'
     }
@@ -1292,7 +1362,7 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 | |Git|Perforce|
 |-|---|--------|
 |Junit 5|x|x|
-|Spock 2|✔|x|
+|Spock 2|✔|✔ (new; not yet verified against a live Perforce server)|
 
 ## Credits
 A shout out to the following libraries that Tia uses:
