@@ -7,6 +7,4 @@ include 'tia-spock-git-gradle'
 include 'tia-gradle'
 include 'tia-junit5'
 include 'tia-junit5-agent'
-include 'tia-junit5-git'
-include 'tia-junit5-perforce'
 

@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Registers {@link TiaSpockSkipExecutionListener} with the JUnit Platform launcher session Gradle
- * opens for a {@code Test} task, mirroring how {@code tia-junit5-git}'s {@code
+ * opens for a {@code Test} task, mirroring how {@code tia-junit5}'s {@code
  * TiaLauncherSessionListener} registers its own execution listener for Maven Surefire. Discovered
  * via the {@code META-INF/services/org.junit.platform.launcher.LauncherSessionListener} entry this
  * class ships in {@code tia-spock}'s jar; a {@code LauncherSessionListener} is looked up by {@code
