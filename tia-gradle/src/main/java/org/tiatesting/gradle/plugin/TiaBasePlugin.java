@@ -967,7 +967,23 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
      * @return the library impact analysis configuration parsed from the Gradle extension.
      */
     protected LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig() {
-        String libs = getSourceLibs();
+        return buildLibraryImpactAnalysisConfig(getSourceLibs(), getSourceProjectDir(),
+                new LibraryJarResolver(project, LOGGER));
+    }
+
+    /**
+     * Build a {@link LibraryImpactAnalysisConfig} from a {@code sourceLibs} CSV. Shared by the
+     * plugin's own tasks and the test task action, which passes its test task's merged values.
+     *
+     * @param libs the {@code sourceLibs} CSV of {@code groupId:artifactId} or
+     *             {@code groupId:artifactId:projectDir} entries; may be null
+     * @param sourceProjectDir the source project directory the libraries are resolved against
+     * @param reader the resolver used to read library metadata
+     * @return the library impact analysis configuration; an empty one when no libraries are set
+     */
+    public static LibraryImpactAnalysisConfig buildLibraryImpactAnalysisConfig(final String libs,
+                                                                               final String sourceProjectDir,
+                                                                               final LibraryJarResolver reader) {
         if (libs == null || libs.trim().isEmpty()) {
             return new LibraryImpactAnalysisConfig(null, null, null, null);
         }
@@ -991,8 +1007,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             }
         }
 
-        LibraryJarResolver reader = new LibraryJarResolver(project, LOGGER);
-        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, getSourceProjectDir(), reader);
+        return new LibraryImpactAnalysisConfig(coordinates, libraryProjectDirs, sourceProjectDir, reader);
     }
 
     /**

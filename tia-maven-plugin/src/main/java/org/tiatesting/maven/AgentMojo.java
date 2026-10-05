@@ -13,7 +13,7 @@ import org.apache.maven.project.MavenProject;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.CommandLineSupport;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.agent.RunSelectionDetailsCodec;
+import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
@@ -22,7 +22,6 @@ import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryJarDirectoryResolver;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
-import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.util.StringUtil;
@@ -37,7 +36,6 @@ import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 
@@ -50,11 +48,6 @@ public class AgentMojo extends AbstractTiaMojo {
      * Name of the property used in maven-surefire-plugin.
      */
     static final String SUREFIRE_ARG_LINE = "argLine";
-    private static final String IGNORED_TESTS_FILENAME = "ignored-tests.txt";
-    private static final String SELECTED_TESTS_FILENAME = "selected-tests.txt";
-    private static final String LIBRARY_JARS_FILENAME = "library-jars.txt";
-    private static final String DRAIN_RESULT_FILENAME = "drain-result.ser";
-    private static final String SELECTION_DETAILS_FILENAME = "run-selection-details.txt";
 
     /**
      * Warned when a distributed runner is given tiaSelectAllTests or tiaReseed. The plan step
@@ -176,13 +169,10 @@ public class AgentMojo extends AbstractTiaMojo {
         }
 
         String forkPropertiesFile = writeForkPropertiesFile(assignment, workspaceIdentity);
-        writeIgnoredTestsToFile(testsToIgnore);
-        writeSelectedTestsToFile(testsToRun);
-        String drainResultFile = writeDrainResultFile(drainResult);
-        String selectionDetailsFile = writeSelectionDetailsFile(selectionDetails);
+        SelectionHandoff handoff = SelectionHandoff.write(new File(getTiaBuildDir()), testsToIgnore, testsToRun,
+                drainResult, selectionDetails);
 
-        final AgentOptions agentOptions = buildTiaAgentOptions(libraryJarsFile, drainResultFile, forkPropertiesFile,
-                selectionDetailsFile);
+        final AgentOptions agentOptions = buildTiaAgentOptions(handoff, libraryJarsFile, forkPropertiesFile);
         final String newValue = addVMArguments(oldValue, getAgentJarFile(), agentOptions);
         getLog().info(name + " set to " + newValue);
         projectProperties.setProperty(name, newValue);
@@ -475,54 +465,6 @@ public class AgentMojo extends AbstractTiaMojo {
         }
     }
 
-    private void writeIgnoredTestsToFile(Set<String> testsToIgnore){
-        String ignoredTestsFilename = getIgnoreTestsFilename();
-        writeTestsToFile(ignoredTestsFilename, testsToIgnore);
-    }
-
-    private void writeSelectedTestsToFile(Set<String> selectedTests){
-        String selectedTestsFilename = getSelectedTestsFilename();
-        writeTestsToFile(selectedTestsFilename, selectedTests);
-    }
-
-    private void writeTestsToFile(String filename, Set<String> tests){
-        FileWriter fileWriter = null;
-        try {
-
-            File file = new File(filename);
-            file.getParentFile().mkdirs();
-            fileWriter = new FileWriter(file);
-
-            if (tests.isEmpty()){
-                fileWriter.write("");
-            }else{
-                for (String str : tests) {
-                    fileWriter.write(str + System.lineSeparator());
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } finally {
-            try {
-                fileWriter.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    private String getIgnoreTestsFilename(){
-        return getTiaBuildDir() + "/" + IGNORED_TESTS_FILENAME;
-    }
-
-    private String getSelectedTestsFilename(){
-        return getTiaBuildDir() + "/" + SELECTED_TESTS_FILENAME;
-    }
-
-    private String getLibraryJarsFilename(){
-        return getTiaBuildDir() + "/" + LIBRARY_JARS_FILENAME;
-    }
-
     /**
      * Resolve the configured {@code tiaSourceLibs} coordinates to absolute JAR paths and write them
      * (one per line) to {@code ${tiaBuildDir}/library-jars.txt}. The TIA javaagent reads this file
@@ -551,9 +493,7 @@ public class AgentMojo extends AbstractTiaMojo {
 
         getLog().debug("tiaLibraryJars resolved to: " + String.join(",", jarPaths));
         Set<String> jars = new LinkedHashSet<>(jarPaths);
-        String filename = getLibraryJarsFilename();
-        writeTestsToFile(filename, jars);
-        return filename;
+        return SelectionHandoff.writeLibraryJars(new File(getTiaBuildDir()), jars).getPath();
     }
 
     /**
@@ -603,28 +543,26 @@ public class AgentMojo extends AbstractTiaMojo {
      * Assemble the {@link AgentOptions} passed to the Tia javaagent on the forked test JVM's
      * command line, one option per sidecar file the build plugin wrote for it.
      *
+     * @param handoff the selection hand-off files written for the fork
      * @param libraryJarsFile the library JARs sidecar file path, or null if none was written
-     * @param drainResultFile the library-impact drain result sidecar file path, or null if no
-     *                        drain occurred
      * @param forkPropertiesFile the fork properties sidecar file path, or null if none was written
-     * @param selectionDetailsFile the run-selection-details sidecar file path
      * @return the assembled agent options, ready for {@link AgentOptions#toCommandLineOptionsString()}
      */
-    private AgentOptions buildTiaAgentOptions(String libraryJarsFile, String drainResultFile, String forkPropertiesFile,
-                                               String selectionDetailsFile){
+    private AgentOptions buildTiaAgentOptions(SelectionHandoff handoff, String libraryJarsFile,
+                                               String forkPropertiesFile){
         AgentOptions agentOptions = new AgentOptions();
-        agentOptions.setIgnoreTestsFile(getIgnoreTestsFilename());
-        agentOptions.setSelectedTestsFile(getSelectedTestsFilename());
+        agentOptions.setIgnoreTestsFile(handoff.getIgnoredTestsFile().getPath());
+        agentOptions.setSelectedTestsFile(handoff.getSelectedTestsFile().getPath());
         if (libraryJarsFile != null){
             agentOptions.setLibraryJarsFile(libraryJarsFile);
         }
-        if (drainResultFile != null){
-            agentOptions.setDrainResultFile(drainResultFile);
+        if (handoff.getDrainResultFile() != null){
+            agentOptions.setDrainResultFile(handoff.getDrainResultFile().getPath());
         }
         if (forkPropertiesFile != null){
             agentOptions.setForkPropertiesFile(forkPropertiesFile);
         }
-        agentOptions.setSelectionDetailsFile(selectionDetailsFile);
+        agentOptions.setSelectionDetailsFile(handoff.getSelectionDetailsFile().getPath());
         return agentOptions;
     }
 
@@ -749,46 +687,6 @@ public class AgentMojo extends AbstractTiaMojo {
             throw new MojoExecutionException("Tia could not stage the database password for the "
                     + "forked test JVM.", e);
         }
-    }
-
-    /**
-     * Serialize the {@link LibraryImpactDrainResult} to a file so the test listener in the
-     * forked JVM can deserialize it and pass it to {@code TestRunnerService} for post-test-run cleanup.
-     *
-     * @return absolute path of the file written, or {@code null} if no drain result.
-     */
-    private String writeDrainResultFile(LibraryImpactDrainResult drainResult) {
-        if (drainResult == null || !drainResult.hasDrainedBatches()) {
-            return null;
-        }
-        String filename = getDrainResultFilename();
-        java.io.File file = new java.io.File(filename);
-        LibraryImpactDrainResultSerializer.serialize(drainResult, file);
-        return filename;
-    }
-
-    private String getDrainResultFilename(){
-        return getTiaBuildDir() + "/" + DRAIN_RESULT_FILENAME;
-    }
-
-    /**
-     * Serialize the {@link TestRunSelectionDetails} breakdown to a sidecar file so the test
-     * listener in the forked JVM can deserialize it via {@link RunSelectionDetailsCodec#read(File)}
-     * and attach it to the history row - the same file+agent-option+sysprop mechanism the drain
-     * result already uses. Unlike the drain result this is always written, even when empty, since
-     * the forked JVM needs a valid file to read regardless of whether this build ran selection.
-     *
-     * @param selectionDetails the breakdown to serialize; must not be null
-     * @return the absolute path of the file written
-     */
-    private String writeSelectionDetailsFile(TestRunSelectionDetails selectionDetails) {
-        String filename = getSelectionDetailsFilename();
-        RunSelectionDetailsCodec.write(selectionDetails, new File(filename));
-        return filename;
-    }
-
-    private String getSelectionDetailsFilename(){
-        return getTiaBuildDir() + "/" + SELECTION_DETAILS_FILENAME;
     }
 
     /**

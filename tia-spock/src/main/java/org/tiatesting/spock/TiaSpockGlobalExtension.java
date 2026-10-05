@@ -4,31 +4,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spockframework.runtime.extension.IGlobalExtension;
 import org.spockframework.runtime.model.SpecInfo;
-import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.agent.RunSelectionDetailsCodec;
+import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
-import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
-import org.tiatesting.core.model.SelectionMode;
+import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.TestRunSelectionDetails;
-import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.testrunner.TestJvmSequence;
-import org.tiatesting.core.testrunner.TestRunnerService;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
-import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
-import org.tiatesting.core.util.StringUtil;
-import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
-import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
+import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.testrunner.TestRunnerService;
 
-import java.util.Arrays;
+import java.io.File;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TiaSpockGlobalExtension implements IGlobalExtension {
@@ -37,9 +30,6 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
     private final boolean tiaEnabled;
     private final boolean tiaUpdateDBMapping;
     private final boolean tiaUpdateDBTestRunHistory;
-    private final List<String> sourceFilesDirs;
-    private final List<String> testFilesDirs;
-    private final boolean checkLocalChanges;
     private final TiaSpockRunListener tiaTestingSpockRunListener;
     private final DataStore dataStore;
     private final SpecificationUtil specificationUtil;
@@ -52,47 +42,38 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
 
     /**
      * Work out which test suites this Spock test JVM must skip, and build the run listener that
-     * records what it ran. For an ordinary (non-distributed) Gradle build, selection genuinely runs
-     * inside this test JVM rather than in the build JVM, so this constructor is where the whole of
-     * Tia's pre-run work happens.
+     * records what it ran. Registered through {@code tia-spock}'s {@code IGlobalExtension} service
+     * descriptor, so it is constructed by Spock with no arguments.
      *
-     * <p>How the suite lists are arrived at is the one thing that differs between an ordinary and
-     * a distributed build. An ordinary build runs the test selection here. A distributed build
-     * must not: the plan produced by {@code tia-dist-plan} already ran the VCS diff, the static
-     * rules and the library-impact drain once, for every runner, and its output is in the shared
-     * database. So a distributed build does not select, and does not claim either - on both Maven
-     * and Gradle the claim now happens in the build JVM, before the test JVM forks (on Gradle, the
-     * daemon's test-task action - see {@code TiaSpockGitGradlePluginTestExtension#applyTo}), and
-     * this constructor only resolves that claim's result from system properties, via {@link
-     * DistributedForkProperties#contextFromSystemProperties()}, then re-derives the two suite sets
-     * from it via {@link DistributedRunnerAssignment#forClaimedRunner}, the same derivation the
-     * build JVM's claim used. Claiming a second time here would take a second group and leave the
-     * first open forever, so the run would never seal.
+     * <p>This JVM never selects and never reads a version control system. The Gradle daemon's test
+     * task action does both, once per test task, and hands the result over:
+     * <ul>
+     *     <li>An ordinary build: the daemon runs the test selection and writes the hand-off files
+     *     ({@link SelectionHandoff}), naming them in system properties. This constructor reads the
+     *     suites to skip and run, the library-impact drain result and the selection breakdown from
+     *     them.</li>
+     *     <li>A distributed build: the daemon claims this runner's group from the shared plan, and
+     *     forwards the claim's result. This constructor resolves it via {@link
+     *     DistributedForkProperties#contextFromSystemProperties()} and re-derives the two suite sets
+     *     with {@link DistributedRunnerAssignment#forClaimedRunner}, the same derivation the claim
+     *     used. Claiming a second time here would take a second group and leave the first open
+     *     forever, so the run would never seal.</li>
+     * </ul>
+     * The branch and the commit come from system properties the daemon resolved. See the "How Tia
+     * exchanges data with the test runner" chapter in {@code WIKI.md}.
      *
-     * <p>The branch and the commit come from the system properties the Gradle daemon resolved them
-     * into, never from a repository this JVM opens. The supplier is for the one thing those two
-     * values cannot answer: an ordinary build's selection, which diffs the workspace. A distributed
-     * runner does not select, so on that path the supplier is never invoked and the fork runs with
-     * no version control system present at all.
-     *
-     * @param vcsReaderSupplier constructs a reader for the workspace under test; invoked only when
-     *                          this build runs its own selection
-     * @throws IllegalStateException if this build is a distributed runner but the shared plan its
-     *                                group was claimed from is no longer readable - for example a
-     *                                later build superseded it between the daemon's claim and this
-     *                                JVM starting - since a runner that cannot tell whether its
-     *                                share of the suite ran must never report green
+     * @throws IllegalStateException if Tia is enabled for an ordinary build but the daemon handed
+     *                               over no selection, or if this build is a distributed runner
+     *                               but the shared plan its group was claimed from is no longer
+     *                               readable - a runner that cannot tell whether its share of the
+     *                               suite ran must never report green
      */
-    public TiaSpockGlobalExtension(final Supplier<VCSReader> vcsReaderSupplier){
+    public TiaSpockGlobalExtension(){
         this.specificationUtil = new SpecificationUtil();
         tiaEnabled = Boolean.parseBoolean(System.getProperty("tiaEnabled"));
 
         if (tiaEnabled){
-            // Resolved from the properties the Gradle daemon's test-task action already claimed
-            // with, before opening the datastore, since resolving is just a system-property read
-            // now - the preconditions this used to also validate here are the daemon's job (Task
-            // 2a moved them there, where the real reactor size is knowable). Null for every
-            // ordinary build, which therefore behaves exactly as it always did.
+            // Null for every ordinary build.
             DistributedRunnerContext distributedRunnerContext =
                     DistributedForkProperties.contextFromSystemProperties();
             tiaUpdateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
@@ -101,56 +82,21 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             String branch = ForkSystemProperties.branchFromSystemProperties();
             String headCommit = ForkSystemProperties.commitValueFromSystemProperties();
             dataStore = DataStoreFactory.fromSystemProperties(branch);
-            sourceFilesDirs = System.getProperty("tiaSourceFilesDirs") != null ? Arrays.asList(System.getProperty("tiaSourceFilesDirs").split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            testFilesDirs = System.getProperty("tiaTestFilesDirs") != null ? Arrays.asList(System.getProperty("tiaTestFilesDirs").split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
-            boolean checkLocalChanges = Boolean.parseBoolean(System.getProperty("tiaCheckLocalChanges"));
-
-            if (tiaUpdateDBMapping && checkLocalChanges){
-                // Don't check for local changes. We shouldn't update the DB mapping using unsubmitted changes.
-                this.checkLocalChanges = false;
-
-                // user was trying to check for local changes - let them know they can't
-                log.info("Disabling the check for local changes as Tia is configured to update the DB.");
-            }else{
-                // only check for local changes when not updating the DB.
-                this.checkLocalChanges = checkLocalChanges;
-            }
 
             Set<String> testsToRun;
             LibraryImpactDrainResult drainResult;
-            // The per-run selection breakdown (per-method and per-rule triggers, plus the scalar
-            // source counts) that TestRunResult carries through to the history row. Left empty()
-            // for a distributed runner - the build-level breakdown for that case is written by the
-            // sealer in a later stage, and this fork's own share of the selection is not the
-            // figure the history row should show.
+            // The per-run selection breakdown that TestRunResult carries through to the history
+            // row. Left empty() for a distributed runner - the build-level breakdown for that case
+            // is written by the sealer, and this fork's own share is not the figure to show.
             TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
 
             if (distributedRunnerContext != null){
-                // A distributed runner derives its suites from the group the daemon already
-                // claimed, instead of selecting or claiming here. The plan already ran the diff
-                // and the library-impact drain once; repeating the drain per-runner would race,
-                // and applying its cleanup belongs to the run's sealer, so no drain result is
-                // carried here.
-                //
                 // forRunner, not validated: this config exists only to key the derivation's reads
-                // by the run id the group was claimed under - no group count or target run time is
-                // asked for, since that shape was already decided by the plan this context was
-                // resolved from.
-                if (Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS))
-                        || Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_RESEED))) {
-                    log.warn("selectAllTests / reseed are ignored on a distributed runner: the mode "
-                            + "is decided by tia-dist-plan and recorded on the run.");
-                }
+                // by the run id the group was claimed under. No drain result is carried: the plan
+                // already ran the drain once, and applying its cleanup belongs to the sealer.
                 DistributedRunConfig config = DistributedRunConfig.forRunner(
                         distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
-                // forClaimedRunner, not claim: this fork does not claim, it re-derives the same two
-                // suite lists the daemon's claim already resolved, from the runner key and group
-                // number the daemon forwarded. Sharing DistributedRunnerAssignment's one copy of the
-                // derivation is what keeps this fork from landing on a different answer than the
-                // claim already committed to - a surplus runner (null group number) ignores every
-                // suite and runs none, same as before.
+                // A surplus runner (null group number) ignores every suite and runs none.
                 DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
                         dataStore, config, distributedRunnerContext.getRunnerKey(),
                         distributedRunnerContext.getGroupNumber());
@@ -158,35 +104,21 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
                 ignoredTests = assignment.getTestsToIgnore();
                 drainResult = null;
             } else {
-                // The Gradle plugin pre-resolves library metadata (declared version, source dirs, resolved
-                // version + JAR path) and forwards it via the tiaLibrariesMetadata system property. When
-                // unset (no tiaSourceLibs configured), libraryConfig is null and library partitioning /
-                // reconcile / stamp / drain are skipped - same as before.
-                LibraryImpactAnalysisConfig libraryConfig = LibraryMetadataSystemProperties.fromSystemProperties();
-                // Static test selection rules are pre-resolved on the Gradle side and forwarded
-                // through the tiaStaticTestSelectionRules system property; absent property means
-                // no rules in effect.
-                StaticTestSelectionConfig staticMappingConfig = StaticTestSelectionSystemProperties.fromSystemProperties();
-                // The one path that needs a reader, and the one that closes it: an ordinary build
-                // runs its own selection here, which diffs the workspace.
-                VCSReader vcsReader = vcsReaderSupplier.get();
-                // Forwarded by the Gradle plugin, which has already refused tiaReseed without
-                // updateDBMapping. The mode rides on the selection details into the persist, which
-                // is where a re-seed takes effect.
-                SelectionMode selectionMode = SelectionMode.fromFlags(
-                        Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS)),
-                        Boolean.parseBoolean(System.getProperty(ForkSystemProperties.PROP_RESEED)));
-                try {
-                    TestSelectorResult testSelectorResult = new TiaSpockTestRunInitializer(dataStore)
-                            .selectTests(vcsReader, sourceFilesDirs, testFilesDirs,
-                                    this.checkLocalChanges, tiaUpdateDBMapping, libraryConfig,
-                                    staticMappingConfig, selectionMode);
-                    ignoredTests = testSelectorResult.getTestsToIgnore();
-                    testsToRun = testSelectorResult.getTestsToRun();
-                    drainResult = testSelectorResult.getLibraryImpactDrainResult();
-                    selectionDetails = testSelectorResult.getSelectionDetails();
-                } finally {
-                    vcsReader.close();
+                String ignoredTestsFile = System.getProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE);
+                String selectedTestsFile = System.getProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE);
+                if (ignoredTestsFile == null || selectedTestsFile == null) {
+                    throw new IllegalStateException("Tia is enabled but the Gradle plugin handed this test "
+                            + "JVM no test selection (" + SelectionHandoff.PROP_IGNORED_TESTS_FILE + " / "
+                            + SelectionHandoff.PROP_SELECTED_TESTS_FILE + " are not set). Apply the Tia "
+                            + "Gradle plugin to the project running this test task.");
+                }
+                ignoredTests = SelectionHandoff.readSuiteNames(ignoredTestsFile);
+                testsToRun = SelectionHandoff.readSuiteNames(selectedTestsFile);
+                drainResult = LibraryImpactDrainResultSerializer.deserialize(
+                        System.getProperty(SelectionHandoff.PROP_DRAIN_RESULT_FILE));
+                String selectionDetailsFile = System.getProperty(SelectionHandoff.PROP_SELECTION_DETAILS_FILE);
+                if (selectionDetailsFile != null) {
+                    selectionDetails = RunSelectionDetailsCodec.read(new File(selectionDetailsFile));
                 }
             }
 
@@ -210,10 +142,7 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             tiaUpdateDBMapping = false;
             tiaUpdateDBTestRunHistory = false;
             dataStore = null;
-            sourceFilesDirs = null;
-            testFilesDirs = null;
             this.tiaTestingSpockRunListener = null;
-            this.checkLocalChanges = false;
         }
 
         log.info("Tia: enabled: {}, update mapping (and stats): {}, update test run history: {}",

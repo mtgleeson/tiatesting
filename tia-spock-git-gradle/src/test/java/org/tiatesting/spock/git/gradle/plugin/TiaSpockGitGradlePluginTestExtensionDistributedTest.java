@@ -1,5 +1,6 @@
 package org.tiatesting.spock.git.gradle.plugin;
 
+import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.model.SelectionMode;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -28,6 +29,7 @@ import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -329,6 +331,9 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
         Object forwardedRunnerKey = systemProperties.get("tiaDistributedRunnerKey");
         assertNotNull(forwardedRunnerKey);
+        // a runner claims instead of selecting, so it is handed no selection files
+        assertFalse(systemProperties.containsKey(SelectionHandoff.PROP_IGNORED_TESTS_FILE),
+                systemProperties.toString());
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-1");
             assertEquals(forwardedRunnerKey, groups.get(0).getRunnerKey());
@@ -516,18 +521,19 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
     }
 
     /**
-     * Verify an ordinary, non-distributed Gradle build's test JVM is started with none of the
-     * distributed properties, and that the daemon never even attempts a claim: no database
-     * directory is configured for {@link TestPlugin#buildDataStore} here, so if the action
-     * incorrectly tried to claim it would fail to open a store and this test would fail with that
-     * exception instead of passing.
+     * Verify an ordinary, non-distributed Gradle build selects in the daemon and hands the
+     * selection to its test JVM through files, and that the test JVM is started with none of the
+     * distributed properties. With no mapping stored this is a seed run: every suite runs, so the
+     * ignored-tests file is empty.
      *
-     * @param projectDir a temporary directory to root the Gradle project at
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     * @throws IOException if the hand-off files cannot be read
      */
     @org.junit.jupiter.api.Test
-    void shouldForwardNoDistributedPropertiesAndClaimNothingForANonDistributedBuild(@TempDir File projectDir) {
-        // given - no database directory configured, and no plan persisted anywhere
-        Test testTask = testTaskWithTiaApplied(projectDir, null);
+    void shouldSelectInTheDaemonAndForwardNoDistributedPropertiesForANonDistributedBuild(@TempDir File projectDir)
+            throws IOException {
+        // given - an empty store, so the selection is a seed run
+        Test testTask = testTaskWithTiaApplied(projectDir, newDbDir(projectDir));
         enableTia(projectExtension(testTask), projectDir);
 
         // when
@@ -539,9 +545,13 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         assertFalse(systemProperties.containsKey("tiaRunId"), systemProperties.toString());
         assertFalse(systemProperties.containsKey("tiaDistributedRunnerKey"), systemProperties.toString());
         assertFalse(systemProperties.containsKey("tiaDistributedGroupNumber"), systemProperties.toString());
-        // the ordinary properties are still forwarded exactly as before
         assertEquals(Boolean.TRUE, systemProperties.get("tiaEnabled"));
-        assertEquals(Boolean.FALSE, systemProperties.get("tiaCheckLocalChanges"));
+        Object ignoredTestsFile = systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE);
+        assertTrue(ignoredTestsFile != null && new File(ignoredTestsFile.toString()).isFile(),
+                systemProperties.toString());
+        assertTrue(SelectionHandoff.readSuiteNames(ignoredTestsFile.toString()).isEmpty());
+        assertTrue(new File(systemProperties.get(SelectionHandoff.PROP_SELECTED_TESTS_FILE).toString()).isFile());
+        assertTrue(new File(systemProperties.get(SelectionHandoff.PROP_SELECTION_DETAILS_FILE).toString()).isFile());
     }
 
     /**
