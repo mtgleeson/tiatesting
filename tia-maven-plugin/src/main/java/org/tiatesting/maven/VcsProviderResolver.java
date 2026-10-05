@@ -2,6 +2,7 @@ package org.tiatesting.maven;
 
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
+import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.graph.Dependency;
@@ -101,10 +102,14 @@ class VcsProviderResolver {
             }
             return files;
         } catch (DependencyResolutionException e) {
-            throw new VCSAnalyzerException("Could not resolve " + collectRequest.getRoot().getArtifact()
-                    + " for the '" + vcsName + "' VCS. On an offline build, declare it as a dependency of "
-                    + "tia-maven-plugin (in the plugin's <dependencies>, not the project's) so Maven "
-                    + "resolves it with the plugin.", e);
+            Artifact artifact = collectRequest.getRoot().getArtifact();
+            String coordinates = artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getVersion();
+            throw new VCSAnalyzerException("Could not resolve " + coordinates + " for the '" + vcsName + "' VCS. "
+                    + "If this step should not read the VCS (e.g. a distributed test runner), set tiaBranch and "
+                    + "tiaCommitValue and no VCS provider is needed. Otherwise, on an offline build, declare "
+                    + coordinates + " as a dependency of tia-maven-plugin (in the plugin's <dependencies>, not the "
+                    + "project's) so it is resolved with the plugin, or prefetch it with "
+                    + "mvn dependency:get -Dartifact=" + coordinates, e);
         }
     }
 
