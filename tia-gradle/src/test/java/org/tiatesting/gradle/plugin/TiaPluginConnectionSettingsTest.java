@@ -14,15 +14,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests that {@link TiaBasePlugin#buildH2ConnectionSettings()} resolves embedded vs server
+ * Tests that {@link TiaPlugin#buildH2ConnectionSettings()} resolves embedded vs server
  * mode from the {@code tia { ... }} extension, and that the new server-mode extension properties
  * round-trip. Uses {@link ProjectBuilder} so the plugin's project-relative path resolution is
  * exercised against a real project dir.
  */
-class TiaBasePluginConnectionSettingsTest {
+class TiaPluginConnectionSettingsTest {
 
     /** Minimal concrete plugin so the abstract base can be applied and queried in tests. */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return null;

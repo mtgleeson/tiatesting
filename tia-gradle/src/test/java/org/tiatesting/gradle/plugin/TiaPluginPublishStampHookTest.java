@@ -28,7 +28,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests the publish stamp hook {@link TiaBasePlugin} attaches to a library project's Maven
+ * Tests the publish stamp hook {@link TiaPlugin} attaches to a library project's Maven
  * publish tasks: the hook attaches only to the publish-named tasks, a primary build's publish
  * records a ledger row for the tracked library, a non-primary build
  * ({@code updateDBMapping=false}) writes nothing, and a publish following one with a configured
@@ -37,10 +37,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * stamper). Uses {@link ProjectBuilder} and executes the attached task actions directly
  * (ProjectBuilder does not run a real task graph).
  */
-class TiaBasePluginPublishStampHookTest {
+class TiaPluginPublishStampHookTest {
 
     /** Concrete plugin with a stub VCS reader so the stamp path can run without a real repo. */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader();
@@ -361,7 +361,7 @@ class TiaBasePluginPublishStampHookTest {
     }
 
     /** Concrete plugin whose VCS reader reports a changed file matching the test's static rule. */
-    static class ForcedSelectionTestPlugin extends TiaBasePlugin {
+    static class ForcedSelectionTestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return new ForcedSelectionStubVCSReader();

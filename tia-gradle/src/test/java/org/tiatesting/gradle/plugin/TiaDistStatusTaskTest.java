@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for {@link TiaDistStatusTask} and its registration by {@link TiaBasePlugin}. The report's own
+ * Tests for {@link TiaDistStatusTask} and its registration by {@link TiaPlugin}. The report's own
  * content is covered by {@code DistributedRunStatusReportTest} in {@code tia-core}, which both build
  * tools share; what is left for this class is the wiring only Gradle has - that the task is
  * registered unconditionally, that it reads the branch's datastore, and which of the two run-id
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TiaDistStatusTaskTest {
 
     /** Concrete plugin with a stub VCS reader so the task can run without a real repo. */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         /**
          * How many times this plugin was asked for a VCS reader. Counted rather than inferred from
          * the report's content, because a reader constructed and then ignored would leave the report
@@ -61,7 +61,7 @@ class TiaDistStatusTaskTest {
     }
 
     /**
-     * Verify that {@link TiaBasePlugin#createDistStatusTask()} registers a {@code tia-dist-status}
+     * Verify that {@link TiaPlugin#createDistStatusTask()} registers a {@code tia-dist-status}
      * task of type {@link TiaDistStatusTask}, under the {@code tia-} prefixed name Gradle's flat
      * project-wide task namespace requires - the Maven goal drops the prefix because its plugin
      * prefix already namespaces it.
@@ -116,7 +116,7 @@ class TiaDistStatusTaskTest {
 
         // then
         assertTrue(output.contains("Distributed run 'build-99'"), output);
-        TestPlugin plugin = (TestPlugin) project.getPlugins().withType(TiaBasePlugin.class)
+        TestPlugin plugin = (TestPlugin) project.getPlugins().withType(TiaPlugin.class)
                 .stream().findFirst().orElseThrow(IllegalStateException::new);
         assertEquals(0, plugin.vcsReaderConstructions,
                 "a configured branch must not cause a VCS reader to be constructed");
@@ -234,7 +234,7 @@ class TiaDistStatusTaskTest {
         DistributedRun run = DistributedRun.open(runId, branch, "head-1", groups.size(), groups.size(), null, 2000L,
                 System.currentTimeMillis(), SelectionMode.SELECTIVE, null);
 
-        TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
+        TiaPlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
         try (DataStore dataStore = plugin.buildDataStore(branch)) {
             dataStore.getTiaData();
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));

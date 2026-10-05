@@ -579,7 +579,7 @@ public interface DataStore extends AutoCloseable {
      * configuration for the mapping write already, and this call does not attempt to lift that.
      *
      * <p>Gradle {@code maxParallelForks > 1} / {@code forkEvery > 0} breaks the same precondition
-     * for the same structural reason: {@code TiaSpockGitGradlePluginTestExtension.claimDistributedRun}
+     * for the same structural reason: {@code TiaTestTaskConfigurer.claimDistributedRun}
      * claims once in the daemon and forwards the one run id, runner key and group number to the test
      * task as system properties, which Gradle passes to <em>every</em> worker JVM, so all of them
      * report against the same {@code (runId, groupNumber, runnerKey)}. Gradle's case is the worse of

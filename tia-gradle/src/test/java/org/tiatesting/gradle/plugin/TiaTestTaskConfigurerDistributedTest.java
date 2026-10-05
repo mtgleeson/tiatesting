@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.gradle.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.model.SelectionMode;
@@ -23,10 +23,6 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
-import org.tiatesting.gradle.plugin.TiaBasePlugin;
-import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
-import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
 
 import java.io.File;
 import java.io.IOException;
@@ -63,21 +59,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * action the extension registers, because the claim happens in a task action and would otherwise
  * only be exercised by a full build.
  */
-class TiaSpockGitGradlePluginTestExtensionDistributedTest {
+class TiaTestTaskConfigurerDistributedTest {
 
     private static final String BRANCH = "main";
     private static final String PLAN_COMMIT = "commit-1";
     private static final String SHARED_DB_URL = "jdbc:h2:tcp://localhost:9092/tiadb";
 
     /**
-     * Minimal concrete {@link TiaBasePlugin} for these tests: a {@link VCSReader} stubbed to a
+     * Minimal concrete {@link TiaPlugin} for these tests: a {@link VCSReader} stubbed to a
      * fixed branch and workspace commit, and a datastore construction overridden to point at a
      * temp directory instead of the (deliberately fake, {@code SHARED_DB_URL}) configured
      * connection settings - the same substitution {@code AgentMojoDistributedTest} makes
      * on the Maven side, keeping the shared-database precondition string check real while the
      * actual reads and writes go to a real embedded database a unit test can run.
      */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         private File dbDir;
         private String workspaceCommit = PLAN_COMMIT;
         /**
@@ -225,7 +221,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
         plugin.setDbDir(dbDir);
         Test testTask = (Test) project.getTasks().getByName("test");
-        TiaSpockGitGradlePluginTestExtension extension = new TiaSpockGitGradlePluginTestExtension();
+        TiaTestTaskConfigurer extension = new TiaTestTaskConfigurer(SpockFrameworkAdapter::new);
         extension.applyTo(testTask);
         // once per project, as the plugin's apply does - it covers every test task Tia is applied to
         extension.wireDistCompleteFinalizers(project);
@@ -246,7 +242,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      */
     private static Test secondTestTaskWithTiaApplied(final Test firstTestTask, final String taskName) {
         Test testTask = firstTestTask.getProject().getTasks().create(taskName, Test.class);
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 
@@ -370,7 +366,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
 
         // then
         TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
-                .withType(TiaBasePlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
         assertEquals(0, plugin.vcsReaderConstructions,
                 "a test task given both values must not construct a VCS reader");
         Map<String, Object> systemProperties = testTask.getSystemProperties();
@@ -611,7 +607,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
         extension.setDistributed(Boolean.TRUE);
         extension.setRunId("run-reactor");
         Test testTask = (Test) moduleA.getTasks().getByName("test");
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
 
         // when
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
@@ -842,7 +838,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      * Force the project's queued {@code afterEvaluate} blocks to run, the way a real Gradle
      * invocation would once the build script finishes - including the {@code
      * tia-dist-complete}-wiring block {@link
-     * TiaSpockGitGradlePluginTestExtension#wireDistCompleteFinalizers} registers. {@link ProjectBuilder}-built projects never reach this point on their own, since
+     * TiaTestTaskConfigurer#wireDistCompleteFinalizers} registers. {@link ProjectBuilder}-built projects never reach this point on their own, since
      * nothing in these tests runs a real build; the cast to {@link ProjectInternal} is what exposes
      * {@code evaluate()} - not part of the public {@link Project} API - to trigger it directly.
      *

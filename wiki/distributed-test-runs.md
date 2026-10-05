@@ -207,7 +207,7 @@ report at all.
 **Caveat: a partially-run seed group can seal as all-tests-run.** The loosened threshold is also
 what a *partial* seed run passes. `dist-complete` is designed to run whether the test step passed
 or failed - the Gradle finalizer runs even when the test task it finalizes fails
-(`TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
+(`TiaTestTaskConfigurer.wireDistCompleteFinalizer` wires `testTask.finalizedBy(...)`),
 and the Maven completion is documented as an `if: always()` step (see "Maven: the completion must
 be its own always-run step" below). So if a test step runs some but not all of its assigned suites
 and then crashes or is killed (a fork crash, an OOM, `--fail-fast`, a CI timeout), `dist-complete`
@@ -434,7 +434,7 @@ suite lists get derived, follows each build tool's existing handoff - see the
   fork to read. The claim's own values go into `${tiaBuildDir}/fork.properties`, which the Tia agent
   republishes as system properties at `premain` time, before any listener constructs.
 - **Gradle** claims in the daemon, inside the test task's `doFirst` action
-  (`TiaSpockGitGradlePluginTestExtension.claimDistributedRun`), before the test task forks, and sets
+  (`TiaTestTaskConfigurer.claimDistributedRun`), before the test task forks, and sets
   the values as ordinary `Test` task system properties, which Gradle forwards into the forked JVM
   itself. It stops at `DistributedRunCoordinator.claim`'s `ClaimOutcome` rather than deriving suite
   lists nothing in the daemon would read; the fork derives them for itself with
@@ -909,7 +909,7 @@ test:
 
 ### Gradle: no pipeline change needed
 
-Gradle needs none of the above. `TiaBasePlugin.createDistCompleteTask` registers the
+Gradle needs none of the above. `TiaPlugin.createDistCompleteTask` registers the
 `tia-dist-complete` task and wires it as `testTask.finalizedBy(...)`, and **a finalizer runs even
 when the task it finalizes fails**. The plan step is still an ordinary task:
 
@@ -1196,7 +1196,7 @@ run, and that task's claim would never satisfy the completeness guard either way
 
 The refusal is enforced twice, at two different times, because each catches a case the other cannot:
 
-- `TiaSpockGitGradlePluginTestExtension.wireDistCompleteFinalizer` throws at **configuration time**
+- `TiaTestTaskConfigurer.wireDistCompleteFinalizer` throws at **configuration time**
   when a second distributed test task would need a second `tia-dist-complete` task. Without this,
   Gradle's own "a task with that name already exists" error would stand in for it, saying nothing
   about why two distributed test tasks cannot work.

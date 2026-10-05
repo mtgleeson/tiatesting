@@ -1,4 +1,4 @@
-package org.tiatesting.spock.git.gradle.plugin;
+package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -8,8 +8,6 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.vcs.VCSReader;
-import org.tiatesting.gradle.plugin.TiaBasePlugin;
-import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
 
@@ -33,13 +31,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * selectivity, the second silently under-selects - so the only thing that makes an opt-in setting
  * safe is refusing the colliding configuration outright.
  */
-class TiaSpockGitGradlePluginSchemaSuffixTest {
+class TiaTestTaskConfigurerSchemaSuffixTest {
 
     /**
-     * Minimal concrete {@link TiaBasePlugin} with a stubbed VCS reader, so the guard can resolve a
+     * Minimal concrete {@link TiaPlugin} with a stubbed VCS reader, so the guard can resolve a
      * branch without a real repository.
      */
-    static class TestPlugin extends TiaBasePlugin {
+    static class TestPlugin extends TiaPlugin {
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader();
@@ -189,7 +187,7 @@ class TiaSpockGitGradlePluginSchemaSuffixTest {
         project.getPlugins().apply("jacoco");
         project.getPlugins().apply(TestPlugin.class);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 
@@ -203,7 +201,7 @@ class TiaSpockGitGradlePluginSchemaSuffixTest {
      */
     private static Test secondTestTaskWithTiaApplied(final Test firstTestTask, final String taskName) {
         Test testTask = firstTestTask.getProject().getTasks().create(taskName, Test.class);
-        new TiaSpockGitGradlePluginTestExtension().applyTo(testTask);
+        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 

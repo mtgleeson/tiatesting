@@ -21,7 +21,7 @@ import java.util.Properties;
  * <p>On Maven the values travel in the fork properties file (see {@code ForkSystemProperties}),
  * which the Tia agent republishes as system properties at {@code premain} time, before any listener
  * constructs. On Gradle they travel as ordinary {@code Test} task system properties, set directly
- * by {@code TiaSpockGitGradlePluginTestExtension#applyTo} - Gradle forwards a test task's system
+ * by {@code TiaTestTaskConfigurer#applyTo} - Gradle forwards a test task's system
  * properties into its forked JVM itself, with no agent step in between. Either way, the read half
  * here takes no arguments: by the time a listener asks, the values already look like ordinary
  * system properties.

@@ -31,6 +31,7 @@ public class TiaBaseTaskExtension {
     private Boolean selectAllTests;
     private Boolean reseed;
     private String runSource;
+    private String testFramework;
     private String schemaSuffix;
     private String libraryStampSchemas;
     private File reportOutputDir;
@@ -275,6 +276,26 @@ public class TiaBaseTaskExtension {
     }
 
     /**
+     * The test framework Tia wires into the project's test tasks, overriding detection from the
+     * declared test dependencies. Needed when detection cannot see the framework (declared only
+     * through a BOM or platform) or sees more than one. Read from the project-level extension.
+     *
+     * @return the configured framework name, e.g. {@code spock}, or null to detect it
+     */
+    @Input
+    @org.gradle.api.tasks.Optional
+    public String getTestFramework() {
+        return testFramework;
+    }
+
+    /**
+     * @param testFramework the test framework name, e.g. {@code spock}, or null to detect it
+     */
+    public void setTestFramework(String testFramework) {
+        this.testFramework = testFramework;
+    }
+
+    /**
      * The schema suffix isolating this test task's datastore from the other test tasks in the
      * project.
      *
@@ -409,7 +430,7 @@ public class TiaBaseTaskExtension {
 
     /**
      * @return the configured directory the {@code tia-dist-plan} task writes {@code
-     *         tia-run-plan.json} under, or {@code null} to use {@link TiaBasePlugin#getTiaBuildDir()}'s
+     *         tia-run-plan.json} under, or {@code null} to use {@link TiaPlugin#getTiaBuildDir()}'s
      *         default of {@code <project build dir>/tia} - the Gradle analog of the Maven goal's
      *         {@code tiaBuildDir} property
      */
