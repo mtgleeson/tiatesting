@@ -12,14 +12,16 @@ import org.gradle.process.JavaForkOptions;
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension;
 import org.slf4j.Logger;
 import org.tiatesting.core.agent.ForkSystemProperties;
+import org.tiatesting.core.agent.SelectionHandoff;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
+import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
 import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
 import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
+import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryJarDirectoryResolver;
-import org.tiatesting.core.library.ResolvedSourceProjectLibrary;
-import org.tiatesting.core.model.LibraryBuildMetadata;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.CredentialResolver;
@@ -27,6 +29,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 import org.tiatesting.gradle.plugin.DistributedClaimRegistry;
 import org.tiatesting.gradle.plugin.LibraryJarResolver;
@@ -35,13 +38,10 @@ import org.tiatesting.gradle.plugin.TiaRuntimeFlags;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 import org.tiatesting.gradle.plugin.TiaSchemaResolver;
 import org.tiatesting.gradle.plugin.TiaDistCompleteTask;
-import org.tiatesting.spock.library.LibraryMetadataSystemProperties;
-import org.tiatesting.spock.library.PreResolvedLibraryMetadataReader;
-import org.tiatesting.spock.staticselection.StaticTestSelectionSystemProperties;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,8 +100,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                     testTask.systemProperty("tiaUpdateDBTestRunHistory", tiaTaskExtension.getUpdateDBTestRunHistory());
                     testTask.systemProperty("tiaProjectDir", tiaTaskExtension.getProjectDir());
                     testTask.systemProperty("tiaClassFilesDirs", tiaTaskExtension.getClassFilesDirs());
-                    testTask.systemProperty("tiaSourceFilesDirs", tiaTaskExtension.getSourceFilesDirs());
-                    testTask.systemProperty("tiaTestFilesDirs", tiaTaskExtension.getTestFilesDirs());
                     testTask.systemProperty("tiaDBFilePath", tiaTaskExtension.getDbFilePath());
                     // Server-mode H2 connection settings. Forwarded only when set so that in the
                     // common embedded case the listener does not see the literal string "null"
@@ -133,7 +131,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                     if (tiaTaskExtension.getDbDialect() != null){
                         testTask.systemProperty("tiaDBDialect", tiaTaskExtension.getDbDialect());
                     }
-                    testTask.systemProperty("tiaCheckLocalChanges", tiaTaskExtension.getCheckLocalChanges());
                     // The runtime flags, resolved here (a -P property wins over the extension) and
                     // refused up front when a re-seed has no mapping to rebuild.
                     SelectionMode selectionMode = TiaRuntimeFlags.selectionMode(testTask.getProject(),
@@ -144,10 +141,6 @@ public class TiaSpockGitGradlePluginTestExtension {
                     } catch (IllegalStateException e) {
                         throw new GradleException(e.getMessage(), e);
                     }
-                    testTask.systemProperty(ForkSystemProperties.PROP_SELECT_ALL_TESTS,
-                            selectionMode == SelectionMode.SELECT_ALL);
-                    testTask.systemProperty(ForkSystemProperties.PROP_RESEED,
-                            selectionMode == SelectionMode.RESEED);
                     // Number this task execution's test JVMs. The test-retry plugin re-runs failed
                     // tests in fresh JVMs inside this same task action, each with these same
                     // properties, so a counter reset here - once per execution, before any JVM
@@ -187,15 +180,22 @@ public class TiaSpockGitGradlePluginTestExtension {
                         testTask.systemProperty("tiaLibraryJars", libraryJarsCsv);
                     }
 
-                    forwardLibraryMetadata(testTask, tiaTaskExtension, resolver);
-                    forwardStaticTestSelectionRules(testTask, tiaTaskExtension);
-                    // Claims this test task's share of a distributed run right here in the
-                    // daemon, before the test JVM forks - see claimDistributedRun for why the
-                    // fork can no longer make this claim itself. The claim is recorded in the
-                    // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
-                    // finalizer reads it back from there after the test task's forked JVM(s)
-                    // finish - see the "Distributed test runs" chapter in WIKI.md.
-                    claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
+                    if (Boolean.TRUE.equals(tiaTaskExtension.getDistributed())) {
+                        if (selectionMode.isForced()) {
+                            LOGGER.warn("selectAllTests / reseed are ignored on a distributed runner: "
+                                    + "the mode is decided by tia-dist-plan and recorded on the run.");
+                        }
+                        // Claims this test task's share of a distributed run right here in the
+                        // daemon, before the test JVM forks - see claimDistributedRun for why the
+                        // fork can no longer make this claim itself. The claim is recorded in the
+                        // build's DistributedClaimRegistry as a side effect; the tia-dist-complete
+                        // finalizer reads it back from there after the test task's forked JVM(s)
+                        // finish - see the "Distributed test runs" chapter in WIKI.md.
+                        claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
+                    } else {
+                        selectTestsAndHandOff(testTask, tiaTaskExtension, workspaceIdentity, resolver,
+                                selectionMode);
+                    }
 
                     // only apply and configure the jacoco task extension if we're updating the tia DB
                     if (tiaTaskExtension.getUpdateDBMapping()) {
@@ -544,92 +544,89 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     }
 
     /**
-     * Pre-resolve library metadata on the Gradle side and forward it to the test JVM as flat
-     * system properties. The test JVM uses {@link LibraryMetadataSystemProperties} to rebuild a
-     * {@code LibraryImpactAnalysisConfig} so {@code TestSelector} can run reconcile / partition /
-     * stamp / drain in-process - without needing a Gradle {@code Project} reference.
+     * Run the test selection for an ordinary (non-distributed) build here in the daemon, once per
+     * test task, and hand the result to the forked test JVM(s) through files.
      *
-     * <p>Why pre-resolve here: {@link LibraryJarResolver} requires either the current Gradle
-     * {@code Project} or a Tooling-API connection. Neither is available inside the forked test JVM.
-     * The plugin runs the resolver once at task-action time and forwards the results.
+     * <p>The fork used to select for itself, which meant every forked JVM ({@code maxParallelForks},
+     * test-retry rounds) repeated the diff and the library-impact drain, and the fork needed a VCS
+     * library on its classpath. Selecting here matches Maven: the daemon writes the
+     * {@link SelectionHandoff} files into the test task's temporary directory and names them in
+     * system properties, which {@code TiaSpockGlobalExtension} reads. See the "How Tia exchanges
+     * data with the test runner" chapter in {@code WIKI.md}.
      *
-     * <p>The {@code tiaLibraryJars} CSV (set above) is a separate concern - it feeds JaCoCo so
-     * library classes are included in coverage. The metadata forwarded here drives TIA's selection
-     * logic.
+     * @param testTask the test task whose forks receive the selection
+     * @param tiaTaskExtension that task's merged Tia extension
+     * @param workspaceIdentity this build's branch and commit, and the reader the diff is read through
+     * @param resolver the library metadata resolver for {@code sourceLibs}
+     * @param selectionMode the selection mode resolved from the runtime flags
      */
-    private void forwardLibraryMetadata(Test testTask, TiaBaseTaskExtension tiaTaskExtension,
-                                        LibraryJarResolver resolver) {
-        String sourceLibs = tiaTaskExtension.getSourceLibs();
-        if (sourceLibs == null || sourceLibs.trim().isEmpty()) {
-            return;
+    private void selectTestsAndHandOff(final Test testTask, final TiaBaseTaskExtension tiaTaskExtension,
+                                       final WorkspaceIdentity workspaceIdentity,
+                                       final LibraryJarResolver resolver, final SelectionMode selectionMode) {
+        TiaBasePlugin plugin = findTiaPlugin(testTask);
+        if (plugin == null) {
+            throw new IllegalStateException("Tia test selection requires the Tia Gradle plugin (a "
+                    + TiaBasePlugin.class.getName() + ") to be applied to project '"
+                    + testTask.getProject().getPath() + "'.");
         }
 
-        List<CoordinateAndDir> parsed = parseSourceLibs(sourceLibs);
-        if (parsed.isEmpty()) {
-            return;
+        boolean updateDBMapping = Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping());
+        boolean checkLocalChanges = Boolean.TRUE.equals(tiaTaskExtension.getCheckLocalChanges());
+        if (updateDBMapping && checkLocalChanges) {
+            // The mapping must only ever reflect committed changes.
+            LOGGER.info("Disabling the check for local changes as Tia is configured to update the DB.");
+            checkLocalChanges = false;
         }
 
-        String sourceProjectDir = tiaTaskExtension.getSourceProjectDir();
-        List<PreResolvedLibraryMetadataReader.Entry> entries = new ArrayList<>(parsed.size());
+        LibraryImpactAnalysisConfig libraryConfig = TiaBasePlugin.buildLibraryImpactAnalysisConfig(
+                tiaTaskExtension.getSourceLibs(), tiaTaskExtension.getSourceProjectDir(), resolver);
+        StaticTestSelectionConfig staticConfig = TiaBasePlugin.buildStaticTestSelectionConfig(
+                tiaTaskExtension.getStaticTestSelectionRules());
 
-        for (CoordinateAndDir cd : parsed) {
-            List<String> coordSingleton = Collections.singletonList(cd.coordinate);
-
-            String declaredVersion = null;
-            List<String> sourceDirs = Collections.emptyList();
-            if (cd.projectDir != null && !cd.projectDir.isEmpty()) {
-                List<LibraryBuildMetadata> metadata = resolver.readLibraryBuildMetadata(cd.projectDir, coordSingleton);
-                if (!metadata.isEmpty()) {
-                    declaredVersion = metadata.get(0).getDeclaredVersion();
-                }
-                sourceDirs = resolver.readSourceDirectories(cd.projectDir);
-            }
-
-            String resolvedVersion = null;
-            String resolvedJar = null;
-            List<ResolvedSourceProjectLibrary> resolved =
-                    resolver.resolveLibrariesInSourceProject(sourceProjectDir, coordSingleton);
-            if (!resolved.isEmpty()) {
-                resolvedVersion = resolved.get(0).getResolvedVersion();
-                resolvedJar = resolved.get(0).getJarFilePath();
-            }
-
-            entries.add(new PreResolvedLibraryMetadataReader.Entry(
-                    cd.coordinate, cd.projectDir, declaredVersion, sourceDirs, resolvedVersion, resolvedJar));
+        TestSelectorResult result;
+        // try-with-resources: an embedded H2 database must be released before the fork opens it.
+        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
+                tiaTaskExtension.getSchemaSuffix())) {
+            result = new TestSelector(dataStore).selectTestsToIgnore(workspaceIdentity.openVCSReader(),
+                    csvToList(tiaTaskExtension.getSourceFilesDirs()), csvToList(tiaTaskExtension.getTestFilesDirs()),
+                    checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 
-        String encoded = LibraryMetadataSystemProperties.formatEntries(entries);
-        if (!encoded.isEmpty()) {
-            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_LIBRARIES_METADATA, encoded);
+        SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(), result.getTestsToIgnore(),
+                result.getTestsToRun(), result.getLibraryImpactDrainResult(), result.getSelectionDetails());
+        testTask.systemProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE,
+                handoff.getIgnoredTestsFile().getAbsolutePath());
+        testTask.systemProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE,
+                handoff.getSelectedTestsFile().getAbsolutePath());
+        testTask.systemProperty(SelectionHandoff.PROP_SELECTION_DETAILS_FILE,
+                handoff.getSelectionDetailsFile().getAbsolutePath());
+        if (handoff.getDrainResultFile() != null) {
+            testTask.systemProperty(SelectionHandoff.PROP_DRAIN_RESULT_FILE,
+                    handoff.getDrainResultFile().getAbsolutePath());
         }
-        if (sourceProjectDir != null && !sourceProjectDir.isEmpty()) {
-            testTask.systemProperty(LibraryMetadataSystemProperties.PROP_SOURCE_PROJECT_DIR, sourceProjectDir);
+        if (result.isRunAllTests()) {
+            // A seed or forced run carries an empty run list meaning "run everything".
+            LOGGER.info("Tia runs every test suite for test task '{}' (selection mode {}).",
+                    testTask.getPath(), result.getSelectionMode());
+        } else {
+            LOGGER.info("Tia selected {} test suite(s) to run and {} to skip for test task '{}'.",
+                    result.getTestsToRun().size(), result.getTestsToIgnore().size(), testTask.getPath());
         }
     }
 
     /**
-     * Build the user's static test selection rules into a {@link StaticTestSelectionConfig} on
-     * the Gradle side and forward the encoded form to the forked test JVM as a single system
-     * property. The test JVM uses
-     * {@link StaticTestSelectionSystemProperties#fromSystemProperties()} to rebuild the config
-     * so {@code TestSelector} can apply the rules in-process.
+     * Split a comma-separated directory list into trimmed entries.
      *
-     * <p>Building the config on the Gradle side surfaces invalid regex / unknown mode errors
-     * at configuration time rather than deferring them to the forked test JVM.
-     *
-     * @param testTask the test task whose forked JVM receives the property.
-     * @param tiaTaskExtension the Tia extension carrying the user-declared rule list.
+     * @param csv the configured CSV; may be null
+     * @return the entries, or null when none is configured (as {@code TestSelector} expects)
      */
-    private void forwardStaticTestSelectionRules(Test testTask, TiaBaseTaskExtension tiaTaskExtension) {
-        StaticTestSelectionConfig config = TiaBasePlugin.buildStaticTestSelectionConfig(
-                tiaTaskExtension.getStaticTestSelectionRules());
-        if (!config.isEnabled()) {
-            return;
+    private static List<String> csvToList(final String csv) {
+        if (csv == null) {
+            return null;
         }
-        String encoded = StaticTestSelectionSystemProperties.format(config);
-        if (!encoded.isEmpty()) {
-            testTask.systemProperty(StaticTestSelectionSystemProperties.PROP_STATIC_TEST_SELECTION_RULES, encoded);
-        }
+        List<String> values = new ArrayList<>(Arrays.asList(csv.split(",")));
+        StringUtil.sanitizeInputArray(values);
+        return values;
     }
 
     /**
@@ -963,42 +960,5 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                 + "guard would never be satisfied, the group would never complete and the run would "
                 + "never seal. Remove that setting from this test task and take the parallelism from "
                 + "the plan instead - more CI jobs, each one runner claiming one group.");
-    }
-
-    /**
-     * Parse the user-facing {@code sourceLibs} CSV into {@code (coordinate, projectDir)} pairs.
-     * Accepts both {@code groupId:artifactId} and {@code groupId:artifactId:projectDir} forms,
-     * matching {@link org.tiatesting.gradle.plugin.TiaBasePlugin#buildLibraryImpactAnalysisConfig()}.
-     */
-    private List<CoordinateAndDir> parseSourceLibs(String sourceLibs) {
-        List<CoordinateAndDir> result = new ArrayList<>();
-        for (String raw : sourceLibs.split(",")) {
-            String entry = raw.trim();
-            if (entry.isEmpty()) {
-                continue;
-            }
-            String[] segments = entry.split(":");
-            if (segments.length == 3) {
-                result.add(new CoordinateAndDir(
-                        segments[0].trim() + ":" + segments[1].trim(),
-                        segments[2].trim()));
-            } else if (segments.length == 2) {
-                result.add(new CoordinateAndDir(entry, null));
-            } else {
-                LOGGER.warn("Invalid sourceLibs entry '{}' - expected groupId:artifactId or "
-                        + "groupId:artifactId:projectDir, skipping.", entry);
-            }
-        }
-        return result;
-    }
-
-    private static final class CoordinateAndDir {
-        final String coordinate;
-        final String projectDir;
-
-        CoordinateAndDir(String coordinate, String projectDir) {
-            this.coordinate = coordinate;
-            this.projectDir = projectDir;
-        }
     }
 }

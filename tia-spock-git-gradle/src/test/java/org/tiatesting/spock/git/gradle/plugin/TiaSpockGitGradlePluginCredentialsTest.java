@@ -13,6 +13,9 @@ import org.tiatesting.gradle.plugin.TiaBasePlugin;
 import org.tiatesting.gradle.plugin.TiaBaseTaskExtension;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -76,20 +79,23 @@ class TiaSpockGitGradlePluginCredentialsTest {
      * forwards nothing sensitive. A path is safe as a system property.
      *
      * @param projectDir a temporary directory to root the Gradle project at
+     * @throws IOException if the password file cannot be written
      */
     @org.junit.jupiter.api.Test
-    void aPasswordFileIsForwardedAsAPathAndNoEnvironmentValue(@TempDir File projectDir) {
-        // given
+    void aPasswordFileIsForwardedAsAPathAndNoEnvironmentValue(@TempDir File projectDir) throws IOException {
+        // given - a real file, since the daemon opens the datastore with it to run the selection
+        File passwordFile = new File(projectDir, "tia-db-password");
+        Files.write(passwordFile.toPath(), "file-secret".getBytes(StandardCharsets.UTF_8));
         Test testTask = testTaskWithTiaApplied(projectDir);
         TiaBaseTaskExtension extension = projectExtension(testTask);
         enableTia(extension, projectDir);
-        extension.setDbPasswordFile("/run/secrets/tia-db-password");
+        extension.setDbPasswordFile(passwordFile.getAbsolutePath());
 
         // when
         runTiaTaskAction(testTask);
 
         // then
-        assertEquals("/run/secrets/tia-db-password",
+        assertEquals(passwordFile.getAbsolutePath(),
                 testTask.getSystemProperties().get(CredentialResolver.PROP_DB_PASSWORD_FILE));
         assertFalse(testTask.getEnvironment().containsKey(CredentialResolver.ENV_DB_PASSWORD),
                 "a password file needs no environment value forwarded");
