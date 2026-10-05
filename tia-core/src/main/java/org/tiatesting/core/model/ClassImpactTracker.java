@@ -2,7 +2,6 @@ package org.tiatesting.core.model;
 
 import org.tiatesting.core.sourcefile.FileExtensions;
 
-import java.io.Serializable;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
@@ -13,8 +12,7 @@ import java.util.Set;
  *
  * A test suite could execute multiple methods within the same source class.
  */
-public class ClassImpactTracker implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class ClassImpactTracker {
 
     /**
      * The name of the source file associated with the class.

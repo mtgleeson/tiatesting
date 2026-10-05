@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -11,8 +10,7 @@ import java.util.List;
  * recorded as totals only. Carried from selection to the point the history row is written; see the
  * "Run history details" chapter in {@code WIKI.md}.
  */
-public final class TestRunSelectionDetails implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class TestRunSelectionDetails {
 
     private final List<TestRunTrigger> triggers;
     private final int numModifiedTestFiles;

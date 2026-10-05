@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -19,9 +18,7 @@ import java.util.Objects;
  * carries one. The host is genuinely optional: a distributed build spans several machines and
  * names none, and a hostname lookup can fail.
  */
-public final class RunOrigin implements Serializable {
-
-    private static final long serialVersionUID = 1L;
+public final class RunOrigin {
 
     /** {@link #getRunSource()} value for a run detected as, or declared to be, a CI build. */
     public static final String SOURCE_CI = "CI";

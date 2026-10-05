@@ -1,15 +1,12 @@
 package org.tiatesting.core.model;
 
-
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
  * One logical distributed build: a plan created once per CI build and shared by every runner in
  * it. Immutable; lifecycle transitions produce new instances or are applied directly in SQL.
  */
-public final class DistributedRun implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class DistributedRun {
 
     private final String runId;
     private final String branch;

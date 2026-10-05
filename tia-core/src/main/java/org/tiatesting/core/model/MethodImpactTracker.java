@@ -2,11 +2,9 @@ package org.tiatesting.core.model;
 
 import org.tiatesting.core.sourcefile.FileExtensions;
 
-import java.io.Serializable;
 import java.util.Objects;
 
-public class MethodImpactTracker implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class MethodImpactTracker {
 
     /**
      * This is the full package.class name + method name + method signature.

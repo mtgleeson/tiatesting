@@ -1,14 +1,12 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
  * One runner's slice of a distributed run. Written {@code PENDING} by the planner, then claimed
  * and completed by whichever runner wins it - no runner is told its group number, it claims one.
  */
-public final class DistributedRunGroup implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class DistributedRunGroup {
 
     private final String runId;
     private final int groupNumber;

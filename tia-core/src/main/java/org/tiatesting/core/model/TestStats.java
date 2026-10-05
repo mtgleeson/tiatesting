@@ -1,9 +1,6 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
-
-public class TestStats implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class TestStats {
 
     /**
      * The number if times this test suite was run.
