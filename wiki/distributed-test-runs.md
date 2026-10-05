@@ -30,7 +30,7 @@ and never backwards.
 
 ### What the plan step does
 
-The plan is written by the Maven `dist-plan` goal (`AbstractTiaDistPlanMojo`) or the Gradle
+The plan is written by the Maven `dist-plan` goal (`TiaDistPlanMojo`) or the Gradle
 `tia-dist-plan` task (`TiaDistPlanTask`). The two are deliberately the same sequence, and share
 every piece of logic that produces a value:
 
@@ -428,7 +428,7 @@ the distributed path rather than the single-host one. How the properties travel,
 suite lists get derived, follows each build tool's existing handoff - see the
 [test-runner data exchange](test-runner-data-exchange.md) chapter:
 
-- **Maven** claims in `prepare-agent` (`AbstractTiaAgentMojo`), before Surefire forks, via
+- **Maven** claims in `prepare-agent` (`AgentMojo`), before Surefire forks, via
   `DistributedRunnerAssignment.claim` - which claims *and* derives the two suite lists in the build
   JVM, since that is where Maven already writes `ignored-tests.txt` and `selected-tests.txt` for the
   fork to read. The claim's own values go into `${tiaBuildDir}/fork.properties`, which the Tia agent

@@ -568,7 +568,7 @@ public interface DataStore extends AutoCloseable {
      * over a plain replace - holds only when every call for a given {@code (runId, groupNumber,
      * runnerKey)} comes from the same JVM's shared, monotonically-growing observed set, exactly what
      * a Surefire retry within one JVM is. Maven {@code forkCount > 1} / {@code reuseForks=false} is
-     * what breaks this precondition: {@code AbstractTiaAgentMojo.writeForkPropertiesFile} writes one
+     * what breaks this precondition: {@code AgentMojo.writeForkPropertiesFile} writes one
      * claimed group number and runner key into a single fork-properties file that every Surefire
      * fork for the module reads, so several independent JVMs end up reporting against the same group
      * under the same runner key, each with its own smaller observed set; {@code GREATEST} then

@@ -12,7 +12,7 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 /**
  * Gradle task that prints the state of a distributed test run: the run itself, every group in its
  * plan, and the runner that claimed each one. The Gradle equivalent of the Maven {@code dist-status}
- * goal ({@code AbstractTiaDistStatusMojo}), sharing its whole report with it through {@link
+ * goal ({@code TiaDistStatusMojo}), sharing its whole report with it through {@link
  * DistributedRunStatusReport} so the two build tools cannot drift on what a run's state is called.
  *
  * <p>Read-only: it claims, completes, seals and clears nothing, so it is safe to run against a build

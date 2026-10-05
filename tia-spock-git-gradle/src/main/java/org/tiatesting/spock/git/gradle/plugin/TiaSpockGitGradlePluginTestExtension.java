@@ -401,7 +401,7 @@ public class TiaSpockGitGradlePluginTestExtension {
     private void wireDistCompleteFinalizer(final Test testTask, final TiaBaseTaskExtension tiaProjectExtension,
                                            final TiaBaseTaskExtension tiaTaskExtension) {
         // Disabled Tia is inert, as it is on the Maven side, where
-        // AbstractTiaDistCompleteMojo.execute short-circuits on !isTiaEnabled() as its very first
+        // TiaDistCompleteMojo.execute short-circuits on !isTiaEnabled() as its very first
         // statement. Not quite the same gate - see resolveFlagAtConfigurationTime for the one case
         // (--tests) this cannot see this early, and why it is harmless. Without this, a build with
         // tia.distributed = true and Tia switched off would

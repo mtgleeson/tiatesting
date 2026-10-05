@@ -73,7 +73,7 @@ Gradle can set the fork's environment, so it forwards the resolved value with
 
 Maven cannot. Surefire `<environmentVariables>` is the one clean channel, and a plugin cannot inject
 it: Maven does not re-read plugin configuration mutated at runtime. An earlier attempt is still
-recorded in a commented-out block in `AbstractTiaAgentMojo`. That leaves Maven with `argLine` (which
+recorded in a commented-out block in `AgentMojo`. That leaves Maven with `argLine` (which
 is the leak) or a file, so Maven stages the password in a file and forwards the path.
 
 A staged file is created owner-only, as a creation attribute on POSIX so it is never briefly

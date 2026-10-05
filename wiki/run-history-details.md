@@ -61,7 +61,7 @@ solve this differently in general.
 
 - **Maven / JUnit** writes the breakdown to a sidecar file, `run-selection-details.txt`, via
   `RunSelectionDetailsCodec` - a small tab-separated format, one counters line and one line per
-  trigger. `AbstractTiaAgentMojo` writes the file and passes its path as the agent's
+  trigger. `AgentMojo` writes the file and passes its path as the agent's
   `selectionDetailsFile` option, which becomes the `tiaRunSelectionDetailsFile` system property in
   the fork; the test listener reads and parses it there. This is the same pattern the ignored/
   selected test-name files already use, for the same reason: the payload (an unbounded trigger

@@ -35,8 +35,8 @@ public final class ForkSystemProperties {
 
     /**
      * Property name, in the fork properties file, for whether this run updates the mapping DB.
-     * The single source of truth for this name: {@code AbstractTiaAgentMojo} writes it and
-     * {@code AbstractTiaDistCompleteMojo} reads it, and both must agree on the literal or the
+     * The single source of truth for this name: {@code AgentMojo} writes it and
+     * {@code TiaDistCompleteMojo} reads it, and both must agree on the literal or the
      * read side silently sees {@code false} regardless of what the write side wrote.
      */
     public static final String PROP_UPDATE_DB_MAPPING = "tiaUpdateDBMapping";
