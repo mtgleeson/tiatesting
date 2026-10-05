@@ -38,6 +38,14 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
      * branch without a real repository.
      */
     static class TestPlugin extends TiaPlugin {
+
+        /**
+         * @return the Spock adapter - these test projects declare no test framework to detect
+         */
+        @Override
+        TestFrameworkAdapter getTestFrameworkAdapter() {
+            return new SpockFrameworkAdapter();
+        }
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader();
@@ -187,7 +195,6 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
         project.getPlugins().apply("jacoco");
         project.getPlugins().apply(TestPlugin.class);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 
@@ -201,7 +208,6 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
      */
     private static Test secondTestTaskWithTiaApplied(final Test firstTestTask, final String taskName) {
         Test testTask = firstTestTask.getProject().getTasks().create(taskName, Test.class);
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 

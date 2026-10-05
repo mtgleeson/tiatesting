@@ -1,6 +1,5 @@
 package org.tiatesting.gradle.plugin;
 
-import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.tasks.testing.Test;
@@ -11,7 +10,7 @@ import java.io.File;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -80,24 +79,27 @@ class TiaPluginTestRuntimeTest {
         // then
         assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
                 .anyMatch(d -> "tia-spock".equals(d.getName())));
-        assertThrows(IllegalStateException.class, () -> plugin(project).getTestFrameworkAdapter());
+        assertFalse(project.getPlugins().hasPlugin("jacoco"));
     }
 
     @org.junit.jupiter.api.Test
-    void enabledProjectWithNoDetectableFrameworkFails(@TempDir File projectDir) {
-        // given
+    void enabledProjectWithNoSupportedFrameworkIsLeftAlone(@TempDir File projectDir) {
+        // given - Tia enabled (e.g. only to stamp a library's publishes), JUnit 5 tests only
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply(TiaPlugin.class);
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo((Test) project.getTasks().getByName("test"));
+        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
         projectExtension(project).setEnabled(Boolean.TRUE);
+        projectExtension(project).setUpdateDBMapping(Boolean.TRUE);
 
         // when
-        GradleException exception = assertThrows(GradleException.class,
-                () -> plugin(project).configureTestRuntime());
+        plugin(project).configureTestRuntime();
 
         // then
-        assertTrue(exception.getMessage().contains("testFramework"), exception.getMessage());
+        assertFalse(project.getPlugins().hasPlugin("jacoco"));
+        assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
+                .anyMatch(d -> "org.tiatesting".equals(d.getGroup())));
+        assertNull(plugin(project).getTestFrameworkAdapter());
     }
 
     /**
@@ -108,7 +110,6 @@ class TiaPluginTestRuntimeTest {
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply(TiaPlugin.class);
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo((Test) project.getTasks().getByName("test"));
         project.getDependencies().add("testImplementation", "org.spockframework:spock-core:2.3-groovy-3.0");
         return project;
     }

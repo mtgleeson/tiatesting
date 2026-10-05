@@ -86,7 +86,9 @@ public class TiaTestTaskConfigurer {
                 populateTestTaskExtension(tiaProjectExtension, tiaTaskExtension);
                 boolean isTiaEnabled = isEnabled(tiaTaskExtension, testTask);
 
-                if (!isTiaEnabled){
+                // No supported test framework (the plugin has already warned): run the tests as
+                // they would run without Tia.
+                if (!isTiaEnabled || frameworkAdapter.get() == null){
                     testTask.systemProperty("tiaEnabled", false);
                     return;
                 }

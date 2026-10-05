@@ -114,7 +114,6 @@ class TiaTestTaskConfigurerTestClassesDirsTest {
         project.getPlugins().apply("jacoco");
         project.getPlugins().apply(TiaTestTaskConfigurerSchemaSuffixTest.TestPlugin.class);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 

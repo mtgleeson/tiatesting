@@ -204,7 +204,9 @@ test {
 }
 ```
 
-The plugin applies the `jacoco` plugin itself when a test task updates the mapping. Tia selects the tests once per test task, in the Gradle daemon, and hands the result to the test JVM(s).
+The plugin applies the `jacoco` plugin itself when a test task updates the mapping. Tia selects the tests once per test task, in the Gradle daemon, and hands the result to the test JVM(s). It is wired into every test task, so `gradle test`, `gradle check` and `gradle build` all run with Tia. A project with Tia enabled but no supported test framework (for example a library module that applies Tia only so its publishes are stamped) gets a warning, and its tests run as normal.
+
+Tia's tasks, and the test tasks it wires, are marked as not compatible with Gradle's [configuration cache](https://docs.gradle.org/current/userguide/configuration_cache.html): they read the project model while they run. A build using `--configuration-cache` still runs; Gradle just does not store a cache entry for it.
 
 If detection cannot see Spock (for example it is declared only through a BOM or platform), or the project also declares JUnit 5, set the framework explicitly:
 
