@@ -85,7 +85,7 @@ class TiaBasePluginPublishStampHookTest {
         ext.setDbFilePath(dbDir.getAbsolutePath());
 
         try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main", null))) {
-            seed.getTiaData(true);
+            seed.getTiaData();
             seed.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
 
@@ -235,7 +235,7 @@ class TiaBasePluginPublishStampHookTest {
         try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())),
                 BranchSchema.schemaName("main", schemaSuffix))) {
-            seed.getTiaData(true);
+            seed.getTiaData();
             seed.persistTrackedLibrary(
                     new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
@@ -284,7 +284,7 @@ class TiaBasePluginPublishStampHookTest {
         ext.setDbFilePath(dbDir.getAbsolutePath());
 
         try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main", null))) {
-            seed.getTiaData(true);
+            seed.getTiaData();
             seed.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", projectDir.getAbsolutePath(), null));
         }
 
@@ -320,7 +320,7 @@ class TiaBasePluginPublishStampHookTest {
                 gradleRule("sql-run-all", "\\.sql$", "RUN_ALL", null)));
 
         try (JdbcDataStore seed = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(dbDir.getAbsolutePath())), BranchSchema.schemaName("main", null))) {
-            seed.getTiaData(true);
+            seed.getTiaData();
             seed.persistTrackedLibrary(new TrackedLibrary("com.example:mylib", "/repo/mylib", null));
         }
 

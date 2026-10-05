@@ -51,7 +51,7 @@ class JdbcDataStoreIdBlockTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -195,7 +195,7 @@ class JdbcDataStoreIdBlockTest {
         executor.shutdown();
 
         // then - every suite kept all of its source-class rows (no PK collision dropped any)
-        Map<String, TestSuiteTracker> stored = dataStore.getTiaData(true).getTestSuitesTracked();
+        Map<String, TestSuiteTracker> stored = dataStore.getTiaData().getTestSuitesTracked();
         assertEquals(threads, stored.size(), "every suite must have persisted");
         for (TestSuiteTracker tracker : stored.values()) {
             assertEquals(25, tracker.getClassesImpacted().size(),

@@ -66,7 +66,7 @@ class ReseedSealTest {
     @BeforeEach
     void setUp() throws Exception {
         dataStore = openStore();
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         dataStore.persistCoreData(coreData("commitA"));
     }
 
@@ -157,7 +157,7 @@ class ReseedSealTest {
         dataStore.persistSealedRunData(seal(true, catalogue(1, 2)));
 
         // then
-        assertEquals(Collections.singleton("Seen"), dataStore.getTiaData(false).getTestSuitesFailed());
+        assertEquals(Collections.singleton("Seen"), dataStore.getTiaData().getTestSuitesFailed());
     }
 
     /**

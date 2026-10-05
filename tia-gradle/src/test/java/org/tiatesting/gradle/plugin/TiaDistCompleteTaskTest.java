@@ -198,7 +198,7 @@ class TiaDistCompleteTaskTest {
         File dbDir = new File(tempDir, "db");
         dbDir.mkdirs();
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
         }
         return dbDir;
     }

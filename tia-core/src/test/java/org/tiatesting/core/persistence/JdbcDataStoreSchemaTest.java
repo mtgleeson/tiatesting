@@ -23,8 +23,8 @@ class JdbcDataStoreSchemaTest {
         // when it bootstraps the schema (as every real Tia run does via getTiaData/getTiaCore
         // before any write) and then persists something. persistTestSuitesFailed alone does not
         // bootstrap the schema itself - it assumes an earlier read already did, exactly as it does
-        // in the production TestRunnerService flow - so getTiaData(true) is called first here too.
-        store.getTiaData(true);
+        // in the production TestRunnerService flow - so getTiaData() is called first here too.
+        store.getTiaData();
         store.persistTestSuitesFailed(java.util.Collections.emptySet(), new java.util.HashSet<>(java.util.Arrays.asList("x")));
         // then the tia tables exist under the branch schema (H2 preserves the case of a quoted
         // identifier, and BranchSchema.schemaName always lower-cases, so the stored schema name is

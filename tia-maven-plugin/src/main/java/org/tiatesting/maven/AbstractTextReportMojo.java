@@ -13,7 +13,7 @@ public abstract class AbstractTextReportMojo extends AbstractReportMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
              DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
-            TiaData tiaData = dataStore.getTiaData(true);
+            TiaData tiaData = dataStore.getTiaData();
             ReportGenerator reportGenerator = new TextReportGenerator(workspaceIdentity.getBranch(), getTiaReportOutputDir());
             reportGenerator.generateReports(tiaData);
         }

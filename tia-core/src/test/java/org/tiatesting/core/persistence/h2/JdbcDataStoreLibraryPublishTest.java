@@ -41,7 +41,7 @@ class JdbcDataStoreLibraryPublishTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -308,7 +308,7 @@ class JdbcDataStoreLibraryPublishTest {
     @Test
     void getMethodsTrackedForIdsReturnsOnlyRequestedTrackedMethods() {
         // given tracked methods 10 and 20 persisted via the core API
-        org.tiatesting.core.model.TiaData tiaData = dataStore.getTiaData(true);
+        org.tiatesting.core.model.TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed");
         tiaData.setLastUpdated(java.time.Instant.now());
         Map<Integer, org.tiatesting.core.model.MethodImpactTracker> methods = new java.util.HashMap<>();

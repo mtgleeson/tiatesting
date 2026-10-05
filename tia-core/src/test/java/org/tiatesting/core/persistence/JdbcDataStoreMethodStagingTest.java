@@ -53,7 +53,7 @@ class JdbcDataStoreMethodStagingTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -241,7 +241,7 @@ class JdbcDataStoreMethodStagingTest {
     /**
      * Verify that {@link DataStore#persistStagedMethodTrackers(String, Map)} bootstraps the schema
      * itself on a datastore that has never had {@code getTiaData} called on it. Every other test in
-     * this class bootstraps via {@code setUp}'s {@code getTiaData(true)} call, which would mask a
+     * this class bootstraps via {@code setUp}'s {@code getTiaData()} call, which would mask a
      * datastore that forgot to call {@code ensureSchema} on its own staging write path - a brand
      * new per-branch schema has no tables at all, and staging is plausibly the first thing to touch
      * it in a distributed run.

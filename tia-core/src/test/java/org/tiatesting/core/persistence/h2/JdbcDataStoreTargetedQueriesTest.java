@@ -73,7 +73,7 @@ class JdbcDataStoreTargetedQueriesTest {
      */
     private void seedMapping() {
         // First contact bootstraps the schema (same pattern as the other H2 datastore tests).
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         Map<Integer, MethodImpactTracker> methods = new HashMap<>();
         methods.put(1, new MethodImpactTracker("com/example/Foo.methodA.()V", 10, 20));

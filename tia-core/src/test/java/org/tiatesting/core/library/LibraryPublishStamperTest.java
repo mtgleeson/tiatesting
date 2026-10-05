@@ -62,7 +62,7 @@ class LibraryPublishStamperTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         stamper = new LibraryPublishStamper();
         seedMappingWithLibraryMethods();
     }
@@ -447,7 +447,7 @@ class LibraryPublishStamperTest {
      * tracked method spanning lines 2-8, covered by a test suite apiece.
      */
     private void seedMappingWithLibraryMethods() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed-commit");
         tiaData.setLastUpdated(Instant.now());
 

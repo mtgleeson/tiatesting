@@ -50,10 +50,10 @@ class TestRunnerServiceHistoryDetailTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         service = new TestRunnerService(dataStore);
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("initial");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);
@@ -136,8 +136,8 @@ class TestRunnerServiceHistoryDetailTest {
                 throw new TiaPersistenceException(new RuntimeException("trigger write boom"));
             }
         };
-        throwingStore.getTiaData(true);
-        TiaData seed = throwingStore.getTiaData(true);
+        throwingStore.getTiaData();
+        TiaData seed = throwingStore.getTiaData();
         seed.setCommitValue("initial");
         seed.setLastUpdated(Instant.now());
         throwingStore.persistCoreData(seed);

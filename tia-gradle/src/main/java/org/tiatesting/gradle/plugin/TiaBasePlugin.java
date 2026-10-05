@@ -216,7 +216,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             }
             for (String suffix : reportingSchemaSuffixes()) {
                 try (DataStore dataStore = buildDataStore(branch, suffix)) {
-                    TiaData tiaData = dataStore.getTiaData(true);
+                    TiaData tiaData = dataStore.getTiaData();
                     File reportOutputDir = getReportOutputDir();
                     // One report tree per schema, scoped by the same folder mechanism that already
                     // scopes them per branch - a project with no suffix keeps its existing folder.
@@ -238,7 +238,7 @@ public abstract class TiaBasePlugin implements Plugin<Project> {
             }
             for (String suffix : reportingSchemaSuffixes()) {
                 try (DataStore dataStore = buildDataStore(branch, suffix)) {
-                    TiaData tiaData = dataStore.getTiaData(true);
+                    TiaData tiaData = dataStore.getTiaData();
                     File reportOutputDir = getReportOutputDir();
                     // One report tree per schema, scoped by the same folder mechanism that already
                     // scopes them per branch - a project with no suffix keeps its existing folder.

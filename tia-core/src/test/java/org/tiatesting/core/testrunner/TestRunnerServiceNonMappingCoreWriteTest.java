@@ -48,10 +48,10 @@ class TestRunnerServiceNonMappingCoreWriteTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new CountingDataStore(tempDir);
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         // Seed the core row the way a mapping-owning build leaves it.
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("ci-commit-1");
         tiaData.setBranch("main");
         tiaData.setLastUpdated(Instant.now());

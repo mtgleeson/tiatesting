@@ -91,8 +91,7 @@ The insert has to be insert-if-absent, not a plain `INSERT`, because `test_suite
 primary key: a name another writer had just stored would otherwise fail the persist. On H2 the
 upsert is `MERGE ... KEY(...)`. On Postgres, `upsert` of a row whose only column is the key emits
 `ON CONFLICT (...) DO NOTHING`, since there is nothing to update and an empty `DO UPDATE SET` list
-is a syntax error. `SerializedDataStore` applies the same remove-then-add to its in-memory set, for
-parity; it is single-process, so there is no race to close.
+is a syntax error.
 
 **A deleted suite takes its failed row with it.** A suite only ever leaves the failed set by
 executing, which a deleted suite never does. `deleteTestSuites` therefore deletes the suite's

@@ -58,9 +58,9 @@ class TestRunnerServiceSuiteWriteScopeTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new RecordingDataStore(tempDir);
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
-        TiaData core = dataStore.getTiaData(true);
+        TiaData core = dataStore.getTiaData();
         core.setCommitValue("commit-0");
         core.setBranch("main");
         core.setLastUpdated(Instant.now());
