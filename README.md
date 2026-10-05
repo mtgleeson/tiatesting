@@ -144,7 +144,7 @@ The goals are invoked with the `tia:` prefix, for example `mvn tia:status` or `m
 ```xml
 <configuration>
     ...
-    <tiaVcsServerUri>p4java://perforce.example.com:1666</tiaVcsServerUri>
+    <tiaVcsServerUri>perforce.example.com:1666</tiaVcsServerUri>
     <tiaVcsUserName>builder</tiaVcsUserName>
     <tiaVcsPassword>${env.P4PASSWD}</tiaVcsPassword>
     <tiaVcsClientName>builder-ws</tiaVcsClientName>
@@ -223,7 +223,7 @@ JUnit 5 on Gradle is not supported yet.
 ```
 tia {
     ...
-    vcsServerUri = "p4java://perforce.example.com:1666"
+    vcsServerUri = "perforce.example.com:1666"
     vcsUserName = "builder"
     vcsPassword = providers.environmentVariable("P4PASSWD").get()
     vcsClientName = "builder-ws"
@@ -736,7 +736,7 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
 |tiaVcs|vcs|git, perforce|The version control system to read changes from. Optional: when unset, a configured server URI means Perforce and a `.git` entry in the project directory or a parent means Git. See [Choosing the version control system](#choosing-the-version-control-system).| detected |false|
 |N/A|testFramework|spock|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. Needed when Spock is only declared through a BOM or platform, or when JUnit 5 is declared too.| detected |false|
-|tiaVcsServerUri|vcsServerUri|<string>|Specifies the server URI of the VCS system. Only currently used for Perforce; setting it selects Perforce when `tiaVcs` / `vcs` is unset.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
+|tiaVcsServerUri|vcsServerUri|<string>|Specifies the server address of the VCS system as `host:port`, the same form as `P4PORT` (for example `perforce.example.com:1666`; Tia adds the `p4java://` protocol itself). Only currently used for Perforce; setting it selects Perforce when `tiaVcs` / `vcs` is unset.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsUserName|vcsUserName|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|vcsPassword|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
 |tiaVcsClientName|vcsClientName|<string>|Specifies the client name used when connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
@@ -1364,7 +1364,7 @@ Maven 3.8.1 or newer is required — see [Requirements](#requirements) and the [
 | |Git|Perforce|
 |-|---|--------|
 |Junit 5|x|x|
-|Spock 2|✔|✔ (new; not yet verified against a live Perforce server)|
+|Spock 2|✔|✔|
 
 ## Credits
 A shout out to the following libraries that Tia uses:
