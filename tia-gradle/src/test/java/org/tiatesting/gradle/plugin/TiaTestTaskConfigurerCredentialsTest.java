@@ -40,6 +40,14 @@ class TiaTestTaskConfigurerCredentialsTest {
      * branch without a real repository.
      */
     static class TestPlugin extends TiaPlugin {
+
+        /**
+         * @return the Spock adapter - these test projects declare no test framework to detect
+         */
+        @Override
+        TestFrameworkAdapter getTestFrameworkAdapter() {
+            return new SpockFrameworkAdapter();
+        }
         @Override
         public VCSReader getVCSReader() {
             return new StubVCSReader();
@@ -157,7 +165,6 @@ class TiaTestTaskConfigurerCredentialsTest {
         project.getPlugins().apply("jacoco");
         project.getPlugins().apply(TestPlugin.class);
         Test testTask = (Test) project.getTasks().getByName("test");
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 
