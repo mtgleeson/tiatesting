@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -8,8 +7,7 @@ import java.util.Objects;
  * Captures the declared version (GAV) at the HEAD of the library's source tree,
  * which may differ from the version currently resolved on the source project's classpath.
  */
-public class LibraryBuildMetadata implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class LibraryBuildMetadata {
 
     /** {@code groupId:artifactId} identity of the library. */
     private String groupArtifact;

@@ -2,7 +2,6 @@ package org.tiatesting.core.model;
 
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -15,8 +14,7 @@ import java.util.Objects;
  * suite-name patterns rather than method ids. See the library publish-time stamping chapter in
  * {@code WIKI.md}.
  */
-public class PendingLibraryForcedSelection implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class PendingLibraryForcedSelection {
 
     /** {@code groupId:artifactId} of the tracked library. */
     private String groupArtifact;
@@ -35,14 +33,6 @@ public class PendingLibraryForcedSelection implements Serializable {
 
     /** The rule's suite-name regex patterns; empty for {@code RUN_ALL}. */
     private List<String> suiteNamePatterns;
-
-    /**
-     * Construct an empty forced-selection batch with an empty pattern list, for frameworks that
-     * populate fields via setters (e.g. deserialization).
-     */
-    public PendingLibraryForcedSelection() {
-        this.suiteNamePatterns = new ArrayList<>();
-    }
 
     /**
      * Construct a fully populated forced-selection batch.

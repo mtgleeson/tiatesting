@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -15,8 +14,7 @@ import java.util.Objects;
  * changed methods is counted under each, so the counts across triggers can sum to more than the
  * run's distinct selected-suite count.
  */
-public final class TestRunTrigger implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class TestRunTrigger {
 
     /** The kind of selection trigger a {@link TestRunTrigger} records. */
     public enum Type {

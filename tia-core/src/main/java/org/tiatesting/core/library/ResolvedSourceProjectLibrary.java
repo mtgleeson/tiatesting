@@ -1,6 +1,5 @@
 package org.tiatesting.core.library;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -8,8 +7,7 @@ import java.util.Objects;
  * resolved version string and the absolute path to the JAR file so that the caller can
  * compute a content hash when the version is a SNAPSHOT.
  */
-public class ResolvedSourceProjectLibrary implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class ResolvedSourceProjectLibrary {
 
     /** {@code groupId:artifactId} identity of the library. */
     private String groupArtifact;

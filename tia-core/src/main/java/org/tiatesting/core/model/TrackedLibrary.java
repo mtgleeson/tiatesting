@@ -1,6 +1,5 @@
 package org.tiatesting.core.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -10,8 +9,7 @@ import java.util.Objects;
  * from, and the last applied publish sequence used for downgrade warnings and reporting.
  * See the library publish-time stamping chapter in {@code WIKI.md}.
  */
-public class TrackedLibrary implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class TrackedLibrary {
 
     /** {@code groupId:artifactId} — primary key in {@code tia_library}. */
     private String groupArtifact;
