@@ -12,7 +12,7 @@ import org.tiatesting.core.persistence.DataStore;
 /**
  * Gradle task that closes out one runner's share of a distributed test run: completes its claimed
  * group and, if this runner happens to be the last one to finish, seals the build. The Gradle
- * equivalent of the Maven {@code dist-complete} goal ({@code AbstractTiaDistCompleteMojo}).
+ * equivalent of the Maven {@code dist-complete} goal ({@code TiaDistCompleteMojo}).
  *
  * <p>This task exists because only the build tool knows when a test task's retries are finished.
  * Gradle wires it as a {@code finalizedBy} finalizer of the distributed test task, which runs once
@@ -122,7 +122,7 @@ public class TiaDistCompleteTask extends DefaultTask {
      * the completion and, when elected, the seal.
      *
      * <p>A failure is reported differently depending on which side of the completion/seal barrier it
-     * happened on, mirroring {@code AbstractTiaDistCompleteMojo#completeAndSeal}, which is why this
+     * happened on, mirroring {@code TiaDistCompleteMojo#completeAndSeal}, which is why this
      * catches {@link DistributedRunCompleter.SealFailedAfterCompletionException} separately from any
      * other {@link RuntimeException}: a failure while completing the group (or opening the
      * datastore) leaves the group exactly as it was, safe for the next build to redo; a failure

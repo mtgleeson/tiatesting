@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code maxParallelForks > 1} could claim several groups for one test task, and no daemon-side
  * finalizer could ever know which group a task's JVM held. These tests drive the claim through a
  * real embedded-H2 {@link JdbcDataStore}, the same fixture style {@code
- * AbstractTiaAgentMojoDistributedTest} uses on the Maven side, so what is under test is the actual
+ * AgentMojoDistributedTest} uses on the Maven side, so what is under test is the actual
  * database row the claim writes - not a mock that would only assert this class calls the methods it
  * already knows it calls.
  *
@@ -71,7 +71,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      * Minimal concrete {@link TiaBasePlugin} for these tests: a {@link VCSReader} stubbed to a
      * fixed branch and workspace commit, and a datastore construction overridden to point at a
      * temp directory instead of the (deliberately fake, {@code SHARED_DB_URL}) configured
-     * connection settings - the same substitution {@code AbstractTiaAgentMojoDistributedTest} makes
+     * connection settings - the same substitution {@code AgentMojoDistributedTest} makes
      * on the Maven side, keeping the shared-database precondition string check real while the
      * actual reads and writes go to a real embedded database a unit test can run.
      */
@@ -910,7 +910,7 @@ class TiaSpockGitGradlePluginTestExtensionDistributedTest {
      * carries: two distributed test tasks configure cleanly, no {@code tia-dist-complete} task is
      * registered and no finalizer is wired. Disabled Tia must add nothing to a build and must
      * certainly not fail one at configuration time over a run it was never going to make - the same
-     * rule the Maven side keeps by short-circuiting {@code AbstractTiaDistCompleteMojo.execute} on
+     * rule the Maven side keeps by short-circuiting {@code TiaDistCompleteMojo.execute} on
      * {@code !isTiaEnabled()} as its very first statement.
      *
      * @param projectDir a temporary directory to root the Gradle project at

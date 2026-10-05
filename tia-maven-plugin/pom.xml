@@ -7,10 +7,10 @@
     <groupId>org.tiatesting</groupId>
     <artifactId>tia-maven-plugin</artifactId>
     <version>0.1.20-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <packaging>maven-plugin</packaging>
 
     <name>Tia Maven Plugin</name>
-    <description>The Tia Testing Maven Plugin provides the Tia Testing runtime agent to your tests.</description>
+    <description>The Tia Testing Maven Plugin selects the tests impacted by a change and provides the Tia Testing runtime agent to your tests. Supports Git and Perforce; the VCS provider is resolved at run time.</description>
     <url>github.com/mtgleeson/tiatesting</url>
 
     <licenses>
@@ -42,11 +42,14 @@
     </properties>
 
     <!--
-        No <prerequisites> here: it only enforces a Maven floor for maven-plugin packaging,
-        and this module is packaging=jar (a shared library used by the wrapper plugins).
-        The Maven 3.8.1+ floor for CVE-2021-26291 is enforced on the wrapper plugins, which
-        is what end users actually invoke; this module is never used as a plugin directly.
+        Maven 3.8.1+ is required because earlier versions are exposed to CVE-2021-26291
+        (maven-core resolves artifacts from non-HTTPS repos in transitively-included poms).
+        3.8.1 introduced the HTTP-blocker mitigation. Maven enforces this floor at plugin
+        discovery time - users on older Maven get a clear "requires Maven >= 3.8.1" error.
     -->
+    <prerequisites>
+        <maven>3.8.1</maven>
+    </prerequisites>
 
     <!--
         These transitive deps of maven-core (provided scope) are flagged by vulnerability
@@ -97,6 +100,16 @@
             <artifactId>tia-core</artifactId>
             <version>${tia.version}</version>
         </dependency>
+        <!--
+            No tia-vcs-* dependency: the VCS provider is resolved at run time for the detected VCS
+            (see VcsProviderResolver), so a project only downloads the VCS library it uses.
+        -->
+        <dependency>
+            <groupId>org.tiatesting</groupId>
+            <artifactId>tia-junit5-agent</artifactId>
+            <version>${tia.version}</version>
+            <classifier>runtime</classifier>
+        </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
@@ -128,7 +141,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <!-- Explicit version: the plugin-binding default pulled in by <packaging>jar</packaging>
+                <!-- Explicit version: the plugin-binding default pulled in by the packaging
                      predates native JUnit 5 provider auto-detection, which needs 2.22.0+. -->
                 <version>3.2.5</version>
             </plugin>
@@ -188,7 +201,53 @@
                 </configuration>
             </plugin>
         </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <!--
+                        3.13.0+ is required because earlier versions (3.6.0) build the descriptor
+                        scan classloader without provided-scope deps, which fails with
+                        "API of the mojo scanner is not compatible with this plugin version" /
+                        ClassNotFoundException for org.apache.maven.plugin.AbstractMojo when
+                        maven-plugin-api is declared as provided (the recommended scope).
+                        No goalPrefix: the tia-maven-plugin artifact id gives the tia: prefix.
+                    -->
+                    <version>3.13.0</version>
+                    <executions>
+                        <execution>
+                            <id>help-mojo</id>
+                            <goals>
+                                <goal>helpmojo</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.8.2</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-plugin-plugin</artifactId>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+        </plugins>
+    </reporting>
 
     <profiles>
         <profile>

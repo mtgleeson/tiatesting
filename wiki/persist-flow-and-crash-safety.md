@@ -157,7 +157,7 @@ without the suite's coverage actually having been recaptured against the sealed 
     listener still reaches its persist and its seal.
 
   An explicit **command-line** test filter is *not* an instance of this escape, because Tia disables
-  itself entirely rather than running a filtered selection: `AbstractTiaAgentMojo` and
+  itself entirely rather than running a filtered selection: `AgentMojo` and
   `TiaTestExecutionListener` check `System.getProperty("test")` for Maven's
   `-Dtest`, and `TiaSpockGitGradlePluginTestExtension` checks
   `DefaultTestFilter.getCommandLineIncludePatterns()` for Gradle's `--tests`. When disabled, the
@@ -327,7 +327,7 @@ case that actually matters: keeping the stored commit value, the method catalogu
 baselines, and (subject to the flag's documented narrowing, not closing) the suite mapping rows in
 agreement.
 
-The renderer is `TestRunHistoryConsoleFormatter` in `tia-core`; both the Maven `AbstractHistoryMojo` and the Gradle `TiaHistoryTask` are thin shells over `DataStore.readTestRunHistory()` and the formatter, so the output is identical from either build tool.
+The renderer is `TestRunHistoryConsoleFormatter` in `tia-core`; both the Maven `HistoryMojo` and the Gradle `TiaHistoryTask` are thin shells over `DataStore.readTestRunHistory()` and the formatter, so the output is identical from either build tool.
 
 ---
 

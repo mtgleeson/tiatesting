@@ -34,7 +34,7 @@ import java.util.function.Supplier;
  * pipeline can fan out one job per group and every runner can later claim a group from the same
  * source of truth. It does not run any tests itself.
  *
- * <p>Mirrors the Maven {@code dist-plan} goal ({@code AbstractTiaDistPlanMojo}) sequence
+ * <p>Mirrors the Maven {@code dist-plan} goal ({@code TiaDistPlanMojo}) sequence
  * exactly: validate the distributed-run preconditions and configuration; open the datastore and
  * run the selection exactly as {@code tia-select-tests} does, but with {@code updateDBMapping} set
  * to the real run's configured value rather than always {@code false}; hand the selection to
