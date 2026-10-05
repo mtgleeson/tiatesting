@@ -45,7 +45,7 @@ class TestSelectorStaticTestSelectionTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -136,7 +136,7 @@ class TestSelectorStaticTestSelectionTest {
      * @param suiteNames the test suite names to register as tracked.
      */
     private void seedTrackedSuites(String... suiteNames) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
         Map<String, TestSuiteTracker> tracked = new HashMap<>();

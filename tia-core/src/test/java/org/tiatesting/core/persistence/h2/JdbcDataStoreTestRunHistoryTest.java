@@ -47,7 +47,7 @@ class JdbcDataStoreTestRunHistoryTest {
         settings = H2ConnectionSettings.embedded(tempDir.getAbsolutePath());
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
         // force schema creation
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -233,7 +233,7 @@ class JdbcDataStoreTestRunHistoryTest {
         dataStore.persistTestRunHistoryEntry(entry);
 
         // when
-        TiaData reloaded = dataStore.getTiaData(true);
+        TiaData reloaded = dataStore.getTiaData();
 
         // then the history list on TiaData reflects the persisted row
         assertNotNull(reloaded.getTestRunHistory());

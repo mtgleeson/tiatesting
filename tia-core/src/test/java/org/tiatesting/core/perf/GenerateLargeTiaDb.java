@@ -65,7 +65,7 @@ public final class GenerateLargeTiaDb {
         JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb)),
                 BranchSchema.schemaName(parsed.branch, null));
-        bootstrap.getTiaData(true);
+        bootstrap.getTiaData();
         System.out.println("Schema created in " + (System.currentTimeMillis() - t0) + " ms");
 
         try (Connection connection = openConnection(parsed.outDb, parsed.branch)) {

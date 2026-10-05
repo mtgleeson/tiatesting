@@ -77,7 +77,7 @@ class DistributedRunPlannerTest {
         tempDir.mkdirs();
         connectionProvider = new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath()));
         dataStore = new JdbcDataStore(new H2Dialect(), connectionProvider, BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**

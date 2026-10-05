@@ -58,7 +58,7 @@ class AccumulatingSuiteStatsTest {
     @BeforeEach
     void setUp() throws Exception {
         dataStore = openStore();
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach

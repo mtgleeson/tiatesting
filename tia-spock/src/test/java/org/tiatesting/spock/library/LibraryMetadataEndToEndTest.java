@@ -46,7 +46,7 @@ class LibraryMetadataEndToEndTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     @AfterEach
@@ -107,7 +107,7 @@ class LibraryMetadataEndToEndTest {
     }
 
     private void seedStoredCommit(String commit) {
-        org.tiatesting.core.model.TiaData tiaData = dataStore.getTiaData(true);
+        org.tiatesting.core.model.TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue(commit);
         tiaData.setLastUpdated(Instant.now());
         Map<String, org.tiatesting.core.model.TestSuiteTracker> testSuites = new HashMap<>();

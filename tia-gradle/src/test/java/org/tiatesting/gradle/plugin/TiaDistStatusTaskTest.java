@@ -236,7 +236,7 @@ class TiaDistStatusTaskTest {
 
         TiaBasePlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
         try (DataStore dataStore = plugin.buildDataStore(branch)) {
-            dataStore.getTiaData(true);
+            dataStore.getTiaData();
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }
     }

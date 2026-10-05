@@ -57,7 +57,7 @@ public final class ProfileSeedPersist {
                 : H2ConnectionSettings.embedded(dir.getAbsolutePath());
         JdbcDataStore dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName("perf", null));
-        dataStore.getTiaData(true); // bootstrap schema
+        dataStore.getTiaData(); // bootstrap schema
 
         // Bounded pool of distinct methods (shared across classes), so the edge count can be huge
         // without one MethodImpactTracker per edge. Each class gets a window of methodsPerClass

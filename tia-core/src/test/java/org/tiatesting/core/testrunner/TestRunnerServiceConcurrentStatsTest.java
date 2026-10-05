@@ -45,9 +45,9 @@ class TestRunnerServiceConcurrentStatsTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new InterleavingDataStore(tempDir);
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("commit-0");
         tiaData.setBranch("main");
         tiaData.setLastUpdated(Instant.now());
@@ -193,7 +193,7 @@ class TestRunnerServiceConcurrentStatsTest {
         try (JdbcDataStore emptyStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(emptyDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null))) {
-            emptyStore.getTiaData(true);
+            emptyStore.getTiaData();
             TestRunnerService service = new TestRunnerService(emptyStore);
 
             // when

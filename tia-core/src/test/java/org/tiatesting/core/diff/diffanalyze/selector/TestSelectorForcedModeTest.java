@@ -58,7 +58,7 @@ class TestSelectorForcedModeTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         vcsReader = new CountingVCSReader();
     }
 
@@ -168,7 +168,7 @@ class TestSelectorForcedModeTest {
      * @param developerDisabled whether the suite is flagged developer-disabled
      */
     private void seedTrackedSuite(String suiteName, int methodId, boolean developerDisabled) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("abc123");
         tiaData.setLastUpdated(Instant.now());
 

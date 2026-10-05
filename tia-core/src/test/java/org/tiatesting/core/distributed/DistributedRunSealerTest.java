@@ -85,7 +85,7 @@ class DistributedRunSealerTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new RecordingDataStore(tempDir);
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         TiaData tiaData = dataStore.getTiaCore();
         tiaData.setCommitValue("prior-commit");

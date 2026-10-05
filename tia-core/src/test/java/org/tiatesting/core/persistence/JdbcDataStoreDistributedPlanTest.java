@@ -55,7 +55,7 @@ class JdbcDataStoreDistributedPlanTest {
         dataStore = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
     }
 
     /**
@@ -87,7 +87,7 @@ class JdbcDataStoreDistributedPlanTest {
 
     /**
      * Verify that schema bootstrap creates all four distributed-run tables - not just some of
-     * them - each empty. {@code setUp} triggers bootstrap via {@code getTiaData(true)}; this test
+     * them - each empty. {@code setUp} triggers bootstrap via {@code getTiaData()}; this test
      * checks the outcome by counting rows in each table directly rather than through the plan
      * operations, so a missing table fails here with a clear table-not-found error instead of
      * surfacing later as a confusing failure in an unrelated read/write test.
@@ -116,7 +116,7 @@ class JdbcDataStoreDistributedPlanTest {
      * Verify that {@link DataStore#persistDistributedRunPlan(DistributedRunPlan)} and
      * {@link DataStore#readDistributedRun(String)} both bootstrap the schema themselves on a
      * datastore that has never had {@code getTiaData} called on it. Every other test in this class
-     * bootstraps via {@code setUp}'s {@code getTiaData(true)} call, which would mask a datastore
+     * bootstraps via {@code setUp}'s {@code getTiaData()} call, which would mask a datastore
      * that forgot to call {@code ensureSchema} on its own read/write paths - on a real build, the
      * first thing to touch a brand-new per-branch schema could be the distributed-run planner
      * rather than the ordinary mapping read, and it must not fail with a table-not-found error.

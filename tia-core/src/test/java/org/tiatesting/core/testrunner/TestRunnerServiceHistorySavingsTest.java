@@ -49,10 +49,10 @@ class TestRunnerServiceHistorySavingsTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         service = new TestRunnerService(dataStore);
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("initial");
         tiaData.setLastUpdated(Instant.now());
         tiaData.getTestStats().setAllTestsRunTime(BASELINE_MS); // established full-suite baseline
@@ -140,8 +140,8 @@ class TestRunnerServiceHistorySavingsTest {
                 new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(slowDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
         try {
-            slowStore.getTiaData(true);
-            TiaData tiaData = slowStore.getTiaData(true);
+            slowStore.getTiaData();
+            TiaData tiaData = slowStore.getTiaData();
             tiaData.setCommitValue("initial");
             tiaData.setLastUpdated(Instant.now());
             tiaData.getTestStats().setAllTestsRunTime(smallBaseline);

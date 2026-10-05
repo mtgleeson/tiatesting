@@ -35,7 +35,7 @@ class JdbcDataStoreSuiteCoverageTest {
         // given
         DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main", null);
         try {
-            store.getTiaData(true);
+            store.getTiaData();
             Map<String, TestSuiteTracker> suites = new HashMap<>();
             suites.put("ATest", suite("ATest", new ClassImpactTracker("com/example/X.java", Arrays.asList(1, 2)),
                     new ClassImpactTracker("com/example/Y.java", Collections.singletonList(3))));
@@ -70,7 +70,7 @@ class JdbcDataStoreSuiteCoverageTest {
         // given
         DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main", null);
         try {
-            store.getTiaData(true);
+            store.getTiaData();
 
             // when
             Map<String, List<ClassImpactTracker>> coverage = store.readTestSuiteCoverage(Collections.emptySet());

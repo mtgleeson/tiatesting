@@ -61,7 +61,7 @@ class TestRunnerServiceFailedSuitesTest {
                 BranchSchema.schemaName("test", null));
         service = new TestRunnerService(dataStore);
 
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("commit-0");
         tiaData.setLastUpdated(Instant.now());
         dataStore.persistCoreData(tiaData);

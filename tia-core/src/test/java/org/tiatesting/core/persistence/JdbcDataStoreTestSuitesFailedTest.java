@@ -165,7 +165,7 @@ class JdbcDataStoreTestSuitesFailedTest {
      */
     private static DataStore newStore(final Path dir) {
         DataStore store = DataStoreFactory.fromConfig(dir.toString(), null, "tia", "", null, "main", null);
-        store.getTiaData(true);
+        store.getTiaData();
         return store;
     }
 

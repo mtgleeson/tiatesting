@@ -56,7 +56,7 @@ class TestSelectorTrackedFileFilterTest {
         tempDir.delete();
         tempDir.mkdirs();
         dataStore = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())), BranchSchema.schemaName("test", null));
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         // Foo.java is tracked (one method, lines 2-8, covered by FooTest); Bar.java is not tracked.
         seedMapping();
     }
@@ -152,7 +152,7 @@ class TestSelectorTrackedFileFilterTest {
      * @param allTestsRunTimeMs the full-suite baseline (ms) to store on the core row
      */
     private void seedStats(long suiteAvgMs, long allTestsRunTimeMs) {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.getTestStats().setAllTestsRunTime(allTestsRunTimeMs);
         dataStore.persistCoreData(tiaData);
         // The suite write accumulates, so the seed has to carry the run the average is an average
@@ -173,7 +173,7 @@ class TestSelectorTrackedFileFilterTest {
      * tracked-file content-fetch optimisation, not unsealed-suite force-selection.
      */
     private void seedMapping() {
-        TiaData tiaData = dataStore.getTiaData(true);
+        TiaData tiaData = dataStore.getTiaData();
         tiaData.setCommitValue("seed-commit");
         tiaData.setLastUpdated(Instant.now());
 

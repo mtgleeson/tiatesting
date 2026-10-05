@@ -70,7 +70,7 @@ class JdbcDataStoreSelectionModeTest {
     void theRunRowRoundTripsItsSelectionMode() {
         // given
         dataStore = openStore();
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         persistPlan("run-1", SelectionMode.RESEED);
 
         // when
@@ -100,7 +100,7 @@ class JdbcDataStoreSelectionModeTest {
                     + "seed_run BOOLEAN DEFAULT FALSE, groups_available INT, run_source VARCHAR(32))");
         }
         dataStore = openStore();
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
 
         // when
         persistPlan("run-2", SelectionMode.SELECT_ALL);

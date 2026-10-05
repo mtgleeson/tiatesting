@@ -33,19 +33,19 @@ public interface DataStore extends AutoCloseable {
      *
      * <p>Overrides the {@link AutoCloseable#close()} declaration to drop the
      * {@code throws Exception} so callers can use plain {@code try}/{@code finally} without
-     * a checked-exception wrapper. The default implementation here is a no-op so non-H2
-     * data stores ({@link SerializedDataStore}) don't need to opt in.
+     * a checked-exception wrapper. The default implementation here is a no-op so data stores
+     * with nothing to release don't need to opt in.
      */
     @Override
     default void close() { }
 
     /**
-     * Retrieve the full persisted Tia data.
+     * Retrieve the full persisted Tia data, read fresh from the data store on every call. This is
+     * the bulk load of every table; the select-tests flow uses the targeted reads instead.
      *
-     * @param readFromDisk should the Tia data be read from disk (if not, it will read from the cache if loaded)
      * @return the fully loaded Tia DB
      */
-    TiaData getTiaData(boolean readFromDisk);
+    TiaData getTiaData();
 
     /**
      * Retrieve the persisted Tia core data.

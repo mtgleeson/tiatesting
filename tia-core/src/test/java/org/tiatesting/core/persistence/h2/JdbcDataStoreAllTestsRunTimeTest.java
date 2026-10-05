@@ -72,7 +72,7 @@ class JdbcDataStoreAllTestsRunTimeTest {
     @Test
     void persistAndLoad_allTestsRunStats_roundTrips() {
         // given
-        dataStore.getTiaData(true); // bootstrap schema
+        dataStore.getTiaData(); // bootstrap schema
 
         // when
         dataStore.persistCoreData(coreData(1234L, 2L));
@@ -92,7 +92,7 @@ class JdbcDataStoreAllTestsRunTimeTest {
         // given - seed a core row, then drop the columns to simulate a pre-migration DB. The
         // engine stays alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh
         // datastore against the same file.
-        dataStore.getTiaData(true);
+        dataStore.getTiaData();
         dataStore.persistCoreData(coreData(999L, 5L));
 
         try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),

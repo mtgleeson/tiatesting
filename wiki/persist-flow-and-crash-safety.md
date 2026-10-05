@@ -230,15 +230,6 @@ trip per suite to the persist path. This is pre-existing (not introduced by the 
 flag) and the window is one statement wide, but it is a genuine counterexample to "exactly the
 suites that ran are flagged".
 
-**`SerializedDataStore` implements `clearUnsealedTestSuites()`, but nothing ever sets the flag
-there.** The `unsealed = TRUE` write lives in `JdbcDataStore.persistTestSuiteClasses` only; the
-serialized (in-memory / flat-file) backend has no equivalent write path, so every
-`TestSuiteTracker.isUnsealed()` it produces is permanently `false` and the clear it performs on
-seal is a no-op against rows that were never flagged. The mechanism is entirely inert on that
-backend. This is a description, not a gap to close: `SerializedDataStore` has no plugin wiring (no
-Maven or Gradle mojo/task constructs one) and is effectively dead in production - its only
-references in the codebase are the interface's own javadoc and its own test.
-
 ### Id allocation: tia_id_block
 
 `tia_source_class` rows need application-assigned ids so the class and edge inserts can be batched

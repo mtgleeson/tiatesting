@@ -216,7 +216,7 @@ class DatastoreEquivalenceTest {
         // First contact bootstraps the schema (same pattern as the other H2/Postgres datastore
         // tests - persistCoreData's UPDATE-vs-INSERT probe otherwise queries a table that does
         // not exist yet on a brand new database).
-        store.getTiaData(true);
+        store.getTiaData();
 
         TiaData core = new TiaData();
         core.setCommitValue("equivalence-baseline");
@@ -294,7 +294,7 @@ class DatastoreEquivalenceTest {
         // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
         h2TempDir = Files.createTempDirectory("tia-h2-forced-selection");
         h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
-        h2Store.getTiaData(true);
+        h2Store.getTiaData();
 
         // when / then - the H2 leg always runs, regardless of Postgres availability
         assertForcedSelectionRoundTrip(h2Store);
@@ -305,7 +305,7 @@ class DatastoreEquivalenceTest {
             cleanPostgres();
             postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                     null, BRANCH, null);
-            postgresStore.getTiaData(true);
+            postgresStore.getTiaData();
             assertForcedSelectionRoundTrip(postgresStore);
         }
     }
@@ -366,7 +366,7 @@ class DatastoreEquivalenceTest {
         // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
         h2TempDir = Files.createTempDirectory("tia-h2-run-history-details");
         h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
-        h2Store.getTiaData(true);
+        h2Store.getTiaData();
 
         // when / then - the H2 leg always runs, regardless of Postgres availability
         assertRunHistoryCountersAndTriggersRoundTrip(h2Store);
@@ -377,7 +377,7 @@ class DatastoreEquivalenceTest {
             cleanPostgres();
             postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                     null, BRANCH, null);
-            postgresStore.getTiaData(true);
+            postgresStore.getTiaData();
             assertRunHistoryCountersAndTriggersRoundTrip(postgresStore);
         }
     }
@@ -431,7 +431,7 @@ class DatastoreEquivalenceTest {
         // given - a fresh temp-directory H2 database, seeded through the schema bootstrap
         h2TempDir = Files.createTempDirectory("tia-h2-distributed-selection-details");
         h2Store = DataStoreFactory.fromConfig(h2TempDir.toString(), null, "tia", "", null, BRANCH, null);
-        h2Store.getTiaData(true);
+        h2Store.getTiaData();
 
         // when / then - the H2 leg always runs, regardless of Postgres availability
         assertDistributedRunSelectionDetailsRoundTrip(h2Store);
@@ -442,7 +442,7 @@ class DatastoreEquivalenceTest {
             cleanPostgres();
             postgresStore = DataStoreFactory.fromConfig(null, POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD,
                     null, BRANCH, null);
-            postgresStore.getTiaData(true);
+            postgresStore.getTiaData();
             assertDistributedRunSelectionDetailsRoundTrip(postgresStore);
         }
     }

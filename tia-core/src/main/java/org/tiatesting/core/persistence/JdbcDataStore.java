@@ -212,8 +212,13 @@ public class JdbcDataStore implements DataStore {
         log.info("Using {}, with {}.", connectionProvider.connectionSummary(), schemaDescription);
     }
 
+    /**
+     * Read the full Tia data from the database, bootstrapping the schema on first contact.
+     *
+     * @return the fully loaded Tia DB
+     */
     @Override
-    public TiaData getTiaData(boolean readFromDisk) {
+    public TiaData getTiaData() {
         return readTiaDataFromDB();
     }
 
