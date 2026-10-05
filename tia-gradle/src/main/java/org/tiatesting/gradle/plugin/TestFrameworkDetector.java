@@ -35,8 +35,10 @@ public final class TestFrameworkDetector {
      * @param override the configured {@code testFramework}, or null to detect
      * @param declaredGroups the groups of the project's declared test dependencies
      * @return the adapter to use
-     * @throws GradleException if the override is unknown or unsupported, or detection finds no
-     *                         supported framework or more than one framework
+     * @throws UnsupportedTestFrameworkException if detection finds no supported framework (none, or
+     *                                           only JUnit 5)
+     * @throws GradleException if the override is unknown or unsupported, or detection finds more
+     *                         than one framework
      */
     public static TestFrameworkAdapter detect(final String override, final Collection<String> declaredGroups) {
         TestFrameworkAdapter spock = new SpockFrameworkAdapter();
@@ -61,7 +63,7 @@ public final class TestFrameworkDetector {
         }
 
         if (detected.isEmpty()) {
-            throw new GradleException("Tia could not detect the test framework from this project's declared "
+            throw new UnsupportedTestFrameworkException("Tia could not detect the test framework from this project's declared "
                     + "test dependencies (it looks for " + spock.dependencyGroup() + "). " + SETTING_HINT);
         }
         if (detected.size() > 1) {
@@ -70,7 +72,7 @@ public final class TestFrameworkDetector {
                     + SETTING_HINT);
         }
         if (detected.get(0).equals(JUNIT5)) {
-            throw junit5NotSupported();
+            throw new UnsupportedTestFrameworkException(junit5NotSupported().getMessage());
         }
         return spock;
     }

@@ -86,6 +86,9 @@ public class TiaPlugin implements Plugin<Project> {
     /** The project's test framework adapter, detected once the project is evaluated. */
     private TestFrameworkAdapter testFrameworkAdapter;
 
+    /** Set once detection has found no supported test framework, so it warns only once. */
+    private boolean testFrameworkUnsupported;
+
     @Override
     public void apply(Project project) {
         this.project = project;
@@ -103,31 +106,23 @@ public class TiaPlugin implements Plugin<Project> {
         createDistPlanTask();
         createDistStatusTask();
         hookPublishStampTasks();
-        applyToTestTasksWhenRequested();
+        markTiaTasksNotConfigurationCacheCompatible();
+        applyToTestTasks();
     }
 
     /**
-     * Wire Tia into the project's test tasks, but only when the build was asked to run one of them,
-     * so a build that runs no tests gets no Tia test runtime dependency and no jacoco plugin.
-     */
-    private void applyToTestTasksWhenRequested() {
-        List<String> taskNames = project.getGradle().getStartParameter().getTaskNames();
-        for (Test task : project.getTasks().withType(Test.class)) {
-            if (taskNames.contains(task.getName())) {
-                applyToTestTasks();
-                return;
-            }
-        }
-    }
-
-    /**
-     * Attach Tia's task action to every test task, register the once-per-project hook that wires
-     * each one's {@code tia-dist-complete} finalizer, and configure the test runtime once the
-     * build script has set the {@code tia} extensions.
+     * Attach Tia's task action to every test task, however the build is invoked ({@code test},
+     * {@code build}, {@code check}, ...), register the once-per-project hook that wires each one's
+     * {@code tia-dist-complete} finalizer, and configure the test runtime once the build script has
+     * set the {@code tia} extensions. A test task with Tia disabled runs exactly as it would without
+     * the plugin.
      */
     private void applyToTestTasks() {
         TiaTestTaskConfigurer configurer = new TiaTestTaskConfigurer(this::getTestFrameworkAdapter);
-        project.getTasks().withType(Test.class).configureEach(configurer::applyTo);
+        project.getTasks().withType(Test.class).configureEach(testTask -> {
+            configurer.applyTo(testTask);
+            markNotConfigurationCacheCompatible(testTask);
+        });
         configurer.wireDistCompleteFinalizers(project);
         project.afterEvaluate(p -> configureTestRuntime());
     }
@@ -157,13 +152,15 @@ public class TiaPlugin implements Plugin<Project> {
             return;
         }
 
+        TestFrameworkAdapter adapter = getTestFrameworkAdapter();
+        if (adapter == null) {
+            return;
+        }
         if (anyUpdatingMapping) {
             project.getPluginManager().apply("jacoco");
         }
-        testFrameworkAdapter = TestFrameworkDetector.detect(tiaTaskExtension.getTestFramework(),
-                declaredTestDependencyGroups());
         project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
-                "org.tiatesting:" + testFrameworkAdapter.runtimeArtifactId() + ":" + TiaVersion.get());
+                "org.tiatesting:" + adapter.runtimeArtifactId() + ":" + TiaVersion.get());
     }
 
     /**
@@ -196,15 +193,56 @@ public class TiaPlugin implements Plugin<Project> {
     }
 
     /**
-     * @return the project's test framework adapter
-     * @throws IllegalStateException if a test task runs before the framework was detected
+     * The project's test framework adapter: the one detected after evaluation, or detected now when
+     * a test task needs it but Tia was not enabled on any test task at configuration time (for
+     * example enabled only from the task action's runtime flags). When the project has no supported
+     * test framework, warns once and returns null: Tia then leaves its test tasks running as normal.
+     *
+     * @return the project's test framework adapter, or null when it has no supported framework
+     * @throws org.gradle.api.GradleException if the configured framework is unknown or unsupported,
+     *         or more than one framework is declared
      */
     TestFrameworkAdapter getTestFrameworkAdapter() {
-        if (testFrameworkAdapter == null) {
-            throw new IllegalStateException("Tia has not detected this project's test framework: Tia is "
-                    + "not enabled for any test task at configuration time.");
+        if (testFrameworkAdapter == null && !testFrameworkUnsupported) {
+            try {
+                testFrameworkAdapter = TestFrameworkDetector.detect(tiaTaskExtension.getTestFramework(),
+                        declaredTestDependencyGroups());
+            } catch (UnsupportedTestFrameworkException e) {
+                testFrameworkUnsupported = true;
+                LOGGER.warn("{} Tia does not select tests for the test tasks of project '{}'; they run as normal.",
+                        e.getMessage(), project.getPath());
+            }
         }
         return testFrameworkAdapter;
+    }
+
+    /**
+     * Mark Tia's own tasks (every {@code tia-*} task) as not compatible with Gradle's configuration
+     * cache. They read the project model while they run, so a build using
+     * {@code --configuration-cache} would otherwise fail; marked, Gradle runs the build and only
+     * skips storing a cache entry for it.
+     */
+    private void markTiaTasksNotConfigurationCacheCompatible() {
+        project.getTasks().configureEach(task -> {
+            if (task.getName().startsWith("tia-")) {
+                markNotConfigurationCacheCompatible(task);
+            }
+        });
+    }
+
+    /**
+     * Mark a task Tia adds work to as not compatible with the configuration cache, explaining why.
+     * A no-op on Gradle versions before 7.4, which have no configuration cache API to call.
+     *
+     * @param task the task
+     */
+    static void markNotConfigurationCacheCompatible(final Task task) {
+        try {
+            task.notCompatibleWithConfigurationCache("Tia reads the Gradle project model while the task "
+                    + "runs (test selection, library resolution, the datastore and VCS settings).");
+        } catch (NoSuchMethodError olderGradle) {
+            // Gradle < 7.4: no configuration cache to opt out of.
+        }
     }
 
     /**
@@ -575,6 +613,7 @@ public class TiaPlugin implements Plugin<Project> {
     private void hookPublishStampTasks() {
         project.getTasks().configureEach(task -> {
             if ("publish".equals(task.getName()) || "publishToMavenLocal".equals(task.getName())) {
+                markNotConfigurationCacheCompatible(task);
                 task.doLast(t -> stampPublish());
             }
         });
