@@ -74,6 +74,14 @@ class TiaTestTaskConfigurerDistributedTest {
      * actual reads and writes go to a real embedded database a unit test can run.
      */
     static class TestPlugin extends TiaPlugin {
+
+        /**
+         * @return the Spock adapter - these test projects declare no test framework to detect
+         */
+        @Override
+        TestFrameworkAdapter getTestFrameworkAdapter() {
+            return new SpockFrameworkAdapter();
+        }
         private File dbDir;
         private String workspaceCommit = PLAN_COMMIT;
         /**
@@ -221,10 +229,6 @@ class TiaTestTaskConfigurerDistributedTest {
         TestPlugin plugin = (TestPlugin) project.getPlugins().apply(TestPlugin.class);
         plugin.setDbDir(dbDir);
         Test testTask = (Test) project.getTasks().getByName("test");
-        TiaTestTaskConfigurer extension = new TiaTestTaskConfigurer(SpockFrameworkAdapter::new);
-        extension.applyTo(testTask);
-        // once per project, as the plugin's apply does - it covers every test task Tia is applied to
-        extension.wireDistCompleteFinalizers(project);
         return testTask;
     }
 
@@ -242,7 +246,6 @@ class TiaTestTaskConfigurerDistributedTest {
      */
     private static Test secondTestTaskWithTiaApplied(final Test firstTestTask, final String taskName) {
         Test testTask = firstTestTask.getProject().getTasks().create(taskName, Test.class);
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
         return testTask;
     }
 
@@ -607,7 +610,6 @@ class TiaTestTaskConfigurerDistributedTest {
         extension.setDistributed(Boolean.TRUE);
         extension.setRunId("run-reactor");
         Test testTask = (Test) moduleA.getTasks().getByName("test");
-        new TiaTestTaskConfigurer(SpockFrameworkAdapter::new).applyTo(testTask);
 
         // when
         IllegalStateException thrown = assertThrows(IllegalStateException.class,

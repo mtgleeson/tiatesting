@@ -42,12 +42,12 @@ class TestFrameworkDetectorTest {
     }
 
     @Test
-    void noFrameworkDetectedFailsNamingTheSetting() {
+    void noFrameworkDetectedIsUnsupportedNamingTheSetting() {
         // given
         List<String> groups = Collections.singletonList("com.example");
 
         // when
-        GradleException exception = assertThrows(GradleException.class,
+        UnsupportedTestFrameworkException exception = assertThrows(UnsupportedTestFrameworkException.class,
                 () -> TestFrameworkDetector.detect(null, groups));
 
         // then
@@ -69,12 +69,12 @@ class TestFrameworkDetectorTest {
     }
 
     @Test
-    void junit5OnlyFailsAsNotYetSupported() {
+    void junit5OnlyIsUnsupported() {
         // given
         List<String> groups = Collections.singletonList("org.junit.jupiter");
 
         // when
-        GradleException exception = assertThrows(GradleException.class,
+        UnsupportedTestFrameworkException exception = assertThrows(UnsupportedTestFrameworkException.class,
                 () -> TestFrameworkDetector.detect(null, groups));
 
         // then
