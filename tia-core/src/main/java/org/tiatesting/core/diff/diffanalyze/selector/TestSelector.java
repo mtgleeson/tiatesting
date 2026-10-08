@@ -145,7 +145,7 @@ public class TestSelector {
 
         // @Nested families are selected whole - added after every other source of selection, so it
         // covers all of them. See NestedTestSuites#addFamilies for why.
-        NestedTestSuites.addFamilies(testsToRun, testSuitesTracked.keySet());
+        NestedTestSuites.addFamilies(testsToRun, testSuitesTracked);
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);

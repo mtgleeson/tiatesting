@@ -49,7 +49,7 @@ public class IgnoreTestInstrumentor {
      */
     public void ignoreTests(final Set<String> ignoredTests, final Instrumentation instrumentation) {
         new AgentBuilder.Default()
-                .with(new FailureLogger())
+                .with(new FailureLogger(ignoredTests))
                 .type(ElementMatchers.namedOneOf(ignoredTests.toArray(new String[0])))
                 .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
                         builder.annotateType(disabledFor(classLoader)))
@@ -79,9 +79,22 @@ public class IgnoreTestInstrumentor {
 
     /**
      * Reports a test class Tia meant to skip but could not annotate. ByteBuddy's default is to
-     * carry on silently, and the class would then run as if selected; a warning says why.
+     * carry on silently, and the class would then run as if selected; a warning says why. ByteBuddy
+     * also reports errors for classes it only tried to match, which Tia never meant to skip, so
+     * those are not reported. Package-private so the filtering can be tested.
      */
-    private static final class FailureLogger extends AgentBuilder.Listener.Adapter {
+    static final class FailureLogger extends AgentBuilder.Listener.Adapter {
+
+        private final Set<String> ignoredTests;
+
+        /**
+         * Create a logger for one ignore set.
+         *
+         * @param ignoredTests the binary names of the test classes Tia means to skip
+         */
+        FailureLogger(final Set<String> ignoredTests) {
+            this.ignoredTests = ignoredTests;
+        }
 
         /**
          * Log the failure to annotate one class.
@@ -95,6 +108,9 @@ public class IgnoreTestInstrumentor {
         @Override
         public void onError(final String typeName, final ClassLoader classLoader, final JavaModule module,
                             final boolean loaded, final Throwable throwable) {
+            if (!ignoredTests.contains(typeName)) {
+                return;
+            }
             log.log(Level.WARNING, "Tia could not mark " + typeName + " @Disabled, so it runs although Tia "
                     + "did not select it.", throwable);
         }

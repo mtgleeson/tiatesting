@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies the {@code @Disabled} the agent adds is described from the class loader's own JUnit and
@@ -73,5 +74,41 @@ class IgnoreTestInstrumentorTest {
         // then - described again, for the loader that will resolve it
         assertNotSame(first, other);
         assertEquals(first.getAnnotationType().getName(), other.getAnnotationType().getName());
+    }
+
+    @Test
+    void onlyClassesTiaMeantToSkipAreReportedAsFailures() {
+        // given - a handler collecting the instrumentor's warnings
+        java.util.List<String> warned = new java.util.ArrayList<>();
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(IgnoreTestInstrumentor.class.getName());
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(final java.util.logging.LogRecord record) {
+                warned.add(record.getMessage());
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        logger.addHandler(handler);
+        IgnoreTestInstrumentor.FailureLogger failures =
+                new IgnoreTestInstrumentor.FailureLogger(java.util.Collections.singleton("com.example.IgnoredTest"));
+
+        // when
+        try {
+            failures.onError("com.example.SomeOtherClass", null, null, false, new IllegalStateException("x"));
+            failures.onError("com.example.IgnoredTest", null, null, false, new IllegalStateException("y"));
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        // then
+        assertEquals(1, warned.size(), warned.toString());
+        assertTrue(warned.get(0).contains("com.example.IgnoredTest"), warned.get(0));
     }
 }

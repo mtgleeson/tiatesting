@@ -41,6 +41,7 @@ import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
+import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 
 import java.io.File;
@@ -443,7 +444,7 @@ public class TiaPlugin implements Plugin<Project> {
                  DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
                 List<String> sourceFilesDirs = StringUtil.splitCsv(getSourceFilesDirs());
                 List<String> testFilesDirs = StringUtil.splitCsv(getTestFilesDirs());
-                TestSelector testSelector = new TestSelector(dataStore, resolveProjectDir(project, getProjectDir()));
+                TestSelector testSelector = new TestSelector(dataStore, ProjectDirs.resolve(project.getProjectDir(), getProjectDir()));
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
                 // Read-only preview: no mapping writes (updateDBMapping=false).
@@ -839,26 +840,7 @@ public class TiaPlugin implements Plugin<Project> {
      * @return the absolute project directory the VCS is detected and read from
      */
     private String resolveVcsProjectDir() {
-        return resolveProjectDir(project, getProjectDir()).getPath();
-    }
-
-    /**
-     * Resolve a configured {@code projectDir} - the root of the project being analysed - against
-     * the Gradle project's directory: unset means the Gradle project's directory, an absolute path is
-     * used as is, and a relative one is taken from the Gradle project's directory, never the daemon's
-     * working directory. The VCS is read from it, and the configured source and test directories are
-     * resolved against it, as the class directories are in the test JVM.
-     *
-     * @param project the Gradle project
-     * @param configured the configured {@code projectDir}, or null
-     * @return the project root
-     */
-    static File resolveProjectDir(final Project project, final String configured) {
-        if (configured == null || configured.trim().isEmpty()) {
-            return project.getProjectDir().getAbsoluteFile();
-        }
-        File dir = new File(configured);
-        return dir.isAbsolute() ? dir : new File(project.getProjectDir(), configured);
+        return ProjectDirs.resolve(project.getProjectDir(), getProjectDir()).getPath();
     }
 
     /**

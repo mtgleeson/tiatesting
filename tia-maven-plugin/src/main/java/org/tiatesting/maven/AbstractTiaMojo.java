@@ -24,6 +24,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VCSReaderFactory;
@@ -504,21 +505,15 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * Resolve {@code tiaProjectDir} - the root of the project being analysed - against this module's
-     * base directory: unset means the module's directory, an absolute path is used as is, and a
-     * relative one is taken from the module's directory, never Maven's working directory (the
-     * reactor root in a multi-module build). The configured source and test directories are resolved
-     * against it, as the class directories are in the test JVM.
+     * This module's {@code tiaProjectDir} - the root of the project being analysed - resolved
+     * against the module's base directory by {@link ProjectDirs#resolve}, never Maven's working
+     * directory (the reactor root in a multi-module build). The VCS is read from it and the
+     * configured source and test directories are resolved against it.
      *
      * @return the project root
      */
     protected File resolveTiaProjectDir(){
-        File baseDir = getProject().getBasedir();
-        if (tiaProjectDir == null || tiaProjectDir.trim().isEmpty()){
-            return baseDir;
-        }
-        File dir = new File(tiaProjectDir);
-        return dir.isAbsolute() ? dir : new File(baseDir, tiaProjectDir);
+        return ProjectDirs.resolve(getProject().getBasedir(), tiaProjectDir);
     }
 
     public String getTiaDBFilePath(){
@@ -946,13 +941,15 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     }
 
     /**
-     * Build the VCS settings from this mojo's parameters.
+     * Build the VCS settings from this mojo's parameters. The project directory is
+     * {@code tiaProjectDir} resolved against the module's base directory ({@link
+     * #resolveTiaProjectDir()}), the same root the source and test directories are resolved against.
      *
      * @return the VCS settings
      */
     VcsSettings buildVcsSettings() {
         return VcsSettings.builder()
-                .projectDir(getTiaProjectDir())
+                .projectDir(resolveTiaProjectDir().getPath())
                 .enabled(isTiaEnabled())
                 .vcsName(getTiaVcs())
                 .serverUri(getTiaVcsServerUri())

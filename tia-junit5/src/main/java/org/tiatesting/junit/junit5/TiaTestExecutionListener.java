@@ -429,8 +429,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             if (updateDBMapping && enclosingTracker != null && testRanSinceLastDump) {
                 // A @Nested class is starting inside its enclosing class: what ran so far is the
                 // enclosing class's own tests, so credit it there before the nested class's tests
-                // add to the same coverage dump.
+                // add to the same coverage dump. The dump's own cost is coverage capture, not the
+                // enclosing class's test time, so it is excluded from its run time like a nested class.
+                long dumpStartedMs = clock.getAsLong();
                 collectCoverageInto(enclosingTracker);
+                nestedElapsedMs.merge(enclosingSuite, clock.getAsLong() - dumpStartedMs, Long::sum);
             }
             suitesInProgress.addFirst(testSuiteName);
         }
@@ -450,8 +453,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     /**
      * This is executed when a test suite, or individual test is disabled/skipped.
      * This can be called concurrently if tests are being executed concurrently.
+     * A skipped class container is recorded as observed, and so are the {@code @Nested} classes
+     * inside it, which JUnit skips without reporting.
      *
      * @param testIdentifier The identifier for the item being executed.
+     * @param reason why it was skipped
      */
     @Override
     public void executionSkipped(TestIdentifier testIdentifier, String reason) {
@@ -468,6 +474,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             // this JVM has observed the suite (as skipped), independent of any test-classes directory
             // override applied to runnerTestSuites - see the field's javadoc.
             suitesObserved.add(testSuiteName);
+            // A skipped class's @Nested classes get no event of their own, but they were skipped too.
+            // Unreported, a distributed group holding them could never count them as observed, and
+            // so could never complete.
+            for (String nestedSuite : nestedSuitesOf(testIdentifier)){
+                runnerTestSuites.add(nestedSuite);
+                suitesObserved.add(nestedSuite);
+            }
         }
 
         /*
@@ -590,6 +603,26 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         // override applied to runnerTestSuites - see the field's javadoc.
         suitesObserved.add(testSuiteName);
         suitesFinishedThisAttempt.add(testSuiteName);
+    }
+
+    /**
+     * The {@code @Nested} classes inside a class container, at any depth, from the current test plan.
+     *
+     * @param testIdentifier a class container
+     * @return the suite names of the class containers below it; empty when there is no test plan
+     */
+    private Set<String> nestedSuitesOf(final TestIdentifier testIdentifier) {
+        Set<String> nested = new HashSet<>();
+        TestPlan plan = this.testPlan;
+        if (plan == null) {
+            return nested;
+        }
+        for (TestIdentifier descendant : plan.getDescendants(testIdentifier)) {
+            if (isExecutionForTestSuite(descendant)) {
+                nested.add(getTestSuiteName(descendant));
+            }
+        }
+        return nested;
     }
 
     /**

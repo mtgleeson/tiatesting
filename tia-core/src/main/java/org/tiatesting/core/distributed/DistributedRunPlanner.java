@@ -584,8 +584,7 @@ public final class DistributedRunPlanner {
             reasons.append("raising tiaDistributedMaxGroups would allow more groups; ");
         }
         if (result.isSingleSuiteExceedsTarget()) {
-            reasons.append("a single suite is longer than the whole target, so no group count "
-                    + "can fix it; ");
+            reasons.append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET).append("; ");
         }
         log.warn("Distributed run planning did not meet its target run time of {}ms - the "
                         + "heaviest group is {}ms. {}",

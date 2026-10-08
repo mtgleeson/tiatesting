@@ -200,6 +200,56 @@ class TiaTestExecutionListenerNestedCoverageTest {
     }
 
     @Test
+    void aSkippedClassesNestedClassesAreObservedToo() {
+        // given - Outer is skipped (disabled), so JUnit never reports Outer$Multiplication
+        EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
+        SimpleDescriptor outer = container(engine, "outer", ClassSource.from(OUTER));
+        container(outer, "nested", ClassSource.from(NESTED));
+        SharedTestRunData shared = new SharedTestRunData();
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, new ScriptedCoverageClient(),
+                System::currentTimeMillis);
+        listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
+                new EmptyConfigurationParameters()));
+
+        // when
+        listener.executionSkipped(id(outer), "disabled");
+
+        // then - both count as observed, so a distributed group holding both can complete
+        assertEquals(new TreeSet<>(java.util.Arrays.asList(OUTER, NESTED)), new TreeSet<>(shared.getSuitesObserved()));
+    }
+
+    @Test
+    void theDumpAtANestedStartIsNotChargedToTheEnclosingClass() {
+        // given - every coverage dump takes 5ms on a manual clock
+        EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
+        SimpleDescriptor outer = container(engine, "outer", ClassSource.from(OUTER));
+        SimpleDescriptor outerTest = test(outer, "adds", MethodSource.from(OUTER, "adds"));
+        SimpleDescriptor nested = container(outer, "nested", ClassSource.from(NESTED));
+        AtomicLong now = new AtomicLong(0L);
+        ScriptedCoverageClient coverage = new ScriptedCoverageClient();
+        coverage.onCollect(() -> now.addAndGet(5L));
+        SharedTestRunData shared = new SharedTestRunData();
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, coverage, now::get);
+        listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
+                new EmptyConfigurationParameters()));
+
+        // when - Outer's test runs 0-30; the nested class 35-60 (its dump to 65); Outer ends at 100
+        listener.executionStarted(id(outer));
+        listener.executionStarted(id(outerTest));
+        listener.executionFinished(id(outerTest), TestExecutionResult.successful());
+        now.set(30L);
+        listener.executionStarted(id(nested));
+        now.set(60L);
+        listener.executionFinished(id(nested), TestExecutionResult.successful());
+        now.set(100L);
+        listener.executionFinished(id(outer), TestExecutionResult.successful());
+
+        // then - Outer's own time leaves out both the nested class and the dump taken for it
+        assertEquals(25L, shared.getTestSuiteTrackers().get(NESTED).getTestStats().getAvgRunTime());
+        assertEquals(65L, shared.getTestSuiteTrackers().get(OUTER).getTestStats().getAvgRunTime());
+    }
+
+    @Test
     void topLevelClassesCollectOnlyWhenTheyFinish() {
         // given - two top-level classes, one after the other
         EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
@@ -292,6 +342,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
 
         private final Deque<CoverageResult> dumps = new ArrayDeque<>();
         private int collected;
+        private Runnable onCollect = () -> { };
 
         /**
          * @param dumps the dumps to return, in order
@@ -313,6 +364,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
         @Override
         public CoverageResult collectCoverage() {
             collected++;
+            onCollect.run();
             CoverageResult next = dumps.pollFirst();
             return next != null ? next : new CoverageResult();
         }
@@ -322,6 +374,15 @@ class TiaTestExecutionListenerNestedCoverageTest {
          */
         int remaining() {
             return dumps.size();
+        }
+
+        /**
+         * Run something on every dump, such as advancing a test clock to give the dump a cost.
+         *
+         * @param onCollect what to run
+         */
+        void onCollect(final Runnable onCollect) {
+            this.onCollect = onCollect;
         }
 
         /**
