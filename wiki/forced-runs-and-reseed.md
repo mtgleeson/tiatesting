@@ -52,9 +52,8 @@ Every run carries a `SelectionMode`:
 The mode travels with the run:
 
 - On a single-host run it rides on the selection details (`TestRunSelectionDetails`). Those already
-  cross into the forked test JVM - Maven via the selection-details file, Gradle/Spock via the
-  `tiaSelectAllTests` / `tiaReseed` system properties - so the persist inside the fork knows
-  whether to re-seed. See [How Tia exchanges data with the test runner](test-runner-data-exchange.md).
+  cross into the forked test JVM in the selection-details hand-off file, on both build tools and
+  every framework, so the persist inside the fork knows whether to re-seed. See [How Tia exchanges data with the test runner](test-runner-data-exchange.md).
 - On a distributed run it is recorded on `tia_distributed_run.selection_mode` by the plan step.
 - Every run's history row records it in `tia_test_run_history.selection_mode` (null for rows
   written before the column existed).

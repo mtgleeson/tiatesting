@@ -14,7 +14,9 @@ wiki can also be read front to back.
   inside a deployment `lib/` directory instead of through the source project's dependency graph.
 - [How Tia exchanges data with the test runner (Gradle vs Maven)](wiki/test-runner-data-exchange.md) -
   both build tools select in the build JVM and hand the result to the forked test JVM through
-  files; why only the way the fork finds them differs, and why VCS libraries never reach the fork.
+  files; why only the way the fork finds them differs (system properties for Gradle/Spock, the
+  JUnit 5 agent for Maven and Gradle/JUnit 5), how JUnit 5 `@Nested` classes are kept runnable,
+  and why VCS libraries never reach the fork.
 - [Logging conventions (TRACE vs DEBUG)](wiki/logging-conventions.md) - why daemon-side code must
   log at DEBUG and only test-JVM code may use TRACE.
 - [Why Tia requires Maven 3.8.1+](wiki/maven-version-requirement.md) - the CVE-driven floor and

@@ -66,9 +66,10 @@ solve this differently in general.
   the fork; the test listener reads and parses it there. This is the same pattern the ignored/
   selected test-name files already use, for the same reason: the payload (an unbounded trigger
   list) does not fit comfortably as a `-D` argument.
-- **Spock (Gradle)** never crosses a process boundary for this: selection and the persist that
-  writes the history row share the one forked test JVM, so the breakdown is threaded straight
-  through in-process, with no codec and no sidecar file.
+- **Gradle** (Spock and JUnit 5) selects in the daemon and writes the same
+  `run-selection-details.txt` into the test task's temporary directory. Spock's extension reads
+  it from the path in the `tiaRunSelectionDetailsFile` system property; on JUnit 5 the agent's
+  `selectionDetailsFile` option names it, exactly as on Maven.
 
 ### Distributed runs: staged at plan time, copied at seal time
 

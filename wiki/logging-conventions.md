@@ -25,7 +25,8 @@ This means *test-JVM-only* code can legitimately use TRACE for very fine-grained
 ### Practical guidance for contributors
 
 - Default to `log.debug(...)` for fine-grained logging in any shared module. If the line would have been TRACE in a single-runtime codebase, write it as DEBUG here.
-- Reserve `log.trace(...)` for tia-spock-only code paths (the Spock global extension internals, the Tia agent inside the test JVM). If you find yourself wanting TRACE in `tia-core`, that's a sign the code is shared and DEBUG is the right level.
+- Reserve `log.trace(...)` for tia-spock-only code paths (the Spock global extension internals). If you find yourself wanting TRACE in `tia-core`, that's a sign the code is shared and DEBUG is the right level.
+- The JUnit 5 agent (`tia-junit5-agent`) must not use SLF4J at all: its `premain` runs before Gradle's test worker has put the test classpath in place. It logs through `java.util.logging` at `FINEST` - see "How Tia exchanges data with the test runner".
 - For users diagnosing a problem in `tia-select-tests` or any other plugin task, the workflow is `gradle <task> --debug 2>&1 | grep -E "org\.tiatesting"`. There is no equivalent of Logback level filtering for the daemon — Gradle's DEBUG level is the most fine-grained signal available.
 
 This rule isn't about elegance; it's about making logs predictable across the two runtimes that a single `tia-core` class might be called from.
