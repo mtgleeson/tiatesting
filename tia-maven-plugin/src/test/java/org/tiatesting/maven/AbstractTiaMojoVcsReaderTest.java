@@ -110,7 +110,9 @@ class AbstractTiaMojoVcsReaderTest {
     void vcsSettingsCarryTheMojoParameters() {
         // given
         TestMojo mojo = new TestMojo(emptyClassLoader());
-        mojo.tiaProjectDir = "/work/project";
+        // Absolute on every OS - "/work/project" has no drive on Windows, so it is relative there.
+        String projectDir = tempDir.toAbsolutePath().toString();
+        mojo.tiaProjectDir = projectDir;
         mojo.tiaEnabled = false;
         mojo.tiaVcs = "perforce";
         mojo.tiaVcsServerUri = "p4java://server:1666";
@@ -122,7 +124,7 @@ class AbstractTiaMojoVcsReaderTest {
         VcsSettings settings = mojo.buildVcsSettings();
 
         // then
-        assertEquals("/work/project", settings.getProjectDir());
+        assertEquals(projectDir, settings.getProjectDir());
         assertFalse(settings.isEnabled());
         assertEquals("perforce", settings.getVcsName());
         assertEquals("p4java://server:1666", settings.getServerUri());
