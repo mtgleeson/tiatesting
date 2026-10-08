@@ -63,5 +63,8 @@ wiki can also be read front to back.
 - [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
   declared after other methods stretches a constructor's line range over them, and the exact line
   ranges Tia records and matches instead.
+- [Method run stats](wiki/method-run-stats.md) - the per-method executed-run and triggered-run
+  counts: which runs count, how the seal accumulates them, how the triggering method ids reach it,
+  what resets them, and the measured disk and run-time cost.
 - [Setting up a machine to run the release tasks (GPG signing)](wiki/release-signing-setup.md) -
   GPG key setup for Gradle and Maven release signing.
