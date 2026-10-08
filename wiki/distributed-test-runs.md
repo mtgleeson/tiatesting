@@ -436,13 +436,13 @@ suite lists get derived, follows each build tool's existing handoff - see the
 - **Gradle** claims in the daemon, inside the test task's `doFirst` action
   (`TiaTestTaskConfigurer.claimDistributedRun`), before the test task forks, and sets
   the values as ordinary `Test` task system properties, which Gradle forwards into the forked JVM
-  itself. It stops at `DistributedRunCoordinator.claim`'s `ClaimOutcome` rather than deriving suite
-  lists nothing in the daemon would read; the fork derives them for itself with
-  `DistributedRunnerAssignment.forClaimedRunner(...)` (`TiaSpockGlobalExtension`), which is the same
-  derivation Maven's claim path runs - a hand-written second copy is exactly what would let the two
-  build tools silently disagree about which suites a runner skips. The claim is also recorded in
-  this build's `DistributedClaimRegistry`, keyed by test task path, because the daemon-side
-  completion step needs to read it back after the fork has exited.
+  itself. It claims through the same `DistributedRunnerAssignment.claim` as Maven, which also
+  derives the two suite lists, and writes them as the same `SelectionHandoff` files an ordinary
+  build's selection uses (`ignored-tests.txt`, `selected-tests.txt`, in the test task's temporary
+  directory) for the framework adapter to hand to the fork. The fork never derives the lists
+  itself, so both build tools and both frameworks share one derivation and one selection source.
+  The claim is also recorded in this build's `DistributedClaimRegistry`, keyed by test task path,
+  because the daemon-side completion step needs to read it back after the fork has exited.
 
 Gradle used to claim inside the forked test JVM. That made it claim once per *forked JVM* rather
 than once per test task - a build with `maxParallelForks > 1` could claim several groups for what is

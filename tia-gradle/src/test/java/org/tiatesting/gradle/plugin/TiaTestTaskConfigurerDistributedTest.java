@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -330,9 +331,6 @@ class TiaTestTaskConfigurerDistributedTest {
         assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
         Object forwardedRunnerKey = systemProperties.get("tiaDistributedRunnerKey");
         assertNotNull(forwardedRunnerKey);
-        // a runner claims instead of selecting, so it is handed no selection files
-        assertFalse(systemProperties.containsKey(SelectionHandoff.PROP_IGNORED_TESTS_FILE),
-                systemProperties.toString());
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-1");
             assertEquals(forwardedRunnerKey, groups.get(0).getRunnerKey());
@@ -340,6 +338,79 @@ class TiaTestTaskConfigurerDistributedTest {
             assertEquals(DistributedRunGroupStatus.PENDING, untouchedGroup.getStatus());
             assertNull(untouchedGroup.getRunnerKey());
         }
+    }
+
+    /**
+     * Verify a claimed runner is handed its share as the selection files an ordinary build uses:
+     * its own group's suites to run and the other group's to ignore, with no drain result (the plan
+     * already drained, and the cleanup belongs to the sealer). The fork reads only these files, so
+     * a framework whose fork cannot reach the plan (JUnit 5's agent) still runs the right suites.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldHandTheClaimedGroupsShareToTheForkAsSelectionFiles(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-30", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-30");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
+        Set<String> selected = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_SELECTED_TESTS_FILE));
+        Set<String> ignored = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE));
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")), selected);
+        assertEquals(Collections.singleton("com.example.CTest"), ignored);
+        assertNotNull(systemProperties.get(SelectionHandoff.PROP_SELECTION_DETAILS_FILE));
+        assertFalse(systemProperties.containsKey(SelectionHandoff.PROP_DRAIN_RESULT_FILE),
+                systemProperties.toString());
+    }
+
+    /**
+     * Verify a surplus runner - every group already claimed - is handed a selection that runs
+     * nothing and ignores every planned suite, so it cannot duplicate another runner's work.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldHandASurplusRunnerASelectionThatRunsNothing(@TempDir File projectDir) {
+        // given a single-group plan already claimed by another runner
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-31", PLAN_COMMIT, singleGroupAssignment());
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            DistributedRunConfig priorConfig = DistributedRunConfig.forRunner("run-31", "runner-a");
+            DistributedRunnerAssignment.claim(dataStore, priorConfig, PLAN_COMMIT, 1000L);
+        }
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-31");
+        extension.setDistributedRunnerKey("runner-b");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        Set<String> selected = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_SELECTED_TESTS_FILE));
+        Set<String> ignored = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE));
+        assertTrue(selected.isEmpty(), selected.toString());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")), ignored);
     }
 
     /**
