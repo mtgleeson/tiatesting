@@ -209,6 +209,9 @@ public class TiaTestTaskConfigurer {
                         // finish - see the "Distributed test runs" chapter in WIKI.md.
                         claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
                     } else {
+                        if (Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())) {
+                            warnWhenAMappingTaskForksMoreThanOneJvm(testTask);
+                        }
                         selectTestsAndHandOff(testTask, tiaTaskExtension, workspaceIdentity, resolver,
                                 selectionMode);
                     }
@@ -962,13 +965,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      *                                {@code forkEvery} above zero
      */
     private void refuseATestTaskThatForksMoreThanOneJvm(final Test testTask) {
-        String forkingSetting = null;
-        if (testTask.getMaxParallelForks() > 1) {
-            forkingSetting = "maxParallelForks = " + testTask.getMaxParallelForks();
-        } else if (testTask.getForkEvery() > 0) {
-            forkingSetting = "forkEvery = " + testTask.getForkEvery();
-        }
-
+        String forkingSetting = multiJvmForkingSetting(testTask);
         if (forkingSetting == null) {
             return;
         }
@@ -982,5 +979,45 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
                 + "guard would never be satisfied, the group would never complete and the run would "
                 + "never seal. Remove that setting from this test task and take the parallelism from "
                 + "the plan instead - more CI jobs, each one runner claiming one group.");
+    }
+
+    /**
+     * Warn when a test task that updates the mapping runs its suites in more than one JVM. Tia does
+     * not support that: coverage is attributed per suite only when suites run one after another in
+     * one JVM, the forks' persists race, one fork's seal clears flags another still needs, and the
+     * test JVM counter numbers the second fork as a retry, so its history row is flagged a rerun.
+     * Warned rather than refused because the build still runs its tests correctly, and the README
+     * has only ever recommended a single fork. See "Multi-fork persist" in the "Persist flow and
+     * crash safety" chapter of {@code WIKI.md}. A distributed test task is refused instead, by
+     * {@link #refuseATestTaskThatForksMoreThanOneJvm}.
+     *
+     * @param testTask the test task about to run with Tia updating the mapping
+     */
+    private static void warnWhenAMappingTaskForksMoreThanOneJvm(final Test testTask) {
+        String forkingSetting = multiJvmForkingSetting(testTask);
+        if (forkingSetting != null) {
+            LOGGER.warn("Tia updates the mapping for test task '{}', which sets {}. Running a test task's "
+                    + "suites in more than one JVM is not supported while updating the mapping: coverage "
+                    + "can be attributed to the wrong suites and the forks' results can overwrite each "
+                    + "other. Use maxParallelForks = 1 and forkEvery = 0 for this test task.",
+                    testTask.getPath(), forkingSetting);
+        }
+    }
+
+    /**
+     * Describe the setting that makes a test task run its suites in more than one JVM.
+     *
+     * @param testTask the test task to inspect
+     * @return {@code maxParallelForks = n} or {@code forkEvery = n} when the task forks more than one
+     *         JVM, otherwise null
+     */
+    static String multiJvmForkingSetting(final Test testTask) {
+        if (testTask.getMaxParallelForks() > 1) {
+            return "maxParallelForks = " + testTask.getMaxParallelForks();
+        }
+        if (testTask.getForkEvery() > 0) {
+            return "forkEvery = " + testTask.getForkEvery();
+        }
+        return null;
     }
 }
