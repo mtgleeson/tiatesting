@@ -36,11 +36,11 @@ class TiaPluginTaskWiringTest {
 
     @org.junit.jupiter.api.Test
     void testTaskRunsWithoutTiaWhenTheProjectHasNoSupportedFramework(@TempDir File projectDir) {
-        // given - Tia enabled, but only JUnit 5 declared
+        // given - Tia enabled, but no supported test framework declared
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply(TiaPlugin.class);
-        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
+        project.getDependencies().add("testImplementation", "junit:junit:4.13.2");
         project.getExtensions().getByType(TiaBaseTaskExtension.class).setEnabled(Boolean.TRUE);
         Test testTask = (Test) project.getTasks().getByName("test");
 

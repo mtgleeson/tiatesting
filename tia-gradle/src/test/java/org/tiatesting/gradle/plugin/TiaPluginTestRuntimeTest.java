@@ -40,6 +40,29 @@ class TiaPluginTestRuntimeTest {
     }
 
     @org.junit.jupiter.api.Test
+    void enabledJunit5ProjectGetsTiaJunit5AtThePluginVersion(@TempDir File projectDir) {
+        // given
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        project.getPlugins().apply("java");
+        project.getPlugins().apply(TiaPlugin.class);
+        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
+        projectExtension(project).setEnabled(Boolean.TRUE);
+
+        // when
+        plugin(project).configureTestRuntime();
+
+        // then
+        Dependency tiaJunit5 = project.getConfigurations().getByName("testRuntimeOnly").getDependencies()
+                .stream().filter(d -> "tia-junit5".equals(d.getName())).findFirst().orElse(null);
+        assertTrue(tiaJunit5 != null, "tia-junit5 was not added to testRuntimeOnly");
+        assertEquals("org.tiatesting", tiaJunit5.getGroup());
+        assertEquals(TiaVersion.get(), tiaJunit5.getVersion());
+        assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
+                .anyMatch(d -> "tia-spock".equals(d.getName())));
+        assertEquals(Junit5FrameworkAdapter.NAME, plugin(project).getTestFrameworkAdapter().name());
+    }
+
+    @org.junit.jupiter.api.Test
     void taskLevelUpdateDBMappingAppliesJacoco(@TempDir File projectDir) {
         // given - the project-level extension does not update the mapping; the test task does
         Project project = projectWithSpock(projectDir);
@@ -84,11 +107,11 @@ class TiaPluginTestRuntimeTest {
 
     @org.junit.jupiter.api.Test
     void enabledProjectWithNoSupportedFrameworkIsLeftAlone(@TempDir File projectDir) {
-        // given - Tia enabled (e.g. only to stamp a library's publishes), JUnit 5 tests only
+        // given - Tia enabled (e.g. only to stamp a library's publishes), no supported framework
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply(TiaPlugin.class);
-        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
+        project.getDependencies().add("testImplementation", "junit:junit:4.13.2");
         projectExtension(project).setEnabled(Boolean.TRUE);
         projectExtension(project).setUpdateDBMapping(Boolean.TRUE);
 
