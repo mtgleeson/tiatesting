@@ -31,17 +31,19 @@ dependencies {
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
 }
 
-// The plugin adds the Tia module for the project's test framework at its own version, read from
-// this generated resource (see TiaVersion).
+// The plugin adds the Tia module for the project's test framework at its own version, and the SLF4J
+// API at the version Tia builds against, both read from this generated resource (see TiaVersion).
 def generateTiaVersionResource = tasks.register('generateTiaVersionResource') {
     def outputDir = layout.buildDirectory.dir('generated/resources/tia-version')
     def tiaVersion = project.version.toString()
+    def slf4jApiVersion = slf4jVersion.toString()
     inputs.property('version', tiaVersion)
+    inputs.property('slf4jVersion', slf4jApiVersion)
     outputs.dir(outputDir)
     doLast {
         def file = outputDir.get().file('org/tiatesting/gradle/plugin/tia-version.properties').asFile
         file.parentFile.mkdirs()
-        file.text = "version=${tiaVersion}\n"
+        file.text = "version=${tiaVersion}\nslf4jVersion=${slf4jApiVersion}\n"
     }
 }
 sourceSets.main.resources.srcDir(generateTiaVersionResource)

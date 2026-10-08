@@ -45,6 +45,24 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
+     * An enclosing class and its {@code @Nested} class are both selected. Recorded times are each
+     * suite's own - the enclosing class's excludes the nested class - so they simply add up.
+     */
+    @Test
+    void estimateRunTime_aFamilysOwnTimesAddUp(){
+        // given - Outer's own 20ms, Outer$Inner's 40ms
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("Outer", 20L), entry("Outer$Inner", 40L),
+                entry("Other", 10L));
+        Set<String> testsToRun = setOf("Outer", "Outer$Inner", "Other");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
+
+        // then
+        assertEquals(70L, estimate.getEstimatedRunTimeMs());
+    }
+
+    /**
      * One selected test is missing stats - the median {@code avgRunTime} across tracked
      * suites is used for that test, and the missing test name is captured for display.
      */

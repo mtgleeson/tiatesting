@@ -2,6 +2,7 @@ package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,6 +38,37 @@ class TiaPluginTestRuntimeTest {
         assertEquals("org.tiatesting", tiaSpock.getGroup());
         assertEquals(TiaVersion.get(), tiaSpock.getVersion());
         assertEquals(SpockFrameworkAdapter.NAME, plugin(project).getTestFrameworkAdapter().name());
+    }
+
+    @org.junit.jupiter.api.Test
+    void enabledJunit5ProjectGetsTiaJunit5AtThePluginVersion(@TempDir File projectDir) {
+        // given
+        Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
+        project.getPlugins().apply("java");
+        project.getPlugins().apply(TiaPlugin.class);
+        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
+        projectExtension(project).setEnabled(Boolean.TRUE);
+
+        // when
+        plugin(project).configureTestRuntime();
+
+        // then
+        Dependency tiaJunit5 = project.getConfigurations().getByName("testRuntimeOnly").getDependencies()
+                .stream().filter(d -> "tia-junit5".equals(d.getName())).findFirst().orElse(null);
+        assertTrue(tiaJunit5 != null, "tia-junit5 was not added to testRuntimeOnly");
+        assertEquals("org.tiatesting", tiaJunit5.getGroup());
+        assertEquals(TiaVersion.get(), tiaJunit5.getVersion());
+        assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
+                .anyMatch(d -> "tia-spock".equals(d.getName())));
+        assertEquals(Junit5FrameworkAdapter.NAME, plugin(project).getTestFrameworkAdapter().name());
+        ExternalModuleDependency slf4jApi = (ExternalModuleDependency) project.getConfigurations()
+                .getByName("testRuntimeOnly").getDependencies().stream()
+                .filter(d -> "org.slf4j".equals(d.getGroup()) && "slf4j-api".equals(d.getName()))
+                .findFirst().orElse(null);
+        assertTrue(slf4jApi != null, "slf4j-api was not added to testRuntimeOnly");
+        // soft: a project's own SLF4J version or strict pin wins
+        assertEquals(TiaVersion.slf4j(), slf4jApi.getVersionConstraint().getPreferredVersion());
+        assertEquals("", slf4jApi.getVersionConstraint().getRequiredVersion());
     }
 
     @org.junit.jupiter.api.Test
@@ -84,11 +116,11 @@ class TiaPluginTestRuntimeTest {
 
     @org.junit.jupiter.api.Test
     void enabledProjectWithNoSupportedFrameworkIsLeftAlone(@TempDir File projectDir) {
-        // given - Tia enabled (e.g. only to stamp a library's publishes), JUnit 5 tests only
+        // given - Tia enabled (e.g. only to stamp a library's publishes), no supported framework
         Project project = ProjectBuilder.builder().withProjectDir(projectDir).build();
         project.getPlugins().apply("java");
         project.getPlugins().apply(TiaPlugin.class);
-        project.getDependencies().add("testImplementation", "org.junit.jupiter:junit-jupiter:5.11.3");
+        project.getDependencies().add("testImplementation", "junit:junit:4.13.2");
         projectExtension(project).setEnabled(Boolean.TRUE);
         projectExtension(project).setUpdateDBMapping(Boolean.TRUE);
 

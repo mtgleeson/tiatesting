@@ -68,7 +68,7 @@ class TestSelectorStaticTestSelectionTest {
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/resources/db/V001.sql"));
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
@@ -88,7 +88,7 @@ class TestSelectorStaticTestSelectionTest {
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/java/com/acme/Order.java"));
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
                 false, null, config, false, SelectionMode.SELECTIVE);
 
@@ -104,7 +104,7 @@ class TestSelectorStaticTestSelectionTest {
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/resources/db/V001.sql"));
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
                 false, null, null, false, SelectionMode.SELECTIVE);
 
@@ -120,7 +120,7 @@ class TestSelectorStaticTestSelectionTest {
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/resources/db/V001.sql"));
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 vcsReader, Collections.emptyList(), Collections.emptyList(),
                 false, null, StaticTestSelectionConfig.EMPTY, false, SelectionMode.SELECTIVE);
 

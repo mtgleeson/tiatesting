@@ -167,6 +167,9 @@ name is included rather than dropped. That is what keeps every tracked suite pre
 group's assignment: over-inclusion is safe - a name the framework never runs just sits unexecuted
 in some group's list - while under-inclusion would leave a real suite assigned to no group and
 running on every runner at once.
+Groups are balanced by suite family, not by suite: a nested class lands in the same group as its
+top-level class, since it only runs inside it (see "Nested test classes" in
+[How Tia exchanges data with the test runner](test-runner-data-exchange.md)).
 That superset property is what guarantees no suite runs on more than one runner when a seed run is
 split, and it is what lets the seal still record `allTestsRun: true` and full savings for a split
 seed run, the same as it always has for the single-group case.
@@ -436,13 +439,16 @@ suite lists get derived, follows each build tool's existing handoff - see the
 - **Gradle** claims in the daemon, inside the test task's `doFirst` action
   (`TiaTestTaskConfigurer.claimDistributedRun`), before the test task forks, and sets
   the values as ordinary `Test` task system properties, which Gradle forwards into the forked JVM
-  itself. It stops at `DistributedRunCoordinator.claim`'s `ClaimOutcome` rather than deriving suite
-  lists nothing in the daemon would read; the fork derives them for itself with
-  `DistributedRunnerAssignment.forClaimedRunner(...)` (`TiaSpockGlobalExtension`), which is the same
-  derivation Maven's claim path runs - a hand-written second copy is exactly what would let the two
-  build tools silently disagree about which suites a runner skips. The claim is also recorded in
-  this build's `DistributedClaimRegistry`, keyed by test task path, because the daemon-side
-  completion step needs to read it back after the fork has exited.
+  itself. It claims through `DistributedRunCoordinator.claim`, records the claim in the build's
+  `DistributedClaimRegistry` straight away, then derives the two suite lists with
+  `DistributedRunnerAssignment.forClaimedRunner` - the same two steps Maven's
+  `DistributedRunnerAssignment.claim` takes, split so nothing that fails after the claim can leave it
+  unrecorded - and writes them as the same `SelectionHandoff` files an ordinary
+  build's selection uses (`ignored-tests.txt`, `selected-tests.txt`, in the test task's temporary
+  directory) for the framework adapter to hand to the fork. The fork never derives the lists
+  itself, so both build tools and both frameworks share one derivation and one selection source.
+  The claim is also recorded in this build's `DistributedClaimRegistry`, keyed by test task path,
+  because the daemon-side completion step needs to read it back after the fork has exited.
 
 Gradle used to claim inside the forked test JVM. That made it claim once per *forked JVM* rather
 than once per test task - a build with `maxParallelForks > 1` could claim several groups for what is

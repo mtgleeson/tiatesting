@@ -98,7 +98,7 @@ class TestSelectorUpdateDBMappingGateTest {
     void reconcileSkippedWhenUpdateDBMappingFalse() {
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
 
-        TestSelector testSelector = new TestSelector(dataStore);
+        TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
                 Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
@@ -113,7 +113,7 @@ class TestSelectorUpdateDBMappingGateTest {
     void reconcileRunsWhenUpdateDBMappingTrue() {
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
 
-        TestSelector testSelector = new TestSelector(dataStore);
+        TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
                 Collections.emptyList(), false, libraryConfig, null, true, SelectionMode.SELECTIVE);
 
@@ -132,7 +132,7 @@ class TestSelectorUpdateDBMappingGateTest {
 
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
 
-        TestSelector testSelector = new TestSelector(dataStore);
+        TestSelector testSelector = new TestSelector(dataStore, new File("."));
         testSelector.selectTestsToIgnore(emptyDiffsVcsReader(), Collections.emptyList(),
                 Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
@@ -156,7 +156,7 @@ class TestSelectorUpdateDBMappingGateTest {
         CountingDataStore counting = new CountingDataStore(dataStore);
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
 
-        TestSelector testSelector = new TestSelector(counting);
+        TestSelector testSelector = new TestSelector(counting, new File("."));
         testSelector.selectTestsToIgnore(libraryDiffVcsReader(), Collections.emptyList(),
                 Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 
@@ -191,7 +191,7 @@ class TestSelectorUpdateDBMappingGateTest {
         CountingDataStore counting = new CountingDataStore(dataStore);
         LibraryImpactAnalysisConfig libraryConfig = libraryConfigFor("com.example:lib", "/projects/lib");
 
-        TestSelector testSelector = new TestSelector(counting);
+        TestSelector testSelector = new TestSelector(counting, new File("."));
         TestSelectorResult result = testSelector.selectTestsToIgnore(emptyDiffsVcsReader(),
                 Collections.emptyList(), Collections.emptyList(), false, libraryConfig, null, false, SelectionMode.SELECTIVE);
 

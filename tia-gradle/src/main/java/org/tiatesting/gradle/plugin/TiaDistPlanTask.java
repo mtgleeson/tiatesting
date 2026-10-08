@@ -16,14 +16,14 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.TestClassScanner;
-import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
+import org.tiatesting.core.util.ProjectDirs;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -115,14 +115,11 @@ public class TiaDistPlanTask extends DefaultTask {
         try (WorkspaceIdentity workspaceIdentity = plugin.workspaceIdentity();
              DataStore dataStore = plugin.buildDistributedDataStore(workspaceIdentity.getBranch())) {
             VCSReader vcsReader = workspaceIdentity.openVCSReader();
-            List<String> sourceFilesDirs = plugin.getSourceFilesDirs() != null
-                    ? Arrays.asList(plugin.getSourceFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            List<String> testFilesDirs = plugin.getTestFilesDirs() != null
-                    ? Arrays.asList(plugin.getTestFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
+            List<String> sourceFilesDirs = StringUtil.splitCsv(plugin.getSourceFilesDirs());
+            List<String> testFilesDirs = StringUtil.splitCsv(plugin.getTestFilesDirs());
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore,
+                    ProjectDirs.resolve(getProject().getProjectDir(), plugin.getProjectDir()));
             LibraryImpactAnalysisConfig libraryConfig = plugin.buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = plugin.buildStaticTestSelectionConfig();
             // The resolved checkLocalChanges drives selection here. It can legitimately be true:

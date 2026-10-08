@@ -37,13 +37,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Cover {@link DistributedRunnerAssignment}: the one decision both build tools make when they run
  * in distributed mode - claim a group, then work out the two suite lists that go into the ignore
  * and selected files. Maven claims and derives via {@link DistributedRunnerAssignment#claim} in the
- * build JVM before surefire forks; Gradle claims via the same {@link
- * DistributedRunnerAssignment#claim} in the daemon's test-task action before the test task forks,
- * then its forked test JVM re-derives the same two suite lists via {@link
- * DistributedRunnerAssignment#forClaimedRunner} from the runner key and group number the daemon
- * forwarded. The only thing keeping the two build tools from drifting on which suites a runner
- * skips is that {@code claim} and {@code forClaimedRunner} share one derivation; these tests are
- * therefore the coverage of that decision for both of them.
+ * build JVM before surefire forks; Gradle claims and derives via the same {@link
+ * DistributedRunnerAssignment#claim} in the daemon's test-task action before the test task forks.
+ * Both write the two suite lists as the fork's selection files, so these tests are the coverage of
+ * that decision for both of them.
  *
  * <p>Uses a real embedded-H2 {@link JdbcDataStore} rather than a fake, following
  * {@link DistributedRunCoordinatorTest}'s fixture: the behaviour under test is what gets read back
@@ -371,8 +368,8 @@ class DistributedRunnerAssignmentTest {
     }
 
     /**
-     * Verify {@link DistributedRunnerAssignment#forClaimedRunner} - the entry point a Gradle fork
-     * calls directly, with no claim of its own - derives exactly the same suite lists {@link
+     * Verify {@link DistributedRunnerAssignment#forClaimedRunner} - the derivation {@link
+     * DistributedRunnerAssignment#claim} runs after claiming - derives exactly the same suite lists {@link
      * DistributedRunnerAssignment#claim} would for the identical runner key and group number: its
      * own group's suites to run, and every other <em>tracked or planned</em> suite to ignore. The
      * tracked set carries {@code DTest}, which the plan does not mention, so this fails if the

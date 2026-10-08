@@ -1,27 +1,49 @@
 package org.tiatesting.agent;
 
-import org.junit.jupiter.api.Disabled;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
 
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Agent {
 
-    private static final Logger log = LoggerFactory.getLogger(Agent.class);
+    /*
+    java.util.logging rather than slf4j: the agent must start wherever the project's classes are not
+    reachable from the system class loader (Surefire with useSystemClassLoader=false, for one), and
+    a project need not have SLF4J at all. Anything the premain path loads must come from the JDK or
+    this agent jar.
+     */
+    private static final Logger log = Logger.getLogger(Agent.class.getName());
 
+    /*
+    ByteBuddy's switch for reading class files newer than the Java versions it knows. Written with
+    ByteBuddy's own package name: the build relocates ByteBuddy, and this string with it, so in the
+    shipped agent it is org.tiatesting.shaded.bytebuddy.experimental - the property the bundled copy
+    reads, and the one a user sets to override it. A project's own -Dnet.bytebuddy.experimental
+    applies to the project's ByteBuddy, not Tia's.
+     */
+    static final String BYTE_BUDDY_EXPERIMENTAL = "net.bytebuddy.experimental";
+
+    /**
+     * Start the agent in the forked test JVM: publish the forwarded system properties, register the
+     * {@code @Disabled} instrumentation for the suites Tia skips, and publish the hand-off file
+     * paths and counts the Tia test listener reads.
+     *
+     * @param agentArgs the agent options, as {@link AgentOptions} renders them
+     * @param instrumentation the JVM instrumentation handle
+     */
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
         applyForkSystemProperties(agentOptions.getForkPropertiesFile());
+        enableByteBuddyExperimentalMode();
         instrumentIgnoredTests(instrumentation, agentOptions.getIgnoreTestsFile());
         setSelectedTestsSystemProperty(agentOptions.getSelectedTestsFile());
         setLibraryJarsSystemProperty(agentOptions.getLibraryJarsFile());
@@ -46,6 +68,19 @@ public class Agent {
     }
 
     /**
+     * Let the bundled ByteBuddy read test classes compiled for a newer Java than it knows, unless the
+     * user set its switch themselves ({@code -Dorg.tiatesting.shaded.bytebuddy.experimental} in the
+     * shipped agent, where the property name is relocated with ByteBuddy). The agent only adds a class annotation, which does not depend
+     * on understanding newer bytecode, and without it every class Tia meant to skip would run on a
+     * newer Java. Must run before any ByteBuddy class is loaded: ByteBuddy reads it once.
+     */
+    static void enableByteBuddyExperimentalMode() {
+        if (System.getProperty(BYTE_BUDDY_EXPERIMENTAL) == null) {
+            System.setProperty(BYTE_BUDDY_EXPERIMENTAL, "true");
+        }
+    }
+
+    /**
      * Read the ignore-tests file written by the select-tests step, apply the {@code @Disabled}
      * bytecode instrumentation to each entry, and publish the count as the
      * {@code tiaIgnoredTestSuiteCount} system property so the test listener can record it on the
@@ -62,9 +97,9 @@ public class Agent {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Disabled.class);
+        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation);
         String count = Integer.toString(testsToIgnore.size());
-        log.trace("Setting system property for tiaIgnoredTestSuiteCount: {}", count);
+        log.log(Level.FINEST, "Setting system property for tiaIgnoredTestSuiteCount: {0}", count);
         System.setProperty("tiaIgnoredTestSuiteCount", count);
     }
 
@@ -73,6 +108,8 @@ public class Agent {
      * as the {@code tiaLibraryJars} system property so {@code JacocoClient} picks it up in the
      * forked test JVM. Library Jars are used for Jacoco class loading to track coverage.
      * Skips silently when the option is unset.
+     *
+     * @param libraryJarsFile path to the library JARs file, or null/empty when none was written
      */
     private static void setLibraryJarsSystemProperty(String libraryJarsFile){
         if (libraryJarsFile == null || libraryJarsFile.isEmpty()){
@@ -86,7 +123,7 @@ public class Agent {
             throw new RuntimeException(e);
         }
         if (!csv.isEmpty()){
-            log.trace("Setting system property for tiaLibraryJars: {}", csv);
+            log.log(Level.FINEST, "Setting system property for tiaLibraryJars: {0}", csv);
             System.setProperty("tiaLibraryJars", csv);
         }
     }
@@ -94,12 +131,14 @@ public class Agent {
     /**
      * Set the drain result file path as a system property so the test listener can deserialize
      * the drain result for post-test-run cleanup. Skips silently when the option is unset.
+     *
+     * @param drainResultFile path to the serialized drain result, or null/empty when none was written
      */
     private static void setDrainResultFileSystemProperty(String drainResultFile) {
         if (drainResultFile == null || drainResultFile.isEmpty()) {
             return;
         }
-        log.trace("Setting system property for tiaDrainResultFile: {}", drainResultFile);
+        log.log(Level.FINEST, "Setting system property for tiaDrainResultFile: {0}", drainResultFile);
         System.setProperty("tiaDrainResultFile", drainResultFile);
     }
 
@@ -116,7 +155,7 @@ public class Agent {
         if (selectionDetailsFile == null || selectionDetailsFile.isEmpty()) {
             return;
         }
-        log.trace("Setting system property for tiaRunSelectionDetailsFile: {}", selectionDetailsFile);
+        log.log(Level.FINEST, "Setting system property for tiaRunSelectionDetailsFile: {0}", selectionDetailsFile);
         System.setProperty("tiaRunSelectionDetailsFile", selectionDetailsFile);
     }
 
@@ -127,7 +166,7 @@ public class Agent {
      * of tracking previously failed tests that have now been ignored. Test suites can be filtered out by surefire
      * when using the 'groups' configuration.
      *
-     * @param selectedTestsFile
+     * @param selectedTestsFile path to the newline-separated selected-tests file written during selection
      */
     private static void setSelectedTestsSystemProperty(String selectedTestsFile){
         Set<String> selectedTests;
@@ -137,7 +176,7 @@ public class Agent {
             throw new RuntimeException(e);
         }
         String selectedTestsSystemProp = String.join(",", selectedTests);
-        log.trace("Setting system property for tiaSelectedTests: {}", selectedTestsSystemProp);
+        log.log(Level.FINEST, "Setting system property for tiaSelectedTests: {0}", selectedTestsSystemProp);
         System.setProperty("tiaSelectedTests", selectedTestsSystemProp);
     }
 

@@ -130,8 +130,11 @@ own. `TestRunResult` carries which attempt a persist describes, as a `RunAttempt
 **Detecting a Gradle round.** Nothing a round's JVM is handed says which round it is, so the Tia
 Gradle plugin numbers the JVMs itself (`TestJvmSequence`): the test task's `doFirst`, which runs
 once per task execution before any round, resets a counter file in the task's temporary directory
-and forwards its path as `tiaTestJvmSequenceFile`; the Spock extension increments it once per JVM,
-under a file lock, and caches the answer. 1 is the real run, 2 or more a round. It relies on one
+and forwards its path as `tiaTestJvmSequenceFile`; the Spock extension, or the JUnit 5 listener when
+its first test plan starts, increments it once per JVM, under a file lock, and caches the answer. 1
+is the real run, 2 or more a round. The JUnit 5 listener lets the counter win over its plan number
+(`TiaTestExecutionListener.resolveRunAttempt`): a round's JVM starts at plan 1 like the real run, so
+the plan number alone would persist it as `FIRST` and overwrite the real run. It relies on one
 test JVM per round - the single-fork requirement - and on nothing internal to Gradle or the
 test-retry plugin. With no counter (Maven, or a build without the plugin) a JVM is `FIRST`.
 Rejected: telling a round by its narrowed test plan, which a tag or `groups` filter produces too,
