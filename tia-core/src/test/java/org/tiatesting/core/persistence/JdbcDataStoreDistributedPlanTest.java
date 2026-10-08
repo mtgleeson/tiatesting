@@ -736,14 +736,15 @@ class JdbcDataStoreDistributedPlanTest {
      */
     private static TestRunSelectionDetails sampleSelectionDetails() {
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.A.foo()V", 5),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "always-run-smoke", 9));
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.A.foo()V", 777, 5),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "always-run-smoke", null, 9));
         return new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
     }
 
     /**
      * Verify that a staged breakdown round-trips exactly: the five counters and both triggers,
-     * with the triggers read back ordered by suite count descending regardless of insertion order.
+     * with the triggers read back ordered by suite count descending regardless of insertion order,
+     * and the source-method trigger keeping the method id the sealer counts its triggered run by.
      */
     @Test
     void shouldRoundTripAStagedSelectionBreakdown() {
@@ -765,6 +766,8 @@ class JdbcDataStoreDistributedPlanTest {
         assertEquals(9, read.getTriggers().get(0).getTestCount());
         assertEquals("com.example.A.foo()V", read.getTriggers().get(1).getName());
         assertEquals(5, read.getTriggers().get(1).getTestCount());
+        assertNull(read.getTriggers().get(0).getMethodId());
+        assertEquals(Integer.valueOf(777), read.getTriggers().get(1).getMethodId());
     }
 
     /**

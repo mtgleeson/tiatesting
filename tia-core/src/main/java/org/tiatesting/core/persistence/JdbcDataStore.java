@@ -65,6 +65,9 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_LINE_NUMBER_START = "line_number_start";
     private static final String COL_LINE_NUMBER_END = "line_number_end";
     private static final String COL_LINE_RANGES = "line_ranges";
+    private static final String COL_EXECUTED_RUN_COUNT = "executed_run_count";
+    private static final String COL_TRIGGERED_RUN_COUNT = "triggered_run_count";
+    private static final String COL_TRIGGER_METHOD_ID = "trigger_method_id";
     private static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
     private static final String TABLE_TIA_LIBRARY = "tia_library";
     private static final String COL_GROUP_ARTIFACT = "group_artifact";
@@ -1437,7 +1440,7 @@ public class JdbcDataStore implements DataStore {
         }
         ResultSet resultSet = ps.executeQuery();
         while (resultSet.next()) {
-            result.put(resultSet.getInt(COL_ID), readMethodTracker(resultSet));
+            result.put(resultSet.getInt(COL_ID), readCatalogueMethodTracker(resultSet));
         }
     }
 
@@ -1734,6 +1737,7 @@ public class JdbcDataStore implements DataStore {
                                 .add(new TestRunTrigger(
                                         TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
                                         rs.getString(COL_TRIGGER_NAME),
+                                        null,
                                         rs.getInt(COL_TEST_COUNT)));
                     }
                 }
@@ -2241,13 +2245,14 @@ public class JdbcDataStore implements DataStore {
             if (!triggers.isEmpty()) {
                 String insertTrigger = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
                         + COL_RUN_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                        + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?)";
+                        + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?, ?)";
                 try (PreparedStatement ps = connection.prepareStatement(insertTrigger)) {
                     for (TestRunTrigger t : triggers) {
                         ps.setString(1, runId);
                         ps.setString(2, t.getType().name());
                         ps.setString(3, t.getName());
-                        ps.setInt(4, t.getTestCount());
+                        setNullableInt(ps, 4, t.getMethodId());
+                        ps.setInt(5, t.getTestCount());
                         ps.addBatch();
                     }
                     ps.executeBatch();
@@ -2305,7 +2310,8 @@ public class JdbcDataStore implements DataStore {
 
             List<TestRunTrigger> triggers = new ArrayList<>();
             String triggerSql = "SELECT " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                    + COL_TEST_COUNT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
+                    + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + " FROM "
+                    + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
                     + COL_RUN_ID + " = ? ORDER BY " + COL_TEST_COUNT + " DESC";
             try (PreparedStatement ps = connection.prepareStatement(triggerSql)) {
                 ps.setString(1, runId);
@@ -2314,6 +2320,7 @@ public class JdbcDataStore implements DataStore {
                         triggers.add(new TestRunTrigger(
                                 TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
                                 rs.getString(COL_TRIGGER_NAME),
+                                getNullableInt(rs, COL_TRIGGER_METHOD_ID),
                                 rs.getInt(COL_TEST_COUNT)));
                     }
                 }
@@ -3802,7 +3809,9 @@ public class JdbcDataStore implements DataStore {
                     COL_METHOD_NAME + ", " +
                     COL_LINE_NUMBER_START + ", " +
                     COL_LINE_NUMBER_END + ", " +
-                    COL_LINE_RANGES + ") values ");
+                    COL_LINE_RANGES + ", " +
+                    COL_EXECUTED_RUN_COUNT + ", " +
+                    COL_TRIGGERED_RUN_COUNT + ") values ");
 
             for (Map.Entry<Integer, MethodImpactTracker> entry : sourceMethods.entrySet()){
                 // The formatted ranges are digits, '-' and ',' only, so they are safe to inline.
@@ -3811,7 +3820,9 @@ public class JdbcDataStore implements DataStore {
                         entry.getValue().getMethodName() + "', " +
                         entry.getValue().getLineNumberStart() + ", " +
                         entry.getValue().getLineNumberEnd() + ", " +
-                        (lineRanges == null ? "NULL" : "'" + lineRanges + "'") + "),");
+                        (lineRanges == null ? "NULL" : "'" + lineRanges + "'") + ", " +
+                        entry.getValue().getExecutedRunCount() + ", " +
+                        entry.getValue().getTriggeredRunCount() + "),");
             }
             String insertSql = insertSqlBuilder.toString();
             insertSql = insertSql.substring(0, insertSql.length()-1);
@@ -3910,6 +3921,14 @@ public class JdbcDataStore implements DataStore {
         return testSuitesFailed;
     }
 
+    /**
+     * Read the full method catalogue from {@code tia_source_method}, including each method's run
+     * stats. Used by the seal to carry the stored counts forward and by the HTML reports.
+     *
+     * @param connection the open connection to read on
+     * @return every catalogued method keyed by method id
+     * @throws SQLException if the query fails
+     */
     private Map<Integer, MethodImpactTracker> getMethodsTracked(Connection connection) throws SQLException {
         Map<Integer, MethodImpactTracker> sourceMethods = new HashMap<>();
         String sql = "SELECT * FROM " + TABLE_TIA_SOURCE_METHOD;
@@ -3917,7 +3936,7 @@ public class JdbcDataStore implements DataStore {
         ResultSet resultSet = statement.executeQuery(sql);
 
         while(resultSet.next()){
-            sourceMethods.put(resultSet.getInt(COL_ID), readMethodTracker(resultSet));
+            sourceMethods.put(resultSet.getInt(COL_ID), readCatalogueMethodTracker(resultSet));
         }
 
         return sourceMethods;
@@ -3938,6 +3957,24 @@ public class JdbcDataStore implements DataStore {
                 resultSet.getInt(COL_LINE_NUMBER_START),
                 resultSet.getInt(COL_LINE_NUMBER_END),
                 LineRanges.parse(resultSet.getString(COL_LINE_RANGES)));
+    }
+
+    /**
+     * Build a method tracker from the current row of a full {@code tia_source_method} query,
+     * including the per-method run stats. Kept apart from {@link #readMethodTracker(ResultSet)}
+     * because the distributed staging table and the targeted select-tests query don't carry the
+     * stats columns. See the "Method run stats" chapter in {@code WIKI.md}.
+     *
+     * @param resultSet the result set positioned on a {@code tia_source_method} row selected with
+     *                  every column
+     * @return the tracker for the row, carrying its executed and triggered run counts
+     * @throws SQLException if a column can't be read
+     */
+    private MethodImpactTracker readCatalogueMethodTracker(ResultSet resultSet) throws SQLException {
+        MethodImpactTracker tracker = readMethodTracker(resultSet);
+        tracker.setExecutedRunCount(resultSet.getLong(COL_EXECUTED_RUN_COUNT));
+        tracker.setTriggeredRunCount(resultSet.getLong(COL_TRIGGERED_RUN_COUNT));
+        return tracker;
     }
 
     /**
@@ -4111,7 +4148,9 @@ public class JdbcDataStore implements DataStore {
                 COL_METHOD_NAME + " VARCHAR, " +
                 COL_LINE_NUMBER_START + " INT, " +
                 COL_LINE_NUMBER_END + " INT, " +
-                COL_LINE_RANGES + " VARCHAR)";
+                COL_LINE_RANGES + " VARCHAR, " +
+                COL_EXECUTED_RUN_COUNT + " BIGINT DEFAULT 0, " +
+                COL_TRIGGERED_RUN_COUNT + " BIGINT DEFAULT 0)";
 
         String createTestSuiteTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + " " +
                 "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
@@ -4591,6 +4630,25 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Migration: ensure the {@code tia_source_method.executed_run_count} and
+     * {@code tia_source_method.triggered_run_count} columns exist on a DB created before the
+     * per-method run stats were recorded. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
+     * pre-existing rows default to {@code 0} and start counting from the next mapping-update run.
+     * See the "Method run stats" chapter in {@code WIKI.md}.
+     *
+     * @param connection the connection to issue the DDL on
+     * @throws SQLException if the DDL statement fails
+     */
+    private void ensureSourceMethodRunCountColumnsExist(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
+                    COL_EXECUTED_RUN_COUNT + " BIGINT DEFAULT 0");
+            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
+                    COL_TRIGGERED_RUN_COUNT + " BIGINT DEFAULT 0");
+        }
+    }
+
+    /**
      * Migration: ensure the {@code tia_id_block} table exists. It holds one row per
      * application-assigned id space, recording the next unallocated value, so concurrent writers
      * can reserve disjoint id blocks instead of each reading {@code MAX(id)} and colliding.
@@ -4842,21 +4900,28 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
                 + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
                 + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
+                + COL_TRIGGER_METHOD_ID + " INT, "
                 + COL_TEST_COUNT + " INT NOT NULL)";
     }
 
     /**
      * Ensure the two run-id-keyed selection-breakdown tables exist: {@code
      * tia_distributed_run_selection} (the counters row) and {@code tia_distributed_run_trigger}
-     * (the per-trigger rows). Idempotent via {@code CREATE TABLE IF NOT EXISTS}.
+     * (the per-trigger rows), and that the trigger table carries the {@code trigger_method_id}
+     * column the seal reads to count each changed method's triggered runs. Idempotent via
+     * {@code CREATE TABLE IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}.
      *
      * @param connection the connection to issue the DDL on
-     * @throws SQLException if either DDL statement fails
+     * @throws SQLException if any DDL statement fails
      */
     private void ensureDistributedRunSelectionTablesExist(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.addBatch(buildCreateDistributedRunSelectionTableSql());
             statement.addBatch(buildCreateDistributedRunTriggerTableSql());
+            // Migration for a trigger table created before triggers carried the changed method's
+            // id. Pre-existing rows belong to an earlier build's plan and read back with no id.
+            statement.addBatch("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
+                    + " ADD COLUMN IF NOT EXISTS " + COL_TRIGGER_METHOD_ID + " INT");
             statement.executeBatch();
         }
     }
@@ -4928,6 +4993,7 @@ public class JdbcDataStore implements DataStore {
         ensureTestSuiteDeveloperDisabledColumnExists(connection);
         ensureTestSuiteUnsealedColumnExists(connection);
         ensureSourceMethodLineRangesColumnExists(connection);
+        ensureSourceMethodRunCountColumnsExist(connection);
         ensureTiaCoreAllTestsStatsColumnsExist(connection);
         ensureTiaCoreOverheadModelColumnsExist(connection);
         ensureIdBlockTableExists(connection);

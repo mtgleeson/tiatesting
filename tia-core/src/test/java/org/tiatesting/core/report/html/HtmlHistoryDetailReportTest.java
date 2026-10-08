@@ -30,11 +30,11 @@ class HtmlHistoryDetailReportTest {
         // given - an entry with two source-method triggers of different counts, one static
         // rule trigger, and all five selection counters recorded
         TestRunTrigger highCountMethod = new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
-                "com.example.Foo#bar", 9);
+                "com.example.Foo#bar", null, 9);
         TestRunTrigger lowCountMethod = new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
-                "com.example.Baz#qux", 2);
+                "com.example.Baz#qux", null, 2);
         TestRunTrigger staticRule = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE,
-                "force-run-smoke-tests", 5);
+                "force-run-smoke-tests", null, 5);
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, highCountMethod, staticRule);
 
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 4, 0, SelectionMode.SELECTIVE);

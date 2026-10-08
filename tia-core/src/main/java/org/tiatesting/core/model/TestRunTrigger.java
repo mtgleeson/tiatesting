@@ -26,17 +26,24 @@ public final class TestRunTrigger {
 
     private final Type type;
     private final String name;
+    private final Integer methodId;
     private final int testCount;
 
     /**
+     * Create a trigger record.
+     *
      * @param type the kind of trigger
      * @param name the trigger's identity - a method id/name for {@link Type#SOURCE_METHOD}, a rule
      *             name for {@link Type#STATIC_RULE}
+     * @param methodId the changed method's catalogue id for a {@link Type#SOURCE_METHOD} trigger,
+     *                 used to count the run against the method at the seal; null for a static
+     *                 rule, and for a trigger read back from run history, which doesn't store it
      * @param testCount the number of test suites this trigger accounts for
      */
-    public TestRunTrigger(Type type, String name, int testCount) {
+    public TestRunTrigger(Type type, String name, Integer methodId, int testCount) {
         this.type = type;
         this.name = name;
+        this.methodId = methodId;
         this.testCount = testCount;
     }
 
@@ -46,6 +53,13 @@ public final class TestRunTrigger {
     /** @return the trigger's identity (method name or rule name) */
     public String getName() { return name; }
 
+    /**
+     * The catalogue id of the changed method behind a source-method trigger.
+     *
+     * @return the method id, or null for a static rule or a trigger read back from run history
+     */
+    public Integer getMethodId() { return methodId; }
+
     /** @return the number of test suites this trigger accounts for */
     public int getTestCount() { return testCount; }
 
@@ -54,11 +68,12 @@ public final class TestRunTrigger {
         if (this == o) return true;
         if (!(o instanceof TestRunTrigger)) return false;
         TestRunTrigger that = (TestRunTrigger) o;
-        return testCount == that.testCount && type == that.type && Objects.equals(name, that.name);
+        return testCount == that.testCount && type == that.type && Objects.equals(name, that.name)
+                && Objects.equals(methodId, that.methodId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(type, name, testCount); }
+    public int hashCode() { return Objects.hash(type, name, methodId, testCount); }
 
     /**
      * Filter a trigger list to a single type and return the matches ordered by suite count, largest

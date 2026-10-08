@@ -61,7 +61,8 @@ solve this differently in general.
 
 - **Maven / JUnit** writes the breakdown to a sidecar file, `run-selection-details.txt`, via
   `RunSelectionDetailsCodec` - a small tab-separated format, one counters line and one line per
-  trigger. `AgentMojo` writes the file and passes its path as the agent's
+  trigger. A trigger line also carries the changed method's id, used by the seal for the
+  [method run stats](method-run-stats.md) rather than by the history row. `AgentMojo` writes the file and passes its path as the agent's
   `selectionDetailsFile` option, which becomes the `tiaRunSelectionDetailsFile` system property in
   the fork; the test listener reads and parses it there. This is the same pattern the ignored/
   selected test-name files already use, for the same reason: the payload (an unbounded trigger
@@ -82,7 +83,8 @@ writing the build's one history row; that is decided later, by whichever runner 
 Two run-id-keyed tables hold the staged breakdown: `tia_distributed_run_selection` (one row per
 run, the same five counters as the history table) and `tia_distributed_run_trigger` (one row per
 staged trigger, same shape as `tia_test_run_history_trigger` but keyed by `run_id` instead of
-`history_id`, with no foreign key). Both are populated by
+`history_id`, with no foreign key, plus the changed method's id for the
+[method run stats](method-run-stats.md)). Both are populated by
 `DataStore.persistDistributedRunSelectionDetails` and are cleared and replaced whenever the branch
 is (re)planned, the same lifecycle the other distributed-run tables already follow.
 

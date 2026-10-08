@@ -430,7 +430,8 @@ public class TestRunnerService {
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 testRunResult.getMethodTrackersFromTestRun(),
                 testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
-                statsIncrement, isReseed(testRunResult)));
+                statsIncrement, isReseed(testRunResult), !testRunResult.getRunAttempt().isRerun(),
+                testRunResult.getSelectionDetails().getTriggeredMethodIds()));
     }
 
     /**
