@@ -156,7 +156,7 @@ class TestSelectorForcedModeTest {
      * @return the selection result
      */
     private TestSelectorResult select(SelectionMode mode) {
-        return new TestSelector(dataStore).selectTestsToIgnore(vcsReader, Collections.emptyList(),
+        return new TestSelector(dataStore, new File(".")).selectTestsToIgnore(vcsReader, Collections.emptyList(),
                 Collections.emptyList(), false, null, null, true, mode);
     }
 

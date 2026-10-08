@@ -841,6 +841,9 @@ class AgentMojoDistributedTest {
             Model model = new Model();
             model.setBuild(new Build());
             this.mavenProject = new MavenProject(model);
+            // A real module always has a base directory, which selection resolves the configured
+            // source and test directories against.
+            this.mavenProject.setFile(new File(buildDir, "pom.xml"));
         }
 
         /**

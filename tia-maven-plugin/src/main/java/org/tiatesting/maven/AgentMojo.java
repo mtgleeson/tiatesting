@@ -234,7 +234,7 @@ public class AgentMojo extends AbstractTiaMojo {
                 throw new MojoExecutionException(e.getMessage(), e);
             }
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, getProject().getBasedir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // The selection details written for the fork carry the mode, which is how the forked

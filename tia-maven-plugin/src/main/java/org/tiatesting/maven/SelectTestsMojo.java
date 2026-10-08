@@ -53,7 +53,7 @@ public class SelectTestsMojo extends AbstractTiaMojo {
             List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, getProject().getBasedir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // Read-only preview: no mapping writes (updateDBMapping=false).

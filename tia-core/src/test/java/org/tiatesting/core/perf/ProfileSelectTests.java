@@ -12,6 +12,7 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.vcs.VCSReader;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -117,7 +118,7 @@ public final class ProfileSelectTests {
         // the targeted path end to end: core read, suite metadata, the changed-files-to-tracked-methods
         // lookup, line-range intersection, the methods-to-covering-suites lookup, failed
         // tests, ignore-set construction and the run-time estimate.
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         VCSReader stubVcs = new SyntheticDiffVCSReader(args.branch, args.diffFiles);
 
         long tSelectStart = System.nanoTime();

@@ -22,6 +22,7 @@ import org.tiatesting.core.persistence.dialect.PostgresDialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.VCSReader;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -236,7 +237,7 @@ class DatastoreEquivalenceTest {
      * @return the selector's result, including the computed ignore set
      */
     private static TestSelectorResult runSelect(DataStore store) {
-        TestSelector selector = new TestSelector(store);
+        TestSelector selector = new TestSelector(store, new File("."));
         VCSReader stubVcs = new SyntheticFooDiffVCSReader();
         return selector.selectTestsToIgnore(stubVcs, Collections.emptyList(), Collections.emptyList(),
                 false, null, null, false, SelectionMode.SELECTIVE);

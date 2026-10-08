@@ -113,12 +113,10 @@ public class TiaDistPlanTask extends DefaultTask {
         try (WorkspaceIdentity workspaceIdentity = plugin.workspaceIdentity();
              DataStore dataStore = plugin.buildDistributedDataStore(workspaceIdentity.getBranch())) {
             VCSReader vcsReader = workspaceIdentity.openVCSReader();
-            List<String> sourceFilesDirs = ProjectRelativeDirs.resolve(getProject().getProjectDir(),
-                    plugin.getSourceFilesDirs());
-            List<String> testFilesDirs = ProjectRelativeDirs.resolve(getProject().getProjectDir(),
-                    plugin.getTestFilesDirs());
+            List<String> sourceFilesDirs = TiaPlugin.csvToList(plugin.getSourceFilesDirs());
+            List<String> testFilesDirs = TiaPlugin.csvToList(plugin.getTestFilesDirs());
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, getProject().getProjectDir());
             LibraryImpactAnalysisConfig libraryConfig = plugin.buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = plugin.buildStaticTestSelectionConfig();
             // The resolved checkLocalChanges drives selection here. It can legitimately be true:
