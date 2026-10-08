@@ -2,16 +2,31 @@ plugins {
     id 'java'
     id 'signing'
     id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 // Use the build script defined in buildSrc
 apply from: rootProject.file('buildSrc/shared.gradle')
 
+configurations {
+    // Bundled (relocated) into the agent jar and nowhere else: not a published dependency.
+    agentBundle
+    compileOnly.extendsFrom agentBundle
+    testImplementation.extendsFrom agentBundle
+}
+
 dependencies {
-    implementation project(':tia-core')
-    implementation group: 'org.junit.jupiter', name:'junit-jupiter-engine', version: junit5EngineVersion
+    // Compiled against, but only the two classes premain uses are copied into the agent jar.
+    compileOnly project(':tia-core')
+    agentBundle group: 'net.bytebuddy', name: 'byte-buddy', version: '1.14.19'
     // No slf4j: the agent's premain runs before Gradle's test worker puts the test runtime classpath
     // on the system class loader, so it can use only the JDK and what this jar bundles.
+
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter', version: junit5EngineVersion
+}
+
+test {
+    useJUnitPlatform()
 }
 
 Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
@@ -19,32 +34,58 @@ Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
                           'Can-Retransform-Classes': true,
                           'Agent-Class': 'org.tiatesting.agent.Agent']
 
-tasks.register('uberJarAgent', Jar) {
-    archiveClassifier = 'uber'
-
-    from sourceSets.main.output
-    //exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
-
+// The -javaagent jar. On Gradle it sits on the system classpath ahead of the test classpath, so it
+// may carry nothing a project could also have: only the agent, the two tia-core classes premain
+// uses, and ByteBuddy relocated into Tia's own package so it can never shadow a project's copy.
+// The two tia-core classes also reach the test classpath through tia-junit5; on Gradle the agent's
+// copies load first, which is harmless because both come from the same Tia version.
+shadowJar {
+    archiveClassifier = 'runtime'
     manifest {
         attributes attrs
     }
-
-    archiveClassifier = 'runtime'
-
-    dependsOn configurations.runtimeClasspath
-    from (configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }){
-        exclude "META-INF/*.SF"
-        exclude "META-INF/*.DSA"
-        exclude "META-INF/*.RSA"
+    configurations = [project.configurations.agentBundle]
+    from(project(':tia-core').sourceSets.main.output) {
+        include 'org/tiatesting/core/agent/AgentOptions*'
+        include 'org/tiatesting/core/agent/ForkSystemProperties*'
     }
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    exclude 'META-INF/versions/**'
+    exclude 'META-INF/maven/**'
+    exclude '**/module-info.class'
+    relocate 'net.bytebuddy', 'org.tiatesting.shaded.bytebuddy'
+}
+
+// The allowed contents of the agent jar. Anything else could shadow a class the project has.
+def agentJarAllowedPrefixes = ['META-INF/', 'org/tiatesting/agent/', 'org/tiatesting/shaded/bytebuddy/',
+                               'org/tiatesting/core/agent/AgentOptions', 'org/tiatesting/core/agent/ForkSystemProperties']
+def agentJarAllowedDirectories = ['org/', 'org/tiatesting/', 'org/tiatesting/core/', 'org/tiatesting/core/agent/',
+                                  'org/tiatesting/shaded/']
+
+tasks.register('verifyAgentJar') {
+    description = 'Fails if the -javaagent jar contains anything outside Tia\'s own packages.'
+    def agentJar = tasks.named('shadowJar').flatMap { it.archiveFile }
+    inputs.file(agentJar)
+    doLast {
+        def unexpected = new java.util.zip.ZipFile(agentJar.get().asFile).withCloseable { zip ->
+            zip.entries().collect { it.name }.findAll { name ->
+                !agentJarAllowedDirectories.contains(name) && !agentJarAllowedPrefixes.any { name.startsWith(it) }
+            }
+        }
+        if (!unexpected.isEmpty()) {
+            throw new GradleException("The Tia agent jar must only contain Tia's own packages, but it also "
+                    + "contains: " + unexpected.take(20))
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifyAgentJar'
 }
 
 publishing {
     publications {
         mavenJava(MavenPublication) {
             artifactId = 'tia-junit5-agent'
-            artifact uberJarAgent
 
             pom {
                 name = 'Tia JUnit5 Agent'

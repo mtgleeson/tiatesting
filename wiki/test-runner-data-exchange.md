@@ -68,6 +68,26 @@ worker starts with only its own jar and adds the test runtime classpath after `p
 so anything the agent loads must come from the JDK or the agent jar. The agent logs through
 `java.util.logging` for that reason.
 
+**The agent jar carries nothing a project could also have.** The same ordering means that on Gradle
+every class in the agent jar is found before the project's own copy. The jar used to bundle all of
+its dependencies - JUnit Platform and Jupiter, ByteBuddy, ASM, JaCoCo, H2, j2html - and a project on
+a different JUnit version then ran with a mix of Tia's JUnit classes and its own, failing with
+`NoSuchMethodError` on every run (JUnit 5.13 against the bundled 5.11). Maven never noticed because
+Surefire puts the project's classpath first. The jar (built by the Shadow plugin in
+`tia-junit5-agent`) now holds only:
+
+- the agent itself (`org.tiatesting.agent`), including `IgnoreTestInstrumentor`;
+- the two `tia-core` classes `premain` uses, `AgentOptions` and `ForkSystemProperties` - the same
+  classes, from the same Tia version, also reach the test classpath through `tia-junit5`, so which
+  copy loads first does not matter;
+- ByteBuddy, relocated to `org.tiatesting.shaded.bytebuddy` so it is a different library, by name,
+  from any ByteBuddy the project has (Mockito's, for example).
+
+No JUnit class is bundled. `@Disabled` is described, when each ignored test class loads, from the
+class file that test class's own loader finds - the project's JUnit - and is added from that
+description, so it resolves against the project's JUnit too. The `verifyAgentJar` task, part of
+`check`, fails the build if anything else ever lands in the jar.
+
 A distributed runner hands its share over the same way. The daemon claims the group with
 `DistributedRunnerAssignment.claim`, which also derives the suites the runner runs and ignores, and
 writes those as the same files (no drain result, an empty selection breakdown). The fork only

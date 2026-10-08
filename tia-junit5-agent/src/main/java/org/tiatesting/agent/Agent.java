@@ -1,9 +1,7 @@
 package org.tiatesting.agent;
 
-import org.junit.jupiter.api.Disabled;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.ForkSystemProperties;
-import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
 
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
@@ -68,7 +66,7 @@ public class Agent {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Disabled.class);
+        new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation);
         String count = Integer.toString(testsToIgnore.size());
         log.log(Level.FINEST, "Setting system property for tiaIgnoredTestSuiteCount: {0}", count);
         System.setProperty("tiaIgnoredTestSuiteCount", count);
