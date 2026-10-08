@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.RunEnvironment;
@@ -369,7 +370,8 @@ public final class DistributedRunPlanner {
     /**
      * Add every suite name the disk scan finds that the forced plan does not already carry to the
      * group holding the fewest names (the lowest group number on a tie), so a forced full run also
-     * runs new suites. The scan over-includes non-test classes, which carry no run time and never
+     * runs new suites. A nested suite ({@code Outer$Inner}) goes to the group already holding its
+     * top-level suite instead - see {@link NestedTestSuites}. The scan over-includes non-test classes, which carry no run time and never
      * run, so they are spread across groups that each already hold a tracked suite rather than
      * balanced as weights of their own: a group made only of such names would observe nothing and
      * could never complete. Each group keeps its estimate. See the "Forced runs and re-seed"
@@ -391,17 +393,30 @@ public final class DistributedRunPlanner {
             return balanced;
         }
 
+        // A nested suite goes where its top-level suite already is, since it only runs inside it.
+        Map<String, Integer> groupByTopLevelSuite = new HashMap<>();
+        for (int i = 0; i < names.size(); i++) {
+            for (String suite : names.get(i)) {
+                groupByTopLevelSuite.putIfAbsent(NestedTestSuites.topLevelSuite(suite), i);
+            }
+        }
+
         List<String> untracked = new ArrayList<>(diskTestSuiteProvider.get());
         untracked.removeAll(assigned);
         Collections.sort(untracked);
         for (String suite : untracked) {
-            int fewest = 0;
-            for (int i = 1; i < names.size(); i++) {
-                if (names.get(i).size() < names.get(fewest).size()) {
-                    fewest = i;
+            Integer target = groupByTopLevelSuite.get(NestedTestSuites.topLevelSuite(suite));
+            if (target == null) {
+                int fewest = 0;
+                for (int i = 1; i < names.size(); i++) {
+                    if (names.get(i).size() < names.get(fewest).size()) {
+                        fewest = i;
+                    }
                 }
+                target = fewest;
+                groupByTopLevelSuite.put(NestedTestSuites.topLevelSuite(suite), target);
             }
-            names.get(fewest).add(suite);
+            names.get(target).add(suite);
         }
 
         List<SuiteGroup> groups = new ArrayList<>();

@@ -63,6 +63,30 @@ three reasons:
 3. **One model for both build tools.** Library metadata and static rules are built where the build
    model is, rather than encoded into system properties for the fork to rebuild.
 
+### Nested test classes (JUnit 5 `@Nested`)
+
+A `@Nested` class is tracked as its own suite (`Outer$Inner`), but it only ever runs inside its
+enclosing class, and Tia skips a suite by marking its class `@Disabled` - which skips every class
+nested in it too. Three rules follow, all keyed on the binary name (`NestedTestSuites`):
+
+1. **Selection never ignores an enclosing suite of a selected one.** When `Outer$Inner` is selected,
+   `Outer` (and any class between them) is dropped from the ignore set, in `TestSelector` and in a
+   distributed runner's ignore list. `Outer`'s own tests then run too: an over-selection, never a
+   missed test.
+2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families (a
+   top-level suite with everything nested in it) rather than suites, and a forced plan's untracked
+   disk-scan names join the group already holding their top-level suite.
+3. **Coverage stays with the class whose tests produced it.** Jupiter runs `Outer`'s own tests and
+   then `Outer$Inner` inside `Outer`'s container. The JUnit 5 listener collects coverage when a
+   class container finishes, so without care `Outer$Inner`'s dump would also carry `Outer`'s tests
+   and `Outer` would be left with an empty mapping. The listener therefore also collects when a
+   nested class starts and credits that dump to the enclosing class.
+
+Before these rules, a change covered only by `Outer`'s own tests was credited to `Outer$Inner`; the
+selection then ran `Outer$Inner`, ignored `Outer`, and the `@Disabled` on `Outer` skipped both - so
+nothing ran. A distributed plan could also put `Outer$Inner` in a different group from `Outer`, where
+it ran on no runner.
+
 ### VCS libraries never cross the boundary
 
 The VCS is read only in the build JVM, and neither build plugin depends on a VCS module. Each

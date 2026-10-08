@@ -9,6 +9,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -936,9 +937,14 @@ public class TestSelector {
      * skipping them. Excluding them keeps the Tia-ignored count a true count of suites Tia chose
      * to skip that could otherwise have run.
      *
+     * <p>A suite enclosing a selected nested suite ({@code Outer} for {@code Outer$Inner}) is never
+     * ignored: skipping the enclosing class skips every class nested in it - see
+     * {@link NestedTestSuites}.
+     *
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the test suites selected to run
-     * @return the tracked, non-developer-disabled suites not selected to run - the ignore list
+     * @return the tracked, non-developer-disabled suites not selected to run, less the enclosing
+     *         suites of selected nested suites - the ignore list
      */
     static Set<String> getTestsToIgnore(Map<String, TestSuiteTracker> testSuitesTracked, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
@@ -948,6 +954,7 @@ public class TestSelector {
                 testsToIgnore.add(testSuite);
             }
         });
+        NestedTestSuites.keepEnclosingSuitesOfSelected(testsToIgnore, testsToRun);
 
         return testsToIgnore;
     }

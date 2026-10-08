@@ -292,6 +292,28 @@ class DistributedRunCoordinatorTest {
     }
 
     /**
+     * Verify a group never ignores a suite enclosing one of its own nested suites, even when a plan
+     * put the two in different groups: skipping the enclosing class would skip the nested one too.
+     */
+    @Test
+    void shouldNotIgnoreTheEnclosingSuiteOfANestedSuiteInMyGroup() {
+        // given - a plan that split a nested suite from its enclosing suite
+        Map<Integer, List<String>> suitesByGroup = new HashMap<>();
+        suitesByGroup.put(0, Collections.singletonList("com.example.OuterTest"));
+        suitesByGroup.put(1, Arrays.asList("com.example.OuterTest$Inner", "com.example.OtherTest"));
+        persistPlan("run-nested", "commit-1", suitesByGroup);
+        DistributedRunCoordinator coordinator = coordinator("run-nested", "runner-a");
+        Set<String> tracked = new HashSet<>(Arrays.asList("com.example.OuterTest",
+                "com.example.OuterTest$Inner", "com.example.OtherTest"));
+
+        // when
+        Set<String> ignoredByGroupOne = coordinator.deriveTestsToIgnore(1, tracked);
+
+        // then
+        assertEquals(Collections.<String>emptySet(), ignoredByGroupOne);
+    }
+
+    /**
      * Verify a seed run - one group, no suites, nothing tracked - derives an empty ignore list, so
      * its single runner runs the entire suite and records the mapping the next build will plan
      * from. This falls out of the general rule with no special case for it.
