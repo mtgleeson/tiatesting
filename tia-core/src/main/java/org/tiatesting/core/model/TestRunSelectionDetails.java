@@ -2,7 +2,9 @@ package org.tiatesting.core.model;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The per-run breakdown of what drove test selection: the per-changed-method and per-static-rule
@@ -86,6 +88,23 @@ public final class TestRunSelectionDetails {
     /** @return the source-method triggers, sorted by suite count descending */
     public List<TestRunTrigger> getSourceMethodTriggers() {
         return TestRunTrigger.filterByTypeSortedByCountDesc(triggers, TestRunTrigger.Type.SOURCE_METHOD);
+    }
+
+    /**
+     * The catalogue ids of the changed methods that triggered this run, for the per-method
+     * triggered-run count accumulated at the seal. See the "Method run stats" chapter in
+     * {@code WIKI.md}.
+     *
+     * @return the method ids of the source-method triggers that carry one; empty if none do
+     */
+    public Set<Integer> getTriggeredMethodIds() {
+        Set<Integer> methodIds = new HashSet<>();
+        for (TestRunTrigger trigger : triggers) {
+            if (trigger.getType() == TestRunTrigger.Type.SOURCE_METHOD && trigger.getMethodId() != null) {
+                methodIds.add(trigger.getMethodId());
+            }
+        }
+        return methodIds;
     }
 
     /** @return the static-rule triggers, sorted by suite count descending */

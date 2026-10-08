@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -29,7 +30,8 @@ class RunSelectionDetailsCodecTest {
 
     /**
      * Verify that writing a breakdown with two triggers - one of each {@link TestRunTrigger.Type}
-     * - and non-zero counters, then reading it back, yields an equal set of counters and triggers.
+     * - and non-zero counters, then reading it back, yields an equal set of counters and triggers,
+     * including the source-method trigger's method id and the static rule's absent one.
      * This is the codec's core contract: what goes in via {@code write} must come back out via
      * {@code read}.
      */
@@ -37,8 +39,8 @@ class RunSelectionDetailsCodecTest {
     void roundTripsDetailsWithTwoTriggersAndNonZeroCounters() {
         // given
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", 3),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "forced-selection-rule", 7)
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", -4242, 3),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "forced-selection-rule", null, 7)
         );
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
                 SelectionMode.SELECTIVE);
@@ -59,10 +61,37 @@ class RunSelectionDetailsCodecTest {
         assertEquals(TestRunTrigger.Type.SOURCE_METHOD, sourceMethod.getType());
         assertEquals("com.example.Foo#bar", sourceMethod.getName());
         assertEquals(3, sourceMethod.getTestCount());
+        assertEquals(Integer.valueOf(-4242), sourceMethod.getMethodId());
         TestRunTrigger staticRule = result.getTriggers().get(1);
         assertEquals(TestRunTrigger.Type.STATIC_RULE, staticRule.getType());
         assertEquals("forced-selection-rule", staticRule.getName());
         assertEquals(7, staticRule.getTestCount());
+        assertNull(staticRule.getMethodId());
+    }
+
+    /**
+     * Verify that a trigger line whose method id field is not an integer still reads back as a
+     * trigger, with no method id: the trigger stays valid for the history breakdown and is only
+     * left out of the per-method triggered-run count.
+     *
+     * @throws IOException if the hand-written file cannot be created
+     */
+    @Test
+    void nonIntegerMethodIdReadsAsNoId() throws IOException {
+        // given
+        File file = tempDir.resolve("bad-method-id.txt").toFile();
+        String content = "counters\t0\t0\t0\t0\t0\n"
+                + "trigger\tSOURCE_METHOD\t4\tnotAnId\tcom.example.Foo#bar\n";
+        Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
+
+        // when
+        TestRunSelectionDetails result = RunSelectionDetailsCodec.read(file);
+
+        // then
+        assertEquals(1, result.getTriggers().size());
+        assertEquals("com.example.Foo#bar", result.getTriggers().get(0).getName());
+        assertEquals(4, result.getTriggers().get(0).getTestCount());
+        assertNull(result.getTriggers().get(0).getMethodId());
     }
 
     /**
@@ -75,7 +104,7 @@ class RunSelectionDetailsCodecTest {
     void neutralizesNewlineInTriggerNameOnWrite() {
         // given
         TestRunTrigger triggerWithNewline = new TestRunTrigger(
-                TestRunTrigger.Type.STATIC_RULE, "line-one\nline-two", 4);
+                TestRunTrigger.Type.STATIC_RULE, "line-one\nline-two", null, 4);
         TestRunSelectionDetails details = new TestRunSelectionDetails(
                 Arrays.asList(triggerWithNewline), 0, 0, 0, 0, 0, SelectionMode.SELECTIVE);
         File file = tempDir.resolve("selection-details-newline.txt").toFile();
@@ -141,7 +170,7 @@ class RunSelectionDetailsCodecTest {
         // given
         String name = "org/example/Foo.java#method(int,java.lang.String)";
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, name, 1)
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, name, null, 1)
         );
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0,
                 SelectionMode.SELECTIVE);
@@ -167,9 +196,9 @@ class RunSelectionDetailsCodecTest {
         // another valid trigger
         File file = tempDir.resolve("malformed.txt").toFile();
         String content = "counters\t1\t2\t3\t4\t5\n"
-                + "trigger\tSOURCE_METHOD\t9\tvalid.One\n"
-                + "trigger\tSOURCE_METHOD\tnotAnInt\tbroken\n"
-                + "trigger\tSTATIC_RULE\t11\tvalid-two\n";
+                + "trigger\tSOURCE_METHOD\t9\t42\tvalid.One\n"
+                + "trigger\tSOURCE_METHOD\tnotAnInt\t43\tbroken\n"
+                + "trigger\tSTATIC_RULE\t11\t\tvalid-two\n";
         Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
 
         // when
@@ -183,6 +212,7 @@ class RunSelectionDetailsCodecTest {
         assertEquals(5, result.getNumPendingLibrary());
         assertEquals(2, result.getTriggers().size());
         assertEquals("valid.One", result.getTriggers().get(0).getName());
+        assertEquals(Integer.valueOf(42), result.getTriggers().get(0).getMethodId());
         assertEquals("valid-two", result.getTriggers().get(1).getName());
         assertTrue(result.getTriggers().get(1).getType() == TestRunTrigger.Type.STATIC_RULE);
     }

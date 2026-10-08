@@ -494,7 +494,7 @@ class DistributedRunPlannerTest {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(
                 Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
-                        "com.example.Foo.bar()V", 2)),
+                        "com.example.Foo.bar()V", null, 2)),
                 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         DistributedRunConfig config = DistributedRunConfig.validated("run-selection-details", 2, null, null, null, null);
         DistributedRunPlanner planner = new DistributedRunPlanner(dataStore, config);

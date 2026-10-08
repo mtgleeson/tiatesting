@@ -171,7 +171,7 @@ class HtmlReportGeneratorSmokeTest {
                 10, 2, 1, 5_000L, true, 4_000L, 80, RunOrigin.of(RunOrigin.SOURCE_LOCAL, null), null, false);
         dataStore.persistTestRunHistoryEntry(entry);
         dataStore.persistTestRunTriggers(entry.getId(),
-                Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 3)));
+                Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 3)));
         TiaData reloaded = dataStore.getTiaData();
 
         // when the report is generated with the DataStore wired through

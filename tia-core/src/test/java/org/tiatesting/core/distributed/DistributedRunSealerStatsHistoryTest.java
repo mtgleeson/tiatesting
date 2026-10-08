@@ -393,6 +393,38 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * The seal counts a triggered run against each catalogued method whose change the plan's
+     * selection staged as a trigger, and does so even when the build is not recording history -
+     * the per-method run stats belong to the seal, not to the history row.
+     */
+    @Test
+    void theSealCountsATriggeredRunForEachTriggeringMethodWithoutHistory() {
+        // given - two tracked suites covering methods 100 and 101, and a plan whose selection was
+        // triggered by a change to method 100
+        seedTrackedSuites(2, 0);
+        Map<Integer, MethodImpactTracker> catalogue = new HashMap<>();
+        catalogue.put(100, new MethodImpactTracker("com/example/Source0.method.()V", 1, 5));
+        catalogue.put(101, new MethodImpactTracker("com/example/Source1.method.()V", 1, 5));
+        dataStore.persistSourceMethods(catalogue);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
+        dataStore.persistDistributedRunSelectionDetails(RUN_ID, new TestRunSelectionDetails(
+                Collections.singletonList(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
+                        "com/example/Source0.method.()V", 100, 1)),
+                0, 0, 0, 0, 0, SelectionMode.SELECTIVE));
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        Map<Integer, MethodImpactTracker> sealed = dataStore.getMethodsTracked();
+        assertEquals(1L, sealed.get(100).getTriggeredRunCount(),
+                "the triggering method must be counted once for the build");
+        assertEquals(0L, sealed.get(101).getTriggeredRunCount(),
+                "a method that did not trigger the build must not be counted");
+    }
+
+    /**
      * <b>The overhead model.</b> Only a distributed build can separate the per-JVM cost a run pays
      * once from the per-suite cost every suite pays, because separating them needs two runs of the
      * same suites at different suite counts - and the sealer is where the second one is available.
@@ -1275,8 +1307,8 @@ class DistributedRunSealerStatsHistoryTest {
         persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 2)));
         List<TestRunTrigger> triggers = Arrays.asList(
                 new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
-                        "com.example.Source0.method()V", 2),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "force-rule", 1));
+                        "com.example.Source0.method()V", null, 2),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "force-rule", null, 1));
         dataStore.persistDistributedRunSelectionDetails(RUN_ID,
                 new TestRunSelectionDetails(triggers, 3, 1, 2, 0, 1, SelectionMode.SELECTIVE));
         completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 2, 0);

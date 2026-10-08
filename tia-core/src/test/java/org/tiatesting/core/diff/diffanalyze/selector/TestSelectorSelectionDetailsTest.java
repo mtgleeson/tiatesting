@@ -76,7 +76,8 @@ class TestSelectorSelectionDetailsTest {
     /**
      * A diff that changes one tracked method covered by two suites, combined with a static rule
      * that also fires, must produce one SOURCE_METHOD trigger with testCount 2 and one
-     * STATIC_RULE trigger, both carried on the result's {@link TestRunSelectionDetails}.
+     * STATIC_RULE trigger, both carried on the result's {@link TestRunSelectionDetails}. The method
+     * trigger carries the changed method's id, which the seal counts its triggered run against.
      */
     @Test
     void selectionDetailsCarryMethodAndRuleTriggers() {
@@ -99,6 +100,7 @@ class TestSelectorSelectionDetailsTest {
         assertEquals(1, details.getSourceMethodTriggers().size());
         assertEquals(2, details.getSourceMethodTriggers().get(0).getTestCount());
         assertEquals(TestRunTrigger.Type.SOURCE_METHOD, details.getSourceMethodTriggers().get(0).getType());
+        assertEquals(Integer.valueOf(METHOD_ID), details.getSourceMethodTriggers().get(0).getMethodId());
 
         assertEquals(1, details.getStaticRuleTriggers().size());
         assertEquals("sql-migrations", details.getStaticRuleTriggers().get(0).getName());
