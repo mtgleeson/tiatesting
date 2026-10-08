@@ -9,18 +9,16 @@ import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 import java.lang.instrument.Instrumentation;
-import java.lang.ref.WeakReference;
-import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Adds JUnit Jupiter's {@code @Disabled} to the test classes Tia skips, as they load.
  *
- * <p>The annotation type is never loaded by the agent and never bundled with it: on Gradle the agent
- * runs before the test classpath is in place, and JUnit must come from the project. When an ignored
+ * <p>The annotation type is never loaded by the agent and never bundled with it: JUnit must come
+ * from the project, and on Gradle the agent jar is searched before the project's classes, so a
+ * bundled copy would win. When an ignored
  * test class loads, its own class loader can see the project's JUnit, so {@code @Disabled} is
  * described from the class file that loader finds - read, not loaded - and the JVM resolves the
  * annotation against that same loader when JUnit reads it.
@@ -33,11 +31,14 @@ public class IgnoreTestInstrumentor {
     static final String DISABLED_ANNOTATION = "org.junit.jupiter.api.Disabled";
 
     /*
-    The @Disabled description per test class loader, so its class file is read once per loader. The
-    value is held weakly too: a description reaches back to its loader through the class file
-    locator it was read with, and a strongly held value would keep its weak key alive forever.
+    The @Disabled description for the most recent test class loader, so its class file is read once
+    per loader rather than once per ignored class. One entry, held strongly: a description reaches
+    back to its loader through the class file locator it was read with, so a per-loader map would
+    keep every loader alive, and a weakly held value is cleared by the next collection. A run almost
+    always loads its test classes through one loader; at most one is kept alive here.
      */
-    private final Map<ClassLoader, WeakReference<AnnotationDescription>> disabledByLoader = new WeakHashMap<>();
+    private ClassLoader cachedLoader;
+    private AnnotationDescription cachedDisabled;
 
     /**
      * Register a transformer that annotates each ignored test class with {@code @Disabled} when it
@@ -56,25 +57,24 @@ public class IgnoreTestInstrumentor {
     }
 
     /**
-     * Describe {@code @Disabled("Ignored by TIA testing")} as the given test class loader sees it.
+     * Describe {@code @Disabled("Ignored by TIA testing")} as the given test class loader sees it,
+     * reusing the description while the same loader keeps asking.
      *
      * @param classLoader the loader of the test class being transformed
      * @return the annotation to add
      */
     synchronized AnnotationDescription disabledFor(final ClassLoader classLoader) {
-        WeakReference<AnnotationDescription> cached = disabledByLoader.get(classLoader);
-        AnnotationDescription disabled = cached != null ? cached.get() : null;
-        if (disabled == null) {
+        if (cachedDisabled == null || cachedLoader != classLoader) {
             TypeDescription disabledType = TypePool.Default
                     .of(ClassFileLocator.ForClassLoader.of(classLoader))
                     .describe(DISABLED_ANNOTATION)
                     .resolve();
-            disabled = AnnotationDescription.Builder.ofType(disabledType)
+            cachedDisabled = AnnotationDescription.Builder.ofType(disabledType)
                     .define("value", "Ignored by TIA testing")
                     .build();
-            disabledByLoader.put(classLoader, new WeakReference<>(disabled));
+            cachedLoader = classLoader;
         }
-        return disabled;
+        return cachedDisabled;
     }
 
     /**

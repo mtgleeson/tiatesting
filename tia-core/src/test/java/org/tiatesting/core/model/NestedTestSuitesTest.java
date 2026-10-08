@@ -93,24 +93,38 @@ class NestedTestSuitesTest {
     }
 
     @Test
-    void aFamilyWeighsTheLargerOfItsTopLevelSuiteAndItsNestedSum() {
-        // given
-        Map<String, Long> weights = new HashMap<>();
-        weights.put("A", 60L);
-        weights.put("A$N", 40L);
-        weights.put("B$M", 30L);
-        weights.put("B$K", 20L);
-        weights.put("C", 5L);
+    void aTopLevelSuitesOwnTimeExcludesItsNestedSuites() {
+        // given - A's 60ms container includes A$N's 40ms; B$M has no top-level suite present
+        Map<String, Long> times = new HashMap<>();
+        times.put("A", 60L);
+        times.put("A$N", 40L);
+        times.put("B$M", 30L);
+        times.put("C", 5L);
 
         // when
-        Map<String, Long> families = NestedTestSuites.familyWeights(weights);
+        Map<String, Long> own = NestedTestSuites.ownTimes(times);
 
-        // then - A already includes A$N; B has no top-level suite, so its nested suites add up
+        // then
         Map<String, Long> expected = new HashMap<>();
-        expected.put("A", 60L);
-        expected.put("B", 50L);
+        expected.put("A", 20L);
+        expected.put("A$N", 40L);
+        expected.put("B$M", 30L);
         expected.put("C", 5L);
-        assertEquals(expected, families);
+        assertEquals(expected, own);
+    }
+
+    @Test
+    void anOwnTimeIsNeverNegative() {
+        // given - A's figure predates nested classes that now take longer
+        Map<String, Long> times = new HashMap<>();
+        times.put("A", 10L);
+        times.put("A$N", 40L);
+
+        // when
+        Map<String, Long> own = NestedTestSuites.ownTimes(times);
+
+        // then
+        assertEquals(Long.valueOf(0L), own.get("A"));
     }
 
     @Test

@@ -327,6 +327,32 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * A seed split counts top-level classes, not every name the disk scan finds: a class with many
+     * nested, anonymous or helper inner classes weighs the same as a plain test class, so the split
+     * stays even.
+     */
+    @Test
+    void aSeedSplitCountsTopLevelClassesOnly() {
+        // given - Busy has five inner classes; two plain test classes besides it
+        Supplier<Set<String>> scan = seedSuites("com.example.Busy", "com.example.Busy$1", "com.example.Busy$2",
+                "com.example.Busy$3", "com.example.Busy$4", "com.example.Busy$Helper",
+                "com.example.PlainATest", "com.example.PlainBTest");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(runAllTestsSelection(), false, 3, null, null, scan);
+
+        // then - one family per group
+        assertEquals(3, result.getGroupCount());
+        for (SuiteGroup group : result.getGroups()) {
+            Set<String> topLevel = new HashSet<>();
+            for (String suite : group.getSuiteNames()) {
+                topLevel.add(suite.split("\\$")[0]);
+            }
+            assertEquals(1, topLevel.size(), group.toString());
+        }
+    }
+
+    /**
      * An untracked nested suite the disk scan finds in a forced plan goes to the group holding its
      * top-level suite, never to the emptiest group: a nested class only runs inside its enclosing
      * class.

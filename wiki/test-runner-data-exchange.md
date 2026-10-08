@@ -62,14 +62,19 @@ framework-agnostic.
   already travel as task system properties, so the agent's `forkPropertiesFile` and
   `libraryJarsFile` options stay unset.
 
-**The agent cannot use SLF4J.** Surefire starts the fork from a booter jar whose manifest already
-carries the whole test classpath, so on Maven SLF4J happened to be loadable at `premain`. Gradle's
-worker starts with only its own jar and adds the test runtime classpath after `premain` has run,
-so anything the agent loads must come from the JDK or the agent jar. The agent logs through
-`java.util.logging` for that reason.
+**The agent jar is searched before the project's classes on Gradle.** A `-javaagent` jar joins the
+system class path when the JVM starts. Surefire's booter jar lists the project's test classpath
+first, so on Maven the agent jar comes last. Gradle's worker places the project's classes on the
+system class path after the agent jar (they are reachable when `premain` runs - measured on Gradle
+8.4, Java 8 - just later in the search order), so on Gradle every class in the agent jar is found
+before the project's own copy.
 
-**The agent jar carries nothing a project could also have.** The same ordering means that on Gradle
-every class in the agent jar is found before the project's own copy. The jar used to bundle all of
+**The agent uses only the JDK and its own jar.** It cannot rely on the project: Surefire with
+`useSystemClassLoader=false` keeps the project's classes off the system class loader entirely, and
+a project need not have SLF4J at all. So the agent logs through `java.util.logging`, and the jar
+bundles every Tia class `premain` touches.
+
+**The agent jar carries nothing a project could also have.** The jar used to bundle all of
 its dependencies - JUnit Platform and Jupiter, ByteBuddy, ASM, JaCoCo, H2, j2html - and a project on
 a different JUnit version then ran with a mix of Tia's JUnit classes and its own, failing with
 `NoSuchMethodError` on every run (JUnit 5.13 against the bundled 5.11). Maven never noticed because
@@ -77,16 +82,17 @@ Surefire puts the project's classpath first. The jar (built by the Shadow plugin
 `tia-junit5-agent`) now holds only:
 
 - the agent itself (`org.tiatesting.agent`), including `IgnoreTestInstrumentor`;
-- the two `tia-core` classes `premain` uses, `AgentOptions` and `ForkSystemProperties` - the same
-  classes, from the same Tia version, also reach the test classpath through `tia-junit5`, so which
-  copy loads first does not matter;
+- the `tia-core` classes `premain` uses, `AgentOptions`, `CommandLineSupport` and
+  `ForkSystemProperties` - the same classes, from the same Tia version, also reach the test classpath
+  through `tia-junit5`, so which copy loads first does not matter;
 - ByteBuddy, relocated to `org.tiatesting.shaded.bytebuddy` so it is a different library, by name,
   from any ByteBuddy the project has (Mockito's, for example).
 
 No JUnit class is bundled. `@Disabled` is described, when each ignored test class loads, from the
 class file that test class's own loader finds - the project's JUnit - and is added from that
 description, so it resolves against the project's JUnit too. The `verifyAgentJar` task, part of
-`check`, fails the build if anything else ever lands in the jar.
+`check`, fails the build if anything else ever lands in the jar, or if a bundled Tia class refers to
+a Tia class the jar does not contain.
 
 A distributed runner hands its share over the same way. The daemon claims the group with
 `DistributedRunnerAssignment.claim`, which also derives the suites the runner runs and ignores, and
@@ -115,7 +121,10 @@ nested in it too. Three rules follow, all keyed on the binary name (`NestedTestS
    history row and a distributed plan. A distributed runner's ignore list also never holds a class
    enclosing one of its own suites, which matters only for a plan written before this rule.
    Run-time totals count a family once: an enclosing class's recorded time already includes its
-   nested classes (`NestedTestSuites.familyWeights`).
+   nested classes, so it is turned into its own time first (`NestedTestSuites.ownTimes`), and a
+   seed split counts top-level classes only. The history breakdown does not yet record why an
+   enclosing class was added (it has no trigger of its own), so the selected count can exceed the
+   listed reasons - a known gap, alongside the one below.
 2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families (a
    top-level suite with everything nested in it) rather than suites, and a forced plan's untracked
    disk-scan names join the group already holding their top-level suite.

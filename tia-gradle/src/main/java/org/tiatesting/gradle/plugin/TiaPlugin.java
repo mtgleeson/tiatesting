@@ -7,6 +7,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskProvider;
@@ -79,8 +80,8 @@ public class TiaPlugin implements Plugin<Project> {
      */
     public static final String VCS_CONFIGURATION_NAME = "tiaVcs";
 
-    /** The SLF4J API added to the test runtime classpath alongside Tia's test-JVM module. */
-    static final String SLF4J_API = "org.slf4j:slf4j-api:1.7.36";
+    /** The SLF4J API module added to the test runtime classpath alongside Tia's test-JVM module. */
+    static final String SLF4J_API_MODULE = "org.slf4j:slf4j-api";
 
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
@@ -164,10 +165,14 @@ public class TiaPlugin implements Plugin<Project> {
         project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
                 "org.tiatesting:" + adapter.runtimeArtifactId() + ":" + TiaVersion.get());
         // Tia's test-JVM module logs through SLF4J but deliberately does not depend on it, so a
-        // project with no SLF4J of its own would fail to start its tests. Gradle resolves to the
-        // highest version requested, so a project that has SLF4J keeps its own; one that has none
-        // gets the API alone, which falls back to a no-op logger.
-        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME, SLF4J_API);
+        // project with no SLF4J of its own would fail to start its tests. A preferred (soft)
+        // version: any version the project asks for - including a strict pin - wins over it, so a
+        // project that has SLF4J keeps its own; one that has none gets the API alone, which falls
+        // back to a no-op logger.
+        ExternalModuleDependency slf4jApi = (ExternalModuleDependency) project.getDependencies()
+                .create(SLF4J_API_MODULE);
+        slf4jApi.version(version -> version.prefer(TiaVersion.slf4j()));
+        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME, slf4jApi);
     }
 
     /**
@@ -205,9 +210,11 @@ public class TiaPlugin implements Plugin<Project> {
      * example enabled only from the task action's runtime flags). When the project has no supported
      * test framework, warns once and returns null: Tia then leaves its test tasks running as normal.
      *
+     * <p>When more than one framework is declared, detection warns and picks Spock - see
+     * {@link TestFrameworkDetector}.
+     *
      * @return the project's test framework adapter, or null when it has no supported framework
-     * @throws org.gradle.api.GradleException if the configured framework is unknown or unsupported,
-     *         or more than one framework is declared
+     * @throws org.gradle.api.GradleException if the configured {@code testFramework} is unknown
      */
     TestFrameworkAdapter getTestFrameworkAdapter() {
         if (testFrameworkAdapter == null && !testFrameworkUnsupported) {

@@ -16,10 +16,10 @@ import java.util.stream.Stream;
 public class Agent {
 
     /*
-    java.util.logging rather than slf4j: premain runs before Gradle's test worker has put the test
-    runtime classpath on the system class loader, so slf4j is not loadable yet there (Surefire's
-    booter jar puts it on the classpath up front, which is why Maven never noticed). Anything the
-    premain path loads must come from the JDK or this agent jar.
+    java.util.logging rather than slf4j: the agent must start wherever the project's classes are not
+    reachable from the system class loader (Surefire with useSystemClassLoader=false, for one), and
+    a project need not have SLF4J at all. Anything the premain path loads must come from the JDK or
+    this agent jar.
      */
     private static final Logger log = Logger.getLogger(Agent.class.getName());
 

@@ -81,30 +81,27 @@ public final class NestedTestSuites {
     }
 
     /**
-     * Weigh suite families (a top-level suite and every suite nested in it) by run time. A top-level
-     * suite's recorded time is the wall clock of its whole class container, which already includes
-     * every nested class that ran inside it, so summing a family's members would count the nested
-     * classes twice. A family weighs the larger of its top-level suite's weight and the sum of its
-     * nested suites' weights: the top-level figure when the whole family ran when it was timed, the
-     * nested sum when the top-level suite is absent or its figure predates the nested classes.
+     * Turn recorded run times into each suite's own time. A top-level suite's recorded time is the
+     * wall clock of its whole class container, which already includes every nested class that ran
+     * inside it; its own time is that less the nested suites present here (never below zero). Nested
+     * suites keep their recorded time. Adding up a family's own times then counts each test once,
+     * and anything charged per suite (the coverage-capture share) can be added to every member.
      *
-     * @param weightsBySuite run time per suite; no null values
-     * @return each family's weight, keyed by top-level suite
+     * @param timesBySuite recorded run time per suite; no null values; not modified
+     * @return each suite's own run time, keyed by suite name
      */
-    public static Map<String, Long> familyWeights(final Map<String, Long> weightsBySuite) {
-        Map<String, Long> topLevelWeights = new HashMap<>();
-        Map<String, Long> nestedWeights = new HashMap<>();
-        for (Map.Entry<String, Long> entry : weightsBySuite.entrySet()) {
+    public static Map<String, Long> ownTimes(final Map<String, Long> timesBySuite) {
+        Map<String, Long> nestedTotals = new HashMap<>();
+        for (Map.Entry<String, Long> entry : timesBySuite.entrySet()) {
             String topLevel = topLevelSuite(entry.getKey());
-            if (topLevel.equals(entry.getKey())) {
-                topLevelWeights.put(topLevel, entry.getValue());
-            } else {
-                nestedWeights.merge(topLevel, entry.getValue(), Long::sum);
+            if (!topLevel.equals(entry.getKey())) {
+                nestedTotals.merge(topLevel, entry.getValue(), Long::sum);
             }
         }
-        Map<String, Long> families = new HashMap<>(topLevelWeights);
-        nestedWeights.forEach((topLevel, nested) -> families.merge(topLevel, nested, Math::max));
-        return families;
+        Map<String, Long> own = new HashMap<>(timesBySuite);
+        nestedTotals.forEach((topLevel, nested) -> own.computeIfPresent(topLevel,
+                (suite, recorded) -> Math.max(0L, recorded - nested)));
+        return own;
     }
 
     /**

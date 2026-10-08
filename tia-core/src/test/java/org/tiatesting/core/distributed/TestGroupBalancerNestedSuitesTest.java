@@ -58,13 +58,25 @@ class TestGroupBalancerNestedSuitesTest {
     @Test
     void aFamilyIsNotWeighedTwiceForItsNestedSuites() {
         // given - A's 60ms is its whole container, which already includes A$N's 40ms
-        Map<String, Long> weights = weights("A", 60, "A$N", 40, "B", 50);
+        Map<String, Long> weights = TestGroupBalancer.suiteWeights(weights("A", 60, "A$N", 40, "B", 50), 0L, false);
 
         // when
         GroupingResult result = TestGroupBalancer.balanceIntoGroups(weights, 2, 0L);
 
         // then
         assertEquals(60L, result.getGroups().get(groupOf(result, "A")).getEstimatedMs());
+    }
+
+    @Test
+    void everyFamilyMemberCarriesItsCaptureOverhead() {
+        // given - 30ms of capture overhead across three suites, 10ms each
+        Map<String, Long> weights = TestGroupBalancer.suiteWeights(weights("A", 60, "A$N", 40, "B", 50), 30L, true);
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(weights, 2, 0L);
+
+        // then - A's own 20ms + A$N's 40ms + two suites' 10ms overhead
+        assertEquals(80L, result.getGroups().get(groupOf(result, "A")).getEstimatedMs());
     }
 
     @Test

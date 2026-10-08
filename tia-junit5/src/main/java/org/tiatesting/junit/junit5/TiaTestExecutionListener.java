@@ -146,6 +146,12 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     not support anyway.
      */
     private final Deque<String> suitesInProgress = new ArrayDeque<>();
+    /*
+    Whether a test has run since the last coverage dump. A @Nested class starting straight after its
+    sibling finished (and dumped) has nothing new to credit to the enclosing class, so the extra
+    JaCoCo dump is skipped.
+     */
+    private volatile boolean testRanSinceLastDump;
 
     /**
      * Build the listener for this test JVM: read the update flags and the selected/ignored suite
@@ -347,6 +353,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * This is executed when the test engine starts, when the test suite is initialized, and when individual tests
      * are executed.
      * This can be called concurrently if tests are being executed concurrently.
+     * A test starting marks that there is coverage to collect before the next {@code @Nested} class
+     * starts; a class container starting is recorded as a suite start.
      *
      * @param testIdentifier The identifier for the item being executed.
      */
@@ -356,6 +364,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
 
+        if (testIdentifier.isTest()){
+            testRanSinceLastDump = true;
+        }
         if (isExecutionForTestSuite(testIdentifier)){
             testSuiteStarted(testIdentifier);
         }
@@ -368,7 +379,8 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      *
      * <p>When mapping is on and another class container is still running - a {@code @Nested} class
      * starting inside its enclosing class - the coverage collected so far is credited to that
-     * enclosing class first. Without this the nested class's coverage dump at its finish would
+     * enclosing class first, if a test has run since the last dump; a sibling starting straight
+     * after another sibling's finish has nothing new to credit. Without this the nested class's coverage dump at its finish would
      * also carry the enclosing class's own tests, and the enclosing class would be left with no
      * mapping of its own.
      *
@@ -396,7 +408,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             String enclosingSuite = suitesInProgress.peekFirst();
             TestSuiteTracker enclosingTracker = enclosingSuite != null
                     ? this.testSuiteTrackers.get(enclosingSuite) : null;
-            if (updateDBMapping && enclosingTracker != null) {
+            if (updateDBMapping && enclosingTracker != null && testRanSinceLastDump) {
                 // A @Nested class is starting inside its enclosing class: what ran so far is the
                 // enclosing class's own tests, so credit it there before the nested class's tests
                 // add to the same coverage dump.
@@ -553,6 +565,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * @param testSuiteTracker the suite the coverage is credited to
      */
     private void collectCoverageInto(final TestSuiteTracker testSuiteTracker) {
+        testRanSinceLastDump = false;
         CoverageResult coverageResult;
         try {
             coverageResult = this.coverageClient.collectCoverage();

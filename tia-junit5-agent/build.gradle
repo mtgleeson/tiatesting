@@ -16,11 +16,11 @@ configurations {
 }
 
 dependencies {
-    // Compiled against, but only the two classes premain uses are copied into the agent jar.
+    // Compiled against, but only the three classes premain uses are copied into the agent jar.
     compileOnly project(':tia-core')
     agentBundle group: 'net.bytebuddy', name: 'byte-buddy', version: '1.17.5'
-    // No slf4j: the agent's premain runs before Gradle's test worker puts the test runtime classpath
-    // on the system class loader, so it can use only the JDK and what this jar bundles.
+    // No slf4j: the agent must start even where none of the project's classes are reachable from the
+    // system class loader, so it can use only the JDK and what this jar bundles.
 
     testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter', version: junit5EngineVersion
 }
@@ -35,9 +35,9 @@ Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',
                           'Agent-Class': 'org.tiatesting.agent.Agent']
 
 // The -javaagent jar. On Gradle it sits on the system classpath ahead of the test classpath, so it
-// may carry nothing a project could also have: only the agent, the two tia-core classes premain
+// may carry nothing a project could also have: only the agent, the three tia-core classes premain
 // uses, and ByteBuddy relocated into Tia's own package so it can never shadow a project's copy.
-// The two tia-core classes also reach the test classpath through tia-junit5; on Gradle the agent's
+// The three tia-core classes also reach the test classpath through tia-junit5; on Gradle the agent's
 // copies load first, which is harmless because both come from the same Tia version.
 shadowJar {
     archiveClassifier = 'runtime'
@@ -48,6 +48,7 @@ shadowJar {
     from(project(':tia-core').sourceSets.main.output) {
         include 'org/tiatesting/core/agent/AgentOptions*'
         include 'org/tiatesting/core/agent/ForkSystemProperties*'
+        include 'org/tiatesting/core/agent/CommandLineSupport*'
     }
     exclude 'META-INF/versions/**'
     exclude 'META-INF/maven/**'
@@ -57,12 +58,14 @@ shadowJar {
 
 // The allowed contents of the agent jar. Anything else could shadow a class the project has.
 def agentJarAllowedPrefixes = ['META-INF/', 'org/tiatesting/agent/', 'org/tiatesting/shaded/bytebuddy/',
-                               'org/tiatesting/core/agent/AgentOptions', 'org/tiatesting/core/agent/ForkSystemProperties']
+                               'org/tiatesting/core/agent/AgentOptions', 'org/tiatesting/core/agent/ForkSystemProperties',
+                               'org/tiatesting/core/agent/CommandLineSupport']
 def agentJarAllowedDirectories = ['org/', 'org/tiatesting/', 'org/tiatesting/core/', 'org/tiatesting/core/agent/',
                                   'org/tiatesting/shaded/']
 
 tasks.register('verifyAgentJar') {
-    description = 'Fails if the -javaagent jar contains anything outside Tia\'s own packages.'
+    description = 'Fails if the -javaagent jar contains anything outside Tia\'s own packages, or ' +
+            'refers to a Tia class it does not contain.'
     def agentJar = tasks.named('shadowJar').flatMap { it.archiveFile }
     inputs.file(agentJar)
     doLast {
@@ -74,6 +77,23 @@ tasks.register('verifyAgentJar') {
         if (!unexpected.isEmpty()) {
             throw new GradleException("The Tia agent jar must only contain Tia's own packages, but it also "
                     + "contains: " + unexpected.take(20))
+        }
+        // The jar must also be self-sufficient: with Surefire's useSystemClassLoader=false, nothing
+        // from the project's tia-core is reachable when the agent starts. Scans each bundled Tia
+        // class's constant pool text for references to other Tia classes (the relocated ByteBuddy
+        // is a complete library and is not scanned).
+        def missing = new java.util.zip.ZipFile(agentJar.get().asFile).withCloseable { zip ->
+            def classes = zip.entries().collect { it.name }.findAll { it.endsWith('.class') } as Set
+            def referenced = [] as Set
+            classes.findAll { !it.startsWith('org/tiatesting/shaded/') }.each { name ->
+                def text = new String(zip.getInputStream(zip.getEntry(name)).bytes, 'ISO-8859-1')
+                (text =~ /org\/tiatesting\/(?:agent|core)\/[A-Za-z0-9_\/\$]+/).each { referenced << it }
+            }
+            referenced.findAll { !classes.contains(it + '.class') }
+        }
+        if (!missing.isEmpty()) {
+            throw new GradleException("The Tia agent jar refers to Tia classes it does not contain, so the "
+                    + "agent would fail to start where the project's tia-core is not reachable: " + missing)
         }
     }
 }

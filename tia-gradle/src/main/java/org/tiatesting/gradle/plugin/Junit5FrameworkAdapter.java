@@ -39,6 +39,8 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     private File agentJar;
 
     /**
+     * The name users select JUnit 5 by in {@code tia { testFramework = ... }}.
+     *
      * @return {@code junit5}
      */
     @Override
@@ -47,6 +49,9 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     }
 
     /**
+     * The group of JUnit Jupiter, whose presence among a project's declared test dependencies makes
+     * detection pick JUnit 5 (unless Spock is declared too).
+     *
      * @return {@code org.junit.jupiter}
      */
     @Override
@@ -55,6 +60,9 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     }
 
     /**
+     * The Tia module the plugin adds to {@code testRuntimeOnly}: its launcher session listener
+     * records coverage and the run in the test JVM.
+     *
      * @return {@code tia-junit5}
      */
     @Override

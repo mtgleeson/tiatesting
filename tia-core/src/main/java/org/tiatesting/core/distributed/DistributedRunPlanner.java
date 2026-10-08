@@ -461,9 +461,12 @@ public final class DistributedRunPlanner {
         // splits by even count instead. A non-zero weight is required - with every weight zero the
         // balancer would place every suite in group 0 - and the fixed per-JVM overhead is zero
         // because no distributed build has measured it yet.
+        // Counted by top-level class: the disk scan keeps every nested, anonymous and helper inner
+        // class name, and those run (if at all) inside their top-level class, so they weigh nothing.
+        // Otherwise a class with thirty inner classes would weigh thirty plain test classes.
         Map<String, Long> weights = new HashMap<>();
         for (String suite : seedSuites) {
-            weights.put(suite, 1L);
+            weights.put(suite, NestedTestSuites.topLevelSuite(suite).equals(suite) ? 1L : 0L);
         }
         GroupingResult split = TestGroupBalancer.balanceIntoGroups(weights, seedGroupCount, 0L);
         // The 1ms weight above exists only to make the balancer divide the suites evenly by count -

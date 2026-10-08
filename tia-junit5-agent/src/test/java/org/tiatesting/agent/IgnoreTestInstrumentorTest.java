@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 /**
@@ -54,5 +55,23 @@ class IgnoreTestInstrumentorTest {
 
         // then
         assertSame(first, second);
+    }
+
+    @Test
+    void aDifferentClassLoaderGetsItsOwnDescription() throws Exception {
+        // given
+        IgnoreTestInstrumentor instrumentor = new IgnoreTestInstrumentor();
+        ClassLoader loader = getClass().getClassLoader();
+        AnnotationDescription first = instrumentor.disabledFor(loader);
+
+        // when
+        AnnotationDescription other;
+        try (java.net.URLClassLoader child = new java.net.URLClassLoader(new java.net.URL[0], loader)) {
+            other = instrumentor.disabledFor(child);
+        }
+
+        // then - described again, for the loader that will resolve it
+        assertNotSame(first, other);
+        assertEquals(first.getAnnotationType().getName(), other.getAnnotationType().getName());
     }
 }
