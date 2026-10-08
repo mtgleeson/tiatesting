@@ -17,7 +17,6 @@ import org.tiatesting.core.testrunner.TestClassScanner;
 import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
-import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
@@ -426,10 +425,8 @@ public class TiaPlugin implements Plugin<Project> {
             TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
             try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
                  DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
-                List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
-                StringUtil.sanitizeInputArray(sourceFilesDirs);
-                List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
-                StringUtil.sanitizeInputArray(testFilesDirs);
+                List<String> sourceFilesDirs = ProjectRelativeDirs.resolve(project.getProjectDir(), getSourceFilesDirs());
+                List<String> testFilesDirs = ProjectRelativeDirs.resolve(project.getProjectDir(), getTestFilesDirs());
                 TestSelector testSelector = new TestSelector(dataStore);
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();

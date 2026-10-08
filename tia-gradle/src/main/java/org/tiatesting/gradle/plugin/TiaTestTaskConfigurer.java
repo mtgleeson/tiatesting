@@ -29,12 +29,10 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
-import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -583,6 +581,9 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * system properties, which {@code TiaSpockGlobalExtension} reads. See the "How Tia exchanges
      * data with the test runner" chapter in {@code WIKI.md}.
      *
+     * <p>The source and test directories are resolved against the project directory first (see
+     * {@link ProjectRelativeDirs}): the daemon's working directory is not the project's.
+     *
      * @param testTask the test task whose forks receive the selection
      * @param tiaTaskExtension that task's merged Tia extension
      * @param workspaceIdentity this build's branch and commit, and the reader the diff is read through
@@ -617,7 +618,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
             result = new TestSelector(dataStore).selectTestsToIgnore(workspaceIdentity.openVCSReader(),
-                    csvToList(tiaTaskExtension.getSourceFilesDirs()), csvToList(tiaTaskExtension.getTestFilesDirs()),
+                    ProjectRelativeDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getSourceFilesDirs()),
+                    ProjectRelativeDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getTestFilesDirs()),
                     checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 
@@ -632,21 +634,6 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             LOGGER.info("Tia selected {} test suite(s) to run and {} to skip for test task '{}'.",
                     result.getTestsToRun().size(), result.getTestsToIgnore().size(), testTask.getPath());
         }
-    }
-
-    /**
-     * Split a comma-separated directory list into trimmed entries.
-     *
-     * @param csv the configured CSV; may be null
-     * @return the entries, or null when none is configured (as {@code TestSelector} expects)
-     */
-    private static List<String> csvToList(final String csv) {
-        if (csv == null) {
-            return null;
-        }
-        List<String> values = new ArrayList<>(Arrays.asList(csv.split(",")));
-        StringUtil.sanitizeInputArray(values);
-        return values;
     }
 
     /**
