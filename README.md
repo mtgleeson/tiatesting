@@ -267,7 +267,7 @@ test {
 }
 ```
 
-Everything described for Spock applies: the `jacoco` plugin is applied for you when a test task updates the mapping, selection runs once per test task in the Gradle daemon, and every test task is wired. The difference is how the selection reaches the test JVM. As on Maven, the plugin puts Tia's JUnit 5 agent (`tia-junit5-agent`, classifier `runtime`) on the test JVM with `-javaagent`, placed after the JaCoCo agent. The agent marks the suites Tia skips `@Disabled`, so they are reported as skipped. The agent jar is resolved from your project's repositories at the plugin's version and is never added to any of your classpaths.
+Everything described for Spock applies: the `jacoco` plugin is applied for you when a test task updates the mapping, selection runs once per test task in the Gradle daemon, and every test task is wired. The difference is how the selection reaches the test JVM. As on Maven, the plugin puts Tia's JUnit 5 agent (`tia-junit5-agent`, classifier `runtime`) on the test JVM with `-javaagent`, placed after the JaCoCo agent. The agent marks the suites Tia skips `@Disabled`, so they are reported as skipped. The agent jar is resolved from your project's repositories at the plugin's version and is never added to any of your classpaths. It contains only Tia's own classes - its one library, ByteBuddy, is renamed into Tia's package - and uses your project's JUnit, so it cannot clash with the JUnit, ByteBuddy (for example Mockito's) or other libraries your tests use.
 
 If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5, set the framework explicitly - detection picks Spock when both are declared:
 
