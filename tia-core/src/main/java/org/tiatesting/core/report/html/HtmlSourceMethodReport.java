@@ -29,7 +29,7 @@ public class HtmlSourceMethodReport {
     /**
      * simple-datatables {@code columns} option for the Source Methods index table. Column 0 (the
      * method link) is typed {@code html} so its {@code <a>} markup renders (and sorts/searches by
-     * its text) and is the default ascending sort; the three metric columns are typed
+     * its text) and is the default ascending sort; the five metric columns are typed
      * {@code number} for numeric ordering. Emitted verbatim into the init script by
      * {@link HtmlLayout#simpleDatatablesInitWithData}.
      */
@@ -37,7 +37,9 @@ public class HtmlSourceMethodReport {
             "[{ select: 0, type: \"html\", sort: \"asc\" },"
             + " { select: 1, type: \"number\" },"
             + " { select: 2, type: \"number\" },"
-            + " { select: 3, type: \"number\" }]";
+            + " { select: 3, type: \"number\" },"
+            + " { select: 4, type: \"number\" },"
+            + " { select: 5, type: \"number\" }]";
 
     /**
      * Explains the "Lines matched for changes" value on every method detail page.
@@ -53,6 +55,21 @@ public class HtmlSourceMethodReport {
     private static final String SPLIT_INITIALIZER_EXPLANATION = "A field or initializer block declared "
             + "after other members stretches this initializer's first-to-last code line over them, so the "
             + "lines matched for changes skip those members.";
+
+    /**
+     * Explains the executed-run count, shown on the index column header and every method detail
+     * page. See the "Method run stats" chapter in {@code WIKI.md}.
+     */
+    private static final String EXECUTED_RUNS_EXPLANATION = "The number of mapping-update runs that "
+            + "executed this method. Runs that don't update the mapping, and retries of failed tests, "
+            + "aren't counted.";
+
+    /**
+     * Explains the triggered-run count, shown on the index column header and every method detail
+     * page. See the "Method run stats" chapter in {@code WIKI.md}.
+     */
+    private static final String TRIGGERED_RUNS_EXPLANATION = "The number of mapping-update runs that "
+            + "selected tests because this method changed.";
 
     public HtmlSourceMethodReport(String filenameExt, File reportOutputDir){
         this.reportOutputDir = new File(reportOutputDir.getAbsoluteFile() + File.separator + "html"
@@ -73,7 +90,7 @@ public class HtmlSourceMethodReport {
 
     /**
      * Write the single source-methods index page: one table row per tracked method with its
-     * covering-suite count and first and last code line. Renders through {@link FastTextEscaper#reportConfig()}
+     * covering-suite count, first and last code line, and executed and triggered run counts. Renders through {@link FastTextEscaper#reportConfig()}
      * so text and attribute escaping use the report's fast escaper.
      *
      * @param tiaData the Tia data from the DB
@@ -109,7 +126,11 @@ public class HtmlSourceMethodReport {
                                                     th("Method"),
                                                     th("Num Test Suites").attr(numberDataType),
                                                     th("First code line").attr(numberDataType),
-                                                    th("Last code line").attr(numberDataType)
+                                                    th("Last code line").attr(numberDataType),
+                                                    th("Runs executed in").attr(numberDataType)
+                                                            .attr("title", EXECUTED_RUNS_EXPLANATION),
+                                                    th("Runs triggered").attr(numberDataType)
+                                                            .attr("title", TRIGGERED_RUNS_EXPLANATION)
                                             )),
                                             tbody()
                                     ),
@@ -137,7 +158,8 @@ public class HtmlSourceMethodReport {
 
     /**
      * Build the Source Methods index rows as a simple-datatables {@code data.data} JSON literal:
-     * one {@code [methodLink, numTestSuites, firstCodeLine, lastCodeLine]} array per tracked method. The
+     * one {@code [methodLink, numTestSuites, firstCodeLine, lastCodeLine, executedRunCount,
+     * triggeredRunCount]} array per tracked method. The
      * method link column carries the same {@code <a href="{id}.html" title="{fullName}">{shortName}</a>}
      * markup the DOM table previously emitted; the display text and title are HTML-escaped through
      * {@link FastTextEscaper} (byte-identical to the j2html rendering it replaces) and the whole
@@ -169,6 +191,8 @@ public class HtmlSourceMethodReport {
             sb.append(',').append(entry.getValue().getTestSuites().size())
                     .append(',').append(method.getLineNumberStart())
                     .append(',').append(method.getLineNumberEnd())
+                    .append(',').append(method.getExecutedRunCount())
+                    .append(',').append(method.getTriggeredRunCount())
                     .append(']');
         }
         sb.append(']');
@@ -186,7 +210,8 @@ public class HtmlSourceMethodReport {
     }
 
     /**
-     * Write the per-method drill-down page listing the test suites that cover the given method.
+     * Write the per-method drill-down page: the method's code lines, its run stats, and the test
+     * suites that cover it.
      * Renders through {@link FastTextEscaper#reportConfig()} and derives the output file name
      * via {@link #stripAngleBrackets(String)} (no regex) so this scales across the tens of
      * thousands of per-method files.
@@ -236,6 +261,13 @@ public class HtmlSourceMethodReport {
                                     ),
                                     p(LINES_MATCHED_EXPLANATION),
                                     iff(splitInitializer, p(SPLIT_INITIALIZER_EXPLANATION)),
+
+                                    h3("Run stats"),
+                                    p(
+                                            span("Runs executed in: " + methodImpactTracker.getExecutedRunCount()), br(),
+                                            span("Runs triggered: " + methodImpactTracker.getTriggeredRunCount())
+                                    ),
+                                    p(EXECUTED_RUNS_EXPLANATION + " " + TRIGGERED_RUNS_EXPLANATION),
 
                                     h3("Impacted Test Suites"),
                                     table(attrs("#tiaSourceMethodTable"),

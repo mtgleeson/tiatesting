@@ -57,8 +57,9 @@ class HtmlSourceMethodReportDataOptionTest {
 
         // the link target still points at the per-method drill-down page
         assertTrue(html.contains("42.html"), "row should link to the per-method page");
-        // and the row carries the metric values [numSuites, firstCodeLine, lastCodeLine]
-        assertTrue(html.contains("1,10,20]"), "row should carry the method's metric values");
+        // and the row carries the metric values [numSuites, firstCodeLine, lastCodeLine,
+        // executedRunCount, triggeredRunCount]
+        assertTrue(html.contains("1,10,20,0,0]"), "row should carry the method's metric values");
         assertTrue(html.contains("<th data-type=\"number\">First code line</th>"),
                 "the index should label the start column as the first code line");
         assertTrue(html.contains("<th data-type=\"number\">Last code line</th>"),
@@ -133,7 +134,7 @@ class HtmlSourceMethodReportDataOptionTest {
         // then
         String index = read(new File(tempDir.toFile(), "html/branch/methods/tia-source-methods.html"));
         assertFalse(index.contains("Matched lines"), "the index should have no matched lines column");
-        assertTrue(index.contains("1,8,74]"), "the index row should carry only start and end");
+        assertTrue(index.contains("1,8,74,0,0]"), "the index row should carry only start and end");
         assertFalse(index.contains("7-16"), "the index should not carry the matched lines");
         String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
         assertTrue(detail.contains("First code line: 8"), "detail page should show the first code line");
@@ -171,6 +172,38 @@ class HtmlSourceMethodReportDataOptionTest {
                 "every detail page should explain the one-line allowance either side");
         assertFalse(detail.contains("skip those members"),
                 "an unsplit method should show no split initializer explanation");
+    }
+
+    /**
+     * A method's executed and triggered run counts appear as numeric columns on the index row and
+     * in the run stats section of its detail page, with the explanation of what each counts.
+     *
+     * @param tempDir a JUnit-provided temporary report output directory
+     * @throws IOException if a generated page can't be read
+     */
+    @Test
+    void showsMethodRunStatsOnIndexAndDetailPage(@TempDir Path tempDir) throws IOException {
+        // given
+        MethodImpactTracker method = new MethodImpactTracker("com/example/Foo.save.()V", 10, 20);
+        method.setExecutedRunCount(37);
+        method.setTriggeredRunCount(4);
+        TiaData tiaData = buildTiaDataWithOneConstructorMethod(method);
+
+        // when
+        new HtmlSourceMethodReport("branch", tempDir.toFile()).generateSourceMethodReport(tiaData);
+
+        // then
+        String index = read(new File(tempDir.toFile(), "html/branch/methods/tia-source-methods.html"));
+        assertTrue(index.contains("1,10,20,37,4]"), "the index row should carry both run counts");
+        assertTrue(index.contains(">Runs executed in</th>"), "the index should have an executed runs column");
+        assertTrue(index.contains(">Runs triggered</th>"), "the index should have a triggered runs column");
+        assertTrue(index.contains("{ select: 5, type: \"number\" }"),
+                "the run count columns should be typed numeric");
+        String detail = read(new File(tempDir.toFile(), "html/branch/methods/42.html"));
+        assertTrue(detail.contains("Runs executed in: 37"), "detail page should show the executed run count");
+        assertTrue(detail.contains("Runs triggered: 4"), "detail page should show the triggered run count");
+        assertTrue(detail.contains("retries of failed tests"),
+                "detail page should explain which runs are counted");
     }
 
     /**

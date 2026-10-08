@@ -73,6 +73,8 @@ erDiagram
         INT line_number_start
         INT line_number_end
         VARCHAR line_ranges
+        BIGINT executed_run_count
+        BIGINT triggered_run_count
     }
 
     tia_source_class_method {
@@ -201,6 +203,7 @@ erDiagram
         VARCHAR run_id
         VARCHAR trigger_type
         VARCHAR trigger_name
+        INT trigger_method_id
         INT test_count
     }
 ```
@@ -235,6 +238,8 @@ rather than needing their own cleanup.)
   change-impact analysis. `line_ranges` is null except for a constructor or static initializer
   whose range is split by other members - see
   [Constructor and static initializer line ranges](initializer-line-ranges.md).
+  `executed_run_count` and `triggered_run_count` are the per-method run stats, accumulated at the
+  seal - see [Method run stats](method-run-stats.md).
 - **tia_source_class_method** - the join table holding the coverage **edges** (which methods each
   tracked source-class row covers). This is the bulk of the database - millions of rows on a large
   project.
@@ -304,7 +309,9 @@ rather than needing their own cleanup.)
 - **tia_distributed_run_trigger** - the per-changed-method and per-static-rule triggers staged for
   a distributed run, mirroring `tia_test_run_history_trigger`'s shape but keyed by `run_id` rather
   than `history_id`, with no foreign key. Copied onto `tia_test_run_history_trigger` at seal time.
-  See the [Run history details](run-history-details.md) chapter.
+  See the [Run history details](run-history-details.md) chapter. Unlike the history trigger table it
+  also stores `trigger_method_id`, the changed method's id, which the seal counts as a triggered run
+  of that method - see [Method run stats](method-run-stats.md).
 
 The mapping read path runs this chain in reverse: a code change resolves changed files to
 `tia_source_method` ids, those to the covering `tia_source_class_method` edges, and those up to the
