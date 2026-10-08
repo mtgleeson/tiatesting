@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -111,7 +112,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
         ScriptedCoverageClient coverage = new ScriptedCoverageClient(
                 dump("com/example/Calculator.add"), dump("com/example/Calculator.multiply"), dump());
         SharedTestRunData shared = new SharedTestRunData();
-        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, coverage);
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, coverage, System::currentTimeMillis);
         listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
                 new EmptyConfigurationParameters()));
 
@@ -142,7 +143,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
         SimpleDescriptor second = container(outer, "second", ClassSource.from(OUTER + "$Division"));
         SimpleDescriptor secondTest = test(second, "two", MethodSource.from(OUTER + "$Division", "two"));
         ScriptedCoverageClient coverage = new ScriptedCoverageClient();
-        TiaTestExecutionListener listener = new TiaTestExecutionListener(new SharedTestRunData(), coverage);
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(new SharedTestRunData(), coverage, System::currentTimeMillis);
         listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
                 new EmptyConfigurationParameters()));
 
@@ -163,6 +164,42 @@ class TiaTestExecutionListenerNestedCoverageTest {
     }
 
     @Test
+    void eachClassRecordsItsOwnTimeWithoutItsNestedClasses() {
+        // given - A contains B, which contains C; a manual clock
+        String a = "com.example.A";
+        String b = "com.example.A$B";
+        String c = "com.example.A$B$C";
+        EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
+        SimpleDescriptor outer = container(engine, "a", ClassSource.from(a));
+        SimpleDescriptor middle = container(outer, "b", ClassSource.from(b));
+        SimpleDescriptor inner = container(middle, "c", ClassSource.from(c));
+        AtomicLong now = new AtomicLong(0L);
+        SharedTestRunData shared = new SharedTestRunData();
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, new ScriptedCoverageClient(),
+                now::get);
+        listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
+                new EmptyConfigurationParameters()));
+
+        // when - A runs 0-100, B 10-70, C 20-50
+        listener.executionStarted(id(outer));
+        now.set(10L);
+        listener.executionStarted(id(middle));
+        now.set(20L);
+        listener.executionStarted(id(inner));
+        now.set(50L);
+        listener.executionFinished(id(inner), TestExecutionResult.successful());
+        now.set(70L);
+        listener.executionFinished(id(middle), TestExecutionResult.successful());
+        now.set(100L);
+        listener.executionFinished(id(outer), TestExecutionResult.successful());
+
+        // then - own times add up to the 100ms the family really took
+        assertEquals(30L, shared.getTestSuiteTrackers().get(c).getTestStats().getAvgRunTime());
+        assertEquals(30L, shared.getTestSuiteTrackers().get(b).getTestStats().getAvgRunTime());
+        assertEquals(40L, shared.getTestSuiteTrackers().get(a).getTestStats().getAvgRunTime());
+    }
+
+    @Test
     void topLevelClassesCollectOnlyWhenTheyFinish() {
         // given - two top-level classes, one after the other
         EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
@@ -171,7 +208,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
         ScriptedCoverageClient coverage = new ScriptedCoverageClient(
                 dump("com/example/Calculator.add"), dump("com/example/Shape.area"));
         SharedTestRunData shared = new SharedTestRunData();
-        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, coverage);
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(shared, coverage, System::currentTimeMillis);
         listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
                 new EmptyConfigurationParameters()));
 

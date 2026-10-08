@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
-import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.persistence.DataStore;
 
 import java.lang.management.ManagementFactory;
@@ -167,10 +166,6 @@ public final class DistributedRunCoordinator {
      * its meaning - an unknown group number is a bug that must fail, while claiming no group at all
      * is a legitimate state a caller has to be able to say out loud.
      *
-     * <p>A suite enclosing one of this group's suites ({@code Outer} for {@code Outer$Inner}) is
-     * never ignored - see {@link NestedTestSuites}. The planner keeps such suites in one group, so
-     * this only matters for a plan written before it did.
-     *
      * @param groupNumber the group this runner claimed, whose suites are the ones it will run, or
      *                    null when it claimed none and must therefore run nothing
      * @param trackedSuiteNames every suite Tia currently has a mapping for; not modified
@@ -212,9 +207,6 @@ public final class DistributedRunCoordinator {
         }
 
         testsToIgnore.removeAll(mySuites);
-        // A plan keeps nested suites with their top-level class, but a group must still never
-        // ignore a class enclosing one of its own suites: skipping it would skip the nested one.
-        NestedTestSuites.keepEnclosingSuitesOfSelected(testsToIgnore, mySuites);
         return testsToIgnore;
     }
 

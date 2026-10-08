@@ -113,36 +113,49 @@ three reasons:
 
 A `@Nested` class is tracked as its own suite (`Outer$Inner`), but it only ever runs inside its
 enclosing class, and Tia skips a suite by marking its class `@Disabled` - which skips every class
-nested in it too. Three rules follow, all keyed on the binary name (`NestedTestSuites`):
+nested in it too. A top-level class and everything nested in it form a **family**, read from the
+binary name (`NestedTestSuites`), and four rules follow:
 
-1. **Selecting a nested suite selects its enclosing suites.** When `Outer$Inner` is selected,
-   `TestSelector` adds `Outer` (and any tracked class between them) to the run set, so `Outer`'s own
-   tests run too - an over-selection, never a missed test - and are counted in the estimate, the
-   history row and a distributed plan. A distributed runner's ignore list also never holds a class
-   enclosing one of its own suites, which matters only for a plan written before this rule.
-   Run-time totals count a family once: an enclosing class's recorded time already includes its
-   nested classes, so it is turned into its own time first (`NestedTestSuites.ownTimes`), and a
-   seed split counts top-level classes only. The history breakdown does not yet record why an
-   enclosing class was added (it has no trigger of its own), so the selected count can exceed the
-   listed reasons - a known gap, alongside the one below.
-2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families (a
-   top-level suite with everything nested in it) rather than suites, and a forced plan's untracked
-   disk-scan names join the group already holding their top-level suite.
+1. **Families are selected whole.** Once every other source of selection has run, `TestSelector`
+   adds every tracked member of each selected suite's family to the run set
+   (`NestedTestSuites.addFamilies`). Selecting anything less could skip affected tests: a selected
+   nested class only runs inside its enclosing class; an edited test file names only its top-level
+   class, though the nested classes declared in it are separate suites; and an enclosing class's
+   `@BeforeAll` and static set-up run once for the whole family but are credited to one suite. The
+   cost is some over-selection inside a family, never a missed test. The added suites count as
+   selected in the estimate, the history row and a distributed plan. The history breakdown does not
+   yet record why a family member was added (it has no trigger of its own), so the selected count
+   can exceed the listed reasons - a known gap.
+2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families
+   rather than suites, a seed split counts top-level classes only (the disk scan's nested,
+   anonymous and helper class names weigh nothing), and a forced plan's untracked disk-scan names
+   join the group already holding their top-level suite.
 3. **Coverage stays with the class whose tests produced it.** Jupiter runs `Outer`'s own tests and
    then `Outer$Inner` inside `Outer`'s container. The JUnit 5 listener collects coverage when a
-   class container finishes, so without care `Outer$Inner`'s dump would also carry `Outer`'s tests
-   and `Outer` would be left with an empty mapping. The listener therefore also collects when a
-   nested class starts and credits that dump to the enclosing class.
+   class container finishes, so without care `Outer$Inner`'s dump would also carry `Outer`'s tests.
+   The listener therefore also collects when a nested class starts, if a test has run since the last
+   dump, and credits that dump to the enclosing class.
+4. **Each suite records its own run time.** An enclosing class's container wall clock includes the
+   nested classes that ran inside it. The listener subtracts each nested class's container time
+   from its enclosing class when that finishes, so stored averages are each suite's own and every
+   consumer - the estimate, the overhead model, the balancer, the seal - can simply add them up.
 
-**Known limitation: `@Nested` classes declared in a superclass.** All three rules read the
-enclosing class from the nested class's binary name. A `@Nested` class declared in a base class
-(`AbstractContractTest$WhenEmpty`) runs inside each concrete subclass (`ConcreteTest`), whose name
-the binary name does not mention. Selecting the nested suite then keeps `AbstractContractTest`
-runnable - which never runs - while `ConcreteTest` can stay ignored, and the `@Disabled` on it skips
-the selected nested tests; a distributed plan can also separate them. The fix needs the listener to
-record which class a nested class actually ran inside (it can see the running containers) and
-selection and planning to use that recorded relationship, which needs a schema change. Until then,
-a project relying on inherited `@Nested` classes should not depend on Tia skipping their subclasses.
+**Known limitation: `@Nested` classes declared in a superclass.** The rules read a family from the
+binary name. A `@Nested` class declared in a base class (`AbstractContractTest$WhenEmpty`) runs
+inside each concrete subclass (`ConcreteTest`), whose name the binary name does not mention.
+Selecting the nested suite then brings in `AbstractContractTest` - which never runs - while
+`ConcreteTest` can stay ignored, and the `@Disabled` on it skips the selected nested tests; a
+distributed plan can also separate them. Until this is fixed, a project relying on inherited
+`@Nested` classes should not depend on Tia skipping their subclasses.
+
+**Known limitation: static nested test classes.** A `static` nested class with its own tests (not
+`@Nested`) also has a `$` in its name but runs on its own, not inside its outer class. The family
+rules still apply to it: selecting either selects both, and a plan keeps them in one group. That
+costs some selectivity and balancing freedom but never skips a test.
+
+Both limitations have the same fix: the listener records which class each nested class actually ran
+inside (it can see the running containers), and selection and planning use that recorded
+relationship instead of the name. That needs a schema change.
 
 Before these rules, a change covered only by `Outer`'s own tests was credited to `Outer$Inner`; the
 selection then ran `Outer$Inner`, ignored `Outer`, and the `@Disabled` on `Outer` skipped both - so
