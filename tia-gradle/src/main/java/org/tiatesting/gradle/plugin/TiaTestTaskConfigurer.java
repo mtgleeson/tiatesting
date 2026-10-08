@@ -15,14 +15,14 @@ import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
-import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
-import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
+import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.library.LibraryJarDirectoryResolver;
 import org.tiatesting.core.model.SelectionMode;
+import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.CredentialResolver;
 import org.tiatesting.core.persistence.DataStoreFactory;
@@ -721,7 +721,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
 
     /**
      * Claim this test task's share of a distributed run in the daemon, at task-action time, before
-     * the test JVM forks - and forward only the claim's result to that JVM.
+     * the test JVM forks - and hand the claimed share to that JVM as the same selection files an
+     * ordinary build writes.
      *
      * <p>Gradle used to claim inside the forked test JVM instead ({@code
      * TiaSpockTestRunInitializer#claimDistributedRunGroup}, now removed), because that was the
@@ -752,20 +753,22 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * <p>{@link DistributedRunConfig#forRunner} builds the claim's configuration - a runner
      * configures only the run it belongs to and who it is, never a group count or a target run
      * time, since that shape is the planning job's decision and is already recorded in the plan
-     * being claimed from. The claim itself is made through {@link DistributedRunCoordinator#claim}
-     * directly rather than through {@link org.tiatesting.core.distributed.DistributedRunnerAssignment#claim},
-     * the same coordinator method the Maven {@code prepare-agent} goal calls, so a Maven and a
-     * Gradle runner cannot disagree by even one suite about which suites a group owns - but this
-     * daemon-side caller stops at the coordinator's {@link ClaimOutcome} rather than going on to
-     * derive the two suite lists {@code DistributedRunnerAssignment} would: nothing here reads
-     * them, the fork derives them for itself from the forwarded run id, runner key and group
-     * number, and deriving a copy that is immediately discarded would be work with no consumer.
-     * Only the resolved run id, runner key and group number are forwarded, via {@link
+     * being claimed from. The claim is made through {@link DistributedRunnerAssignment#claim}, the
+     * same call the Maven {@code prepare-agent} goal makes, so a Maven and a Gradle runner cannot
+     * disagree by even one suite about which suites a group owns. It claims and derives the two
+     * suite lists in one go, and those lists are written with {@link SelectionHandoff#write} and
+     * handed to the framework adapter exactly as an ordinary build's selection is - so the fork has
+     * one selection source whether or not the build is distributed, and a framework whose fork only
+     * reads files (JUnit 5's agent) needs nothing extra. No drain result is written: the plan
+     * already ran the drain once, and applying its cleanup belongs to the run's sealer. The
+     * selection breakdown is empty for the same reason: the build-level breakdown is written by the
+     * sealer, and one runner's share is not the figure to show.
+     *
+     * <p>The resolved run id, runner key and group number are still forwarded, via {@link
      * DistributedForkProperties#forkProperties} - the exact property set and rendering Maven
-     * already writes to {@code fork.properties} - so {@link
-     * DistributedForkProperties#contextFromSystemProperties()} resolves the same context on either
-     * build tool. The suite lists themselves are not forwarded: they can be large, and the fork
-     * reads them from the shared database instead.
+     * already writes to {@code fork.properties} - because the fork completes its group and elects
+     * the run's sealer, and {@link DistributedForkProperties#contextFromSystemProperties()} then
+     * resolves the same context on either build tool.
      *
      * <p>The claim is also recorded in this build's {@link DistributedClaimRegistry}, keyed by
      * this test task's path. A second test task attempting a claim in the same build finds that
@@ -774,8 +777,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * claims silently colliding, one group being claimed twice and another left {@code PENDING}
      * forever with the run never sealing and nothing telling the user why.
      *
-     * @param testTask the test task whose forked JVM receives the claimed run id, runner key and
-     *                 group number
+     * @param testTask the test task whose forked JVM receives the claimed run id, runner key, group
+     *                 number and the claimed share's selection files
      * @param tiaTaskExtension the test task's own resolved Tia extension - already merged with the
      *                         project-level extension by {@link #populateTestTaskExtension} - which
      *                         carries the distributed master switch, the run id, the configured
@@ -825,20 +828,25 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
         logVcsFallbackForARunner(tiaTaskExtension);
-        ClaimOutcome outcome;
-        // try-with-resources: this connection is only needed long enough to make the claim: it
-        // must not stay open for the rest of the build, since nothing else this daemon-side action
-        // does touches the datastore, and holding a shared-database connection open across the
-        // whole test run would tie up a resource none of that work needs.
+        DistributedRunnerAssignment assignment;
+        // try-with-resources: this connection is only needed long enough to make the claim and
+        // derive the claimed share: it must not stay open for the rest of the build, since nothing
+        // else this daemon-side action does touches the datastore, and holding a shared-database
+        // connection open across the whole test run would tie up a resource none of that work needs.
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch())) {
-            outcome = new DistributedRunCoordinator(dataStore, config)
-                    .claim(workspaceIdentity.getCommitValue(), System.currentTimeMillis());
+            assignment = DistributedRunnerAssignment.claim(dataStore, config,
+                    workspaceIdentity.getCommitValue(), System.currentTimeMillis());
         }
 
-        Integer groupNumber = outcome.isClaimed()
-                ? Integer.valueOf(outcome.getGroup().getGroupNumber()) : null;
+        Integer groupNumber = assignment.getGroupNumber();
 
-        if (outcome.isClaimed()) {
+        // A surplus runner (no group) ignores every suite and runs none.
+        SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(),
+                assignment.getTestsToIgnore(), assignment.getTestsToRun(), null,
+                TestRunSelectionDetails.empty());
+        frameworkAdapter.get().handOffSelection(testTask, handoff);
+
+        if (assignment.isClaimed()) {
             LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",
                     config.getRunId(), testTask.getPath(), groupNumber);
         } else {
@@ -850,14 +858,14 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         }
 
         Map<String, String> properties = DistributedForkProperties.forkProperties(config.getRunId(),
-                outcome.getRunnerKey(), groupNumber);
+                assignment.getRunnerKey(), groupNumber);
         for (Map.Entry<String, String> property : properties.entrySet()) {
             testTask.systemProperty(property.getKey(), property.getValue());
         }
 
         DistributedClaimRegistry registry =
                 DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
-        return registry.recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
+        return registry.recordClaim(testTask.getPath(), config.getRunId(), assignment.getRunnerKey(),
                 groupNumber, workspaceIdentity.getBranch(),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
                 Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));

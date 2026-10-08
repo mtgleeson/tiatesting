@@ -14,12 +14,11 @@ import java.util.Set;
  *
  * <p>This is the whole of the runner-side decision, and it lives here rather than in either build
  * tool because both make it. Maven claims in the build JVM before surefire forks; Gradle claims in
- * the daemon's test-task action before the test task forks. Both build tools therefore call
- * {@link #claim} in their build JVM and forward the resolved runner key and group number to the
- * forked test JVM, which calls {@link #forClaimedRunner} to re-derive the same two suite lists
- * without claiming again. The entry points differ, but the answer they need must not: if the Maven
- * and Gradle runners disagreed by even one suite about who ignores what, a suite would run twice or
- * not at all while both builds reported success.
+ * the daemon's test-task action before the test task forks. Both build tools call {@link #claim}
+ * there and write the two suite lists as the selection files the forked test JVM reads, so the fork
+ * never derives them itself. The entry points differ, but the answer they need must not: if the
+ * Maven and Gradle runners disagreed by even one suite about who ignores what, a suite would run
+ * twice or not at all while both builds reported success.
  *
  * <p>Deliberately absent from this class is any repeat of the planning work. The plan already ran
  * the VCS diff, the static rules and the library-impact drain once, and its output is in the shared
@@ -38,9 +37,9 @@ public final class DistributedRunnerAssignment {
     private final SelectionMode selectionMode;
 
     /**
-     * Store the resolved assignment. Private so instances can only come from {@link #claim} or
-     * {@link #forClaimedRunner}, the only two callers that derive the two suite lists from the plan
-     * rather than accepting them from elsewhere.
+     * Store the resolved assignment. Private so instances can only come from {@link #claim}, via
+     * {@link #forClaimedRunner}, which derives the two suite lists from the plan rather than
+     * accepting them from elsewhere.
      *
      * @param runnerKey the identity the claim was made under
      * @param groupNumber the claimed group, or null when no group was left to claim
@@ -98,14 +97,10 @@ public final class DistributedRunnerAssignment {
      * deriving the two suite lists from the plan and the tracked mapping rather than repeating the
      * claim itself.
      *
-     * <p>This is the one place both build tools' entry points meet. Maven's {@link #claim} calls it
-     * directly, right after claiming, because it claims and derives in the same call. The Gradle
-     * daemon claims separately - it must, since the claim happens before the test task forks and
-     * the derivation the fork needs happens after - so its fork calls this factory instead of
-     * {@link #claim}, with the runner key and group number the daemon already resolved and forwarded
-     * as system properties. Either caller lands on the identical derivation: a hand-written second
-     * copy of it is exactly what would let the two build tools silently disagree about which suites
-     * a runner skips.
+     * <p>Called by {@link #claim} right after claiming. Package-private so the derivation can be
+     * tested for a given runner key and group number without making a claim first; every build tool
+     * goes through {@link #claim}, so there is one derivation and the two build tools cannot
+     * silently disagree about which suites a runner skips.
      *
      * @param dataStore the shared datastore holding the plan; must be the same store the claim was
      *                  made against
@@ -119,7 +114,7 @@ public final class DistributedRunnerAssignment {
      * @throws IllegalStateException if no run is planned under the configured run id
      * @throws IllegalArgumentException if a non-null {@code groupNumber} is not in the plan
      */
-    public static DistributedRunnerAssignment forClaimedRunner(final DataStore dataStore,
+    static DistributedRunnerAssignment forClaimedRunner(final DataStore dataStore,
                                                                 final DistributedRunConfig config,
                                                                 final String runnerKey,
                                                                 final Integer groupNumber) {

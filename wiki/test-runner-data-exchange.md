@@ -48,6 +48,11 @@ drained), and the framework's Tia module in the fork - `TiaSpockGlobalExtension`
 them. That per-framework step is the plugin's `TestFrameworkAdapter`; everything else in the task
 action is framework-agnostic.
 
+A distributed runner hands its share over the same way. The daemon claims the group with
+`DistributedRunnerAssignment.claim`, which also derives the suites the runner runs and ignores, and
+writes those as the same files (no drain result, an empty selection breakdown). The fork only
+reads files, whether or not the build is distributed.
+
 The selection used to run inside the Spock test JVM instead. Moving it to the daemon matters for
 three reasons:
 
