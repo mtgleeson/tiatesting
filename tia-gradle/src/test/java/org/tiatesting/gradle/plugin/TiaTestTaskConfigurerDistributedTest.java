@@ -76,12 +76,18 @@ class TiaTestTaskConfigurerDistributedTest {
      */
     static class TestPlugin extends TiaPlugin {
 
+        /** The adapter the tests hand off through; Spock unless a test swaps it. */
+        TestFrameworkAdapter adapter = new SpockFrameworkAdapter();
+
+        /** The schema suffix the last datastore was opened with. */
+        String lastSchemaSuffix;
+
         /**
-         * @return the Spock adapter - these test projects declare no test framework to detect
+         * @return the configured adapter - these test projects declare no test framework to detect
          */
         @Override
         TestFrameworkAdapter getTestFrameworkAdapter() {
-            return new SpockFrameworkAdapter();
+            return adapter;
         }
         private File dbDir;
         private String workspaceCommit = PLAN_COMMIT;
@@ -122,11 +128,13 @@ class TiaTestTaskConfigurerDistributedTest {
          * tiaDBUrl}, which exists only to satisfy the shared-database precondition string check.
          *
          * @param branch the VCS branch name whose schema the store selects
-         * @param schemaSuffix the schema suffix, unused here - these tests declare none
+         * @param schemaSuffix the schema suffix, recorded for the tests that check it; the store
+         *                     itself ignores it
          * @return an embedded datastore the caller owns and closes
          */
         @Override
         public DataStore buildDataStore(final String branch, final String schemaSuffix) {
+            lastSchemaSuffix = schemaSuffix;
             return openStore(dbDir, branch);
         }
     }
@@ -411,6 +419,70 @@ class TiaTestTaskConfigurerDistributedTest {
                 (String) systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE));
         assertTrue(selected.isEmpty(), selected.toString());
         assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")), ignored);
+    }
+
+    /**
+     * Verify a distributed test task with a schema suffix claims in its suffixed schema - the one
+     * {@code tia-dist-plan} wrote the plan to and {@code tia-dist-complete} completes it in.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimInTheTestTasksSuffixedSchema(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-32", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-32");
+        extension.setSchemaSuffix("it");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        assertEquals("it", plugin.lastSchemaSuffix);
+    }
+
+    /**
+     * Verify the claim is recorded for the finalizer even when the hand-off after it fails - an
+     * unrecorded claim would leave its group claimed in the database with nothing to complete it.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRecordTheClaimWhenTheHandoffFails(@TempDir File projectDir) {
+        // given - an adapter whose hand-off fails, as an unresolvable agent jar would
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-33", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-33");
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        plugin.adapter = new SpockFrameworkAdapter() {
+            @Override
+            public void handOffSelection(final Test task, final SelectionHandoff handoff) {
+                throw new IllegalStateException("agent jar not resolvable");
+            }
+        };
+
+        // when
+        assertThrows(RuntimeException.class, () -> runTiaTaskAction(testTask));
+
+        // then
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                .claimFor(testTask.getPath());
+        assertNotNull(claim);
+        assertEquals(Integer.valueOf(0), claim.getGroupNumber());
     }
 
     /**

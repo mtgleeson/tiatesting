@@ -53,8 +53,30 @@ class TestGroupBalancerNestedSuitesTest {
         assertEquals(3, result.getGroups().size());
         assertEquals(groupOf(result, "A"), groupOf(result, "A$N"));
         assertEquals(groupOf(result, "A"), groupOf(result, "A$N$M"));
-        int familyGroup = groupOf(result, "A");
-        assertEquals(15L, result.getGroups().get(familyGroup).getEstimatedMs());
+    }
+
+    @Test
+    void aFamilyIsNotWeighedTwiceForItsNestedSuites() {
+        // given - A's 60ms is its whole container, which already includes A$N's 40ms
+        Map<String, Long> weights = weights("A", 60, "A$N", 40, "B", 50);
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(weights, 2, 0L);
+
+        // then
+        assertEquals(60L, result.getGroups().get(groupOf(result, "A")).getEstimatedMs());
+    }
+
+    @Test
+    void aFamilyWithoutItsTopLevelSuiteWeighsItsNestedSuites() {
+        // given - only nested suites selected
+        Map<String, Long> weights = weights("A$N", 40, "A$M", 30, "B", 50);
+
+        // when
+        GroupingResult result = TestGroupBalancer.balanceIntoGroups(weights, 2, 0L);
+
+        // then
+        assertEquals(70L, result.getGroups().get(groupOf(result, "A$N")).getEstimatedMs());
     }
 
     @Test
@@ -73,10 +95,10 @@ class TestGroupBalancerNestedSuitesTest {
     @Test
     void targetRunTimeKeepsNestedSuitesWithTheirTopLevelSuite() {
         // given - the family alone exceeds the target, so it cannot be split to meet it
-        Map<String, Long> weights = weights("A", 10, "A$N", 10, "B", 10);
+        Map<String, Long> weights = weights("A", 15, "A$N", 10, "B", 10);
 
         // when
-        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(weights, 10L, null, 0L);
+        GroupingResult result = TestGroupBalancer.balanceForTargetRunTime(weights, 12L, null, 0L);
 
         // then
         assertEquals(groupOf(result, "A"), groupOf(result, "A$N"));

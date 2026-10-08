@@ -25,6 +25,9 @@ public final class NestedTestSuites {
     }
 
     /**
+     * Find the outermost class of a suite: the part of its binary name before the first {@code $}.
+     * Used to keep a suite family together in a distributed plan.
+     *
      * @param suiteName a suite's binary class name
      * @return the top-level class the suite is nested in, or the suite itself when it is not nested
      */
@@ -34,6 +37,9 @@ public final class NestedTestSuites {
     }
 
     /**
+     * List the classes a suite is nested in, by cutting its binary name at each {@code $}. These
+     * are the suites whose skipping would also skip it.
+     *
      * @param suiteName a suite's binary class name
      * @return every class the suite is nested in, outermost first, e.g. {@code A} and {@code A$B}
      *         for {@code A$B$C}; empty when the suite is not nested

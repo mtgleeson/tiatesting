@@ -29,9 +29,12 @@ final class ProjectRelativeDirs {
 
     /**
      * Split a comma-separated directory list and resolve each entry against the project directory.
-     * An entry is relative when it exists under the project directory (a leading {@code /} is
-     * allowed, as the README's examples use); that resolved path is used. Any other entry is kept as
-     * configured, for {@code TestSelector} to treat as an absolute path.
+     * An entry that exists under the project directory (a leading {@code /} is allowed, as the
+     * README's examples use) resolves there. Otherwise an absolute path that exists is kept as
+     * configured, and anything else resolves under the project directory anyway - a directory the
+     * build has not created yet must never fall back to the daemon's working directory, where
+     * another project's directory of the same name may exist. {@code TestSelector} warns about an
+     * entry that does not exist.
      *
      * @param projectDir the Gradle project directory relative entries are resolved against
      * @param csv the configured comma-separated directories; may be null
@@ -47,7 +50,9 @@ final class ProjectRelativeDirs {
         List<String> resolved = new ArrayList<>();
         for (String entry : entries) {
             File underProject = new File(projectDir, entry);
-            resolved.add(underProject.exists() ? underProject.getAbsolutePath() : entry);
+            File asConfigured = new File(entry);
+            boolean keepAsConfigured = !underProject.exists() && asConfigured.isAbsolute() && asConfigured.exists();
+            resolved.add(keepAsConfigured ? entry : underProject.getAbsolutePath());
         }
         return resolved;
     }
