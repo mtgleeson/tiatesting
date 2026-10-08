@@ -394,8 +394,8 @@ class DatastoreEquivalenceTest {
     private static void assertRunHistoryCountersAndTriggersRoundTrip(DataStore store) {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
                 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create(BRANCH, "equiv-c1", 1000L,
                 10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
@@ -458,8 +458,8 @@ class DatastoreEquivalenceTest {
     private static void assertDistributedRunSelectionDetailsRoundTrip(DataStore store) {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
                 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
 
         // when

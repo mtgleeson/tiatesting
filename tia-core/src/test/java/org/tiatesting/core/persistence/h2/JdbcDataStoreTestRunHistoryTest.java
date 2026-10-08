@@ -449,8 +449,8 @@ class JdbcDataStoreTestRunHistoryTest {
     void roundTripsCountersAndTriggers() {
         // given
         TestRunSelectionDetails details = new TestRunSelectionDetails(Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", 519),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009)),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.save", null, 519),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009)),
                 1, 2, 3, 4, 5, SelectionMode.SELECTIVE);
         TestRunHistoryEntry entry = TestRunHistoryEntry.create("main", "c1", 1000L,
                 10, 20, 0, 5000L, true, 0L, 0, RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host"), details, false);
@@ -483,7 +483,7 @@ class JdbcDataStoreTestRunHistoryTest {
                 TestRunSelectionDetails.empty(), false);
         dataStore.persistTestRunHistoryEntry(entry);
         List<TestRunTrigger> triggers = Collections.singletonList(
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", 7));
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "R", null, 7));
 
         // when
         dataStore.persistTestRunTriggers(entry.getId(), triggers);

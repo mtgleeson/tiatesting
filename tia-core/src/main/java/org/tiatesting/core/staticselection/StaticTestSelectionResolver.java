@@ -99,7 +99,7 @@ public class StaticTestSelectionResolver {
                 log.debug("Static test selection rule '{}' matched changed file(s): {}", rule.getName(), matchedPaths);
             }
             forced.addAll(ruleForced);
-            ruleTriggers.add(new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, rule.getName(), ruleForced.size()));
+            ruleTriggers.add(new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, rule.getName(), null, ruleForced.size()));
         }
         return new StaticTestSelectionResult(forced, ruleTriggers);
     }

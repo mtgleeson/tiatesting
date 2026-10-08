@@ -891,7 +891,8 @@ public class TestSelector {
             }
             testsToRun.addAll(entry.getValue());
             triggers.add(new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD,
-                    methodNameForId(entry.getKey(), methodsTrackedByFile), entry.getValue().size()));
+                    methodNameForId(entry.getKey(), methodsTrackedByFile), entry.getKey(),
+                    entry.getValue().size()));
         }
 
         log.info("Selected tests to run from VCS source changes: {}", testsToRun);

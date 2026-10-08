@@ -70,6 +70,9 @@ public final class SealedRunDataAssembler {
      * @param countRun whether this seal counts as a run in the per-method run stats; false for a
      *                 retry of failed tests, which the first attempt already counted - see the
      *                 "Method run stats" chapter in {@code WIKI.md}
+     * @param triggeredMethodIds the ids of the changed methods whose covering suites the run's
+     *                           selection pulled in; each catalogued one gains a triggered run
+     *                           when {@code countRun} is set
      * @return the payload to hand to {@link DataStore#persistSealedRunData(SealedRunData)}
      */
     public SealedRunData assemble(final TiaData tiaData,
@@ -77,9 +80,10 @@ public final class SealedRunDataAssembler {
                                   final LibraryImpactDrainResult drainResult,
                                   final String commitValue, final boolean allTestsRun,
                                   final CoreStatsIncrement statsIncrement,
-                                  final boolean reseed, final boolean countRun) {
+                                  final boolean reseed, final boolean countRun,
+                                  final Set<Integer> triggeredMethodIds) {
         Map<Integer, MethodImpactTracker> methodsTracked =
-                buildMethodsTracked(tiaData, observedMethodTrackers, countRun);
+                buildMethodsTracked(tiaData, observedMethodTrackers, countRun, triggeredMethodIds);
 
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
@@ -103,15 +107,17 @@ public final class SealedRunDataAssembler {
      * @param tiaData the Tia DB, updated in place with the resulting catalogue
      * @param observedMethodTrackers all source code methods covered by any test suite executed for
      *                               the commit being sealed
-     * @param countRun whether this seal adds one to the executed-run count of each observed method
+     * @param countRun whether this seal adds to the run stats of the observed and triggering methods
+     * @param triggeredMethodIds the ids of the changed methods that triggered the run
      * @return the catalogue to persist, keyed by method id
      */
     private Map<Integer, MethodImpactTracker> buildMethodsTracked(final TiaData tiaData,
                                                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
-                                                                  final boolean countRun) {
+                                                                  final boolean countRun,
+                                                                  final Set<Integer> triggeredMethodIds) {
         Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
         Map<Integer, MethodImpactTracker> updatedMethodTrackers =
-                updateMethodTracker(methodTrackersOnDisk, observedMethodTrackers, countRun);
+                updateMethodTracker(methodTrackersOnDisk, observedMethodTrackers, countRun, triggeredMethodIds);
         tiaData.setMethodsTracked(updatedMethodTrackers);
         return updatedMethodTrackers;
     }
@@ -125,17 +131,21 @@ public final class SealedRunDataAssembler {
      *
      * <p>Each method's run stats are carried forward from the on-disk tracker, since an observed
      * tracker is built fresh from coverage and starts at zero. When {@code countRun} is set, every
-     * observed method's executed-run count goes up by one. See the "Method run stats" chapter in
-     * {@code WIKI.md}.
+     * observed method's executed-run count goes up by one, and so does the triggered-run count of
+     * every method whose change triggered the run. A triggering method no longer in the catalogue
+     * (deleted, or no longer covered) has nowhere to record the run and is skipped. See the
+     * "Method run stats" chapter in {@code WIKI.md}.
      *
      * @param methodTrackerOnDisk current method tracker persisted on disk
      * @param observedMethodTrackers methods called by the test runs covering the commit being sealed
-     * @param countRun whether this seal adds one to the executed-run count of each observed method
+     * @param countRun whether this seal adds to the run stats of the observed and triggering methods
+     * @param triggeredMethodIds the ids of the changed methods that triggered the run
      * @return the updated method tracker map, with any orphaned ids dropped
      */
     private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
                                                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
-                                                                  final boolean countRun){
+                                                                  final boolean countRun,
+                                                                  final Set<Integer> triggeredMethodIds){
 
         // Set containing the combined method ids using the updated test mapping after the test run
         Set<Integer> methodsImpactedAfterTestRun = dataStore.getUniqueMethodIdsTracked();
@@ -166,7 +176,8 @@ public final class SealedRunDataAssembler {
                 continue;
             }
 
-            carryRunStats(tracker, diskTracker, observedTracker != null && countRun);
+            carryRunStats(tracker, diskTracker, observedTracker != null && countRun,
+                    countRun && triggeredMethodIds.contains(methodImpactedId));
             newMethodTracker.put(methodImpactedId, tracker);
         }
 
@@ -175,18 +186,19 @@ public final class SealedRunDataAssembler {
 
     /**
      * Set a catalogue tracker's run stats from the stored tracker for the same method, adding this
-     * run's execution when it counts.
+     * run's execution and trigger when they count.
      *
      * @param tracker the tracker being written to the catalogue; updated in place
      * @param diskTracker the tracker currently stored for the method, or null for a new method
      * @param executedThisRun whether to add one to the executed-run count for this seal
+     * @param triggeredThisRun whether to add one to the triggered-run count for this seal
      */
     private static void carryRunStats(final MethodImpactTracker tracker, final MethodImpactTracker diskTracker,
-                                      final boolean executedThisRun) {
+                                      final boolean executedThisRun, final boolean triggeredThisRun) {
         long executed = diskTracker == null ? 0 : diskTracker.getExecutedRunCount();
         long triggered = diskTracker == null ? 0 : diskTracker.getTriggeredRunCount();
         tracker.setExecutedRunCount(executedThisRun ? executed + 1 : executed);
-        tracker.setTriggeredRunCount(triggered);
+        tracker.setTriggeredRunCount(triggeredThisRun ? triggered + 1 : triggered);
     }
 
     /**

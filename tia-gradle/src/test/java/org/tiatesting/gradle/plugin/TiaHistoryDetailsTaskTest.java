@@ -111,7 +111,7 @@ class TiaHistoryDetailsTaskTest {
                 5, 1, 0, 1000L, true, 200L, 10,
                 RunOrigin.of(RunOrigin.SOURCE_LOCAL, "host1"), null, false);
         List<TestRunTrigger> triggers = Collections.singletonList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", 3));
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", null, 3));
 
         try (DataStore dataStore = buildDataStore(projectDir, branch)) {
             dataStore.persistTestRunHistoryEntry(entry);

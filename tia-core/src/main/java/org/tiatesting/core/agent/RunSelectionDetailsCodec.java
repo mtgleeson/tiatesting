@@ -26,9 +26,10 @@ import java.util.List;
  * <pre>
  * counters&lt;TAB&gt;modified&lt;TAB&gt;new&lt;TAB&gt;prevFailed&lt;TAB&gt;unsealed&lt;TAB&gt;pendingLib
  * mode&lt;TAB&gt;&lt;{@link SelectionMode} name&gt;
- * trigger&lt;TAB&gt;SOURCE_METHOD&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;name&gt;
- * trigger&lt;TAB&gt;STATIC_RULE&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;name&gt;
+ * trigger&lt;TAB&gt;SOURCE_METHOD&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;methodId&gt;&lt;TAB&gt;&lt;name&gt;
+ * trigger&lt;TAB&gt;STATIC_RULE&lt;TAB&gt;&lt;count&gt;&lt;TAB&gt;&lt;TAB&gt;&lt;name&gt;
  * </pre>
+ * The method id field is empty when the trigger carries none (always, for a static rule).
  * The trigger name is always the last field on its line, so it may contain any character except a
  * newline or a tab; a tab (the field delimiter) or a newline (the record delimiter) embedded in a
  * name is replaced with a single space on write, since either would otherwise corrupt the record
@@ -74,6 +75,7 @@ public final class RunSelectionDetailsCodec {
             sb.append(TRIGGER_PREFIX).append('\t')
                     .append(trigger.getType().name()).append('\t')
                     .append(trigger.getTestCount()).append('\t')
+                    .append(trigger.getMethodId() == null ? "" : trigger.getMethodId()).append('\t')
                     .append(safeName).append('\n');
         }
 
@@ -160,14 +162,15 @@ public final class RunSelectionDetailsCodec {
     /**
      * Parse one {@code trigger}-prefixed line into a {@link TestRunTrigger}, tolerating an unknown
      * type token, a non-integer count, or too few fields by returning null so the caller can skip
-     * the line instead of failing the whole read.
+     * the line instead of failing the whole read. A non-integer method id is read as no id, since
+     * the trigger is still valid for the history breakdown.
      *
      * @param line the raw line, already known to start with {@code "trigger\t"}
      * @return the parsed trigger, or null if the line could not be parsed
      */
     private static TestRunTrigger parseTriggerLine(String line) {
-        String[] fields = line.split("\t", 4);
-        if (fields.length < 4) {
+        String[] fields = line.split("\t", 5);
+        if (fields.length < 5) {
             log.debug("Skipping malformed trigger line (too few fields): {}", line);
             return null;
         }
@@ -188,7 +191,16 @@ public final class RunSelectionDetailsCodec {
             return null;
         }
 
-        return new TestRunTrigger(type, fields[3], count);
+        Integer methodId = null;
+        if (!fields[3].isEmpty()) {
+            try {
+                methodId = Integer.valueOf(fields[3]);
+            } catch (NumberFormatException e) {
+                log.debug("Reading trigger line with non-integer method id '{}' as no id: {}", fields[3], line);
+            }
+        }
+
+        return new TestRunTrigger(type, fields[4], methodId, count);
     }
 
     /**

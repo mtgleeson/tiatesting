@@ -15,7 +15,7 @@ public class TestRunTriggerTest {
     public void exposesTypeNameAndCount() {
         // given
         TestRunTrigger trigger = new TestRunTrigger(
-                TestRunTrigger.Type.SOURCE_METHOD, "com/example/Foo.save", 519);
+                TestRunTrigger.Type.SOURCE_METHOD, "com/example/Foo.save", null, 519);
 
         // when
         TestRunTrigger.Type type = trigger.getType();
@@ -31,9 +31,9 @@ public class TestRunTriggerTest {
     @Test
     public void equalsComparesAllThreeFields() {
         // given
-        TestRunTrigger a = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009);
-        TestRunTrigger same = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009);
-        TestRunTrigger differentCount = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1);
+        TestRunTrigger a = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009);
+        TestRunTrigger same = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009);
+        TestRunTrigger differentCount = new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1);
 
         // when
         boolean matchesSame = a.equals(same);
@@ -50,9 +50,9 @@ public class TestRunTriggerTest {
     public void filterByTypeSortedByCountDescKeepsOneTypeOrderedByCountDescending() {
         // given
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", 5),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009),
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", 20));
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", null, 5),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", null, 20));
 
         // when
         List<TestRunTrigger> methods = TestRunTrigger.filterByTypeSortedByCountDesc(
