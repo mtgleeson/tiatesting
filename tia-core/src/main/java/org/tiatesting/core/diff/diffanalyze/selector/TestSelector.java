@@ -127,6 +127,10 @@ public class TestSelector {
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
                 tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges);
 
+        // A selected @Nested class only runs inside its enclosing class, so the enclosing class runs
+        // too - added after every other source of selection, so it covers all of them.
+        NestedTestSuites.addEnclosingSuites(testsToRun, testSuitesTracked.keySet());
+
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);
 
@@ -199,6 +203,10 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
+     * <p>The total is summed by suite family, not by suite ({@link NestedTestSuites#familyWeights}):
+     * an enclosing class's recorded time already includes its {@code @Nested} classes, so adding
+     * both would count the nested classes twice. The per-suite figures are returned unchanged.
+     *
      * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
      * JaCoCo coverage capture plus whole-run costs (JVM/agent startup, the final persist), none of
      * which is in {@code avgRunTime} (that is measured before coverage collection). Those are
@@ -219,7 +227,6 @@ public class TestSelector {
      */
     static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked,
                                            final TestStats tiaStats){
-        long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
 
@@ -229,19 +236,21 @@ public class TestSelector {
                 withoutStats.add(testName);
                 perTestRunTimes.put(testName, 0L); // placeholder, replaced with median below
             } else {
-                long avg = tracker.getTestStats().getAvgRunTime();
-                totalMs += avg;
-                perTestRunTimes.put(testName, avg);
+                perTestRunTimes.put(testName, tracker.getTestStats().getAvgRunTime());
             }
         }
 
         long median = 0L;
         if (!withoutStats.isEmpty()){
             median = computeMedianAvgRunTime(tracked);
-            totalMs += median * (long) withoutStats.size();
             for (String testName : withoutStats){
                 perTestRunTimes.put(testName, median);
             }
+        }
+        // By family, not by suite: an enclosing class's time already includes its @Nested classes.
+        long totalMs = 0L;
+        for (long familyMs : NestedTestSuites.familyWeights(perTestRunTimes).values()) {
+            totalMs += familyMs;
         }
 
         OverheadModel overhead = overheadModel(tracked, tiaStats);
@@ -937,14 +946,9 @@ public class TestSelector {
      * skipping them. Excluding them keeps the Tia-ignored count a true count of suites Tia chose
      * to skip that could otherwise have run.
      *
-     * <p>A suite enclosing a selected nested suite ({@code Outer} for {@code Outer$Inner}) is never
-     * ignored: skipping the enclosing class skips every class nested in it - see
-     * {@link NestedTestSuites}.
-     *
      * @param testSuitesTracked the tracked test suites keyed by suite name
      * @param testsToRun the test suites selected to run
-     * @return the tracked, non-developer-disabled suites not selected to run, less the enclosing
-     *         suites of selected nested suites - the ignore list
+     * @return the tracked, non-developer-disabled suites not selected to run - the ignore list
      */
     static Set<String> getTestsToIgnore(Map<String, TestSuiteTracker> testSuitesTracked, Set<String> testsToRun){
         Set<String> testsToIgnore = new HashSet<>();
@@ -954,8 +958,6 @@ public class TestSelector {
                 testsToIgnore.add(testSuite);
             }
         });
-        NestedTestSuites.keepEnclosingSuitesOfSelected(testsToIgnore, testsToRun);
-
         return testsToIgnore;
     }
 

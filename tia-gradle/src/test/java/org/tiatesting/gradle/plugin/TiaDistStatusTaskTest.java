@@ -235,7 +235,7 @@ class TiaDistStatusTaskTest {
                 System.currentTimeMillis(), SelectionMode.SELECTIVE, null);
 
         TiaPlugin plugin = project.getPlugins().getPlugin(TestPlugin.class);
-        try (DataStore dataStore = plugin.buildDataStore(branch)) {
+        try (DataStore dataStore = plugin.buildDataStore(branch, null)) {
             dataStore.getTiaData();
             dataStore.persistDistributedRunPlan(new DistributedRunPlan(run, groups, suitesByGroup, null));
         }

@@ -82,6 +82,9 @@ class TiaTestTaskConfigurerDistributedTest {
         /** The schema suffix the last datastore was opened with. */
         String lastSchemaSuffix;
 
+        /** When set, reading the tracked suites fails, as a dropped server connection would. */
+        boolean failTrackedSuitesRead;
+
         /**
          * @return the configured adapter - these test projects declare no test framework to detect
          */
@@ -135,7 +138,21 @@ class TiaTestTaskConfigurerDistributedTest {
         @Override
         public DataStore buildDataStore(final String branch, final String schemaSuffix) {
             lastSchemaSuffix = schemaSuffix;
-            return openStore(dbDir, branch);
+            DataStore store = openStore(dbDir, branch);
+            if (!failTrackedSuitesRead) {
+                return store;
+            }
+            return (DataStore) java.lang.reflect.Proxy.newProxyInstance(DataStore.class.getClassLoader(),
+                    new Class<?>[]{DataStore.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("getTestSuitesTracked")) {
+                            throw new IllegalStateException("Connection is broken");
+                        }
+                        try {
+                            return method.invoke(store, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
         }
     }
 
@@ -474,6 +491,37 @@ class TiaTestTaskConfigurerDistributedTest {
                 throw new IllegalStateException("agent jar not resolvable");
             }
         };
+
+        // when
+        assertThrows(RuntimeException.class, () -> runTiaTaskAction(testTask));
+
+        // then
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                .claimFor(testTask.getPath());
+        assertNotNull(claim);
+        assertEquals(Integer.valueOf(0), claim.getGroupNumber());
+    }
+
+    /**
+     * Verify the claim is recorded for the finalizer even when deriving the claimed share fails
+     * after the claim was committed - the plan and tracked-suite reads come after the claim.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRecordTheClaimWhenDerivingTheShareFails(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-34", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-34");
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        plugin.failTrackedSuitesRead = true;
 
         // when
         assertThrows(RuntimeException.class, () -> runTiaTaskAction(testTask));

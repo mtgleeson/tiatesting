@@ -37,9 +37,9 @@ public final class DistributedRunnerAssignment {
     private final SelectionMode selectionMode;
 
     /**
-     * Store the resolved assignment. Private so instances can only come from {@link #claim}, via
-     * {@link #forClaimedRunner}, which derives the two suite lists from the plan rather than
-     * accepting them from elsewhere.
+     * Store the resolved assignment. Private so instances can only come from {@link
+     * #forClaimedRunner}, which derives the two suite lists from the plan rather than accepting them
+     * from elsewhere.
      *
      * @param runnerKey the identity the claim was made under
      * @param groupNumber the claimed group, or null when no group was left to claim
@@ -97,10 +97,11 @@ public final class DistributedRunnerAssignment {
      * deriving the two suite lists from the plan and the tracked mapping rather than repeating the
      * claim itself.
      *
-     * <p>Called by {@link #claim} right after claiming. Package-private so the derivation can be
-     * tested for a given runner key and group number without making a claim first; every build tool
-     * goes through {@link #claim}, so there is one derivation and the two build tools cannot
-     * silently disagree about which suites a runner skips.
+     * <p>Called by {@link #claim} right after claiming, and by the Gradle daemon, which claims
+     * through {@link DistributedRunCoordinator#claim} itself so it can record the claim before this
+     * read - a failure here must not leave a claim nothing knows about. Either way there is one
+     * derivation, so the two build tools cannot silently disagree about which suites a runner
+     * skips.
      *
      * @param dataStore the shared datastore holding the plan; must be the same store the claim was
      *                  made against
@@ -114,7 +115,7 @@ public final class DistributedRunnerAssignment {
      * @throws IllegalStateException if no run is planned under the configured run id
      * @throws IllegalArgumentException if a non-null {@code groupNumber} is not in the plan
      */
-    static DistributedRunnerAssignment forClaimedRunner(final DataStore dataStore,
+    public static DistributedRunnerAssignment forClaimedRunner(final DataStore dataStore,
                                                                 final DistributedRunConfig config,
                                                                 final String runnerKey,
                                                                 final Integer groupNumber) {

@@ -109,10 +109,13 @@ A `@Nested` class is tracked as its own suite (`Outer$Inner`), but it only ever 
 enclosing class, and Tia skips a suite by marking its class `@Disabled` - which skips every class
 nested in it too. Three rules follow, all keyed on the binary name (`NestedTestSuites`):
 
-1. **Selection never ignores an enclosing suite of a selected one.** When `Outer$Inner` is selected,
-   `Outer` (and any class between them) is dropped from the ignore set, in `TestSelector` and in a
-   distributed runner's ignore list. `Outer`'s own tests then run too: an over-selection, never a
-   missed test.
+1. **Selecting a nested suite selects its enclosing suites.** When `Outer$Inner` is selected,
+   `TestSelector` adds `Outer` (and any tracked class between them) to the run set, so `Outer`'s own
+   tests run too - an over-selection, never a missed test - and are counted in the estimate, the
+   history row and a distributed plan. A distributed runner's ignore list also never holds a class
+   enclosing one of its own suites, which matters only for a plan written before this rule.
+   Run-time totals count a family once: an enclosing class's recorded time already includes its
+   nested classes (`NestedTestSuites.familyWeights`).
 2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families (a
    top-level suite with everything nested in it) rather than suites, and a forced plan's untracked
    disk-scan names join the group already holding their top-level suite.
@@ -121,6 +124,16 @@ nested in it too. Three rules follow, all keyed on the binary name (`NestedTestS
    class container finishes, so without care `Outer$Inner`'s dump would also carry `Outer`'s tests
    and `Outer` would be left with an empty mapping. The listener therefore also collects when a
    nested class starts and credits that dump to the enclosing class.
+
+**Known limitation: `@Nested` classes declared in a superclass.** All three rules read the
+enclosing class from the nested class's binary name. A `@Nested` class declared in a base class
+(`AbstractContractTest$WhenEmpty`) runs inside each concrete subclass (`ConcreteTest`), whose name
+the binary name does not mention. Selecting the nested suite then keeps `AbstractContractTest`
+runnable - which never runs - while `ConcreteTest` can stay ignored, and the `@Disabled` on it skips
+the selected nested tests; a distributed plan can also separate them. The fix needs the listener to
+record which class a nested class actually ran inside (it can see the running containers) and
+selection and planning to use that recorded relationship, which needs a schema change. Until then,
+a project relying on inherited `@Nested` classes should not depend on Tia skipping their subclasses.
 
 Before these rules, a change covered only by `Outer`'s own tests was credited to `Outer$Inner`; the
 selection then ran `Outer$Inner`, ignored `Outer`, and the `@Disabled` on `Outer` skipped both - so

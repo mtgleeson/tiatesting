@@ -18,7 +18,7 @@ configurations {
 dependencies {
     // Compiled against, but only the two classes premain uses are copied into the agent jar.
     compileOnly project(':tia-core')
-    agentBundle group: 'net.bytebuddy', name: 'byte-buddy', version: '1.14.19'
+    agentBundle group: 'net.bytebuddy', name: 'byte-buddy', version: '1.17.5'
     // No slf4j: the agent's premain runs before Gradle's test worker puts the test runtime classpath
     // on the system class loader, so it can use only the JDK and what this jar bundles.
 

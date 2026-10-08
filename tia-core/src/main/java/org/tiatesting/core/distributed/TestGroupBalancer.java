@@ -117,7 +117,7 @@ public final class TestGroupBalancer {
                                                    final long fixedOverheadMs) {
         requireNoNullWeights(suiteWeightsMs);
         Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
-        return expandFamilies(balanceUnitsIntoGroups(familyWeights(suiteWeightsMs, families), groupCount,
+        return expandFamilies(balanceUnitsIntoGroups(NestedTestSuites.familyWeights(suiteWeightsMs), groupCount,
                 fixedOverheadMs), families);
     }
 
@@ -247,7 +247,7 @@ public final class TestGroupBalancer {
                                                          final long fixedOverheadMs) {
         requireNoNullWeights(suiteWeightsMs);
         Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
-        return expandFamilies(balanceUnitsForTargetRunTime(familyWeights(suiteWeightsMs, families),
+        return expandFamilies(balanceUnitsForTargetRunTime(NestedTestSuites.familyWeights(suiteWeightsMs),
                 targetRunTimeMs, maxGroups, fixedOverheadMs), families);
     }
 
@@ -495,37 +495,6 @@ public final class TestGroupBalancer {
         }
         families.values().forEach(Collections::sort);
         return families;
-    }
-
-    /**
-     * Weigh each suite family as one unit. A top-level suite's recorded time is the wall clock of
-     * its whole class container, which already includes every nested class that ran inside it, so
-     * summing the members would count the nested classes twice. A family therefore weighs the larger
-     * of its top-level suite's weight and the sum of its nested suites' weights: the top-level
-     * figure when the whole family ran when it was timed, the nested sum when the top-level suite
-     * is not selected or its figure predates the nested classes.
-     *
-     * @param suiteWeightsMs estimated run time in ms, keyed by suite name
-     * @param families the suite families, keyed by top-level suite
-     * @return each family's weight, keyed by top-level suite
-     */
-    private static Map<String, Long> familyWeights(final Map<String, Long> suiteWeightsMs,
-                                                   final Map<String, List<String>> families) {
-        Map<String, Long> weights = new HashMap<>();
-        for (Map.Entry<String, List<String>> family : families.entrySet()) {
-            String topLevel = family.getKey();
-            long topLevelWeight = 0L;
-            long nestedWeight = 0L;
-            for (String suite : family.getValue()) {
-                if (suite.equals(topLevel)) {
-                    topLevelWeight = suiteWeightsMs.get(suite);
-                } else {
-                    nestedWeight += suiteWeightsMs.get(suite);
-                }
-            }
-            weights.put(topLevel, Math.max(topLevelWeight, nestedWeight));
-        }
-        return weights;
     }
 
     /**

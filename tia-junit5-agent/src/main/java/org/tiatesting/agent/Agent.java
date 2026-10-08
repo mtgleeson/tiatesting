@@ -23,9 +23,25 @@ public class Agent {
      */
     private static final Logger log = Logger.getLogger(Agent.class.getName());
 
+    /*
+    ByteBuddy's switch for reading class files newer than the Java versions it knows. Written with
+    ByteBuddy's own package name: the build relocates ByteBuddy, and this string with it, so the
+    property set is the one the agent's bundled copy reads.
+     */
+    static final String BYTE_BUDDY_EXPERIMENTAL = "net.bytebuddy.experimental";
+
+    /**
+     * Start the agent in the forked test JVM: publish the forwarded system properties, register the
+     * {@code @Disabled} instrumentation for the suites Tia skips, and publish the hand-off file
+     * paths and counts the Tia test listener reads.
+     *
+     * @param agentArgs the agent options, as {@link AgentOptions} renders them
+     * @param instrumentation the JVM instrumentation handle
+     */
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
         applyForkSystemProperties(agentOptions.getForkPropertiesFile());
+        enableByteBuddyExperimentalMode();
         instrumentIgnoredTests(instrumentation, agentOptions.getIgnoreTestsFile());
         setSelectedTestsSystemProperty(agentOptions.getSelectedTestsFile());
         setLibraryJarsSystemProperty(agentOptions.getLibraryJarsFile());
@@ -46,6 +62,18 @@ public class Agent {
             ForkSystemProperties.applyToSystemProperties(forkPropertiesFile);
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Let the bundled ByteBuddy read test classes compiled for a newer Java than it knows, unless the
+     * user set the switch themselves. The agent only adds a class annotation, which does not depend
+     * on understanding newer bytecode, and without it every class Tia meant to skip would run on a
+     * newer Java. Must run before any ByteBuddy class is loaded: ByteBuddy reads it once.
+     */
+    static void enableByteBuddyExperimentalMode() {
+        if (System.getProperty(BYTE_BUDDY_EXPERIMENTAL) == null) {
+            System.setProperty(BYTE_BUDDY_EXPERIMENTAL, "true");
         }
     }
 

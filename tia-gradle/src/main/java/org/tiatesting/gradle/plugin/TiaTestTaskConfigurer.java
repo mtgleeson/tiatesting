@@ -15,8 +15,10 @@ import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelector;
 import org.tiatesting.core.diff.diffanalyze.selector.TestSelectorResult;
+import org.tiatesting.core.distributed.ClaimOutcome;
 import org.tiatesting.core.distributed.DistributedForkProperties;
 import org.tiatesting.core.distributed.DistributedRunConfig;
+import org.tiatesting.core.distributed.DistributedRunCoordinator;
 import org.tiatesting.core.distributed.DistributedRunPreconditions;
 import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
@@ -743,10 +745,12 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * <p>{@link DistributedRunConfig#forRunner} builds the claim's configuration - a runner
      * configures only the run it belongs to and who it is, never a group count or a target run
      * time, since that shape is the planning job's decision and is already recorded in the plan
-     * being claimed from. The claim is made through {@link DistributedRunnerAssignment#claim}, the
-     * same call the Maven {@code prepare-agent} goal makes, so a Maven and a Gradle runner cannot
-     * disagree by even one suite about which suites a group owns. It claims and derives the two
-     * suite lists in one go, and those lists are written with {@link SelectionHandoff#write} and
+     * being claimed from. The claim is made through {@link DistributedRunCoordinator#claim} and the
+     * share derived through {@link DistributedRunnerAssignment#forClaimedRunner} - the same two steps
+     * the Maven {@code prepare-agent} goal takes inside {@link DistributedRunnerAssignment#claim} - so
+     * a Maven and a Gradle runner cannot disagree by even one suite about which suites a group owns.
+     * They are taken separately here so the claim can be recorded in between. The two suite lists
+     * are written with {@link SelectionHandoff#write} and
      * handed to the framework adapter exactly as an ordinary build's selection is - so the fork has
      * one selection source whether or not the build is distributed, and a framework whose fork only
      * reads files (JUnit 5's agent) needs nothing extra. No drain result is written: the plan
@@ -819,6 +823,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         DistributedRunConfig config = DistributedRunConfig.forRunner(tiaTaskExtension.getRunId(),
                 tiaTaskExtension.getDistributedRunnerKey());
         logVcsFallbackForARunner(tiaTaskExtension);
+        Integer groupNumber;
+        DistributedClaimRegistry.Claim claim;
         DistributedRunnerAssignment assignment;
         // try-with-resources: this connection is only needed long enough to make the claim and
         // derive the claimed share: it must not stay open for the rest of the build, since nothing
@@ -828,21 +834,24 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         // of the project's one distributed test task, so the claim must too.
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
-            assignment = DistributedRunnerAssignment.claim(dataStore, config,
-                    workspaceIdentity.getCommitValue(), System.currentTimeMillis());
+            ClaimOutcome outcome = new DistributedRunCoordinator(dataStore, config)
+                    .claim(workspaceIdentity.getCommitValue(), System.currentTimeMillis());
+            groupNumber = outcome.isClaimed() ? Integer.valueOf(outcome.getGroup().getGroupNumber()) : null;
+
+            // Recorded the moment the claim is committed, before anything else can fail: only a
+            // recorded claim lets the tia-dist-complete finalizer close the group out. Deriving the
+            // share below reads the plan and the tracked suites, and the hand-off after it can fail
+            // too (the JUnit 5 agent jar not resolvable offline, say); either failing first would
+            // leave the group claimed forever and the run unable to seal.
+            claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                    .recordClaim(testTask.getPath(), config.getRunId(), outcome.getRunnerKey(),
+                            groupNumber, workspaceIdentity.getBranch(),
+                            Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                            Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+
+            assignment = DistributedRunnerAssignment.forClaimedRunner(dataStore, config,
+                    outcome.getRunnerKey(), groupNumber);
         }
-
-        Integer groupNumber = assignment.getGroupNumber();
-
-        // Recorded before anything else can fail: the group is now claimed in the shared database,
-        // and only a recorded claim lets the tia-dist-complete finalizer close it out. A hand-off
-        // that failed first (the JUnit 5 agent jar not resolvable offline, say) would otherwise
-        // leave the group claimed forever and the run unable to seal.
-        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
-                .recordClaim(testTask.getPath(), config.getRunId(), assignment.getRunnerKey(),
-                        groupNumber, workspaceIdentity.getBranch(),
-                        Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                        Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
 
         if (assignment.isClaimed()) {
             LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",

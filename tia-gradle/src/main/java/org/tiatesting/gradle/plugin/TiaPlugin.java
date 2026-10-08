@@ -79,6 +79,9 @@ public class TiaPlugin implements Plugin<Project> {
      */
     public static final String VCS_CONFIGURATION_NAME = "tiaVcs";
 
+    /** The SLF4J API added to the test runtime classpath alongside Tia's test-JVM module. */
+    static final String SLF4J_API = "org.slf4j:slf4j-api:1.7.36";
+
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
 
@@ -129,7 +132,7 @@ public class TiaPlugin implements Plugin<Project> {
     /**
      * After evaluation, for the test tasks Tia is enabled on: apply the jacoco plugin if any of them
      * updates the mapping, detect the test framework, and add its Tia module to
-     * {@code testRuntimeOnly} at this plugin's version. Each flag is the test task's own value when
+     * {@code testRuntimeOnly} at this plugin's version, with the SLF4J API that module logs through. Each flag is the test task's own value when
      * set, otherwise the project's - the rule the task action applies when it merges the two.
      */
     void configureTestRuntime() {
@@ -160,6 +163,11 @@ public class TiaPlugin implements Plugin<Project> {
         }
         project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
                 "org.tiatesting:" + adapter.runtimeArtifactId() + ":" + TiaVersion.get());
+        // Tia's test-JVM module logs through SLF4J but deliberately does not depend on it, so a
+        // project with no SLF4J of its own would fail to start its tests. Gradle resolves to the
+        // highest version requested, so a project that has SLF4J keeps its own; one that has none
+        // gets the API alone, which falls back to a no-op logger.
+        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME, SLF4J_API);
     }
 
     /**
@@ -964,23 +972,12 @@ public class TiaPlugin implements Plugin<Project> {
     }
 
     /**
-     * Build the {@link DataStore} for the daemon-side Tia tasks, resolving the SQL dialect from
-     * the {@code tia { ... }} extension's connection properties via {@link DataStoreFactory}.
-     * Shares {@link #resolveDbFilePath()} with {@link #buildH2ConnectionSettings()} so both
-     * paths agree on the daemon-cwd-vs-projectDir resolution described there.
-     *
-     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
-     *               connection
-     * @return the constructed datastore for the resolved dialect
-     */
-    public DataStore buildDataStore(String branch) {
-        return buildDataStore(branch, null);
-    }
-
-    /**
      * Open the datastore for a branch and a schema suffix. A null suffix is the unsuffixed
      * {@code tia_<branch>} schema Tia has always used, so a project that declares none is
-     * unaffected.
+     * unaffected. There is deliberately no overload without the suffix: every caller must say which
+     * schema it means. The SQL dialect comes from the {@code tia { ... }} connection settings, and
+     * the embedded file path is shared with {@link #buildH2ConnectionSettings()} through
+     * {@link #resolveDbFilePath()}, so both agree on the daemon-cwd-vs-projectDir resolution.
      *
      * @param branch the VCS branch, the base of the schema name
      * @param schemaSuffix the schema suffix isolating one test task's datastore, or null for none

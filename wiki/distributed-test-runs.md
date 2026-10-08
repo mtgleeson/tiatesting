@@ -439,8 +439,11 @@ suite lists get derived, follows each build tool's existing handoff - see the
 - **Gradle** claims in the daemon, inside the test task's `doFirst` action
   (`TiaTestTaskConfigurer.claimDistributedRun`), before the test task forks, and sets
   the values as ordinary `Test` task system properties, which Gradle forwards into the forked JVM
-  itself. It claims through the same `DistributedRunnerAssignment.claim` as Maven, which also
-  derives the two suite lists, and writes them as the same `SelectionHandoff` files an ordinary
+  itself. It claims through `DistributedRunCoordinator.claim`, records the claim in the build's
+  `DistributedClaimRegistry` straight away, then derives the two suite lists with
+  `DistributedRunnerAssignment.forClaimedRunner` - the same two steps Maven's
+  `DistributedRunnerAssignment.claim` takes, split so nothing that fails after the claim can leave it
+  unrecorded - and writes them as the same `SelectionHandoff` files an ordinary
   build's selection uses (`ignored-tests.txt`, `selected-tests.txt`, in the test task's temporary
   directory) for the framework adapter to hand to the fork. The fork never derives the lists
   itself, so both build tools and both frameworks share one derivation and one selection source.

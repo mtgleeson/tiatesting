@@ -60,6 +60,9 @@ class TiaPluginTestRuntimeTest {
         assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
                 .anyMatch(d -> "tia-spock".equals(d.getName())));
         assertEquals(Junit5FrameworkAdapter.NAME, plugin(project).getTestFrameworkAdapter().name());
+        assertTrue(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
+                .anyMatch(d -> "org.slf4j".equals(d.getGroup()) && "slf4j-api".equals(d.getName())),
+                "slf4j-api was not added to testRuntimeOnly");
     }
 
     @org.junit.jupiter.api.Test

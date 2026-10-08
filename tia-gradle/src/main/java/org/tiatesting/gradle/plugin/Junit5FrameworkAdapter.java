@@ -32,6 +32,12 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     /** Classifier of the agent's self-contained jar, the one put on {@code -javaagent}. */
     static final String AGENT_CLASSIFIER = "runtime";
 
+    /*
+    The resolved agent jar, kept for the build: an adapter belongs to one project's plugin, and every
+    JUnit 5 test task in that project hands off with the same jar.
+     */
+    private File agentJar;
+
     /**
      * @return {@code junit5}
      */
@@ -68,7 +74,7 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
      */
     @Override
     public void handOffSelection(final Test testTask, final SelectionHandoff handoff) {
-        String argument = "-javaagent:" + resolveAgentJar(testTask.getProject()).getAbsolutePath() + "="
+        String argument = "-javaagent:" + agentJar(testTask.getProject()).getAbsolutePath() + "="
                 + agentOptions(handoff).toCommandLineOptionsString();
         agentArgumentProvider(testTask).setArgument(argument);
     }
@@ -107,6 +113,20 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
                     testTask.getJvmArgumentProviders().add(provider);
                     return provider;
                 });
+    }
+
+    /**
+     * The agent jar, resolved the first time a test task of this project hands off and reused by the
+     * project's other test tasks.
+     *
+     * @param project the project whose repositories the agent is resolved from
+     * @return the agent jar
+     */
+    private synchronized File agentJar(final Project project) {
+        if (agentJar == null) {
+            agentJar = resolveAgentJar(project);
+        }
+        return agentJar;
     }
 
     /**
