@@ -45,6 +45,27 @@ class TestSelectorRunTimeEstimateTest {
     }
 
     /**
+     * An enclosing class and its {@code @Nested} class are both selected - the enclosing class's
+     * time already includes the nested class, so the total counts the family once, while the
+     * per-suite figures stay as recorded.
+     */
+    @Test
+    void estimateRunTime_nestedSuitesAreNotCountedTwice(){
+        // given - Outer's 60ms container includes Outer$Inner's 40ms
+        Map<String, TestSuiteTracker> tracked = buildTrackedSuites(entry("Outer", 60L), entry("Outer$Inner", 40L),
+                entry("Other", 10L));
+        Set<String> testsToRun = setOf("Outer", "Outer$Inner", "Other");
+
+        // when
+        TestSelector.RunTimeEstimate estimate = TestSelector.estimateRunTime(testsToRun, tracked, statsWithBaseline(0L));
+
+        // then
+        assertEquals(70L, estimate.getEstimatedRunTimeMs());
+        assertEquals(perTestMap(entry("Outer", 60L), entry("Outer$Inner", 40L), entry("Other", 10L)),
+                estimate.getSelectedTestRunTimesMs());
+    }
+
+    /**
      * One selected test is missing stats - the median {@code avgRunTime} across tracked
      * suites is used for that test, and the missing test name is captured for display.
      */

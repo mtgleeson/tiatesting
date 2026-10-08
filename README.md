@@ -41,7 +41,7 @@ You never declare a VCS library. The plugin works out which VCS the project uses
 - **Maven**: 3.8.1 or newer is required for `tia-maven-plugin`. The floor is enforced automatically via `<prerequisites>` in the plugin's POM - invoking the plugin under an older Maven fails with a clear "requires Maven 3.8.1" error. See the [Wiki](WIKI.md) for the design decision behind picking 3.8.1 specifically.
 - **Java**: 8 or newer.
 - **Gradle**: no version floor is enforced beyond what your test framework's Gradle support requires.
-- **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so your test project must already provide them. Most projects do. See [Seeing Tia's log output](#seeing-tias-log-output).
+- **SLF4J on the test classpath** (only needed if you want to see Tia's logging from inside the test run): Tia logs via SLF4J but deliberately does not bring `slf4j-api` or a binding along transitively, so on Maven your test project must already provide them; most projects do. The Gradle plugin adds `slf4j-api` itself, so there only the binding is up to you. See [Seeing Tia's log output](#seeing-tias-log-output).
 
 ### Maven and JUnit 5
 Tia hooks into JUnit Platform via a `LauncherSessionListener` for updating test coverage mappings and stats. The listener is auto-registered from the `tia-junit5` jar's own `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` descriptor, so no manual file is required - just declare the dependency. The listener only activates when `tiaEnabled=true` is set as a system property, so it is a no-op for IDE runs and any build that doesn't enable Tia.
@@ -247,7 +247,7 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.11.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    // Tia logs through SLF4J inside the test JVM and needs it there - see "Seeing Tia's log output"
+    // Optional: a binding to see Tia's logging from the test JVM - see "Seeing Tia's log output"
     testRuntimeOnly 'ch.qos.logback:logback-classic:1.2.13'
 }
 
@@ -277,7 +277,7 @@ tia {
 }
 ```
 
-**`@Nested` classes:** each nested class is tracked as its own suite. Because a nested class only runs inside its enclosing class, when Tia selects a nested class it also runs the enclosing class's own tests, and a distributed run always keeps a class and the classes nested in it on the same runner.
+**`@Nested` classes:** each nested class is tracked as its own suite. Because a nested class only runs inside its enclosing class, when Tia selects a nested class it also runs the enclosing class's own tests, and a distributed run always keeps a class and the classes nested in it on the same runner. **Known limitation:** a `@Nested` class declared in a base class and inherited by concrete test classes is not yet handled - Tia can skip the concrete class even when the inherited nested tests were selected. See "Nested test classes" in the [Wiki](wiki/test-runner-data-exchange.md).
 
 ### Choosing the version control system
 Tia works out which VCS a project uses, in this order:
@@ -732,7 +732,7 @@ For Gradle, use `gradle tia-select-tests --info` or `--debug`.
 This is the part that has a requirement. Tia's test listener logs through SLF4J, which Tia declares as a compile-only dependency in every module, so **your test project must provide `slf4j-api` plus an SLF4J binding (Logback, `slf4j-simple`, Log4j2's SLF4J binding, etc.) on its test classpath.** Most real projects already have one. If yours does not:
 
 - With `slf4j-api` present but no binding, SLF4J falls back to a no-op implementation, prints `Failed to load class org.slf4j.impl.StaticLoggerBinder`, and Tia's test-run logging is silently discarded.
-- With no `slf4j-api` at all, Tia's loggers cannot initialise and the test run can fail with `NoClassDefFoundError: org/slf4j/LoggerFactory`. On Gradle with JUnit 5 it always fails this way.
+- With no `slf4j-api` at all, Tia's loggers cannot initialise and the test run can fail with `NoClassDefFoundError: org/slf4j/LoggerFactory`. The Gradle plugin prevents this by adding `slf4j-api` to `testRuntimeOnly` itself (your own SLF4J version wins if you have one), so on Gradle only the binding is up to you.
 
 A minimal setup for a project that has no logging dependencies of its own:
 

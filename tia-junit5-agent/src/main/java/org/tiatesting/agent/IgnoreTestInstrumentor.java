@@ -9,6 +9,7 @@ import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 import java.lang.instrument.Instrumentation;
+import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -31,8 +32,12 @@ public class IgnoreTestInstrumentor {
     /** Binary name of JUnit Jupiter's {@code @Disabled}. */
     static final String DISABLED_ANNOTATION = "org.junit.jupiter.api.Disabled";
 
-    /** The {@code @Disabled} description per test class loader, so its class file is read once. */
-    private final Map<ClassLoader, AnnotationDescription> disabledByLoader = new WeakHashMap<>();
+    /*
+    The @Disabled description per test class loader, so its class file is read once per loader. The
+    value is held weakly too: a description reaches back to its loader through the class file
+    locator it was read with, and a strongly held value would keep its weak key alive forever.
+     */
+    private final Map<ClassLoader, WeakReference<AnnotationDescription>> disabledByLoader = new WeakHashMap<>();
 
     /**
      * Register a transformer that annotates each ignored test class with {@code @Disabled} when it
@@ -57,7 +62,8 @@ public class IgnoreTestInstrumentor {
      * @return the annotation to add
      */
     synchronized AnnotationDescription disabledFor(final ClassLoader classLoader) {
-        AnnotationDescription disabled = disabledByLoader.get(classLoader);
+        WeakReference<AnnotationDescription> cached = disabledByLoader.get(classLoader);
+        AnnotationDescription disabled = cached != null ? cached.get() : null;
         if (disabled == null) {
             TypeDescription disabledType = TypePool.Default
                     .of(ClassFileLocator.ForClassLoader.of(classLoader))
@@ -66,7 +72,7 @@ public class IgnoreTestInstrumentor {
             disabled = AnnotationDescription.Builder.ofType(disabledType)
                     .define("value", "Ignored by TIA testing")
                     .build();
-            disabledByLoader.put(classLoader, disabled);
+            disabledByLoader.put(classLoader, new WeakReference<>(disabled));
         }
         return disabled;
     }

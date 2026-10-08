@@ -54,24 +54,6 @@ class TestSelectorIgnoreDeveloperDisabledTest {
         assertTrue(ignore.isEmpty());
     }
 
-    /**
-     * A tracked suite enclosing a selected nested suite is not ignored: skipping the enclosing class
-     * would skip the nested one too.
-     */
-    @Test
-    void getTestsToIgnore_enclosingSuiteOfASelectedNestedSuite_isNotIgnored(){
-        // given
-        Map<String, TestSuiteTracker> tracked = trackedSuites(suite("OuterTest", false),
-                suite("OuterTest$Inner", false), suite("OtherTest", false));
-        Set<String> testsToRun = setOf("OuterTest$Inner");
-
-        // when
-        Set<String> ignore = TestSelector.getTestsToIgnore(tracked, testsToRun);
-
-        // then
-        assertEquals(setOf("OtherTest"), ignore);
-    }
-
     private static TestSuiteTracker suite(String name, boolean developerDisabled){
         TestSuiteTracker tracker = new TestSuiteTracker(name);
         tracker.setDeveloperDisabled(developerDisabled);

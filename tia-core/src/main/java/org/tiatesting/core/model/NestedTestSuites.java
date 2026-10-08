@@ -2,7 +2,9 @@ package org.tiatesting.core.model;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -52,6 +54,57 @@ public final class NestedTestSuites {
             separator = suiteName.indexOf(NESTED_SEPARATOR, separator + 1);
         }
         return enclosing;
+    }
+
+    /**
+     * Add to a run set every tracked suite that encloses a suite in it. Skipping an enclosing class
+     * skips every class nested in it, so an enclosing class of a selected nested class always runs -
+     * and is counted as selected, so the run-time estimate, the history counts and a distributed
+     * plan include its own tests. An enclosing class Tia does not track is never ignored, so it is
+     * left out.
+     *
+     * @param testsToRun the suites selected to run; modified in place
+     * @param trackedSuites the suites Tia tracks
+     */
+    public static void addEnclosingSuites(final Set<String> testsToRun, final Collection<String> trackedSuites) {
+        List<String> enclosing = new ArrayList<>();
+        for (String suite : testsToRun) {
+            if (suite.indexOf(NESTED_SEPARATOR) > 0) {
+                enclosing.addAll(enclosingSuites(suite));
+            }
+        }
+        for (String suite : enclosing) {
+            if (trackedSuites.contains(suite)) {
+                testsToRun.add(suite);
+            }
+        }
+    }
+
+    /**
+     * Weigh suite families (a top-level suite and every suite nested in it) by run time. A top-level
+     * suite's recorded time is the wall clock of its whole class container, which already includes
+     * every nested class that ran inside it, so summing a family's members would count the nested
+     * classes twice. A family weighs the larger of its top-level suite's weight and the sum of its
+     * nested suites' weights: the top-level figure when the whole family ran when it was timed, the
+     * nested sum when the top-level suite is absent or its figure predates the nested classes.
+     *
+     * @param weightsBySuite run time per suite; no null values
+     * @return each family's weight, keyed by top-level suite
+     */
+    public static Map<String, Long> familyWeights(final Map<String, Long> weightsBySuite) {
+        Map<String, Long> topLevelWeights = new HashMap<>();
+        Map<String, Long> nestedWeights = new HashMap<>();
+        for (Map.Entry<String, Long> entry : weightsBySuite.entrySet()) {
+            String topLevel = topLevelSuite(entry.getKey());
+            if (topLevel.equals(entry.getKey())) {
+                topLevelWeights.put(topLevel, entry.getValue());
+            } else {
+                nestedWeights.merge(topLevel, entry.getValue(), Long::sum);
+            }
+        }
+        Map<String, Long> families = new HashMap<>(topLevelWeights);
+        nestedWeights.forEach((topLevel, nested) -> families.merge(topLevel, nested, Math::max));
+        return families;
     }
 
     /**
