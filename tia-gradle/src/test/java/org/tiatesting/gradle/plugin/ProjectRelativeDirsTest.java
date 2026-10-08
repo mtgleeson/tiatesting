@@ -46,14 +46,14 @@ class ProjectRelativeDirsTest {
     }
 
     @Test
-    void anEntryMissingUnderTheProjectIsKeptAsConfigured(@TempDir File projectDir) {
-        // given - nothing exists under the project
+    void anEntryMissingEverywhereStillResolvesUnderTheProject(@TempDir File projectDir) {
+        // given - nothing exists under the project, and the entry is not an existing absolute path
 
         // when
         List<String> resolved = ProjectRelativeDirs.resolve(projectDir, " /src/main/java ");
 
-        // then - TestSelector warns about it rather than it being silently rewritten
-        assertEquals(Collections.singletonList("/src/main/java"), resolved);
+        // then - never left for the daemon's working directory to resolve
+        assertEquals(Collections.singletonList(new File(projectDir, "/src/main/java").getAbsolutePath()), resolved);
     }
 
     @Test

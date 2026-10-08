@@ -761,7 +761,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * resolves the same context on either build tool.
      *
      * <p>The claim is also recorded in this build's {@link DistributedClaimRegistry}, keyed by
-     * this test task's path. A second test task attempting a claim in the same build finds that
+     * this test task's path, immediately after the database claim and before the hand-off, so a
+     * hand-off that fails cannot leave a claimed group the finalizer does not know about. A second test task attempting a claim in the same build finds that
      * entry and fails loudly - splitting a runner across two test tasks cannot be made to work, see
      * {@link DistributedClaimRegistry#recordClaim} for why - rather than the two test tasks'
      * claims silently colliding, one group being claimed twice and another left {@code PENDING}
@@ -823,18 +824,25 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         // derive the claimed share: it must not stay open for the rest of the build, since nothing
         // else this daemon-side action does touches the datastore, and holding a shared-database
         // connection open across the whole test run would tie up a resource none of that work needs.
-        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch())) {
+        // The task's own schema suffix: the plan and tia-dist-complete address the suffixed schema
+        // of the project's one distributed test task, so the claim must too.
+        try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
+                tiaTaskExtension.getSchemaSuffix())) {
             assignment = DistributedRunnerAssignment.claim(dataStore, config,
                     workspaceIdentity.getCommitValue(), System.currentTimeMillis());
         }
 
         Integer groupNumber = assignment.getGroupNumber();
 
-        // A surplus runner (no group) ignores every suite and runs none.
-        SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(),
-                assignment.getTestsToIgnore(), assignment.getTestsToRun(), null,
-                TestRunSelectionDetails.empty());
-        frameworkAdapter.get().handOffSelection(testTask, handoff);
+        // Recorded before anything else can fail: the group is now claimed in the shared database,
+        // and only a recorded claim lets the tia-dist-complete finalizer close it out. A hand-off
+        // that failed first (the JUnit 5 agent jar not resolvable offline, say) would otherwise
+        // leave the group claimed forever and the run unable to seal.
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                .recordClaim(testTask.getPath(), config.getRunId(), assignment.getRunnerKey(),
+                        groupNumber, workspaceIdentity.getBranch(),
+                        Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                        Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
 
         if (assignment.isClaimed()) {
             LOGGER.info("Tia distributed run '{}': test task '{}' claimed group {}.",
@@ -853,12 +861,13 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
             testTask.systemProperty(property.getKey(), property.getValue());
         }
 
-        DistributedClaimRegistry registry =
-                DistributedClaimRegistry.forBuild(testTask.getProject().getGradle());
-        return registry.recordClaim(testTask.getPath(), config.getRunId(), assignment.getRunnerKey(),
-                groupNumber, workspaceIdentity.getBranch(),
-                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
-                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
+        // A surplus runner (no group) ignores every suite and runs none.
+        SelectionHandoff handoff = SelectionHandoff.write(testTask.getTemporaryDir(),
+                assignment.getTestsToIgnore(), assignment.getTestsToRun(), null,
+                TestRunSelectionDetails.empty());
+        frameworkAdapter.get().handOffSelection(testTask, handoff);
+
+        return claim;
     }
 
     /**

@@ -209,7 +209,7 @@ The plugin applies the `jacoco` plugin itself when a test task updates the mappi
 
 Tia's tasks, and the test tasks it wires, are marked as not compatible with Gradle's [configuration cache](https://docs.gradle.org/current/userguide/configuration_cache.html): they read the project model while they run. A build using `--configuration-cache` still runs; Gradle just does not store a cache entry for it.
 
-Detection looks at your declared test dependencies: `org.spockframework` means Spock, `org.junit.jupiter` means JUnit 5. Spock projects usually declare JUnit Jupiter too, so when both are declared Spock wins. If detection cannot see Spock (for example it is declared only through a BOM or platform), set the framework explicitly:
+Detection looks at your declared test dependencies: `org.spockframework` means Spock, `org.junit.jupiter` means JUnit 5. Spock projects usually declare JUnit Jupiter too, so when both are declared Spock wins, with a warning that `testFramework` silences. If detection cannot see Spock (for example it is declared only through a BOM or platform), set the framework explicitly:
 
 ```
 tia {

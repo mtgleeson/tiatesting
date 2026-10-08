@@ -89,9 +89,11 @@ public final class TestGroupBalancer {
     /**
      * Split the suites into {@code groupCount} groups, minimising the heaviest group.
      *
-     * <p>Walks the suites heaviest-first and puts each into the currently-lightest group. When
-     * there are fewer suites than {@code groupCount}, the count is capped at the number of suites,
-     * one suite per group, rather than padded with empty groups: the planner turns every group
+     * <p>The unit placed is a suite family - a top-level suite and every suite nested in it, which
+     * always share a group (see {@link #familiesByTopLevelSuite}). Walks the families
+     * heaviest-first and puts each into the currently-lightest group. When there are fewer families
+     * than {@code groupCount}, the count is capped at the number of families, one family per group,
+     * rather than padded with empty groups: the planner turns every group
      * into a runner job, and an empty one would start a checkout, a compile and a test JVM to run
      * nothing. A pipeline that starts the configured count anyway only produces surplus runners,
      * which claim nothing and run nothing.
@@ -100,12 +102,12 @@ public final class TestGroupBalancer {
      * itself - see {@link #noGroups()}.
      *
      * @param suiteWeightsMs estimated run time in ms, keyed by test suite name; may be empty
-     * @param groupCount the most groups to produce; fewer are produced when there are fewer suites.
-     *                   Must be at least 1
+     * @param groupCount the most groups to produce; fewer are produced when there are fewer suite
+     *                   families. Must be at least 1
      * @param fixedOverheadMs the per-JVM cost in ms each group pays once; must not be negative
      * @return the grouping, always reporting the target as met and not clamped, since a fixed
-     *         group count has neither a target nor a ceiling; {@code min(groupCount, suites)}
-     *         groups, every one holding at least one suite, so zero groups when {@code
+     *         group count has neither a target nor a ceiling; {@code min(groupCount, families)}
+     *         groups, every one holding at least one family, so zero groups when {@code
      *         suiteWeightsMs} is empty
      * @throws IllegalArgumentException if {@code groupCount} is below 1 or {@code fixedOverheadMs}
      *                                  is negative
@@ -477,7 +479,8 @@ public final class TestGroupBalancer {
     }
 
     /**
-     * Group suite names into families by their top-level suite, so a JUnit 5 {@code @Nested} suite
+     * Group suite names into families by their top-level suite - the unit the balancer places -
+     * so a JUnit 5 {@code @Nested} suite
      * ({@code Outer$Inner}) is balanced together with {@code Outer}: a nested class only runs inside
      * its enclosing class, so a group holding one without the other would skip it. See
      * {@link NestedTestSuites}.
@@ -495,19 +498,32 @@ public final class TestGroupBalancer {
     }
 
     /**
+     * Weigh each suite family as one unit. A top-level suite's recorded time is the wall clock of
+     * its whole class container, which already includes every nested class that ran inside it, so
+     * summing the members would count the nested classes twice. A family therefore weighs the larger
+     * of its top-level suite's weight and the sum of its nested suites' weights: the top-level
+     * figure when the whole family ran when it was timed, the nested sum when the top-level suite
+     * is not selected or its figure predates the nested classes.
+     *
      * @param suiteWeightsMs estimated run time in ms, keyed by suite name
      * @param families the suite families, keyed by top-level suite
-     * @return each family's summed weight, keyed by top-level suite
+     * @return each family's weight, keyed by top-level suite
      */
     private static Map<String, Long> familyWeights(final Map<String, Long> suiteWeightsMs,
                                                    final Map<String, List<String>> families) {
         Map<String, Long> weights = new HashMap<>();
         for (Map.Entry<String, List<String>> family : families.entrySet()) {
-            long weight = 0L;
+            String topLevel = family.getKey();
+            long topLevelWeight = 0L;
+            long nestedWeight = 0L;
             for (String suite : family.getValue()) {
-                weight += suiteWeightsMs.get(suite);
+                if (suite.equals(topLevel)) {
+                    topLevelWeight = suiteWeightsMs.get(suite);
+                } else {
+                    nestedWeight += suiteWeightsMs.get(suite);
+                }
             }
-            weights.put(family.getKey(), weight);
+            weights.put(topLevel, Math.max(topLevelWeight, nestedWeight));
         }
         return weights;
     }

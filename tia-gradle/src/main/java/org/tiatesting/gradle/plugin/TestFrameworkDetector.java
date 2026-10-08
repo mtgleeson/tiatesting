@@ -20,7 +20,8 @@ import java.util.stream.Collectors;
  * <p>Spock wins when both Spock and JUnit Jupiter are declared: Spock 2 runs on the JUnit Platform
  * and Spock projects routinely declare {@code org.junit.jupiter} too, so the pair is far more often a
  * Spock project than a JUnit 5 one. A JUnit 5 project that also declares Spock sets
- * {@code testFramework = 'junit5'}.
+ * {@code testFramework = 'junit5'}. Detection warns whenever it has to make that choice, and an
+ * explicit {@code testFramework} silences the warning.
  */
 public final class TestFrameworkDetector {
 
@@ -65,8 +66,12 @@ public final class TestFrameworkDetector {
         }
         TestFrameworkAdapter chosen = detected.get(0);
         if (detected.size() > 1) {
-            LOGGER.info("Tia found more than one test framework in this project's declared test dependencies "
-                    + "{} and uses {}. {}", names(detected), chosen.name(), settingHint(adapters));
+            // A warning, not info: a JUnit 5 project that only pulls Spock in (a shared test-utils
+            // convention, say) would otherwise get no skipping and no mapping with nothing visible
+            // saying why. Setting testFramework explicitly silences it.
+            LOGGER.warn("Tia found more than one test framework in this project's declared test dependencies "
+                    + "{} and uses {}. If this project's tests are not {} tests, Tia will neither skip nor map "
+                    + "them. {}", names(detected), chosen.name(), chosen.name(), settingHint(adapters));
         }
         return chosen;
     }

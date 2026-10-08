@@ -380,16 +380,6 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         String testSuiteName = getTestSuiteName(testIdentifier);
-        synchronized (suitesInProgress) {
-            String enclosingSuite = suitesInProgress.peekFirst();
-            if (updateDBMapping && enclosingSuite != null) {
-                // A @Nested class is starting inside its enclosing class: what ran so far is the
-                // enclosing class's own tests, so credit it there before the nested class's tests
-                // add to the same coverage dump.
-                collectCoverageInto(this.testSuiteTrackers.get(enclosingSuite));
-            }
-            suitesInProgress.addFirst(testSuiteName);
-        }
         // The latest execution decides: a re-run that passes must leave the failed set.
         this.testSuitesFailed.remove(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
@@ -398,6 +388,21 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         if (testSuiteTracker == null){
             testSuiteTracker = new TestSuiteTracker(testSuiteName);
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
+        }
+
+        // Recorded as in progress only once its tracker exists, so a class that starts alongside it
+        // always finds a tracker to credit coverage to.
+        synchronized (suitesInProgress) {
+            String enclosingSuite = suitesInProgress.peekFirst();
+            TestSuiteTracker enclosingTracker = enclosingSuite != null
+                    ? this.testSuiteTrackers.get(enclosingSuite) : null;
+            if (updateDBMapping && enclosingTracker != null) {
+                // A @Nested class is starting inside its enclosing class: what ran so far is the
+                // enclosing class's own tests, so credit it there before the nested class's tests
+                // add to the same coverage dump.
+                collectCoverageInto(enclosingTracker);
+            }
+            suitesInProgress.addFirst(testSuiteName);
         }
 
         if (updateDBMapping){
