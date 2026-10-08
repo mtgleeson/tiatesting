@@ -2,13 +2,16 @@ package org.tiatesting.core.distributed;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tiatesting.core.model.NestedTestSuites;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Splits a set of selected test suites into balanced groups for a distributed run. Pure: no I/O,
@@ -20,6 +23,10 @@ import java.util.Map;
  * the goal is to minimise the number of groups - bin packing, solved here with FFD (first-fit
  * decreasing) to choose the group count, followed by an LPT re-balance at that count when it
  * produces a lighter heaviest group.
+ *
+ * <p>The unit balanced is a suite family, not a suite: a JUnit 5 {@code @Nested} suite
+ * ({@code Outer$Inner}) always lands in the same group as its top-level suite, since it only runs
+ * inside it. Group counts are therefore capped at the number of families.
  *
  * <p>Every ordering decision is broken deterministically (by suite name, then by group number) so
  * the same inputs always produce the same plan. Two runners deriving different groupings from the
@@ -106,6 +113,24 @@ public final class TestGroupBalancer {
     public static GroupingResult balanceIntoGroups(final Map<String, Long> suiteWeightsMs,
                                                    final int groupCount,
                                                    final long fixedOverheadMs) {
+        requireNoNullWeights(suiteWeightsMs);
+        Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
+        return expandFamilies(balanceUnitsIntoGroups(familyWeights(suiteWeightsMs, families), groupCount,
+                fixedOverheadMs), families);
+    }
+
+    /**
+     * The fixed-count balance of {@link #balanceIntoGroups}, over units that are never split: each
+     * key is a suite family, named by its top-level suite.
+     *
+     * @param suiteWeightsMs estimated run time in ms, keyed by unit; may be empty
+     * @param groupCount the most groups to produce; must be at least 1
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once; must not be negative
+     * @return the grouping of the units
+     */
+    private static GroupingResult balanceUnitsIntoGroups(final Map<String, Long> suiteWeightsMs,
+                                                         final int groupCount,
+                                                         final long fixedOverheadMs) {
         if (suiteWeightsMs.isEmpty()) {
             // Validated anyway, so a misconfigured group count is reported on the build that
             // happens to select nothing rather than waiting for the next one that selects anything.
@@ -218,6 +243,26 @@ public final class TestGroupBalancer {
                                                          final long targetRunTimeMs,
                                                          final Integer maxGroups,
                                                          final long fixedOverheadMs) {
+        requireNoNullWeights(suiteWeightsMs);
+        Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
+        return expandFamilies(balanceUnitsForTargetRunTime(familyWeights(suiteWeightsMs, families),
+                targetRunTimeMs, maxGroups, fixedOverheadMs), families);
+    }
+
+    /**
+     * The target-run-time balance of {@link #balanceForTargetRunTime}, over units that are never
+     * split: each key is a suite family, named by its top-level suite.
+     *
+     * @param suiteWeightsMs estimated run time in ms, keyed by unit; may be empty
+     * @param targetRunTimeMs the wall-clock test run time to aim for, in ms; must not be negative
+     * @param maxGroups an optional ceiling on the group count, or null for no ceiling
+     * @param fixedOverheadMs the per-JVM cost in ms each group pays once; must not be negative
+     * @return the grouping of the units
+     */
+    private static GroupingResult balanceUnitsForTargetRunTime(final Map<String, Long> suiteWeightsMs,
+                                                               final long targetRunTimeMs,
+                                                               final Integer maxGroups,
+                                                               final long fixedOverheadMs) {
         if (targetRunTimeMs < 0) {
             throw new IllegalArgumentException(
                     "targetRunTimeMs must not be negative, was " + targetRunTimeMs);
@@ -429,6 +474,64 @@ public final class TestGroupBalancer {
             groups.add(new SuiteGroup(i, groupSuites.get(i), groupWeights[i] + fixedOverheadMs));
         }
         return groups;
+    }
+
+    /**
+     * Group suite names into families by their top-level suite, so a JUnit 5 {@code @Nested} suite
+     * ({@code Outer$Inner}) is balanced together with {@code Outer}: a nested class only runs inside
+     * its enclosing class, so a group holding one without the other would skip it. See
+     * {@link NestedTestSuites}.
+     *
+     * @param suiteNames the suite names to group
+     * @return each family's members in name order, keyed by the top-level suite name
+     */
+    private static Map<String, List<String>> familiesByTopLevelSuite(final Collection<String> suiteNames) {
+        Map<String, List<String>> families = new TreeMap<>();
+        for (String suite : suiteNames) {
+            families.computeIfAbsent(NestedTestSuites.topLevelSuite(suite), k -> new ArrayList<>()).add(suite);
+        }
+        families.values().forEach(Collections::sort);
+        return families;
+    }
+
+    /**
+     * @param suiteWeightsMs estimated run time in ms, keyed by suite name
+     * @param families the suite families, keyed by top-level suite
+     * @return each family's summed weight, keyed by top-level suite
+     */
+    private static Map<String, Long> familyWeights(final Map<String, Long> suiteWeightsMs,
+                                                   final Map<String, List<String>> families) {
+        Map<String, Long> weights = new HashMap<>();
+        for (Map.Entry<String, List<String>> family : families.entrySet()) {
+            long weight = 0L;
+            for (String suite : family.getValue()) {
+                weight += suiteWeightsMs.get(suite);
+            }
+            weights.put(family.getKey(), weight);
+        }
+        return weights;
+    }
+
+    /**
+     * Replace each family in a grouping of families with its member suites, keeping every group's
+     * number, estimate and the result's flags.
+     *
+     * @param familyResult the grouping of families
+     * @param families the suite families, keyed by top-level suite
+     * @return the same grouping over suite names
+     */
+    private static GroupingResult expandFamilies(final GroupingResult familyResult,
+                                                 final Map<String, List<String>> families) {
+        List<SuiteGroup> groups = new ArrayList<>(familyResult.getGroups().size());
+        for (SuiteGroup group : familyResult.getGroups()) {
+            List<String> suites = new ArrayList<>();
+            for (String family : group.getSuiteNames()) {
+                suites.addAll(families.get(family));
+            }
+            groups.add(new SuiteGroup(group.getGroupNumber(), suites, group.getEstimatedMs()));
+        }
+        return new GroupingResult(groups, familyResult.isTargetMet(), familyResult.isClampedToMaxGroups(),
+                familyResult.isSingleSuiteExceedsTarget(), familyResult.isFixedOverheadExceedsTarget());
     }
 
     /**

@@ -31,6 +31,8 @@ import org.tiatesting.core.testrunner.TestRunnerService;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -135,6 +137,15 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     test-retry round in a fresh JVM.
      */
     private volatile RunAttempt runAttempt = RunAttempt.FIRST;
+    /*
+    The class containers currently executing, innermost first. JUnit Jupiter runs a class's own
+    tests and then its @Nested classes inside it, so when a nested class starts, the coverage
+    collected since the enclosing class started belongs to the enclosing class - see
+    testSuiteStarted. Guarded by its own monitor; class containers start and finish on the
+    engine's thread unless the suite runs classes concurrently, which coverage attribution does
+    not support anyway.
+     */
+    private final Deque<String> suitesInProgress = new ArrayDeque<>();
 
     /**
      * Build the listener for this test JVM: read the update flags and the selected/ignored suite
@@ -157,12 +168,25 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      *                          the runner's suite sets and the run-level stats)
      */
     public TiaTestExecutionListener(final SharedTestRunData sharedTestRunData) {
+        this(sharedTestRunData, new JacocoClient());
+    }
+
+    /**
+     * Build the listener with a given coverage client - see {@link
+     * #TiaTestExecutionListener(SharedTestRunData)}. Package-private so a test can supply coverage
+     * dumps without a JaCoCo agent.
+     *
+     * @param sharedTestRunData the per-JVM state carried across Surefire retries
+     * @param coverageClient the client coverage is collected through; initialised here when mapping
+     *                       is on
+     */
+    TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, final JacocoClient coverageClient) {
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         // updateDBTestRunHistory defaults to TRUE - log a row unless explicitly switched off.
         // The inverse predicate handles a missing system property as "enabled".
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
-        this.coverageClient = new JacocoClient();
+        this.coverageClient = coverageClient;
 
         if (enabled && updateDBMapping){
             this.coverageClient.initialize();
@@ -286,6 +310,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         testRunStartTime = System.currentTimeMillis();
         suitesFinishedThisAttempt.clear();
         suitesFailedThisAttempt.clear();
+        synchronized (suitesInProgress) {
+            suitesInProgress.clear();
+        }
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.
@@ -339,6 +366,12 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * it will succeed until a failure says otherwise, and clear any failure an earlier attempt
      * recorded for it, since this execution's outcome is now the one that counts.
      *
+     * <p>When mapping is on and another class container is still running - a {@code @Nested} class
+     * starting inside its enclosing class - the coverage collected so far is credited to that
+     * enclosing class first. Without this the nested class's coverage dump at its finish would
+     * also carry the enclosing class's own tests, and the enclosing class would be left with no
+     * mapping of its own.
+     *
      * @param testIdentifier the class container that started
      */
     private void testSuiteStarted(TestIdentifier testIdentifier){
@@ -347,6 +380,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         String testSuiteName = getTestSuiteName(testIdentifier);
+        synchronized (suitesInProgress) {
+            String enclosingSuite = suitesInProgress.peekFirst();
+            if (updateDBMapping && enclosingSuite != null) {
+                // A @Nested class is starting inside its enclosing class: what ran so far is the
+                // enclosing class's own tests, so credit it there before the nested class's tests
+                // add to the same coverage dump.
+                collectCoverageInto(this.testSuiteTrackers.get(enclosingSuite));
+            }
+            suitesInProgress.addFirst(testSuiteName);
+        }
         // The latest execution decides: a re-run that passes must leave the failed set.
         this.testSuitesFailed.remove(testSuiteName);
         TestSuiteTracker testSuiteTracker = this.testSuiteTrackers.get(testSuiteName);
@@ -486,15 +529,10 @@ public class TiaTestExecutionListener implements TestExecutionListener {
 
         if (updateDBMapping) {
             log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
-            CoverageResult coverageResult = null;
-            try {
-                coverageResult = this.coverageClient.collectCoverage();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
-            addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
-            testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
+            collectCoverageInto(testSuiteTracker);
+        }
+        synchronized (suitesInProgress) {
+            suitesInProgress.removeFirstOccurrence(testSuiteName);
         }
 
         runnerTestSuites.add(testSuiteName);
@@ -502,6 +540,23 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         // override applied to runnerTestSuites - see the field's javadoc.
         suitesObserved.add(testSuiteName);
         suitesFinishedThisAttempt.add(testSuiteName);
+    }
+
+    /**
+     * Dump the coverage collected since the last dump and add it to a suite's mapping.
+     *
+     * @param testSuiteTracker the suite the coverage is credited to
+     */
+    private void collectCoverageInto(final TestSuiteTracker testSuiteTracker) {
+        CoverageResult coverageResult;
+        try {
+            coverageResult = this.coverageClient.collectCoverage();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
+        addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
+        testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
     }
 
     /**

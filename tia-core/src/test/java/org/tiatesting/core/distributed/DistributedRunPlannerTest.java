@@ -327,6 +327,31 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * An untracked nested suite the disk scan finds in a forced plan goes to the group holding its
+     * top-level suite, never to the emptiest group: a nested class only runs inside its enclosing
+     * class.
+     */
+    @Test
+    void aForcedPlanPutsAnUntrackedNestedSuiteWithItsTopLevelSuite() {
+        // given - HeavyTest has a nested class Tia has not tracked yet
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.HeavyTest$Inner");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 3, null, null, scan);
+
+        // then
+        for (SuiteGroup group : result.getGroups()) {
+            if (group.getSuiteNames().contains("com.example.HeavyTest$Inner")) {
+                assertTrue(group.getSuiteNames().contains("com.example.HeavyTest"), group.toString());
+                return;
+            }
+        }
+        throw new AssertionError("the nested suite is in no group: " + result.getGroups());
+    }
+
+    /**
      * A forced plan records its mode on the run row and summary, and the conservation check does
      * not reject it for carrying the untracked suites the disk scan added.
      */
