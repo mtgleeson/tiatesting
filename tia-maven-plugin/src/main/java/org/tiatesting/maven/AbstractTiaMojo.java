@@ -31,6 +31,7 @@ import org.tiatesting.core.vcs.VcsDetector;
 import org.tiatesting.core.vcs.VcsSettings;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -500,6 +501,24 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
 
     public String getTiaProjectDir(){
         return tiaProjectDir;
+    }
+
+    /**
+     * Resolve {@code tiaProjectDir} - the root of the project being analysed - against this module's
+     * base directory: unset means the module's directory, an absolute path is used as is, and a
+     * relative one is taken from the module's directory, never Maven's working directory (the
+     * reactor root in a multi-module build). The configured source and test directories are resolved
+     * against it, as the class directories are in the test JVM.
+     *
+     * @return the project root
+     */
+    protected File resolveTiaProjectDir(){
+        File baseDir = getProject().getBasedir();
+        if (tiaProjectDir == null || tiaProjectDir.trim().isEmpty()){
+            return baseDir;
+        }
+        File dir = new File(tiaProjectDir);
+        return dir.isAbsolute() ? dir : new File(baseDir, tiaProjectDir);
     }
 
     public String getTiaDBFilePath(){

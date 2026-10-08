@@ -430,12 +430,13 @@ public final class DistributedRunPlanner {
 
     /**
      * Build the grouping a seed run plans. When suites are discovered on disk and a group count is
-     * available, they are split across that many groups by even count - capped at one group per
-     * suite found, as every fixed-count split is - there is no timing data
-     * yet, so every suite is given a uniform 1ms weight purely so the balancer divides them by
-     * quantity, and every group's {@code estimatedMs} is then rebuilt as zero before this method
-     * returns, since that weight carries no real timing information and must not leak out as if it
-     * were one. When nothing is discovered, or no group count applies (target-run-time mode with no
+     * available, they are split across that many groups by even count of top-level classes - capped
+     * at one group per top-level class found, as every fixed-count split is. There is no timing data
+     * yet, so every top-level class is given a uniform 1ms weight purely so the balancer divides them
+     * by quantity, and every nested, anonymous or helper inner class name the scan also finds weighs
+     * nothing and rides with its top-level class. Every group's {@code estimatedMs} is then rebuilt as
+     * zero before this method returns, since that weight carries no real timing information and must
+     * not leak out as if it were one. When nothing is discovered, or no group count applies (target-run-time mode with no
      * {@code maxGroups}, see Stage 2), the seed collapses to a single empty group whose one runner
      * runs every test. Shared by {@link #plan} and {@link #balance} so the persisted plan and the
      * {@code select-tests} preview can never disagree about what a seed run looks like.

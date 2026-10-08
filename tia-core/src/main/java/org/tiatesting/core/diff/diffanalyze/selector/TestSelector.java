@@ -143,9 +143,9 @@ public class TestSelector {
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
                 tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges);
 
-        // A selected @Nested class only runs inside its enclosing class, so the enclosing class runs
-        // too - added after every other source of selection, so it covers all of them.
-        NestedTestSuites.addEnclosingSuites(testsToRun, testSuitesTracked.keySet());
+        // @Nested families are selected whole - added after every other source of selection, so it
+        // covers all of them. See NestedTestSuites#addFamilies for why.
+        NestedTestSuites.addFamilies(testsToRun, testSuitesTracked.keySet());
 
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);
@@ -219,9 +219,8 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
-     * <p>The total sums each suite's own time ({@link NestedTestSuites#ownTimes}): an enclosing
-     * class's recorded time already includes its {@code @Nested} classes, so adding both would count
-     * the nested classes twice. The per-suite figures are returned as recorded.
+     * <p>The recorded times are each suite's own - an enclosing class's excludes the
+     * {@code @Nested} classes that ran inside it - so the total is a plain sum.
      *
      * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
      * JaCoCo coverage capture plus whole-run costs (JVM/agent startup, the final persist), none of
@@ -263,10 +262,11 @@ public class TestSelector {
                 perTestRunTimes.put(testName, median);
             }
         }
-        // Own times: an enclosing class's recorded time already includes its @Nested classes.
+        // Recorded times are each suite's own (the listener excludes @Nested classes from their
+        // enclosing class), so they simply add up.
         long totalMs = 0L;
-        for (long ownMs : NestedTestSuites.ownTimes(perTestRunTimes).values()) {
-            totalMs += ownMs;
+        for (long suiteMs : perTestRunTimes.values()) {
+            totalMs += suiteMs;
         }
 
         OverheadModel overhead = overheadModel(tracked, tiaStats);

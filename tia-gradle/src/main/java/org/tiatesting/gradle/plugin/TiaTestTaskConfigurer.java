@@ -31,6 +31,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.File;
@@ -619,10 +620,11 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         // try-with-resources: an embedded H2 database must be released before the fork opens it.
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
-            result = new TestSelector(dataStore, testTask.getProject().getProjectDir())
+            result = new TestSelector(dataStore,
+                    TiaPlugin.resolveProjectDir(testTask.getProject(), tiaTaskExtension.getProjectDir()))
                     .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
-                    TiaPlugin.csvToList(tiaTaskExtension.getSourceFilesDirs()),
-                    TiaPlugin.csvToList(tiaTaskExtension.getTestFilesDirs()),
+                    StringUtil.splitCsv(tiaTaskExtension.getSourceFilesDirs()),
+                    StringUtil.splitCsv(tiaTaskExtension.getTestFilesDirs()),
                     checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 

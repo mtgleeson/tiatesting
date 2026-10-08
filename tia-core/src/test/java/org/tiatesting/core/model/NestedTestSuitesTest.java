@@ -4,18 +4,14 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies how {@link NestedTestSuites} reads the enclosing classes of a suite from its binary name
- * and keeps them out of an ignore set when a nested suite is selected.
+ * Verifies how {@link NestedTestSuites} reads a suite's family from its binary name and selects
+ * whole families.
  */
 class NestedTestSuitesTest {
 
@@ -44,110 +40,43 @@ class NestedTestSuitesTest {
     }
 
     @Test
-    void enclosingSuitesAreListedOutermostFirst() {
-        // given
-        String suite = "com.example.A$B$C";
-
-        // when
-        List<String> enclosing = NestedTestSuites.enclosingSuites(suite);
-
-        // then
-        assertEquals(Arrays.asList("com.example.A", "com.example.A$B"), enclosing);
-    }
-
-    @Test
-    void aTopLevelSuiteHasNoEnclosingSuites() {
-        // given
-        String suite = "com.example.A";
-
-        // when
-        List<String> enclosing = NestedTestSuites.enclosingSuites(suite);
-
-        // then
-        assertTrue(enclosing.isEmpty());
-    }
-
-    @Test
-    void trackedEnclosingSuitesOfASelectedNestedSuiteAreAddedToTheRunSet() {
-        // given - A and A$B are tracked; A$B$C is selected
+    void aSelectedNestedSuiteBringsInItsWholeTrackedFamily() {
+        // given - A$B$C is selected; A, A$B and a sibling A$D are tracked too
         Set<String> testsToRun = new HashSet<>(Collections.singletonList("com.example.A$B$C"));
-        Set<String> tracked = new HashSet<>(Arrays.asList("com.example.A", "com.example.A$B", "com.example.A$B$C"));
+        Set<String> tracked = new HashSet<>(Arrays.asList("com.example.A", "com.example.A$B",
+                "com.example.A$B$C", "com.example.A$D", "com.example.Other"));
 
         // when
-        NestedTestSuites.addEnclosingSuites(testsToRun, tracked);
+        NestedTestSuites.addFamilies(testsToRun, tracked);
 
         // then
-        assertEquals(new HashSet<>(tracked), testsToRun);
+        assertEquals(new HashSet<>(Arrays.asList("com.example.A", "com.example.A$B", "com.example.A$B$C",
+                "com.example.A$D")), testsToRun);
     }
 
     @Test
-    void untrackedEnclosingSuitesAreNotAdded() {
-        // given - the enclosing class is not tracked, so it is never ignored anyway
+    void aSelectedTopLevelSuiteBringsInItsNestedSuites() {
+        // given - an edited test file names only its top-level class
+        Set<String> testsToRun = new HashSet<>(Collections.singletonList("com.example.A"));
+        Set<String> tracked = new HashSet<>(Arrays.asList("com.example.A", "com.example.A$Inner",
+                "com.example.Other"));
+
+        // when
+        NestedTestSuites.addFamilies(testsToRun, tracked);
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList("com.example.A", "com.example.A$Inner")), testsToRun);
+    }
+
+    @Test
+    void untrackedFamilyMembersAreNotAdded() {
+        // given - nothing else in the family is tracked, so nothing else is ever ignored
         Set<String> testsToRun = new HashSet<>(Collections.singletonList("com.example.A$B"));
 
         // when
-        NestedTestSuites.addEnclosingSuites(testsToRun, Collections.singleton("com.example.A$B"));
+        NestedTestSuites.addFamilies(testsToRun, Collections.singleton("com.example.A$B"));
 
         // then
         assertEquals(Collections.singleton("com.example.A$B"), testsToRun);
-    }
-
-    @Test
-    void aTopLevelSuitesOwnTimeExcludesItsNestedSuites() {
-        // given - A's 60ms container includes A$N's 40ms; B$M has no top-level suite present
-        Map<String, Long> times = new HashMap<>();
-        times.put("A", 60L);
-        times.put("A$N", 40L);
-        times.put("B$M", 30L);
-        times.put("C", 5L);
-
-        // when
-        Map<String, Long> own = NestedTestSuites.ownTimes(times);
-
-        // then
-        Map<String, Long> expected = new HashMap<>();
-        expected.put("A", 20L);
-        expected.put("A$N", 40L);
-        expected.put("B$M", 30L);
-        expected.put("C", 5L);
-        assertEquals(expected, own);
-    }
-
-    @Test
-    void anOwnTimeIsNeverNegative() {
-        // given - A's figure predates nested classes that now take longer
-        Map<String, Long> times = new HashMap<>();
-        times.put("A", 10L);
-        times.put("A$N", 40L);
-
-        // when
-        Map<String, Long> own = NestedTestSuites.ownTimes(times);
-
-        // then
-        assertEquals(Long.valueOf(0L), own.get("A"));
-    }
-
-    @Test
-    void enclosingSuitesOfASelectedNestedSuiteLeaveTheIgnoreSet() {
-        // given
-        Set<String> ignore = new HashSet<>(Arrays.asList("com.example.A", "com.example.A$B", "com.example.Other"));
-
-        // when
-        NestedTestSuites.keepEnclosingSuitesOfSelected(ignore, Collections.singleton("com.example.A$B$C"));
-
-        // then
-        assertEquals(Collections.singleton("com.example.Other"), ignore);
-    }
-
-    @Test
-    void aSelectedTopLevelSuiteLeavesItsNestedSuitesIgnored() {
-        // given
-        Set<String> ignore = new HashSet<>(Collections.singletonList("com.example.A$B"));
-
-        // when
-        NestedTestSuites.keepEnclosingSuitesOfSelected(ignore, Collections.singleton("com.example.A"));
-
-        // then
-        assertEquals(Collections.singleton("com.example.A$B"), ignore);
     }
 }
