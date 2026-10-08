@@ -44,7 +44,9 @@ public final class TestGroupBalancer {
      *
      * <p>The supplied per-suite times come from the existing selection estimate and already carry
      * the median fallback for suites that have never recorded a run, so nothing is recomputed
-     * here. The only addition is the capture overhead: the cost of JaCoCo's per-suite coverage
+     * here, except that a top-level suite's recorded time - its whole class container, nested
+     * classes included - becomes its own time ({@link NestedTestSuites#ownTimes}), so that a family
+     * adds up correctly when balanced as one unit. The other addition is the capture overhead: the cost of JaCoCo's per-suite coverage
      * collection, which no per-suite average includes. That is supplied as a total for the whole
      * selection, matching what the estimate reports, and divided back out here. It is added only
      * for runs that collect coverage, since a run with mapping updates off does not pay it.
@@ -80,7 +82,8 @@ public final class TestGroupBalancer {
         long overheadPerSuiteMs = collectingCoverage
                 ? totalCaptureOverheadMs / perSuiteRunTimesMs.size()
                 : 0L;
-        for (Map.Entry<String, Long> entry : perSuiteRunTimesMs.entrySet()) {
+        // Own times, so a family's members add up without counting nested classes twice.
+        for (Map.Entry<String, Long> entry : NestedTestSuites.ownTimes(perSuiteRunTimesMs).entrySet()) {
             weights.put(entry.getKey(), entry.getValue() + overheadPerSuiteMs);
         }
         return weights;
@@ -117,7 +120,7 @@ public final class TestGroupBalancer {
                                                    final long fixedOverheadMs) {
         requireNoNullWeights(suiteWeightsMs);
         Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
-        return expandFamilies(balanceUnitsIntoGroups(NestedTestSuites.familyWeights(suiteWeightsMs), groupCount,
+        return expandFamilies(balanceUnitsIntoGroups(familySums(suiteWeightsMs, families), groupCount,
                 fixedOverheadMs), families);
     }
 
@@ -247,7 +250,7 @@ public final class TestGroupBalancer {
                                                          final long fixedOverheadMs) {
         requireNoNullWeights(suiteWeightsMs);
         Map<String, List<String>> families = familiesByTopLevelSuite(suiteWeightsMs.keySet());
-        return expandFamilies(balanceUnitsForTargetRunTime(NestedTestSuites.familyWeights(suiteWeightsMs),
+        return expandFamilies(balanceUnitsForTargetRunTime(familySums(suiteWeightsMs, families),
                 targetRunTimeMs, maxGroups, fixedOverheadMs), families);
     }
 
@@ -495,6 +498,27 @@ public final class TestGroupBalancer {
         }
         families.values().forEach(Collections::sort);
         return families;
+    }
+
+    /**
+     * Weigh each suite family as the sum of its members' weights. The weights are own times plus
+     * any per-suite charge ({@link #suiteWeights}), so the sum counts each test once.
+     *
+     * @param suiteWeightsMs weight in ms, keyed by suite name
+     * @param families the suite families, keyed by top-level suite
+     * @return each family's total weight, keyed by top-level suite
+     */
+    private static Map<String, Long> familySums(final Map<String, Long> suiteWeightsMs,
+                                                final Map<String, List<String>> families) {
+        Map<String, Long> sums = new HashMap<>();
+        for (Map.Entry<String, List<String>> family : families.entrySet()) {
+            long sum = 0L;
+            for (String suite : family.getValue()) {
+                sum += suiteWeightsMs.get(suite);
+            }
+            sums.put(family.getKey(), sum);
+        }
+        return sums;
     }
 
     /**

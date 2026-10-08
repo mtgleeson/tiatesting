@@ -203,9 +203,9 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
-     * <p>The total is summed by suite family, not by suite ({@link NestedTestSuites#familyWeights}):
-     * an enclosing class's recorded time already includes its {@code @Nested} classes, so adding
-     * both would count the nested classes twice. The per-suite figures are returned unchanged.
+     * <p>The total sums each suite's own time ({@link NestedTestSuites#ownTimes}): an enclosing
+     * class's recorded time already includes its {@code @Nested} classes, so adding both would count
+     * the nested classes twice. The per-suite figures are returned as recorded.
      *
      * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
      * JaCoCo coverage capture plus whole-run costs (JVM/agent startup, the final persist), none of
@@ -247,10 +247,10 @@ public class TestSelector {
                 perTestRunTimes.put(testName, median);
             }
         }
-        // By family, not by suite: an enclosing class's time already includes its @Nested classes.
+        // Own times: an enclosing class's recorded time already includes its @Nested classes.
         long totalMs = 0L;
-        for (long familyMs : NestedTestSuites.familyWeights(perTestRunTimes).values()) {
-            totalMs += familyMs;
+        for (long ownMs : NestedTestSuites.ownTimes(perTestRunTimes).values()) {
+            totalMs += ownMs;
         }
 
         OverheadModel overhead = overheadModel(tracked, tiaStats);

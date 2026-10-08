@@ -133,6 +133,36 @@ class TiaTestExecutionListenerNestedCoverageTest {
     }
 
     @Test
+    void aNestedClassStartingWithNoTestSinceTheLastDumpTakesNoExtraDump() {
+        // given - Outer has no tests of its own and two nested siblings
+        EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
+        SimpleDescriptor outer = container(engine, "outer", ClassSource.from(OUTER));
+        SimpleDescriptor first = container(outer, "first", ClassSource.from(NESTED));
+        SimpleDescriptor firstTest = test(first, "one", MethodSource.from(NESTED, "one"));
+        SimpleDescriptor second = container(outer, "second", ClassSource.from(OUTER + "$Division"));
+        SimpleDescriptor secondTest = test(second, "two", MethodSource.from(OUTER + "$Division", "two"));
+        ScriptedCoverageClient coverage = new ScriptedCoverageClient();
+        TiaTestExecutionListener listener = new TiaTestExecutionListener(new SharedTestRunData(), coverage);
+        listener.testPlanExecutionStarted(TestPlan.from(Collections.singletonList(engine),
+                new EmptyConfigurationParameters()));
+
+        // when
+        listener.executionStarted(id(outer));
+        listener.executionStarted(id(first));
+        listener.executionStarted(id(firstTest));
+        listener.executionFinished(id(firstTest), TestExecutionResult.successful());
+        listener.executionFinished(id(first), TestExecutionResult.successful());
+        listener.executionStarted(id(second));
+        listener.executionStarted(id(secondTest));
+        listener.executionFinished(id(secondTest), TestExecutionResult.successful());
+        listener.executionFinished(id(second), TestExecutionResult.successful());
+        listener.executionFinished(id(outer), TestExecutionResult.successful());
+
+        // then - one dump per class finish, none at either nested start
+        assertEquals(3, coverage.collected());
+    }
+
+    @Test
     void topLevelClassesCollectOnlyWhenTheyFinish() {
         // given - two top-level classes, one after the other
         EngineDescriptor engine = new EngineDescriptor(UniqueId.forEngine("test-engine"), "test-engine");
@@ -224,6 +254,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
     private static final class ScriptedCoverageClient extends JacocoClient {
 
         private final Deque<CoverageResult> dumps = new ArrayDeque<>();
+        private int collected;
 
         /**
          * @param dumps the dumps to return, in order
@@ -244,6 +275,7 @@ class TiaTestExecutionListenerNestedCoverageTest {
          */
         @Override
         public CoverageResult collectCoverage() {
+            collected++;
             CoverageResult next = dumps.pollFirst();
             return next != null ? next : new CoverageResult();
         }
@@ -253,6 +285,15 @@ class TiaTestExecutionListenerNestedCoverageTest {
          */
         int remaining() {
             return dumps.size();
+        }
+
+        /**
+         * Count the coverage dumps the listener asked for, scripted or not.
+         *
+         * @return how many dumps were collected
+         */
+        int collected() {
+            return collected;
         }
     }
 

@@ -27,6 +27,10 @@ public class TiaAgentArgumentProvider implements CommandLineArgumentProvider {
     }
 
     /**
+     * Set the agent argument for this task execution, once the selection has been handed off. Until
+     * then the provider contributes no argument, so a task that never hands off starts its JVM
+     * without the agent.
+     *
      * @param argument the {@code -javaagent:<jar>=<options>} argument for this task execution
      */
     public void setArgument(final String argument) {
@@ -34,6 +38,8 @@ public class TiaAgentArgumentProvider implements CommandLineArgumentProvider {
     }
 
     /**
+     * Supply the test JVM argument Gradle adds after the earlier providers' (JaCoCo's among them).
+     *
      * @return the agent argument, or nothing when no selection was handed off
      */
     @Override

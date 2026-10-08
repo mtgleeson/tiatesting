@@ -2,6 +2,7 @@ package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
@@ -60,9 +61,14 @@ class TiaPluginTestRuntimeTest {
         assertFalse(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
                 .anyMatch(d -> "tia-spock".equals(d.getName())));
         assertEquals(Junit5FrameworkAdapter.NAME, plugin(project).getTestFrameworkAdapter().name());
-        assertTrue(project.getConfigurations().getByName("testRuntimeOnly").getDependencies().stream()
-                .anyMatch(d -> "org.slf4j".equals(d.getGroup()) && "slf4j-api".equals(d.getName())),
-                "slf4j-api was not added to testRuntimeOnly");
+        ExternalModuleDependency slf4jApi = (ExternalModuleDependency) project.getConfigurations()
+                .getByName("testRuntimeOnly").getDependencies().stream()
+                .filter(d -> "org.slf4j".equals(d.getGroup()) && "slf4j-api".equals(d.getName()))
+                .findFirst().orElse(null);
+        assertTrue(slf4jApi != null, "slf4j-api was not added to testRuntimeOnly");
+        // soft: a project's own SLF4J version or strict pin wins
+        assertEquals(TiaVersion.slf4j(), slf4jApi.getVersionConstraint().getPreferredVersion());
+        assertEquals("", slf4jApi.getVersionConstraint().getRequiredVersion());
     }
 
     @org.junit.jupiter.api.Test

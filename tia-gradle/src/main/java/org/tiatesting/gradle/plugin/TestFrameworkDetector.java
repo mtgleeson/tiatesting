@@ -86,6 +86,8 @@ public final class TestFrameworkDetector {
     }
 
     /**
+     * List adapters by name, for the detection messages.
+     *
      * @param adapters the adapters to name
      * @return their names, e.g. {@code [spock, junit5]}
      */
@@ -94,6 +96,9 @@ public final class TestFrameworkDetector {
     }
 
     /**
+     * Build the sentence every detection message ends with, naming the setting that overrides
+     * detection and the values it accepts.
+     *
      * @param adapters the supported adapters
      * @return the hint naming the setting that picks the framework explicitly
      */
