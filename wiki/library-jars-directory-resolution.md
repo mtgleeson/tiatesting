@@ -72,7 +72,8 @@ passing its own warn/debug logging sink. From there:
 
 - Maven writes the jars to `${tiaBuildDir}/library-jars.txt`; the javaagent reads that file at
   `premain` and republishes it as the `tiaLibraryJars` system property.
-- Gradle/Spock sets the `tiaLibraryJars` system property on the test task directly.
+- Gradle sets the `tiaLibraryJars` system property on the test task directly, for Spock and
+  JUnit 5 alike (the JUnit 5 agent's library-jars option is left unset on Gradle).
 
 `JacocoClient.loadLibraryJars()` reads `tiaLibraryJars`, and adds each existing jar file to the
 JaCoCo analysis set. See

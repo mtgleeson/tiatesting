@@ -41,12 +41,32 @@ The same file mechanism also carries the **forked-JVM system properties** the te
 ### How Tia-Gradle hands the selection over
 
 Gradle runs the selection in the test task's `doFirst` action, in the daemon, and writes the same
-`SelectionHandoff` files into the test task's temporary directory. It does not need an agent to
-find them: `task.systemProperty(...)` names each file directly (`tiaIgnoredTestsFile`,
-`tiaSelectedTestsFile`, `tiaRunSelectionDetailsFile`, and `tiaDrainResultFile` when something was
-drained), and the framework's Tia module in the fork - `TiaSpockGlobalExtension` for Spock - reads
-them. That per-framework step is the plugin's `TestFrameworkAdapter`; everything else in the task
-action is framework-agnostic.
+`SelectionHandoff` files into the test task's temporary directory. How the fork finds them is the
+one per-framework step, the plugin's `TestFrameworkAdapter`; everything else in the task action is
+framework-agnostic.
+
+- **Spock** needs no agent: `task.systemProperty(...)` names each file directly
+  (`tiaIgnoredTestsFile`, `tiaSelectedTestsFile`, `tiaRunSelectionDetailsFile`, and
+  `tiaDrainResultFile` when something was drained), and `TiaSpockGlobalExtension` reads them and
+  skips specs itself.
+- **JUnit 5** uses the agent, as on Maven: JUnit has no Spock-style global extension Tia can rely
+  on (an `ExecutionCondition` would need `junit.jupiter.extensions.autodetection.enabled`, which
+  also switches on every other extension on the classpath), so skipping is done by marking ignored
+  suites `@Disabled` at class-load time. `Junit5FrameworkAdapter` appends a
+  `TiaAgentArgumentProvider` to the task's `jvmArgumentProviders` with
+  `-javaagent:<tia-junit5-agent runtime jar>=<AgentOptions>` naming the files. The provider is
+  added in the task action, after the jacoco plugin registered its own provider at configuration
+  time, so the Tia agent follows the JaCoCo agent on the command line (jacoco/jacoco#551, the
+  ordering Maven's `addVMArguments` keeps too). The jar is resolved from the project's repositories
+  in a detached configuration, so it reaches none of the project's classpaths. The other settings
+  already travel as task system properties, so the agent's `forkPropertiesFile` and
+  `libraryJarsFile` options stay unset.
+
+**The agent cannot use SLF4J.** Surefire starts the fork from a booter jar whose manifest already
+carries the whole test classpath, so on Maven SLF4J happened to be loadable at `premain`. Gradle's
+worker starts with only its own jar and adds the test runtime classpath after `premain` has run,
+so anything the agent loads must come from the JDK or the agent jar. The agent logs through
+`java.util.logging` for that reason.
 
 A distributed runner hands its share over the same way. The daemon claims the group with
 `DistributedRunnerAssignment.claim`, which also derives the suites the runner runs and ignores, and
