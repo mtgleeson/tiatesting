@@ -31,6 +31,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.testrunner.RunEnvironment;
 import org.tiatesting.core.testrunner.TestJvmSequence;
+import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
@@ -210,9 +211,9 @@ public class TiaTestTaskConfigurer {
                         // finish - see the "Distributed test runs" chapter in WIKI.md.
                         claimDistributedRun(testTask, tiaTaskExtension, workspaceIdentity);
                     } else {
-                        if (Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping())) {
-                            warnWhenAMappingTaskForksMoreThanOneJvm(testTask);
-                        }
+                        warnWhenATiaTaskForksMoreThanOneJvm(testTask,
+                                Boolean.TRUE.equals(tiaTaskExtension.getUpdateDBMapping()),
+                                !Boolean.FALSE.equals(tiaTaskExtension.getUpdateDBTestRunHistory()));
                         selectTestsAndHandOff(testTask, tiaTaskExtension, workspaceIdentity, resolver,
                                 selectionMode);
                     }
@@ -621,7 +622,7 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
             result = new TestSelector(dataStore,
-                    TiaPlugin.resolveProjectDir(testTask.getProject(), tiaTaskExtension.getProjectDir()))
+                    ProjectDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getProjectDir()))
                     .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
                     StringUtil.splitCsv(tiaTaskExtension.getSourceFilesDirs()),
                     StringUtil.splitCsv(tiaTaskExtension.getTestFilesDirs()),
@@ -990,26 +991,34 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
     }
 
     /**
-     * Warn when a test task that updates the mapping runs its suites in more than one JVM. Tia does
-     * not support that: coverage is attributed per suite only when suites run one after another in
-     * one JVM, the forks' persists race, one fork's seal clears flags another still needs, and the
-     * test JVM counter numbers the second fork as a retry, so its history row is flagged a rerun.
-     * Warned rather than refused because the build still runs its tests correctly, and the README
-     * has only ever recommended a single fork. See "Multi-fork persist" in the "Persist flow and
-     * crash safety" chapter of {@code WIKI.md}. A distributed test task is refused instead, by
-     * {@link #refuseATestTaskThatForksMoreThanOneJvm}.
+     * Warn when a test task Tia writes to the database for runs its suites in more than one JVM.
+     * Tia does not support that. While updating the mapping, coverage is attributed per suite only
+     * when suites run one after another in one JVM, the forks' persists race, and one fork's seal
+     * clears flags another still needs. While recording run history (the default, even with mapping
+     * off), the test JVM counter numbers every fork after the first as a test-retry round, so their
+     * history rows are flagged reruns and credited no savings. Warned rather than refused because the
+     * build still runs its tests correctly, and the README has only ever recommended a single fork.
+     * See "Multi-fork persist" in the "Persist flow and crash safety" chapter of {@code WIKI.md}. A
+     * distributed test task is refused instead, by {@link #refuseATestTaskThatForksMoreThanOneJvm}.
      *
-     * @param testTask the test task about to run with Tia updating the mapping
+     * @param testTask the test task about to run with Tia enabled
+     * @param updatesMapping whether the task updates the mapping
+     * @param recordsHistory whether the task records run history
      */
-    private static void warnWhenAMappingTaskForksMoreThanOneJvm(final Test testTask) {
+    private static void warnWhenATiaTaskForksMoreThanOneJvm(final Test testTask, final boolean updatesMapping,
+                                                            final boolean recordsHistory) {
         String forkingSetting = multiJvmForkingSetting(testTask);
-        if (forkingSetting != null) {
-            LOGGER.warn("Tia updates the mapping for test task '{}', which sets {}. Running a test task's "
-                    + "suites in more than one JVM is not supported while updating the mapping: coverage "
-                    + "can be attributed to the wrong suites and the forks' results can overwrite each "
-                    + "other. Use maxParallelForks = 1 and forkEvery = 0 for this test task.",
-                    testTask.getPath(), forkingSetting);
+        if (forkingSetting == null || (!updatesMapping && !recordsHistory)) {
+            return;
         }
+        String consequence = updatesMapping
+                ? "coverage can be attributed to the wrong suites, the forks' results can overwrite each other, "
+                        + "and every fork after the first is recorded as a test-retry round"
+                : "every fork after the first is recorded in the run history as a test-retry round, credited "
+                        + "no savings";
+        LOGGER.warn("Tia is enabled for test task '{}', which sets {}. Running a test task's suites in more "
+                + "than one JVM is not supported: {}. Use maxParallelForks = 1 and forkEvery = 0 for this test "
+                + "task.", testTask.getPath(), forkingSetting, consequence);
     }
 
     /**

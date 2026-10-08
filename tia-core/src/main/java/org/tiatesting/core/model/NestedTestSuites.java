@@ -1,9 +1,9 @@
 package org.tiatesting.core.model;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -45,12 +45,13 @@ public final class NestedTestSuites {
      * are credited to one suite's coverage. Selecting less than the family could skip tests the
      * change affects. Every suite added is counted as selected, so the run-time estimate, the
      * history counts and a distributed plan include it. Families whose members Tia does not track
-     * are never ignored, so only tracked suites are added.
+     * are never ignored, so only tracked suites are added, and a suite flagged developer-disabled is
+     * not added: it would not run, as a forced run leaves it out too.
      *
      * @param testsToRun the suites selected to run; modified in place
-     * @param trackedSuites the suites Tia tracks
+     * @param trackedSuites the suites Tia tracks, keyed by name
      */
-    public static void addFamilies(final Set<String> testsToRun, final Collection<String> trackedSuites) {
+    public static void addFamilies(final Set<String> testsToRun, final Map<String, TestSuiteTracker> trackedSuites) {
         if (testsToRun.isEmpty()) {
             return;
         }
@@ -59,9 +60,10 @@ public final class NestedTestSuites {
             selectedFamilies.add(topLevelSuite(suite));
         }
         List<String> familyMembers = new ArrayList<>();
-        for (String tracked : trackedSuites) {
-            if (selectedFamilies.contains(topLevelSuite(tracked))) {
-                familyMembers.add(tracked);
+        for (Map.Entry<String, TestSuiteTracker> tracked : trackedSuites.entrySet()) {
+            if (selectedFamilies.contains(topLevelSuite(tracked.getKey()))
+                    && !tracked.getValue().isDeveloperDisabled()) {
+                familyMembers.add(tracked.getKey());
             }
         }
         testsToRun.addAll(familyMembers);

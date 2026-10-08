@@ -25,8 +25,10 @@ public class Agent {
 
     /*
     ByteBuddy's switch for reading class files newer than the Java versions it knows. Written with
-    ByteBuddy's own package name: the build relocates ByteBuddy, and this string with it, so the
-    property set is the one the agent's bundled copy reads.
+    ByteBuddy's own package name: the build relocates ByteBuddy, and this string with it, so in the
+    shipped agent it is org.tiatesting.shaded.bytebuddy.experimental - the property the bundled copy
+    reads, and the one a user sets to override it. A project's own -Dnet.bytebuddy.experimental
+    applies to the project's ByteBuddy, not Tia's.
      */
     static final String BYTE_BUDDY_EXPERIMENTAL = "net.bytebuddy.experimental";
 
@@ -67,7 +69,8 @@ public class Agent {
 
     /**
      * Let the bundled ByteBuddy read test classes compiled for a newer Java than it knows, unless the
-     * user set the switch themselves. The agent only adds a class annotation, which does not depend
+     * user set its switch themselves ({@code -Dorg.tiatesting.shaded.bytebuddy.experimental} in the
+     * shipped agent, where the property name is relocated with ByteBuddy). The agent only adds a class annotation, which does not depend
      * on understanding newer bytecode, and without it every class Tia meant to skip would run on a
      * newer Java. Must run before any ByteBuddy class is loaded: ByteBuddy reads it once.
      */

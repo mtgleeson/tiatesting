@@ -86,7 +86,11 @@ Surefire puts the project's classpath first. The jar (built by the Shadow plugin
   `ForkSystemProperties` - the same classes, from the same Tia version, also reach the test classpath
   through `tia-junit5`, so which copy loads first does not matter;
 - ByteBuddy, relocated to `org.tiatesting.shaded.bytebuddy` so it is a different library, by name,
-  from any ByteBuddy the project has (Mockito's, for example).
+  from any ByteBuddy the project has (Mockito's, for example). The agent switches on its
+  experimental mode, so test classes compiled for a newer Java than it knows are still annotated;
+  the property is relocated too, so the switch for Tia's copy is
+  `-Dorg.tiatesting.shaded.bytebuddy.experimental`, and `-Dnet.bytebuddy.experimental` only affects
+  the project's own ByteBuddy.
 
 No JUnit class is bundled. `@Disabled` is described, when each ignored test class loads, from the
 class file that test class's own loader finds - the project's JUnit - and is added from that

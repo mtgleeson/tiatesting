@@ -17,6 +17,8 @@ public class TiaAgentArgumentProvider implements CommandLineArgumentProvider {
     private String argument;
 
     /**
+     * The agent argument set for this task execution, if any.
+     *
      * @return the {@code -javaagent:<jar>=<options>} argument, or null before the selection is
      *         handed off. Internal: it names files in the task's temporary directory, which must not
      *         make the test task out of date.

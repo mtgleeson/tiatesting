@@ -20,10 +20,12 @@ final class DistributedRunMissReasons {
 
     /**
      * Explains a miss caused by a single suite alone being heavier than the whole target, meaning
-     * no group count could have met it.
+     * no group count could have met it. A test class is planned together with the {@code @Nested}
+     * classes that run inside it, so "a single suite" includes such a family.
      */
     static final String SINGLE_SUITE_EXCEEDS_TARGET = "a single suite is longer than the whole "
-            + "target, so no group count can fix it";
+            + "target (a test class counts with the @Nested classes that run inside it), so no group "
+            + "count can fix it";
 
     /**
      * Explains a miss caused by the fixed per-JVM overhead alone being at or above the whole target.
