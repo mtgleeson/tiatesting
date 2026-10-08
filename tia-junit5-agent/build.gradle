@@ -10,7 +10,8 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 dependencies {
     implementation project(':tia-core')
     implementation group: 'org.junit.jupiter', name:'junit-jupiter-engine', version: junit5EngineVersion
-    compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
+    // No slf4j: the agent's premain runs before Gradle's test worker puts the test runtime classpath
+    // on the system class loader, so it can use only the JDK and what this jar bundles.
 }
 
 Map <String, ?> attrs = [ 'Premain-Class': 'org.tiatesting.agent.Agent',

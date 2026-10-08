@@ -1,8 +1,6 @@
 package org.tiatesting.agent;
 
 import org.junit.jupiter.api.Disabled;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.instrumentation.IgnoreTestInstrumentor;
@@ -12,12 +10,20 @@ import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Agent {
 
-    private static final Logger log = LoggerFactory.getLogger(Agent.class);
+    /*
+    java.util.logging rather than slf4j: premain runs before Gradle's test worker has put the test
+    runtime classpath on the system class loader, so slf4j is not loadable yet there (Surefire's
+    booter jar puts it on the classpath up front, which is why Maven never noticed). Anything the
+    premain path loads must come from the JDK or this agent jar.
+     */
+    private static final Logger log = Logger.getLogger(Agent.class.getName());
 
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         final AgentOptions agentOptions = new AgentOptions(agentArgs);
@@ -64,7 +70,7 @@ public class Agent {
         }
         new IgnoreTestInstrumentor().ignoreTests(testsToIgnore, instrumentation, Disabled.class);
         String count = Integer.toString(testsToIgnore.size());
-        log.trace("Setting system property for tiaIgnoredTestSuiteCount: {}", count);
+        log.log(Level.FINEST, "Setting system property for tiaIgnoredTestSuiteCount: {0}", count);
         System.setProperty("tiaIgnoredTestSuiteCount", count);
     }
 
@@ -73,6 +79,8 @@ public class Agent {
      * as the {@code tiaLibraryJars} system property so {@code JacocoClient} picks it up in the
      * forked test JVM. Library Jars are used for Jacoco class loading to track coverage.
      * Skips silently when the option is unset.
+     *
+     * @param libraryJarsFile path to the library JARs file, or null/empty when none was written
      */
     private static void setLibraryJarsSystemProperty(String libraryJarsFile){
         if (libraryJarsFile == null || libraryJarsFile.isEmpty()){
@@ -86,7 +94,7 @@ public class Agent {
             throw new RuntimeException(e);
         }
         if (!csv.isEmpty()){
-            log.trace("Setting system property for tiaLibraryJars: {}", csv);
+            log.log(Level.FINEST, "Setting system property for tiaLibraryJars: {0}", csv);
             System.setProperty("tiaLibraryJars", csv);
         }
     }
@@ -94,12 +102,14 @@ public class Agent {
     /**
      * Set the drain result file path as a system property so the test listener can deserialize
      * the drain result for post-test-run cleanup. Skips silently when the option is unset.
+     *
+     * @param drainResultFile path to the serialized drain result, or null/empty when none was written
      */
     private static void setDrainResultFileSystemProperty(String drainResultFile) {
         if (drainResultFile == null || drainResultFile.isEmpty()) {
             return;
         }
-        log.trace("Setting system property for tiaDrainResultFile: {}", drainResultFile);
+        log.log(Level.FINEST, "Setting system property for tiaDrainResultFile: {0}", drainResultFile);
         System.setProperty("tiaDrainResultFile", drainResultFile);
     }
 
@@ -116,7 +126,7 @@ public class Agent {
         if (selectionDetailsFile == null || selectionDetailsFile.isEmpty()) {
             return;
         }
-        log.trace("Setting system property for tiaRunSelectionDetailsFile: {}", selectionDetailsFile);
+        log.log(Level.FINEST, "Setting system property for tiaRunSelectionDetailsFile: {0}", selectionDetailsFile);
         System.setProperty("tiaRunSelectionDetailsFile", selectionDetailsFile);
     }
 
@@ -127,7 +137,7 @@ public class Agent {
      * of tracking previously failed tests that have now been ignored. Test suites can be filtered out by surefire
      * when using the 'groups' configuration.
      *
-     * @param selectedTestsFile
+     * @param selectedTestsFile path to the newline-separated selected-tests file written during selection
      */
     private static void setSelectedTestsSystemProperty(String selectedTestsFile){
         Set<String> selectedTests;
@@ -137,7 +147,7 @@ public class Agent {
             throw new RuntimeException(e);
         }
         String selectedTestsSystemProp = String.join(",", selectedTests);
-        log.trace("Setting system property for tiaSelectedTests: {}", selectedTestsSystemProp);
+        log.log(Level.FINEST, "Setting system property for tiaSelectedTests: {0}", selectedTestsSystemProp);
         System.setProperty("tiaSelectedTests", selectedTestsSystemProp);
     }
 
