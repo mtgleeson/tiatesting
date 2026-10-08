@@ -104,7 +104,7 @@ class TestSelectorLibraryPreviewTest {
                 Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when a preview build (updateDBMapping=false) runs selection with no app diffs
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
                 Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
@@ -128,7 +128,7 @@ class TestSelectorLibraryPreviewTest {
         seedLibraryMethodMapping();
 
         // when a preview run analyzes the library diff
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
                 Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
@@ -150,7 +150,7 @@ class TestSelectorLibraryPreviewTest {
         seedLibraryMethodMapping();
 
         // when a primary build (updateDBMapping=true) analyzes the library diff
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
                 Collections.emptyList(), Collections.emptyList(), false, configResolving("1.0.0"), null, true, SelectionMode.SELECTIVE);
 
@@ -174,7 +174,7 @@ class TestSelectorLibraryPreviewTest {
         seedLibraryMethodMapping();
 
         // when a local-changes run (checkLocalChanges=true, non-primary) analyzes the edit
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head", libraryDiff()),
                 Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 
@@ -200,7 +200,7 @@ class TestSelectorLibraryPreviewTest {
                 Collections.<PendingLibraryForcedSelection>emptyList());
 
         // when a local-changes run executes with no diffs of its own
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
         TestSelectorResult result = selector.selectTestsToIgnore(new StubVCSReader("head"),
                 Collections.emptyList(), Collections.emptyList(), true, configResolving("1.0.0"), null, false, SelectionMode.SELECTIVE);
 

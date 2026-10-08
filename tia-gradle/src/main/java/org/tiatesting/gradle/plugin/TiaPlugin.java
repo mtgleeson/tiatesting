@@ -41,6 +41,7 @@ import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
+import org.tiatesting.core.util.StringUtil;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -440,9 +441,9 @@ public class TiaPlugin implements Plugin<Project> {
             TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
             try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
                  DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
-                List<String> sourceFilesDirs = ProjectRelativeDirs.resolve(project.getProjectDir(), getSourceFilesDirs());
-                List<String> testFilesDirs = ProjectRelativeDirs.resolve(project.getProjectDir(), getTestFilesDirs());
-                TestSelector testSelector = new TestSelector(dataStore);
+                List<String> sourceFilesDirs = csvToList(getSourceFilesDirs());
+                List<String> testFilesDirs = csvToList(getTestFilesDirs());
+                TestSelector testSelector = new TestSelector(dataStore, project.getProjectDir());
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
                 // Read-only preview: no mapping writes (updateDBMapping=false).
@@ -976,6 +977,22 @@ public class TiaPlugin implements Plugin<Project> {
             return CredentialResolver.readPasswordFile(passwordFile);
         }
         return null;
+    }
+
+    /**
+     * Split a configured comma-separated directory list into trimmed entries, for
+     * {@link TestSelector}, which resolves them against the project directory.
+     *
+     * @param csv the configured CSV; may be null
+     * @return the entries, or null when none is configured (as {@code TestSelector} expects)
+     */
+    static List<String> csvToList(final String csv) {
+        if (csv == null) {
+            return null;
+        }
+        List<String> values = new ArrayList<>(Arrays.asList(csv.split(",")));
+        StringUtil.sanitizeInputArray(values);
+        return values;
     }
 
     /**

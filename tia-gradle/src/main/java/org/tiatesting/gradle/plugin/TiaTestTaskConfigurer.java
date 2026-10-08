@@ -583,8 +583,8 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
      * system properties, which {@code TiaSpockGlobalExtension} reads. See the "How Tia exchanges
      * data with the test runner" chapter in {@code WIKI.md}.
      *
-     * <p>The source and test directories are resolved against the project directory first (see
-     * {@link ProjectRelativeDirs}): the daemon's working directory is not the project's.
+     * <p>The source and test directories are resolved against the project directory by
+     * {@link TestSelector}: the daemon's working directory is not the project's.
      *
      * @param testTask the test task whose forks receive the selection
      * @param tiaTaskExtension that task's merged Tia extension
@@ -619,9 +619,10 @@ LOGGER.warn("Tia plugin task ext: enabled: " + enabled + ", update mapping (and 
         // try-with-resources: an embedded H2 database must be released before the fork opens it.
         try (DataStore dataStore = plugin.buildDataStore(workspaceIdentity.getBranch(),
                 tiaTaskExtension.getSchemaSuffix())) {
-            result = new TestSelector(dataStore).selectTestsToIgnore(workspaceIdentity.openVCSReader(),
-                    ProjectRelativeDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getSourceFilesDirs()),
-                    ProjectRelativeDirs.resolve(testTask.getProject().getProjectDir(), tiaTaskExtension.getTestFilesDirs()),
+            result = new TestSelector(dataStore, testTask.getProject().getProjectDir())
+                    .selectTestsToIgnore(workspaceIdentity.openVCSReader(),
+                    TiaPlugin.csvToList(tiaTaskExtension.getSourceFilesDirs()),
+                    TiaPlugin.csvToList(tiaTaskExtension.getTestFilesDirs()),
                     checkLocalChanges, libraryConfig, staticConfig, updateDBMapping, selectionMode);
         }
 

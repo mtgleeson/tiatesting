@@ -94,7 +94,7 @@ public class TiaDistPlanMojo extends AbstractTiaMojo {
                     ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
             StringUtil.sanitizeInputArray(testFilesDirs);
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, getProject().getBasedir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // The raw isTiaCheckLocalChanges() drives selection here. It can legitimately be true:

@@ -87,7 +87,7 @@ class TestSelectorUnsealedSuitesTest {
         seedTrackedSuite("com.example.UnsealedSpec", 2, true);
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
                 false, null, null, false, SelectionMode.SELECTIVE);
 
@@ -114,7 +114,7 @@ class TestSelectorUnsealedSuitesTest {
         seedTrackedSuite("com.example.UnsealedSpec", 2, true);
 
         // when
-        TestSelectorResult result = new TestSelector(dataStore).selectTestsToIgnore(
+        TestSelectorResult result = new TestSelector(dataStore, new File(".")).selectTestsToIgnore(
                 new StubVCSReader(), Collections.emptyList(), Collections.emptyList(),
                 false, null, null, true, SelectionMode.SELECTIVE);
 

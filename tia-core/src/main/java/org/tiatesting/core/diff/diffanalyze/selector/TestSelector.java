@@ -40,10 +40,26 @@ public class TestSelector {
 
     private final DataStore dataStore;
 
+    /*
+    The project whose configured source and test directories are resolved: the Gradle project's or
+    Maven module's own directory. Never the JVM's working directory - a Gradle daemon keeps the
+    directory it was first started in, which can be another project entirely, and a Maven build run
+    from a multi-module root is not in the module's directory either.
+     */
+    private final File projectDir;
+
     FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
 
-    public TestSelector (final DataStore dataStore){
+    /**
+     * Create a selector for one project.
+     *
+     * @param dataStore the datastore holding the project's mapping
+     * @param projectDir the project directory relative source and test directories are resolved
+     *                   against - the Gradle project's or the Maven module's directory
+     */
+    public TestSelector(final DataStore dataStore, final File projectDir){
         this.dataStore = dataStore;
+        this.projectDir = projectDir.getAbsoluteFile();
     }
 
     /**
@@ -709,18 +725,19 @@ public class TestSelector {
     }
 
     /**
-     * Get the full path names for a given list of directories.
-     * The input directories could be relative paths (from the current path), or full paths.
+     * Get the full path names for a given list of directories. An entry is resolved against the
+     * project directory first - a leading {@code /} is allowed, as the README's examples use - and
+     * otherwise taken as an absolute path. Entries that exist neither way are logged and skipped.
+     * Package-private so the resolution can be tested on its own.
      *
      * @param filePaths should be source code or test file directories configured by the user
-     * @return
+     * @return the canonical paths of the directories that exist
      */
-    private List<String> getFullFilePaths(List<String> filePaths){
+    List<String> getFullFilePaths(List<String> filePaths){
         List<String> fullFilePaths = new ArrayList<>();
-        String currentPath = Paths.get(".").toAbsolutePath().normalize().toString();
 
         for (String sourceAndTestFilesDir : filePaths){
-            File file = loadFileOnDiskFromPath(currentPath, sourceAndTestFilesDir);
+            File file = loadFileOnDiskFromPath(sourceAndTestFilesDir);
             if (file != null){
                 try {
                     fullFilePaths.add(file.getCanonicalPath());
@@ -733,18 +750,24 @@ public class TestSelector {
         return fullFilePaths;
     }
 
-    private File loadFileOnDiskFromPath(String currentPath, String sourceAndTestFilesDir) {
-        // first assume it's a relative path and check if it exists
-        String filePath = sourceAndTestFilesDir.startsWith("/") ? sourceAndTestFilesDir : "/" + sourceAndTestFilesDir;
-        filePath = currentPath + filePath;
-
-        File file = new File(filePath);
+    /**
+     * Find a configured directory on disk: under the project directory first, then as an absolute
+     * path.
+     *
+     * @param sourceAndTestFilesDir the configured directory
+     * @return the directory, or null when it exists neither way
+     */
+    private File loadFileOnDiskFromPath(String sourceAndTestFilesDir) {
+        // first assume it's relative to the project directory and check if it exists
+        File file = new File(projectDir, sourceAndTestFilesDir);
         if (!file.exists()){
-            // relative path not found, assume it's a full path from root and try load it
-            file = new File(sourceAndTestFilesDir);
-            if (!file.exists()){
-                file = null;
-                log.warn("Can't find configured source of test directory on disk: {}", sourceAndTestFilesDir);
+            // not under the project: an absolute path, if it is one (a relative one is never resolved
+            // against the working directory)
+            File asConfigured = new File(sourceAndTestFilesDir);
+            file = asConfigured.isAbsolute() && asConfigured.exists() ? asConfigured : null;
+            if (file == null){
+                log.warn("Can't find configured source or test directory on disk: {} (resolved against "
+                        + "the project directory {})", sourceAndTestFilesDir, projectDir);
             }
         }
 
