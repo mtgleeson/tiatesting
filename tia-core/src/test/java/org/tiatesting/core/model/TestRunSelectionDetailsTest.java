@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,9 +17,9 @@ public class TestRunSelectionDetailsTest {
     public void filtersAndSortsTriggersByCountDescending() {
         // given
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", 5),
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", 20),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", 1009));
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", null, 5),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", null, 20),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009));
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 1, 2, 3, 4, 5,
                 SelectionMode.SELECTIVE);
 
@@ -36,6 +38,29 @@ public class TestRunSelectionDetailsTest {
         assertEquals(3, details.getNumPreviouslyFailed());
         assertEquals(4, details.getNumUnsealedMapping());
         assertEquals(5, details.getNumPendingLibrary());
+    }
+
+    /**
+     * Verify that {@link TestRunSelectionDetails#getTriggeredMethodIds()} collects the method ids
+     * of the source-method triggers only, skipping a source-method trigger with no id (one read
+     * back from run history) and every static rule.
+     */
+    @Test
+    public void triggeredMethodIdsCollectsSourceMethodIdsOnly() {
+        // given
+        List<TestRunTrigger> triggers = Arrays.asList(
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.a", 11, 5),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.b", -22, 20),
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "Foo.c", null, 2),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "MDP", null, 1009));
+        TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 0, 0, 0, 0, 0,
+                SelectionMode.SELECTIVE);
+
+        // when
+        Set<Integer> methodIds = details.getTriggeredMethodIds();
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList(11, -22)), methodIds);
     }
 
     @Test

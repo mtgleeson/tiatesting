@@ -107,8 +107,8 @@ class TiaSpockRunListenerHistoryDetailTest {
         // given - a listener built the way the extension builds it for an ordinary build, with a
         // non-empty selection breakdown carrying two triggers and non-zero scalar counters
         List<TestRunTrigger> triggers = Arrays.asList(
-                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", 2),
-                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", 1));
+                new TestRunTrigger(TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo.save", null, 2),
+                new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, "ForceOnDbChange", null, 1));
         TestRunSelectionDetails details = new TestRunSelectionDetails(triggers, 3, 1, 2, 1, 4, SelectionMode.SELECTIVE);
         TiaSpockRunListener listener = new TiaSpockRunListener(BRANCH, COMMIT, dataStore,
                 Collections.singleton("com.example.ATest"), 0, false, true, null,

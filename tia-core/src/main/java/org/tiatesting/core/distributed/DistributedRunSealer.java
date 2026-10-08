@@ -234,9 +234,21 @@ public final class DistributedRunSealer {
             }
         }
 
+        // Read once here, where the run id is already in scope from the election this method
+        // opened with: the seal counts each triggering method's run from it and the history row
+        // records its breakdown. Never null - see DataStore#readDistributedRunSelectionDetails - so
+        // a seed or pre-feature run reads back TestRunSelectionDetails.empty() rather than forcing
+        // a null check. Skipped when neither consumer runs.
+        boolean sealing = updateDBMapping && !ranNoExpectedSuites;
+        TestRunSelectionDetails selectionDetails = sealing || updateDBTestRunHistory
+                ? dataStore.readDistributedRunSelectionDetails(context.getRunId())
+                        .withSelectionMode(run.getSelectionMode())
+                : TestRunSelectionDetails.empty();
+
         if (!ranNoExpectedSuites) {
             seal(tiaData, commitValue, branch, updateDBMapping, allTestsRun, statsIncrement,
-                    run.getSelectionMode() == SelectionMode.RESEED);
+                    run.getSelectionMode() == SelectionMode.RESEED,
+                    selectionDetails.getTriggeredMethodIds());
         }
 
         if (updateDBTestRunHistory) {
@@ -248,15 +260,6 @@ public final class DistributedRunSealer {
             // An empty build's row reports no mapping update whatever the build was configured to
             // do, because the seal above did not run - the same shape the single-host empty run's
             // row takes.
-            // Read once here, where the run id is already in scope from the election this method
-            // opened with, rather than inside persistBuildHistory: every other value that method
-            // writes onto the row is already a parameter, and this keeps that method a pure
-            // "assemble and persist" step with no datastore reads of its own. Never null - see
-            // DataStore#readDistributedRunSelectionDetails - so a seed or pre-feature run reads
-            // back TestRunSelectionDetails.empty() rather than forcing a null check here.
-            TestRunSelectionDetails selectionDetails =
-                    dataStore.readDistributedRunSelectionDetails(context.getRunId())
-                            .withSelectionMode(run.getSelectionMode());
             persistBuildHistory(commitValue, branch, updateDBMapping && !ranNoExpectedSuites, totals,
                     ignoredSuiteCount, allTestsRun, tiaData.getTestStats().getAllTestsRunTime(),
                     run.getGroupsAvailable(), run.getCreatedAtMs(), run.getRunSource(),
@@ -289,10 +292,13 @@ public final class DistributedRunSealer {
      *               data no group rewrote - the suites any runner wrote are the ones flagged
      *               unsealed. The sealer seals once per build, so there is no retry to guard against.
      *               See the "Forced runs and re-seed" chapter in {@code WIKI.md}
+     * @param triggeredMethodIds the ids of the changed methods whose covering suites the plan's
+     *                           selection pulled in, each counted as a triggered run of the method
      */
     private void seal(final TiaData tiaData, final String commitValue, final String branch,
                       final boolean updateDBMapping, final boolean allTestsRun,
-                      final CoreStatsIncrement statsIncrement, final boolean reseed) {
+                      final CoreStatsIncrement statsIncrement, final boolean reseed,
+                      final Set<Integer> triggeredMethodIds) {
         if (!updateDBMapping) {
             log.info("Distributed run '{}': the build does not own mapping updates, so there is "
                     + "nothing to seal.", context.getRunId());
@@ -318,7 +324,7 @@ public final class DistributedRunSealer {
         // The build seals once, so it counts as exactly one run in each method's run stats.
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, reseed,
-                true));
+                true, triggeredMethodIds));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());

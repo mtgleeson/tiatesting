@@ -34,11 +34,11 @@ class TestRunHistoryDetailConsoleFormatterTest {
     void format_populatedEntry_rendersSummaryCountersAndRankedTriggers() {
         // given
         TestRunTrigger highCountMethod = new TestRunTrigger(
-                TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", 12);
+                TestRunTrigger.Type.SOURCE_METHOD, "com.example.Foo#bar", null, 12);
         TestRunTrigger lowCountMethod = new TestRunTrigger(
-                TestRunTrigger.Type.SOURCE_METHOD, "com.example.Baz#qux", 3);
+                TestRunTrigger.Type.SOURCE_METHOD, "com.example.Baz#qux", null, 3);
         TestRunTrigger staticRule = new TestRunTrigger(
-                TestRunTrigger.Type.STATIC_RULE, "always-run-smoke-tests", 5);
+                TestRunTrigger.Type.STATIC_RULE, "always-run-smoke-tests", null, 5);
         // Deliberately supplied out of rank order, so a correct implementation must sort rather
         // than trust the caller's ordering.
         List<TestRunTrigger> triggers = Arrays.asList(lowCountMethod, staticRule, highCountMethod);

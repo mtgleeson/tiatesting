@@ -67,6 +67,7 @@ public class JdbcDataStore implements DataStore {
     private static final String COL_LINE_RANGES = "line_ranges";
     private static final String COL_EXECUTED_RUN_COUNT = "executed_run_count";
     private static final String COL_TRIGGERED_RUN_COUNT = "triggered_run_count";
+    private static final String COL_TRIGGER_METHOD_ID = "trigger_method_id";
     private static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
     private static final String TABLE_TIA_LIBRARY = "tia_library";
     private static final String COL_GROUP_ARTIFACT = "group_artifact";
@@ -1736,6 +1737,7 @@ public class JdbcDataStore implements DataStore {
                                 .add(new TestRunTrigger(
                                         TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
                                         rs.getString(COL_TRIGGER_NAME),
+                                        null,
                                         rs.getInt(COL_TEST_COUNT)));
                     }
                 }
@@ -2243,13 +2245,14 @@ public class JdbcDataStore implements DataStore {
             if (!triggers.isEmpty()) {
                 String insertTrigger = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
                         + COL_RUN_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                        + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?)";
+                        + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?, ?)";
                 try (PreparedStatement ps = connection.prepareStatement(insertTrigger)) {
                     for (TestRunTrigger t : triggers) {
                         ps.setString(1, runId);
                         ps.setString(2, t.getType().name());
                         ps.setString(3, t.getName());
-                        ps.setInt(4, t.getTestCount());
+                        setNullableInt(ps, 4, t.getMethodId());
+                        ps.setInt(5, t.getTestCount());
                         ps.addBatch();
                     }
                     ps.executeBatch();
@@ -2307,7 +2310,8 @@ public class JdbcDataStore implements DataStore {
 
             List<TestRunTrigger> triggers = new ArrayList<>();
             String triggerSql = "SELECT " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                    + COL_TEST_COUNT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
+                    + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + " FROM "
+                    + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
                     + COL_RUN_ID + " = ? ORDER BY " + COL_TEST_COUNT + " DESC";
             try (PreparedStatement ps = connection.prepareStatement(triggerSql)) {
                 ps.setString(1, runId);
@@ -2316,6 +2320,7 @@ public class JdbcDataStore implements DataStore {
                         triggers.add(new TestRunTrigger(
                                 TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
                                 rs.getString(COL_TRIGGER_NAME),
+                                getNullableInt(rs, COL_TRIGGER_METHOD_ID),
                                 rs.getInt(COL_TEST_COUNT)));
                     }
                 }
@@ -4895,21 +4900,28 @@ public class JdbcDataStore implements DataStore {
                 + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
                 + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
                 + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
+                + COL_TRIGGER_METHOD_ID + " INT, "
                 + COL_TEST_COUNT + " INT NOT NULL)";
     }
 
     /**
      * Ensure the two run-id-keyed selection-breakdown tables exist: {@code
      * tia_distributed_run_selection} (the counters row) and {@code tia_distributed_run_trigger}
-     * (the per-trigger rows). Idempotent via {@code CREATE TABLE IF NOT EXISTS}.
+     * (the per-trigger rows), and that the trigger table carries the {@code trigger_method_id}
+     * column the seal reads to count each changed method's triggered runs. Idempotent via
+     * {@code CREATE TABLE IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}.
      *
      * @param connection the connection to issue the DDL on
-     * @throws SQLException if either DDL statement fails
+     * @throws SQLException if any DDL statement fails
      */
     private void ensureDistributedRunSelectionTablesExist(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.addBatch(buildCreateDistributedRunSelectionTableSql());
             statement.addBatch(buildCreateDistributedRunTriggerTableSql());
+            // Migration for a trigger table created before triggers carried the changed method's
+            // id. Pre-existing rows belong to an earlier build's plan and read back with no id.
+            statement.addBatch("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
+                    + " ADD COLUMN IF NOT EXISTS " + COL_TRIGGER_METHOD_ID + " INT");
             statement.executeBatch();
         }
     }
