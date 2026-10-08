@@ -27,6 +27,19 @@ public class MethodImpactTracker {
     private final int[] lineRanges;
 
     /**
+     * The number of mapping-update runs that executed this method. Accumulated at the seal and
+     * stored on the method catalogue; zero for a tracker that was not read from the catalogue.
+     */
+    private long executedRunCount;
+
+    /**
+     * The number of mapping-update runs this method triggered by being changed. Accumulated at the
+     * seal and stored on the method catalogue; zero for a tracker that was not read from the
+     * catalogue.
+     */
+    private long triggeredRunCount;
+
+    /**
      * Creates a tracker for a method matched by its contiguous start-end line range.
      *
      * @param methodName the full class + method name + descriptor
@@ -86,6 +99,43 @@ public class MethodImpactTracker {
      */
     public int[] getMatchedLineRanges() {
         return lineRanges != null ? lineRanges : new int[]{lineNumberStart - 1, lineNumberEnd + 1};
+    }
+
+    /**
+     * The number of mapping-update runs that executed this method, counted once per sealed run.
+     *
+     * @return the stored executed-run count
+     */
+    public long getExecutedRunCount() {
+        return executedRunCount;
+    }
+
+    /**
+     * Set the number of mapping-update runs that executed this method.
+     *
+     * @param executedRunCount the executed-run count to store on the tracker
+     */
+    public void setExecutedRunCount(long executedRunCount) {
+        this.executedRunCount = executedRunCount;
+    }
+
+    /**
+     * The number of mapping-update runs this method triggered by being changed, counted once per
+     * sealed run.
+     *
+     * @return the stored triggered-run count
+     */
+    public long getTriggeredRunCount() {
+        return triggeredRunCount;
+    }
+
+    /**
+     * Set the number of mapping-update runs this method triggered by being changed.
+     *
+     * @param triggeredRunCount the triggered-run count to store on the tracker
+     */
+    public void setTriggeredRunCount(long triggeredRunCount) {
+        this.triggeredRunCount = triggeredRunCount;
     }
 
     /**
