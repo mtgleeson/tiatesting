@@ -88,7 +88,7 @@ class TestSelectorSelectionDetailsTest {
                         StaticTestSelectionRuleMode.RUN_ALL, null)));
         CombinedVCSReader vcsReader = new CombinedVCSReader(modifiedDiff(TRACKED_FILE_KEY),
                 Collections.singleton("src/main/resources/db/V001.sql"));
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),
@@ -113,7 +113,7 @@ class TestSelectorSelectionDetailsTest {
     void seedRunYieldsEmptySelectionDetails() {
         // given - a fresh data store with no stored commit value, so hasStoredMapping is false
         VCSReader vcsReader = new CombinedVCSReader(null, Collections.emptySet());
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(vcsReader, Collections.emptyList(),

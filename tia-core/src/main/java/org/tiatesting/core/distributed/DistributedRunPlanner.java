@@ -9,6 +9,7 @@ import org.tiatesting.core.model.DistributedRunGroup;
 import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
 import org.tiatesting.core.model.DistributedRunStatus;
+import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.testrunner.RunEnvironment;
@@ -369,7 +370,8 @@ public final class DistributedRunPlanner {
     /**
      * Add every suite name the disk scan finds that the forced plan does not already carry to the
      * group holding the fewest names (the lowest group number on a tie), so a forced full run also
-     * runs new suites. The scan over-includes non-test classes, which carry no run time and never
+     * runs new suites. A nested suite ({@code Outer$Inner}) goes to the group already holding its
+     * top-level suite instead - see {@link NestedTestSuites}. The scan over-includes non-test classes, which carry no run time and never
      * run, so they are spread across groups that each already hold a tracked suite rather than
      * balanced as weights of their own: a group made only of such names would observe nothing and
      * could never complete. Each group keeps its estimate. See the "Forced runs and re-seed"
@@ -391,17 +393,30 @@ public final class DistributedRunPlanner {
             return balanced;
         }
 
+        // A nested suite goes where its top-level suite already is, since it only runs inside it.
+        Map<String, Integer> groupByTopLevelSuite = new HashMap<>();
+        for (int i = 0; i < names.size(); i++) {
+            for (String suite : names.get(i)) {
+                groupByTopLevelSuite.putIfAbsent(NestedTestSuites.topLevelSuite(suite), i);
+            }
+        }
+
         List<String> untracked = new ArrayList<>(diskTestSuiteProvider.get());
         untracked.removeAll(assigned);
         Collections.sort(untracked);
         for (String suite : untracked) {
-            int fewest = 0;
-            for (int i = 1; i < names.size(); i++) {
-                if (names.get(i).size() < names.get(fewest).size()) {
-                    fewest = i;
+            Integer target = groupByTopLevelSuite.get(NestedTestSuites.topLevelSuite(suite));
+            if (target == null) {
+                int fewest = 0;
+                for (int i = 1; i < names.size(); i++) {
+                    if (names.get(i).size() < names.get(fewest).size()) {
+                        fewest = i;
+                    }
                 }
+                target = fewest;
+                groupByTopLevelSuite.put(NestedTestSuites.topLevelSuite(suite), target);
             }
-            names.get(fewest).add(suite);
+            names.get(target).add(suite);
         }
 
         List<SuiteGroup> groups = new ArrayList<>();
@@ -415,12 +430,13 @@ public final class DistributedRunPlanner {
 
     /**
      * Build the grouping a seed run plans. When suites are discovered on disk and a group count is
-     * available, they are split across that many groups by even count - capped at one group per
-     * suite found, as every fixed-count split is - there is no timing data
-     * yet, so every suite is given a uniform 1ms weight purely so the balancer divides them by
-     * quantity, and every group's {@code estimatedMs} is then rebuilt as zero before this method
-     * returns, since that weight carries no real timing information and must not leak out as if it
-     * were one. When nothing is discovered, or no group count applies (target-run-time mode with no
+     * available, they are split across that many groups by even count of top-level classes - capped
+     * at one group per top-level class found, as every fixed-count split is. There is no timing data
+     * yet, so every top-level class is given a uniform 1ms weight purely so the balancer divides them
+     * by quantity, and every nested, anonymous or helper inner class name the scan also finds weighs
+     * nothing and rides with its top-level class. Every group's {@code estimatedMs} is then rebuilt as
+     * zero before this method returns, since that weight carries no real timing information and must
+     * not leak out as if it were one. When nothing is discovered, or no group count applies (target-run-time mode with no
      * {@code maxGroups}, see Stage 2), the seed collapses to a single empty group whose one runner
      * runs every test. Shared by {@link #plan} and {@link #balance} so the persisted plan and the
      * {@code select-tests} preview can never disagree about what a seed run looks like.
@@ -446,9 +462,12 @@ public final class DistributedRunPlanner {
         // splits by even count instead. A non-zero weight is required - with every weight zero the
         // balancer would place every suite in group 0 - and the fixed per-JVM overhead is zero
         // because no distributed build has measured it yet.
+        // Counted by top-level class: the disk scan keeps every nested, anonymous and helper inner
+        // class name, and those run (if at all) inside their top-level class, so they weigh nothing.
+        // Otherwise a class with thirty inner classes would weigh thirty plain test classes.
         Map<String, Long> weights = new HashMap<>();
         for (String suite : seedSuites) {
-            weights.put(suite, 1L);
+            weights.put(suite, NestedTestSuites.topLevelSuite(suite).equals(suite) ? 1L : 0L);
         }
         GroupingResult split = TestGroupBalancer.balanceIntoGroups(weights, seedGroupCount, 0L);
         // The 1ms weight above exists only to make the balancer divide the suites evenly by count -
@@ -565,8 +584,7 @@ public final class DistributedRunPlanner {
             reasons.append("raising tiaDistributedMaxGroups would allow more groups; ");
         }
         if (result.isSingleSuiteExceedsTarget()) {
-            reasons.append("a single suite is longer than the whole target, so no group count "
-                    + "can fix it; ");
+            reasons.append(DistributedRunMissReasons.SINGLE_SUITE_EXCEEDS_TARGET).append("; ");
         }
         log.warn("Distributed run planning did not meet its target run time of {}ms - the "
                         + "heaviest group is {}ms. {}",

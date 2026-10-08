@@ -18,7 +18,6 @@ import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.WorkspaceIdentity;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -48,12 +47,10 @@ public class SelectTestsMojo extends AbstractTiaMojo {
             // The preview diffs the workspace, so it takes the identity's own reader rather than
             // constructing a second one - the branch may be configured, the diff never is.
             VCSReader vcsReader = workspaceIdentity.openVCSReader();
-            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
+            List<String> sourceFilesDirs = StringUtil.splitCsv(getTiaSourceFilesDirs());
+            List<String> testFilesDirs = StringUtil.splitCsv(getTiaTestFilesDirs());
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, resolveTiaProjectDir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // Read-only preview: no mapping writes (updateDBMapping=false).

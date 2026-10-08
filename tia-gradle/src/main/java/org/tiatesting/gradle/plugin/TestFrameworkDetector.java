@@ -1,11 +1,14 @@
 package org.tiatesting.gradle.plugin;
 
 import org.gradle.api.GradleException;
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * Picks the {@link TestFrameworkAdapter} for a project: an explicit {@code tia { testFramework = ...
@@ -13,15 +16,16 @@ import java.util.Locale;
  * dependencies. Declared rather than resolved, so detection never resolves a configuration at
  * configuration time; a framework that only arrives through a BOM or a platform is not detected and
  * needs the explicit setting, which every failure message names.
+ *
+ * <p>Spock wins when both Spock and JUnit Jupiter are declared: Spock 2 runs on the JUnit Platform
+ * and Spock projects routinely declare {@code org.junit.jupiter} too, so the pair is far more often a
+ * Spock project than a JUnit 5 one. A JUnit 5 project that also declares Spock sets
+ * {@code testFramework = 'junit5'}. Detection warns whenever it has to make that choice, and an
+ * explicit {@code testFramework} silences the warning.
  */
 public final class TestFrameworkDetector {
 
-    /** Name of JUnit 5, recognised so its projects get a clear message until it has an adapter. */
-    static final String JUNIT5 = "junit5";
-
-    private static final String JUNIT5_GROUP = "org.junit.jupiter";
-
-    private static final String SETTING_HINT = "Set tia { testFramework = '" + SpockFrameworkAdapter.NAME + "' }.";
+    private static final Logger LOGGER = Logging.getLogger(TestFrameworkDetector.class);
 
     /**
      * Static utility; not instantiable.
@@ -35,46 +39,41 @@ public final class TestFrameworkDetector {
      * @param override the configured {@code testFramework}, or null to detect
      * @param declaredGroups the groups of the project's declared test dependencies
      * @return the adapter to use
-     * @throws UnsupportedTestFrameworkException if detection finds no supported framework (none, or
-     *                                           only JUnit 5)
-     * @throws GradleException if the override is unknown or unsupported, or detection finds more
-     *                         than one framework
+     * @throws UnsupportedTestFrameworkException if detection finds no supported framework
+     * @throws GradleException if the override names no supported framework
      */
     public static TestFrameworkAdapter detect(final String override, final Collection<String> declaredGroups) {
-        TestFrameworkAdapter spock = new SpockFrameworkAdapter();
+        // In precedence order: the first declared one wins detection.
+        List<TestFrameworkAdapter> adapters = Arrays.asList(new SpockFrameworkAdapter(), new Junit5FrameworkAdapter());
+
         if (override != null && !override.trim().isEmpty()) {
             String name = override.trim().toLowerCase(Locale.ROOT);
-            if (name.equals(spock.name())) {
-                return spock;
-            }
-            if (name.equals(JUNIT5)) {
-                throw junit5NotSupported();
-            }
-            throw new GradleException("Unknown Tia test framework '" + override + "'. Supported values: ["
-                    + spock.name() + "].");
+            return adapters.stream()
+                    .filter(adapter -> adapter.name().equals(name))
+                    .findFirst()
+                    .orElseThrow(() -> new GradleException("Unknown Tia test framework '" + override
+                            + "'. Supported values: " + names(adapters) + "."));
         }
 
-        List<String> detected = new ArrayList<>();
-        if (declares(declaredGroups, spock.dependencyGroup())) {
-            detected.add(spock.name());
-        }
-        if (declares(declaredGroups, JUNIT5_GROUP)) {
-            detected.add(JUNIT5);
-        }
-
+        List<TestFrameworkAdapter> detected = adapters.stream()
+                .filter(adapter -> declares(declaredGroups, adapter.dependencyGroup()))
+                .collect(Collectors.toList());
         if (detected.isEmpty()) {
-            throw new UnsupportedTestFrameworkException("Tia could not detect the test framework from this project's declared "
-                    + "test dependencies (it looks for " + spock.dependencyGroup() + "). " + SETTING_HINT);
+            throw new UnsupportedTestFrameworkException("Tia could not detect the test framework from this "
+                    + "project's declared test dependencies (it looks for "
+                    + adapters.stream().map(TestFrameworkAdapter::dependencyGroup).collect(Collectors.joining(" or "))
+                    + "). " + settingHint(adapters));
         }
+        TestFrameworkAdapter chosen = detected.get(0);
         if (detected.size() > 1) {
-            throw new GradleException("Tia detected more than one test framework in this project's declared "
-                    + "test dependencies " + detected + ", and mixed projects are not supported yet. "
-                    + SETTING_HINT);
+            // A warning, not info: a JUnit 5 project that only pulls Spock in (a shared test-utils
+            // convention, say) would otherwise get no skipping and no mapping with nothing visible
+            // saying why. Setting testFramework explicitly silences it.
+            LOGGER.warn("Tia found more than one test framework in this project's declared test dependencies "
+                    + "{} and uses {}. If this project's tests are not {} tests, Tia will neither skip nor map "
+                    + "them. {}", names(detected), chosen.name(), chosen.name(), settingHint(adapters));
         }
-        if (detected.get(0).equals(JUNIT5)) {
-            throw new UnsupportedTestFrameworkException(junit5NotSupported().getMessage());
-        }
-        return spock;
+        return chosen;
     }
 
     /**
@@ -87,10 +86,23 @@ public final class TestFrameworkDetector {
     }
 
     /**
-     * @return the failure for a JUnit 5 project, which the Gradle plugin does not support yet
+     * List adapters by name, for the detection messages.
+     *
+     * @param adapters the adapters to name
+     * @return their names, e.g. {@code [spock, junit5]}
      */
-    private static GradleException junit5NotSupported() {
-        return new GradleException("Tia's Gradle plugin does not support JUnit 5 yet; it supports Spock. "
-                + "If this project's Tia tests are Spock specs, " + SETTING_HINT);
+    private static String names(final List<TestFrameworkAdapter> adapters) {
+        return adapters.stream().map(TestFrameworkAdapter::name).collect(Collectors.toList()).toString();
+    }
+
+    /**
+     * Build the sentence every detection message ends with, naming the setting that overrides
+     * detection and the values it accepts.
+     *
+     * @param adapters the supported adapters
+     * @return the hint naming the setting that picks the framework explicitly
+     */
+    private static String settingHint(final List<TestFrameworkAdapter> adapters) {
+        return "Set tia { testFramework = ... } to one of " + names(adapters) + " to choose explicitly.";
     }
 }

@@ -23,7 +23,6 @@ import org.tiatesting.core.vcs.WorkspaceIdentity;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -87,14 +86,10 @@ public class TiaDistPlanMojo extends AbstractTiaMojo {
         try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
              DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             VCSReader vcsReader = workspaceIdentity.openVCSReader();
-            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null
-                    ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            List<String> testFilesDirs = getTiaTestFilesDirs() != null
-                    ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
+            List<String> sourceFilesDirs = StringUtil.splitCsv(getTiaSourceFilesDirs());
+            List<String> testFilesDirs = StringUtil.splitCsv(getTiaTestFilesDirs());
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, resolveTiaProjectDir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // The raw isTiaCheckLocalChanges() drives selection here. It can legitimately be true:

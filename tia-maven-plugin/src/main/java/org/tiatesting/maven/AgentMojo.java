@@ -222,10 +222,8 @@ public class AgentMojo extends AbstractTiaMojo {
         try (DataStore dataStore = buildDataStore(workspaceIdentity.getBranch())) {
             long startQueryTime = System.currentTimeMillis();
 
-            List<String> sourceFilesDirs = getTiaSourceFilesDirs() != null ? Arrays.asList(getTiaSourceFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(sourceFilesDirs);
-            List<String> testFilesDirs = getTiaTestFilesDirs() != null ? Arrays.asList(getTiaTestFilesDirs().split(",")) : null;
-            StringUtil.sanitizeInputArray(testFilesDirs);
+            List<String> sourceFilesDirs = StringUtil.splitCsv(getTiaSourceFilesDirs());
+            List<String> testFilesDirs = StringUtil.splitCsv(getTiaTestFilesDirs());
 
             SelectionMode selectionMode = getSelectionMode();
             try {
@@ -234,7 +232,7 @@ public class AgentMojo extends AbstractTiaMojo {
                 throw new MojoExecutionException(e.getMessage(), e);
             }
 
-            TestSelector testSelector = new TestSelector(dataStore);
+            TestSelector testSelector = new TestSelector(dataStore, resolveTiaProjectDir());
             LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
             StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
             // The selection details written for the fork carry the mode, which is how the forked

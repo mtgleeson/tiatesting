@@ -327,6 +327,57 @@ class DistributedRunPlannerTest {
     }
 
     /**
+     * A seed split counts top-level classes, not every name the disk scan finds: a class with many
+     * nested, anonymous or helper inner classes weighs the same as a plain test class, so the split
+     * stays even.
+     */
+    @Test
+    void aSeedSplitCountsTopLevelClassesOnly() {
+        // given - Busy has five inner classes; two plain test classes besides it
+        Supplier<Set<String>> scan = seedSuites("com.example.Busy", "com.example.Busy$1", "com.example.Busy$2",
+                "com.example.Busy$3", "com.example.Busy$4", "com.example.Busy$Helper",
+                "com.example.PlainATest", "com.example.PlainBTest");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(runAllTestsSelection(), false, 3, null, null, scan);
+
+        // then - one family per group
+        assertEquals(3, result.getGroupCount());
+        for (SuiteGroup group : result.getGroups()) {
+            Set<String> topLevel = new HashSet<>();
+            for (String suite : group.getSuiteNames()) {
+                topLevel.add(suite.split("\\$")[0]);
+            }
+            assertEquals(1, topLevel.size(), group.toString());
+        }
+    }
+
+    /**
+     * An untracked nested suite the disk scan finds in a forced plan goes to the group holding its
+     * top-level suite, never to the emptiest group: a nested class only runs inside its enclosing
+     * class.
+     */
+    @Test
+    void aForcedPlanPutsAnUntrackedNestedSuiteWithItsTopLevelSuite() {
+        // given - HeavyTest has a nested class Tia has not tracked yet
+        TestSelectorResult selection = forcedSelection(SelectionMode.SELECT_ALL);
+        Supplier<Set<String>> scan = seedSuites("com.example.HeavyTest", "com.example.LightATest",
+                "com.example.LightBTest", "com.example.HeavyTest$Inner");
+
+        // when
+        GroupingResult result = DistributedRunPlanner.balance(selection, false, 3, null, null, scan);
+
+        // then
+        for (SuiteGroup group : result.getGroups()) {
+            if (group.getSuiteNames().contains("com.example.HeavyTest$Inner")) {
+                assertTrue(group.getSuiteNames().contains("com.example.HeavyTest"), group.toString());
+                return;
+            }
+        }
+        throw new AssertionError("the nested suite is in no group: " + result.getGroups());
+    }
+
+    /**
      * A forced plan records its mode on the run row and summary, and the conservation check does
      * not reject it for carrying the untracked suites the disk scan added.
      */

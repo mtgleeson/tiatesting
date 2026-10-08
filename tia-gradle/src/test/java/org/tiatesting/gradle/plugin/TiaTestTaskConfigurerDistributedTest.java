@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -75,12 +76,21 @@ class TiaTestTaskConfigurerDistributedTest {
      */
     static class TestPlugin extends TiaPlugin {
 
+        /** The adapter the tests hand off through; Spock unless a test swaps it. */
+        TestFrameworkAdapter adapter = new SpockFrameworkAdapter();
+
+        /** The schema suffix the last datastore was opened with. */
+        String lastSchemaSuffix;
+
+        /** When set, reading the tracked suites fails, as a dropped server connection would. */
+        boolean failTrackedSuitesRead;
+
         /**
-         * @return the Spock adapter - these test projects declare no test framework to detect
+         * @return the configured adapter - these test projects declare no test framework to detect
          */
         @Override
         TestFrameworkAdapter getTestFrameworkAdapter() {
-            return new SpockFrameworkAdapter();
+            return adapter;
         }
         private File dbDir;
         private String workspaceCommit = PLAN_COMMIT;
@@ -121,12 +131,28 @@ class TiaTestTaskConfigurerDistributedTest {
          * tiaDBUrl}, which exists only to satisfy the shared-database precondition string check.
          *
          * @param branch the VCS branch name whose schema the store selects
-         * @param schemaSuffix the schema suffix, unused here - these tests declare none
+         * @param schemaSuffix the schema suffix, recorded for the tests that check it; the store
+         *                     itself ignores it
          * @return an embedded datastore the caller owns and closes
          */
         @Override
         public DataStore buildDataStore(final String branch, final String schemaSuffix) {
-            return openStore(dbDir, branch);
+            lastSchemaSuffix = schemaSuffix;
+            DataStore store = openStore(dbDir, branch);
+            if (!failTrackedSuitesRead) {
+                return store;
+            }
+            return (DataStore) java.lang.reflect.Proxy.newProxyInstance(DataStore.class.getClassLoader(),
+                    new Class<?>[]{DataStore.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("getTestSuitesTracked")) {
+                            throw new IllegalStateException("Connection is broken");
+                        }
+                        try {
+                            return method.invoke(store, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
         }
     }
 
@@ -330,9 +356,6 @@ class TiaTestTaskConfigurerDistributedTest {
         assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
         Object forwardedRunnerKey = systemProperties.get("tiaDistributedRunnerKey");
         assertNotNull(forwardedRunnerKey);
-        // a runner claims instead of selecting, so it is handed no selection files
-        assertFalse(systemProperties.containsKey(SelectionHandoff.PROP_IGNORED_TESTS_FILE),
-                systemProperties.toString());
         try (DataStore dataStore = openStore(dbDir, BRANCH)) {
             List<DistributedRunGroup> groups = dataStore.readDistributedRunGroups("run-1");
             assertEquals(forwardedRunnerKey, groups.get(0).getRunnerKey());
@@ -340,6 +363,174 @@ class TiaTestTaskConfigurerDistributedTest {
             assertEquals(DistributedRunGroupStatus.PENDING, untouchedGroup.getStatus());
             assertNull(untouchedGroup.getRunnerKey());
         }
+    }
+
+    /**
+     * Verify a claimed runner is handed its share as the selection files an ordinary build uses:
+     * its own group's suites to run and the other group's to ignore, with no drain result (the plan
+     * already drained, and the cleanup belongs to the sealer). The fork reads only these files, so
+     * a framework whose fork cannot reach the plan (JUnit 5's agent) still runs the right suites.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldHandTheClaimedGroupsShareToTheForkAsSelectionFiles(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-30", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-30");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        assertEquals("0", systemProperties.get("tiaDistributedGroupNumber"));
+        Set<String> selected = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_SELECTED_TESTS_FILE));
+        Set<String> ignored = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE));
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")), selected);
+        assertEquals(Collections.singleton("com.example.CTest"), ignored);
+        assertNotNull(systemProperties.get(SelectionHandoff.PROP_SELECTION_DETAILS_FILE));
+        assertFalse(systemProperties.containsKey(SelectionHandoff.PROP_DRAIN_RESULT_FILE),
+                systemProperties.toString());
+    }
+
+    /**
+     * Verify a surplus runner - every group already claimed - is handed a selection that runs
+     * nothing and ignores every planned suite, so it cannot duplicate another runner's work.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldHandASurplusRunnerASelectionThatRunsNothing(@TempDir File projectDir) {
+        // given a single-group plan already claimed by another runner
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-31", PLAN_COMMIT, singleGroupAssignment());
+        try (DataStore dataStore = openStore(dbDir, BRANCH)) {
+            DistributedRunConfig priorConfig = DistributedRunConfig.forRunner("run-31", "runner-a");
+            DistributedRunnerAssignment.claim(dataStore, priorConfig, PLAN_COMMIT, 1000L);
+        }
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-31");
+        extension.setDistributedRunnerKey("runner-b");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        Map<String, Object> systemProperties = testTask.getSystemProperties();
+        Set<String> selected = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_SELECTED_TESTS_FILE));
+        Set<String> ignored = SelectionHandoff.readSuiteNames(
+                (String) systemProperties.get(SelectionHandoff.PROP_IGNORED_TESTS_FILE));
+        assertTrue(selected.isEmpty(), selected.toString());
+        assertEquals(new HashSet<>(Arrays.asList("com.example.ATest", "com.example.BTest")), ignored);
+    }
+
+    /**
+     * Verify a distributed test task with a schema suffix claims in its suffixed schema - the one
+     * {@code tia-dist-plan} wrote the plan to and {@code tia-dist-complete} completes it in.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldClaimInTheTestTasksSuffixedSchema(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-32", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-32");
+        extension.setSchemaSuffix("it");
+
+        // when
+        runTiaTaskAction(testTask);
+
+        // then
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        assertEquals("it", plugin.lastSchemaSuffix);
+    }
+
+    /**
+     * Verify the claim is recorded for the finalizer even when the hand-off after it fails - an
+     * unrecorded claim would leave its group claimed in the database with nothing to complete it.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRecordTheClaimWhenTheHandoffFails(@TempDir File projectDir) {
+        // given - an adapter whose hand-off fails, as an unresolvable agent jar would
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-33", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-33");
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        plugin.adapter = new SpockFrameworkAdapter() {
+            @Override
+            public void handOffSelection(final Test task, final SelectionHandoff handoff) {
+                throw new IllegalStateException("agent jar not resolvable");
+            }
+        };
+
+        // when
+        assertThrows(RuntimeException.class, () -> runTiaTaskAction(testTask));
+
+        // then
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                .claimFor(testTask.getPath());
+        assertNotNull(claim);
+        assertEquals(Integer.valueOf(0), claim.getGroupNumber());
+    }
+
+    /**
+     * Verify the claim is recorded for the finalizer even when deriving the claimed share fails
+     * after the claim was committed - the plan and tracked-suite reads come after the claim.
+     *
+     * @param projectDir a temporary directory to root the Gradle project and the database at
+     */
+    @org.junit.jupiter.api.Test
+    void shouldRecordTheClaimWhenDerivingTheShareFails(@TempDir File projectDir) {
+        // given
+        File dbDir = newDbDir(projectDir);
+        persistPlan(dbDir, "run-34", PLAN_COMMIT, twoGroupAssignment());
+        Test testTask = testTaskWithTiaApplied(projectDir, dbDir);
+        TiaBaseTaskExtension extension = projectExtension(testTask);
+        enableTia(extension, projectDir);
+        extension.setDbUrl(SHARED_DB_URL);
+        extension.setDistributed(Boolean.TRUE);
+        extension.setRunId("run-34");
+        TestPlugin plugin = (TestPlugin) testTask.getProject().getPlugins()
+                .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
+        plugin.failTrackedSuitesRead = true;
+
+        // when
+        assertThrows(RuntimeException.class, () -> runTiaTaskAction(testTask));
+
+        // then
+        DistributedClaimRegistry.Claim claim = DistributedClaimRegistry.forBuild(testTask.getProject().getGradle())
+                .claimFor(testTask.getPath());
+        assertNotNull(claim);
+        assertEquals(Integer.valueOf(0), claim.getGroupNumber());
     }
 
     /**

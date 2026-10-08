@@ -7,6 +7,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ExternalModuleDependency;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.TaskProvider;
@@ -17,7 +18,6 @@ import org.tiatesting.core.testrunner.TestClassScanner;
 import org.slf4j.Logger;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.report.html.HtmlReportGenerator;
-import org.tiatesting.core.util.StringUtil;
 import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
@@ -41,6 +41,8 @@ import org.tiatesting.core.report.LibrariesReportGenerator;
 import org.tiatesting.core.report.StatusReportGenerator;
 import org.tiatesting.core.report.ReportGenerator;
 import org.tiatesting.core.report.plaintext.TextReportGenerator;
+import org.tiatesting.core.util.ProjectDirs;
+import org.tiatesting.core.util.StringUtil;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -79,6 +81,9 @@ public class TiaPlugin implements Plugin<Project> {
      * declares in it replaces the default.
      */
     public static final String VCS_CONFIGURATION_NAME = "tiaVcs";
+
+    /** The SLF4J API module added to the test runtime classpath alongside Tia's test-JVM module. */
+    static final String SLF4J_API_MODULE = "org.slf4j:slf4j-api";
 
     private TiaBaseTaskExtension tiaTaskExtension;
     private Project project;
@@ -130,7 +135,7 @@ public class TiaPlugin implements Plugin<Project> {
     /**
      * After evaluation, for the test tasks Tia is enabled on: apply the jacoco plugin if any of them
      * updates the mapping, detect the test framework, and add its Tia module to
-     * {@code testRuntimeOnly} at this plugin's version. Each flag is the test task's own value when
+     * {@code testRuntimeOnly} at this plugin's version, with the SLF4J API that module logs through. Each flag is the test task's own value when
      * set, otherwise the project's - the rule the task action applies when it merges the two.
      */
     void configureTestRuntime() {
@@ -161,6 +166,15 @@ public class TiaPlugin implements Plugin<Project> {
         }
         project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME,
                 "org.tiatesting:" + adapter.runtimeArtifactId() + ":" + TiaVersion.get());
+        // Tia's test-JVM module logs through SLF4J but deliberately does not depend on it, so a
+        // project with no SLF4J of its own would fail to start its tests. A preferred (soft)
+        // version: any version the project asks for - including a strict pin - wins over it, so a
+        // project that has SLF4J keeps its own; one that has none gets the API alone, which falls
+        // back to a no-op logger.
+        ExternalModuleDependency slf4jApi = (ExternalModuleDependency) project.getDependencies()
+                .create(SLF4J_API_MODULE);
+        slf4jApi.version(version -> version.prefer(TiaVersion.slf4j()));
+        project.getDependencies().add(JavaPlugin.TEST_RUNTIME_ONLY_CONFIGURATION_NAME, slf4jApi);
     }
 
     /**
@@ -198,9 +212,11 @@ public class TiaPlugin implements Plugin<Project> {
      * example enabled only from the task action's runtime flags). When the project has no supported
      * test framework, warns once and returns null: Tia then leaves its test tasks running as normal.
      *
+     * <p>When more than one framework is declared, detection warns and picks Spock - see
+     * {@link TestFrameworkDetector}.
+     *
      * @return the project's test framework adapter, or null when it has no supported framework
-     * @throws org.gradle.api.GradleException if the configured framework is unknown or unsupported,
-     *         or more than one framework is declared
+     * @throws org.gradle.api.GradleException if the configured {@code testFramework} is unknown
      */
     TestFrameworkAdapter getTestFrameworkAdapter() {
         if (testFrameworkAdapter == null && !testFrameworkUnsupported) {
@@ -426,11 +442,9 @@ public class TiaPlugin implements Plugin<Project> {
             TiaSchemaResolver.printSchemaHeadingIfNeeded(selectSuffix, selectSuffixes.size());
             try (WorkspaceIdentity workspaceIdentity = workspaceIdentity();
                  DataStore dataStore = buildDataStore(workspaceIdentity.getBranch(), selectSuffix)) {
-                List<String> sourceFilesDirs = getSourceFilesDirs() != null ? Arrays.asList(getSourceFilesDirs().split(",")) : null;
-                StringUtil.sanitizeInputArray(sourceFilesDirs);
-                List<String> testFilesDirs = getTestFilesDirs() != null ? Arrays.asList(getTestFilesDirs().split(",")) : null;
-                StringUtil.sanitizeInputArray(testFilesDirs);
-                TestSelector testSelector = new TestSelector(dataStore);
+                List<String> sourceFilesDirs = StringUtil.splitCsv(getSourceFilesDirs());
+                List<String> testFilesDirs = StringUtil.splitCsv(getTestFilesDirs());
+                TestSelector testSelector = new TestSelector(dataStore, ProjectDirs.resolve(project.getProjectDir(), getProjectDir()));
                 LibraryImpactAnalysisConfig libraryConfig = buildLibraryImpactAnalysisConfig();
                 StaticTestSelectionConfig staticMappingConfig = buildStaticTestSelectionConfig();
                 // Read-only preview: no mapping writes (updateDBMapping=false).
@@ -826,12 +840,7 @@ public class TiaPlugin implements Plugin<Project> {
      * @return the absolute project directory the VCS is detected and read from
      */
     private String resolveVcsProjectDir() {
-        String configured = getProjectDir();
-        if (configured == null || configured.trim().isEmpty()) {
-            return project.getProjectDir().getAbsolutePath();
-        }
-        File dir = new File(configured);
-        return dir.isAbsolute() ? dir.getPath() : new File(project.getProjectDir(), configured).getPath();
+        return ProjectDirs.resolve(project.getProjectDir(), getProjectDir()).getPath();
     }
 
     /**
@@ -967,23 +976,12 @@ public class TiaPlugin implements Plugin<Project> {
     }
 
     /**
-     * Build the {@link DataStore} for the daemon-side Tia tasks, resolving the SQL dialect from
-     * the {@code tia { ... }} extension's connection properties via {@link DataStoreFactory}.
-     * Shares {@link #resolveDbFilePath()} with {@link #buildH2ConnectionSettings()} so both
-     * paths agree on the daemon-cwd-vs-projectDir resolution described there.
-     *
-     * @param branch the VCS branch name, used to derive the per-branch schema selected on each
-     *               connection
-     * @return the constructed datastore for the resolved dialect
-     */
-    public DataStore buildDataStore(String branch) {
-        return buildDataStore(branch, null);
-    }
-
-    /**
      * Open the datastore for a branch and a schema suffix. A null suffix is the unsuffixed
      * {@code tia_<branch>} schema Tia has always used, so a project that declares none is
-     * unaffected.
+     * unaffected. There is deliberately no overload without the suffix: every caller must say which
+     * schema it means. The SQL dialect comes from the {@code tia { ... }} connection settings, and
+     * the embedded file path is shared with {@link #buildH2ConnectionSettings()} through
+     * {@link #resolveDbFilePath()}, so both agree on the daemon-cwd-vs-projectDir resolution.
      *
      * @param branch the VCS branch, the base of the schema name
      * @param schemaSuffix the schema suffix isolating one test task's datastore, or null for none

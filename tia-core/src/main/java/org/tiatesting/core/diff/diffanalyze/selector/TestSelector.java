@@ -9,6 +9,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.PendingLibraryImpactedMethodsDrainer;
 import org.tiatesting.core.library.TrackedLibraryReconciler;
 import org.tiatesting.core.model.MethodImpactTracker;
+import org.tiatesting.core.model.NestedTestSuites;
 import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestRunTrigger;
@@ -39,10 +40,26 @@ public class TestSelector {
 
     private final DataStore dataStore;
 
+    /*
+    The project whose configured source and test directories are resolved: the Gradle project's or
+    Maven module's own directory. Never the JVM's working directory - a Gradle daemon keeps the
+    directory it was first started in, which can be another project entirely, and a Maven build run
+    from a multi-module root is not in the module's directory either.
+     */
+    private final File projectDir;
+
     FileImpactAnalyzer fileImpactAnalyzer = new FileImpactAnalyzer(new MethodImpactAnalyzer());
 
-    public TestSelector (final DataStore dataStore){
+    /**
+     * Create a selector for one project.
+     *
+     * @param dataStore the datastore holding the project's mapping
+     * @param projectDir the project directory relative source and test directories are resolved
+     *                   against - the Gradle project's or the Maven module's directory
+     */
+    public TestSelector(final DataStore dataStore, final File projectDir){
         this.dataStore = dataStore;
+        this.projectDir = projectDir.getAbsoluteFile();
     }
 
     /**
@@ -126,6 +143,10 @@ public class TestSelector {
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
                 tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges);
 
+        // @Nested families are selected whole - added after every other source of selection, so it
+        // covers all of them. See NestedTestSuites#addFamilies for why.
+        NestedTestSuites.addFamilies(testsToRun, testSuitesTracked);
+
         // Get the list of tests from the stored mapping that aren't in the list of test suites to run.
         Set<String> testsToIgnore = getTestsToIgnore(testSuitesTracked, testsToRun);
 
@@ -198,6 +219,9 @@ public class TestSelector {
      * a positive {@code avgRunTime}, the median is {@code 0} and missing tests contribute
      * nothing to the total.
      *
+     * <p>The recorded times are each suite's own - an enclosing class's excludes the
+     * {@code @Nested} classes that ran inside it - so the total is a plain sum.
+     *
      * <p>The base estimate above is pure per-suite execution time. A mapping-update run also pays
      * JaCoCo coverage capture plus whole-run costs (JVM/agent startup, the final persist), none of
      * which is in {@code avgRunTime} (that is measured before coverage collection). Those are
@@ -218,7 +242,6 @@ public class TestSelector {
      */
     static RunTimeEstimate estimateRunTime(final Set<String> testsToRun, final Map<String, TestSuiteTracker> tracked,
                                            final TestStats tiaStats){
-        long totalMs = 0L;
         Set<String> withoutStats = new HashSet<>();
         Map<String, Long> perTestRunTimes = new HashMap<>();
 
@@ -228,19 +251,22 @@ public class TestSelector {
                 withoutStats.add(testName);
                 perTestRunTimes.put(testName, 0L); // placeholder, replaced with median below
             } else {
-                long avg = tracker.getTestStats().getAvgRunTime();
-                totalMs += avg;
-                perTestRunTimes.put(testName, avg);
+                perTestRunTimes.put(testName, tracker.getTestStats().getAvgRunTime());
             }
         }
 
         long median = 0L;
         if (!withoutStats.isEmpty()){
             median = computeMedianAvgRunTime(tracked);
-            totalMs += median * (long) withoutStats.size();
             for (String testName : withoutStats){
                 perTestRunTimes.put(testName, median);
             }
+        }
+        // Recorded times are each suite's own (the listener excludes @Nested classes from their
+        // enclosing class), so they simply add up.
+        long totalMs = 0L;
+        for (long suiteMs : perTestRunTimes.values()) {
+            totalMs += suiteMs;
         }
 
         OverheadModel overhead = overheadModel(tracked, tiaStats);
@@ -699,18 +725,19 @@ public class TestSelector {
     }
 
     /**
-     * Get the full path names for a given list of directories.
-     * The input directories could be relative paths (from the current path), or full paths.
+     * Get the full path names for a given list of directories. An entry is resolved against the
+     * project directory first - a leading {@code /} is allowed, as the README's examples use - and
+     * otherwise taken as an absolute path. Entries that exist neither way are logged and skipped.
+     * Package-private so the resolution can be tested on its own.
      *
      * @param filePaths should be source code or test file directories configured by the user
-     * @return
+     * @return the canonical paths of the directories that exist
      */
-    private List<String> getFullFilePaths(List<String> filePaths){
+    List<String> getFullFilePaths(List<String> filePaths){
         List<String> fullFilePaths = new ArrayList<>();
-        String currentPath = Paths.get(".").toAbsolutePath().normalize().toString();
 
         for (String sourceAndTestFilesDir : filePaths){
-            File file = loadFileOnDiskFromPath(currentPath, sourceAndTestFilesDir);
+            File file = loadFileOnDiskFromPath(sourceAndTestFilesDir);
             if (file != null){
                 try {
                     fullFilePaths.add(file.getCanonicalPath());
@@ -723,18 +750,24 @@ public class TestSelector {
         return fullFilePaths;
     }
 
-    private File loadFileOnDiskFromPath(String currentPath, String sourceAndTestFilesDir) {
-        // first assume it's a relative path and check if it exists
-        String filePath = sourceAndTestFilesDir.startsWith("/") ? sourceAndTestFilesDir : "/" + sourceAndTestFilesDir;
-        filePath = currentPath + filePath;
-
-        File file = new File(filePath);
+    /**
+     * Find a configured directory on disk: under the project directory first, then as an absolute
+     * path.
+     *
+     * @param sourceAndTestFilesDir the configured directory
+     * @return the directory, or null when it exists neither way
+     */
+    private File loadFileOnDiskFromPath(String sourceAndTestFilesDir) {
+        // first assume it's relative to the project directory and check if it exists
+        File file = new File(projectDir, sourceAndTestFilesDir);
         if (!file.exists()){
-            // relative path not found, assume it's a full path from root and try load it
-            file = new File(sourceAndTestFilesDir);
-            if (!file.exists()){
-                file = null;
-                log.warn("Can't find configured source of test directory on disk: {}", sourceAndTestFilesDir);
+            // not under the project: an absolute path, if it is one (a relative one is never resolved
+            // against the working directory)
+            File asConfigured = new File(sourceAndTestFilesDir);
+            file = asConfigured.isAbsolute() && asConfigured.exists() ? asConfigured : null;
+            if (file == null){
+                log.warn("Can't find configured source or test directory on disk: {} (resolved against "
+                        + "the project directory {})", sourceAndTestFilesDir, projectDir);
             }
         }
 
@@ -948,7 +981,6 @@ public class TestSelector {
                 testsToIgnore.add(testSuite);
             }
         });
-
         return testsToIgnore;
     }
 

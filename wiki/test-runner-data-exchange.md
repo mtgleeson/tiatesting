@@ -41,12 +41,67 @@ The same file mechanism also carries the **forked-JVM system properties** the te
 ### How Tia-Gradle hands the selection over
 
 Gradle runs the selection in the test task's `doFirst` action, in the daemon, and writes the same
-`SelectionHandoff` files into the test task's temporary directory. It does not need an agent to
-find them: `task.systemProperty(...)` names each file directly (`tiaIgnoredTestsFile`,
-`tiaSelectedTestsFile`, `tiaRunSelectionDetailsFile`, and `tiaDrainResultFile` when something was
-drained), and the framework's Tia module in the fork - `TiaSpockGlobalExtension` for Spock - reads
-them. That per-framework step is the plugin's `TestFrameworkAdapter`; everything else in the task
-action is framework-agnostic.
+`SelectionHandoff` files into the test task's temporary directory. How the fork finds them is the
+one per-framework step, the plugin's `TestFrameworkAdapter`; everything else in the task action is
+framework-agnostic.
+
+- **Spock** needs no agent: `task.systemProperty(...)` names each file directly
+  (`tiaIgnoredTestsFile`, `tiaSelectedTestsFile`, `tiaRunSelectionDetailsFile`, and
+  `tiaDrainResultFile` when something was drained), and `TiaSpockGlobalExtension` reads them and
+  skips specs itself.
+- **JUnit 5** uses the agent, as on Maven: JUnit has no Spock-style global extension Tia can rely
+  on (an `ExecutionCondition` would need `junit.jupiter.extensions.autodetection.enabled`, which
+  also switches on every other extension on the classpath), so skipping is done by marking ignored
+  suites `@Disabled` at class-load time. `Junit5FrameworkAdapter` appends a
+  `TiaAgentArgumentProvider` to the task's `jvmArgumentProviders` with
+  `-javaagent:<tia-junit5-agent runtime jar>=<AgentOptions>` naming the files. The provider is
+  added in the task action, after the jacoco plugin registered its own provider at configuration
+  time, so the Tia agent follows the JaCoCo agent on the command line (jacoco/jacoco#551, the
+  ordering Maven's `addVMArguments` keeps too). The jar is resolved from the project's repositories
+  in a detached configuration, so it reaches none of the project's classpaths. The other settings
+  already travel as task system properties, so the agent's `forkPropertiesFile` and
+  `libraryJarsFile` options stay unset.
+
+**The agent jar is searched before the project's classes on Gradle.** A `-javaagent` jar joins the
+system class path when the JVM starts. Surefire's booter jar lists the project's test classpath
+first, so on Maven the agent jar comes last. Gradle's worker places the project's classes on the
+system class path after the agent jar (they are reachable when `premain` runs - measured on Gradle
+8.4, Java 8 - just later in the search order), so on Gradle every class in the agent jar is found
+before the project's own copy.
+
+**The agent uses only the JDK and its own jar.** It cannot rely on the project: Surefire with
+`useSystemClassLoader=false` keeps the project's classes off the system class loader entirely, and
+a project need not have SLF4J at all. So the agent logs through `java.util.logging`, and the jar
+bundles every Tia class `premain` touches.
+
+**The agent jar carries nothing a project could also have.** The jar used to bundle all of
+its dependencies - JUnit Platform and Jupiter, ByteBuddy, ASM, JaCoCo, H2, j2html - and a project on
+a different JUnit version then ran with a mix of Tia's JUnit classes and its own, failing with
+`NoSuchMethodError` on every run (JUnit 5.13 against the bundled 5.11). Maven never noticed because
+Surefire puts the project's classpath first. The jar (built by the Shadow plugin in
+`tia-junit5-agent`) now holds only:
+
+- the agent itself (`org.tiatesting.agent`), including `IgnoreTestInstrumentor`;
+- the `tia-core` classes `premain` uses, `AgentOptions`, `CommandLineSupport` and
+  `ForkSystemProperties` - the same classes, from the same Tia version, also reach the test classpath
+  through `tia-junit5`, so which copy loads first does not matter;
+- ByteBuddy, relocated to `org.tiatesting.shaded.bytebuddy` so it is a different library, by name,
+  from any ByteBuddy the project has (Mockito's, for example). The agent switches on its
+  experimental mode, so test classes compiled for a newer Java than it knows are still annotated;
+  the property is relocated too, so the switch for Tia's copy is
+  `-Dorg.tiatesting.shaded.bytebuddy.experimental`, and `-Dnet.bytebuddy.experimental` only affects
+  the project's own ByteBuddy.
+
+No JUnit class is bundled. `@Disabled` is described, when each ignored test class loads, from the
+class file that test class's own loader finds - the project's JUnit - and is added from that
+description, so it resolves against the project's JUnit too. The `verifyAgentJar` task, part of
+`check`, fails the build if anything else ever lands in the jar, or if a bundled Tia class refers to
+a Tia class the jar does not contain.
+
+A distributed runner hands its share over the same way. The daemon claims the group with
+`DistributedRunnerAssignment.claim`, which also derives the suites the runner runs and ignores, and
+writes those as the same files (no drain result, an empty selection breakdown). The fork only
+reads files, whether or not the build is distributed.
 
 The selection used to run inside the Spock test JVM instead. Moving it to the daemon matters for
 three reasons:
@@ -57,6 +112,59 @@ three reasons:
    library is ever on the test classpath.
 3. **One model for both build tools.** Library metadata and static rules are built where the build
    model is, rather than encoded into system properties for the fork to rebuild.
+
+### Nested test classes (JUnit 5 `@Nested`)
+
+A `@Nested` class is tracked as its own suite (`Outer$Inner`), but it only ever runs inside its
+enclosing class, and Tia skips a suite by marking its class `@Disabled` - which skips every class
+nested in it too. A top-level class and everything nested in it form a **family**, read from the
+binary name (`NestedTestSuites`), and four rules follow:
+
+1. **Families are selected whole.** Once every other source of selection has run, `TestSelector`
+   adds every tracked member of each selected suite's family to the run set
+   (`NestedTestSuites.addFamilies`). Selecting anything less could skip affected tests: a selected
+   nested class only runs inside its enclosing class; an edited test file names only its top-level
+   class, though the nested classes declared in it are separate suites; and an enclosing class's
+   `@BeforeAll` and static set-up run once for the whole family but are credited to one suite. The
+   cost is some over-selection inside a family, never a missed test. The added suites count as
+   selected in the estimate, the history row and a distributed plan. The history breakdown does not
+   yet record why a family member was added (it has no trigger of its own), so the selected count
+   can exceed the listed reasons - a known gap.
+2. **A distributed plan keeps a family in one group.** `TestGroupBalancer` balances families
+   rather than suites, a seed split counts top-level classes only (the disk scan's nested,
+   anonymous and helper class names weigh nothing), and a forced plan's untracked disk-scan names
+   join the group already holding their top-level suite.
+3. **Coverage stays with the class whose tests produced it.** Jupiter runs `Outer`'s own tests and
+   then `Outer$Inner` inside `Outer`'s container. The JUnit 5 listener collects coverage when a
+   class container finishes, so without care `Outer$Inner`'s dump would also carry `Outer`'s tests.
+   The listener therefore also collects when a nested class starts, if a test has run since the last
+   dump, and credits that dump to the enclosing class.
+4. **Each suite records its own run time.** An enclosing class's container wall clock includes the
+   nested classes that ran inside it. The listener subtracts each nested class's container time
+   from its enclosing class when that finishes, so stored averages are each suite's own and every
+   consumer - the estimate, the overhead model, the balancer, the seal - can simply add them up.
+
+**Known limitation: `@Nested` classes declared in a superclass.** The rules read a family from the
+binary name. A `@Nested` class declared in a base class (`AbstractContractTest$WhenEmpty`) runs
+inside each concrete subclass (`ConcreteTest`), whose name the binary name does not mention.
+Selecting the nested suite then brings in `AbstractContractTest` - which never runs - while
+`ConcreteTest` can stay ignored, and the `@Disabled` on it skips the selected nested tests; a
+distributed plan can also separate them. Until this is fixed, a project relying on inherited
+`@Nested` classes should not depend on Tia skipping their subclasses.
+
+**Known limitation: static nested test classes.** A `static` nested class with its own tests (not
+`@Nested`) also has a `$` in its name but runs on its own, not inside its outer class. The family
+rules still apply to it: selecting either selects both, and a plan keeps them in one group. That
+costs some selectivity and balancing freedom but never skips a test.
+
+Both limitations have the same fix: the listener records which class each nested class actually ran
+inside (it can see the running containers), and selection and planning use that recorded
+relationship instead of the name. That needs a schema change.
+
+Before these rules, a change covered only by `Outer`'s own tests was credited to `Outer$Inner`; the
+selection then ran `Outer$Inner`, ignored `Outer`, and the `@Disabled` on `Outer` skipped both - so
+nothing ran. A distributed plan could also put `Outer$Inner` in a different group from `Outer`, where
+it ran on no runner.
 
 ### VCS libraries never cross the boundary
 

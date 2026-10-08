@@ -77,7 +77,7 @@ class TestSelectorTrackedFileFilterTest {
         // given - a diff touching one tracked (Foo) and one untracked (Bar) source file
         RecordingVCSReader reader = new RecordingVCSReader(
                 modifiedDiff(TRACKED_FILE_KEY), modifiedDiff(UNTRACKED_FILE_KEY));
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,
@@ -103,7 +103,7 @@ class TestSelectorTrackedFileFilterTest {
     void selectionUnchangedWhenOnlyUntrackedFilesChange() {
         // given - a diff touching only the untracked file
         RecordingVCSReader reader = new RecordingVCSReader(modifiedDiff(UNTRACKED_FILE_KEY));
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,
@@ -124,7 +124,7 @@ class TestSelectorTrackedFileFilterTest {
         // given - FooTest avg 100ms, full-suite baseline 500ms => overhead (500-100)/1 = 400ms/suite
         seedStats(100L, 500L);
         RecordingVCSReader reader = new RecordingVCSReader(modifiedDiff(TRACKED_FILE_KEY));
-        TestSelector selector = new TestSelector(dataStore);
+        TestSelector selector = new TestSelector(dataStore, new File("."));
 
         // when
         TestSelectorResult result = selector.selectTestsToIgnore(reader,

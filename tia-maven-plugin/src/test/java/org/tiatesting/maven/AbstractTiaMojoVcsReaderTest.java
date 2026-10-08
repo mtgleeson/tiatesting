@@ -1,11 +1,14 @@
 package org.tiatesting.maven;
 
+import org.apache.maven.model.Model;
+import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VcsSettings;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -161,6 +164,7 @@ class AbstractTiaMojoVcsReaderTest {
         private final ClassLoader pluginLoader;
         private final List<String> resolvedNames = new ArrayList<>();
         private ClassLoader resolvedLoader = testClassLoader();
+        private final MavenProject project = new MavenProject(new Model());
 
         /**
          * @param pluginLoader the loader to present as the plugin's own class loader
@@ -168,6 +172,16 @@ class AbstractTiaMojoVcsReaderTest {
         private TestMojo(final ClassLoader pluginLoader) {
             this.pluginLoader = pluginLoader;
             this.tiaEnabled = true;
+            // A real module always has a base directory, which tiaProjectDir is resolved against.
+            this.project.setFile(new File("module/pom.xml").getAbsoluteFile());
+        }
+
+        /**
+         * @return a module whose base directory relative tiaProjectDir values are resolved against
+         */
+        @Override
+        public MavenProject getProject() {
+            return project;
         }
 
         /**

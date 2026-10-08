@@ -23,6 +23,7 @@ import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.testrunner.RunAttempt;
+import org.tiatesting.core.testrunner.TestJvmSequence;
 import org.tiatesting.core.testrunner.TestRunResult;
 import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.RunSelectionDetailsCodec;
@@ -30,12 +31,15 @@ import org.tiatesting.core.testrunner.TestRunnerService;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -130,9 +134,37 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      */
     private final SharedTestRunData sharedTestRunData;
     /*
-    Which attempt the current test plan is: the real run, or a Surefire re-run in this JVM.
+    Which attempt the current test plan is: the real run, a Surefire re-run in this JVM, or a Gradle
+    test-retry round in a fresh JVM.
      */
     private volatile RunAttempt runAttempt = RunAttempt.FIRST;
+    /*
+    The class containers currently executing, innermost first. JUnit Jupiter runs a class's own
+    tests and then its @Nested classes inside it, so when a nested class starts, the coverage
+    collected since the enclosing class started belongs to the enclosing class - see
+    testSuiteStarted. Guarded by its own monitor; class containers start and finish on the
+    engine's thread unless the suite runs classes concurrently, which coverage attribution does
+    not support anyway.
+     */
+    private final Deque<String> suitesInProgress = new ArrayDeque<>();
+    /*
+    Whether a test has run since the last coverage dump. A @Nested class starting straight after its
+    sibling finished (and dumped) has nothing new to credit to the enclosing class, so the extra
+    JaCoCo dump is skipped.
+     */
+    private volatile boolean testRanSinceLastDump;
+    /*
+    When each running class container started, and how much of that time its @Nested classes took.
+    A class's recorded run time is its own: the nested classes Jupiter runs inside its container are
+    subtracted when it finishes, so every consumer can add suite times up without counting a nested
+    class twice (once on its own, once inside its enclosing class).
+     */
+    private final Map<String, Long> containerStartMs = new ConcurrentHashMap<>();
+    private final Map<String, Long> nestedElapsedMs = new ConcurrentHashMap<>();
+    /*
+    The time source, injectable so the timing can be tested deterministically.
+     */
+    private final LongSupplier clock;
 
     /**
      * Build the listener for this test JVM: read the update flags and the selected/ignored suite
@@ -155,12 +187,28 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      *                          the runner's suite sets and the run-level stats)
      */
     public TiaTestExecutionListener(final SharedTestRunData sharedTestRunData) {
+        this(sharedTestRunData, new JacocoClient(), System::currentTimeMillis);
+    }
+
+    /**
+     * Build the listener with a given coverage client and clock - see {@link
+     * #TiaTestExecutionListener(SharedTestRunData)}. Package-private so a test can supply coverage
+     * dumps without a JaCoCo agent, and times without waiting.
+     *
+     * @param sharedTestRunData the per-JVM state carried across Surefire retries
+     * @param coverageClient the client coverage is collected through; initialised here when mapping
+     *                       is on
+     * @param clock the time source, in epoch milliseconds
+     */
+    TiaTestExecutionListener(final SharedTestRunData sharedTestRunData, final JacocoClient coverageClient,
+                             final LongSupplier clock) {
+        this.clock = clock;
         this.updateDBMapping = Boolean.parseBoolean(System.getProperty("tiaUpdateDBMapping"));
         // updateDBTestRunHistory defaults to TRUE - log a row unless explicitly switched off.
         // The inverse predicate handles a missing system property as "enabled".
         this.updateDBTestRunHistory = !"false".equalsIgnoreCase(System.getProperty("tiaUpdateDBTestRunHistory"));
         this.enabled = isEnabled();
-        this.coverageClient = new JacocoClient();
+        this.coverageClient = coverageClient;
 
         if (enabled && updateDBMapping){
             this.coverageClient.initialize();
@@ -267,8 +315,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * This is executed only once for all tests in the session/run/test plan.
      * For re-runs, this will be run again - with a new TestExecutionListener instance up to Surefire
      * 3.5.3. The per-attempt sets are cleared here so each attempt's history row counts only that
-     * attempt, whether or not the instance is new, and the attempt is numbered so a re-run's row is
-     * flagged as a rerun.
+     * attempt, whether or not the instance is new, and the attempt is resolved so a re-run's row is
+     * flagged as a rerun - a Surefire rerun by its plan number, a Gradle test-retry round by the test
+     * JVM counter (see {@link #resolveRunAttempt}).
      *
      * @param testPlan The test plan being executed.
      */
@@ -278,10 +327,16 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
         this.testPlan = testPlan;
-        this.runAttempt = sharedTestRunData.nextTestPlanNumber() == 1 ? RunAttempt.FIRST : RunAttempt.RERUN_SAME_JVM;
-        testRunStartTime = System.currentTimeMillis();
+        this.runAttempt = resolveRunAttempt(sharedTestRunData.nextTestPlanNumber(),
+                TestJvmSequence.attemptFromSystemProperties());
+        testRunStartTime = clock.getAsLong();
         suitesFinishedThisAttempt.clear();
         suitesFailedThisAttempt.clear();
+        synchronized (suitesInProgress) {
+            suitesInProgress.clear();
+        }
+        containerStartMs.clear();
+        nestedElapsedMs.clear();
 
         // If the tests are being re-run due to failure retry,reset stats (but not mappings) between re-runs.
         // We don't want to keep the stats from the first test run for the subsequent test runs.
@@ -293,9 +348,31 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     }
 
     /**
+     * Decide which attempt a test plan is. A Gradle test-retry round is a fresh JVM, so its first
+     * test plan is numbered 1 like the real run's; only the test JVM counter the Gradle plugin resets
+     * per test task execution tells it apart, and when that counter says this JVM is a retry, every
+     * test plan in it is. Otherwise the plan number decides: the first plan in the JVM is the real
+     * run and any later one is a Surefire rerun in the same JVM. Maven forwards no counter, so its
+     * JVM attempt is always {@link RunAttempt#FIRST}. See the "Failed-suite tracking" chapter in
+     * {@code WIKI.md}.
+     *
+     * @param testPlanNumber this test plan's number within the JVM, starting at 1
+     * @param jvmAttempt the attempt the test JVM counter resolved for this JVM
+     * @return the attempt the test plan's persist describes
+     */
+    static RunAttempt resolveRunAttempt(final int testPlanNumber, final RunAttempt jvmAttempt) {
+        if (jvmAttempt == RunAttempt.RERUN_NEW_JVM) {
+            return RunAttempt.RERUN_NEW_JVM;
+        }
+        return testPlanNumber == 1 ? RunAttempt.FIRST : RunAttempt.RERUN_SAME_JVM;
+    }
+
+    /**
      * This is executed when the test engine starts, when the test suite is initialized, and when individual tests
      * are executed.
      * This can be called concurrently if tests are being executed concurrently.
+     * A test starting marks that there is coverage to collect before the next {@code @Nested} class
+     * starts; a class container starting is recorded as a suite start.
      *
      * @param testIdentifier The identifier for the item being executed.
      */
@@ -305,6 +382,9 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             return;
         }
 
+        if (testIdentifier.isTest()){
+            testRanSinceLastDump = true;
+        }
         if (isExecutionForTestSuite(testIdentifier)){
             testSuiteStarted(testIdentifier);
         }
@@ -314,6 +394,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * Record that a suite has started: create its tracker on its first execution in this JVM, assume
      * it will succeed until a failure says otherwise, and clear any failure an earlier attempt
      * recorded for it, since this execution's outcome is now the one that counts.
+     *
+     * <p>When mapping is on and another class container is still running - a {@code @Nested} class
+     * starting inside its enclosing class - the coverage collected so far is credited to that
+     * enclosing class first, if a test has run since the last dump; a sibling starting straight
+     * after another sibling's finish has nothing new to credit. Without this the nested class's coverage dump at its finish would
+     * also carry the enclosing class's own tests, and the enclosing class would be left with no
+     * mapping of its own.
      *
      * @param testIdentifier the class container that started
      */
@@ -333,13 +420,32 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             this.testSuiteTrackers.put(testSuiteName, testSuiteTracker);
         }
 
+        // Recorded as in progress only once its tracker exists, so a class that starts alongside it
+        // always finds a tracker to credit coverage to.
+        synchronized (suitesInProgress) {
+            String enclosingSuite = suitesInProgress.peekFirst();
+            TestSuiteTracker enclosingTracker = enclosingSuite != null
+                    ? this.testSuiteTrackers.get(enclosingSuite) : null;
+            if (updateDBMapping && enclosingTracker != null && testRanSinceLastDump) {
+                // A @Nested class is starting inside its enclosing class: what ran so far is the
+                // enclosing class's own tests, so credit it there before the nested class's tests
+                // add to the same coverage dump. The dump's own cost is coverage capture, not the
+                // enclosing class's test time, so it is excluded from its run time like a nested class.
+                long dumpStartedMs = clock.getAsLong();
+                collectCoverageInto(enclosingTracker);
+                nestedElapsedMs.merge(enclosingSuite, clock.getAsLong() - dumpStartedMs, Long::sum);
+            }
+            suitesInProgress.addFirst(testSuiteName);
+        }
+        containerStartMs.put(testSuiteName, clock.getAsLong());
+
         if (updateDBMapping){
             // assume the test suite will run and succeed. Explicitly set to false on failure, or no runs if ignored.
             testSuiteTracker.getTestStats().setNumSuccessRuns(1);
 
             if (shouldCalcTestSuiteAvgTime(testSuiteName)){
                 // track the start of the test run, do it in the test suite object to keep the class thread safe
-                testSuiteTracker.getTestStats().setAvgRunTime(System.currentTimeMillis());
+                testSuiteTracker.getTestStats().setAvgRunTime(clock.getAsLong());
             }
         }
     }
@@ -347,8 +453,11 @@ public class TiaTestExecutionListener implements TestExecutionListener {
     /**
      * This is executed when a test suite, or individual test is disabled/skipped.
      * This can be called concurrently if tests are being executed concurrently.
+     * A skipped class container is recorded as observed, and so are the {@code @Nested} classes
+     * inside it, which JUnit skips without reporting.
      *
      * @param testIdentifier The identifier for the item being executed.
+     * @param reason why it was skipped
      */
     @Override
     public void executionSkipped(TestIdentifier testIdentifier, String reason) {
@@ -365,6 +474,13 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             // this JVM has observed the suite (as skipped), independent of any test-classes directory
             // override applied to runnerTestSuites - see the field's javadoc.
             suitesObserved.add(testSuiteName);
+            // A skipped class's @Nested classes get no event of their own, but they were skipped too.
+            // Unreported, a distributed group holding them could never count them as observed, and
+            // so could never complete.
+            for (String nestedSuite : nestedSuitesOf(testIdentifier)){
+                runnerTestSuites.add(nestedSuite);
+                suitesObserved.add(nestedSuite);
+            }
         }
 
         /*
@@ -446,6 +562,10 @@ public class TiaTestExecutionListener implements TestExecutionListener {
      * that this JVM observed it. Called once per suite per test plan, so the observed and
      * runner-suite sets are additive across Surefire retries rather than replaced by the latest one.
      *
+     * <p>The recorded run time is the suite's own: the time its {@code @Nested} classes took inside
+     * its container is subtracted, and this suite's whole container time is in turn charged to the
+     * class it ran inside, if any.
+     *
      * @param testIdentifier the identifier of the test suite that finished
      */
     private void testSuiteFinished(TestIdentifier testIdentifier) {
@@ -456,21 +576,26 @@ public class TiaTestExecutionListener implements TestExecutionListener {
             testSuiteTracker.getTestStats().setNumRuns(1);
 
             if (shouldCalcTestSuiteAvgTime(testSuiteName)){
-                testSuiteTracker.getTestStats().setAvgRunTime(calcTestSuiteRuntime(testSuiteTracker));
+                // Its own time: the @Nested classes that ran inside it have their own.
+                long nestedMs = nestedElapsedMs.getOrDefault(testSuiteName, 0L);
+                testSuiteTracker.getTestStats().setAvgRunTime(
+                        Math.max(0L, calcTestSuiteRuntime(testSuiteTracker) - nestedMs));
             }
         }
 
         if (updateDBMapping) {
             log.debug("Collecting coverage and adding the mapping for the test suite: " + testSuiteName);
-            CoverageResult coverageResult = null;
-            try {
-                coverageResult = this.coverageClient.collectCoverage();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+            collectCoverageInto(testSuiteTracker);
+        }
+        nestedElapsedMs.remove(testSuiteName);
+        Long startedMs = containerStartMs.remove(testSuiteName);
+        synchronized (suitesInProgress) {
+            suitesInProgress.removeFirstOccurrence(testSuiteName);
+            // Charge the whole container, coverage dump included, to the class it ran inside.
+            String enclosingSuite = suitesInProgress.peekFirst();
+            if (enclosingSuite != null && startedMs != null) {
+                nestedElapsedMs.merge(enclosingSuite, clock.getAsLong() - startedMs, Long::sum);
             }
-            List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
-            addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
-            testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
         }
 
         runnerTestSuites.add(testSuiteName);
@@ -478,6 +603,44 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         // override applied to runnerTestSuites - see the field's javadoc.
         suitesObserved.add(testSuiteName);
         suitesFinishedThisAttempt.add(testSuiteName);
+    }
+
+    /**
+     * The {@code @Nested} classes inside a class container, at any depth, from the current test plan.
+     *
+     * @param testIdentifier a class container
+     * @return the suite names of the class containers below it; empty when there is no test plan
+     */
+    private Set<String> nestedSuitesOf(final TestIdentifier testIdentifier) {
+        Set<String> nested = new HashSet<>();
+        TestPlan plan = this.testPlan;
+        if (plan == null) {
+            return nested;
+        }
+        for (TestIdentifier descendant : plan.getDescendants(testIdentifier)) {
+            if (isExecutionForTestSuite(descendant)) {
+                nested.add(getTestSuiteName(descendant));
+            }
+        }
+        return nested;
+    }
+
+    /**
+     * Dump the coverage collected since the last dump and add it to a suite's mapping.
+     *
+     * @param testSuiteTracker the suite the coverage is credited to
+     */
+    private void collectCoverageInto(final TestSuiteTracker testSuiteTracker) {
+        testRanSinceLastDump = false;
+        CoverageResult coverageResult;
+        try {
+            coverageResult = this.coverageClient.collectCoverage();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        List<ClassImpactTracker> classImpactTrackers = coverageResult.getClassesInvoked();
+        addClassTrackersToTestSuiteTracker(testSuiteTracker, classImpactTrackers);
+        testRunMethodsImpacted.putAll(coverageResult.getAllMethodsClassesInvoked());
     }
 
     /**
@@ -520,7 +683,7 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         }
 
         testRunStats.setNumRuns(1);
-        testRunStats.setAvgRunTime(System.currentTimeMillis() - this.testRunStartTime);
+        testRunStats.setAvgRunTime(clock.getAsLong() - this.testRunStartTime);
 
         // check if all the test suites succeeded
         int numTestSuitesRun = testSuiteTrackers.keySet().size();
@@ -535,8 +698,15 @@ public class TiaTestExecutionListener implements TestExecutionListener {
         return testRunStats;
     }
 
+    /**
+     * The wall clock since a suite's container started, read from the start time parked in its
+     * stats' run-time field when it started.
+     *
+     * @param testSuiteTracker the suite that is finishing
+     * @return the elapsed milliseconds, nested classes included
+     */
     private long calcTestSuiteRuntime(TestSuiteTracker testSuiteTracker) {
-        return System.currentTimeMillis() - testSuiteTracker.getTestStats().getAvgRunTime();
+        return clock.getAsLong() - testSuiteTracker.getTestStats().getAvgRunTime();
     }
 
     /**

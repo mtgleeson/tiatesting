@@ -8,8 +8,6 @@ import org.tiatesting.core.agent.ForkSystemProperties;
 import org.tiatesting.core.agent.RunSelectionDetailsCodec;
 import org.tiatesting.core.agent.SelectionHandoff;
 import org.tiatesting.core.distributed.DistributedForkProperties;
-import org.tiatesting.core.distributed.DistributedRunConfig;
-import org.tiatesting.core.distributed.DistributedRunnerAssignment;
 import org.tiatesting.core.distributed.DistributedRunnerContext;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
@@ -45,28 +43,18 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
      * records what it ran. Registered through {@code tia-spock}'s {@code IGlobalExtension} service
      * descriptor, so it is constructed by Spock with no arguments.
      *
-     * <p>This JVM never selects and never reads a version control system. The Gradle daemon's test
-     * task action does both, once per test task, and hands the result over:
-     * <ul>
-     *     <li>An ordinary build: the daemon runs the test selection and writes the hand-off files
-     *     ({@link SelectionHandoff}), naming them in system properties. This constructor reads the
-     *     suites to skip and run, the library-impact drain result and the selection breakdown from
-     *     them.</li>
-     *     <li>A distributed build: the daemon claims this runner's group from the shared plan, and
-     *     forwards the claim's result. This constructor resolves it via {@link
-     *     DistributedForkProperties#contextFromSystemProperties()} and re-derives the two suite sets
-     *     with {@link DistributedRunnerAssignment#forClaimedRunner}, the same derivation the claim
-     *     used. Claiming a second time here would take a second group and leave the first open
-     *     forever, so the run would never seal.</li>
-     * </ul>
-     * The branch and the commit come from system properties the daemon resolved. See the "How Tia
-     * exchanges data with the test runner" chapter in {@code WIKI.md}.
+     * <p>This JVM never selects, never claims and never reads a version control system. The Gradle
+     * daemon's test task action does all three, once per test task, and writes the result as the
+     * hand-off files ({@link SelectionHandoff}), naming them in system properties. This constructor
+     * reads the suites to skip and run, the library-impact drain result and the selection breakdown
+     * from them. For an ordinary build they are the daemon's test selection; for a distributed
+     * runner they are the share of the plan the daemon claimed (no drain result, an empty
+     * breakdown), and the claim's run id, runner key and group number arrive separately, via
+     * {@link DistributedForkProperties#contextFromSystemProperties()}, for the listener to complete
+     * the group with. The branch and the commit come from system properties the daemon resolved.
+     * See the "How Tia exchanges data with the test runner" chapter in {@code WIKI.md}.
      *
-     * @throws IllegalStateException if Tia is enabled for an ordinary build but the daemon handed
-     *                               over no selection, or if this build is a distributed runner
-     *                               but the shared plan its group was claimed from is no longer
-     *                               readable - a runner that cannot tell whether its share of the
-     *                               suite ran must never report green
+     * @throws IllegalStateException if Tia is enabled but the daemon handed over no selection
      */
     public TiaSpockGlobalExtension(){
         this.specificationUtil = new SpecificationUtil();
@@ -83,43 +71,24 @@ public class TiaSpockGlobalExtension implements IGlobalExtension {
             String headCommit = ForkSystemProperties.commitValueFromSystemProperties();
             dataStore = DataStoreFactory.fromSystemProperties(branch);
 
-            Set<String> testsToRun;
-            LibraryImpactDrainResult drainResult;
+            String ignoredTestsFile = System.getProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE);
+            String selectedTestsFile = System.getProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE);
+            if (ignoredTestsFile == null || selectedTestsFile == null) {
+                throw new IllegalStateException("Tia is enabled but the Gradle plugin handed this test "
+                        + "JVM no test selection (" + SelectionHandoff.PROP_IGNORED_TESTS_FILE + " / "
+                        + SelectionHandoff.PROP_SELECTED_TESTS_FILE + " are not set). Apply the Tia "
+                        + "Gradle plugin to the project running this test task.");
+            }
+            ignoredTests = SelectionHandoff.readSuiteNames(ignoredTestsFile);
+            Set<String> testsToRun = SelectionHandoff.readSuiteNames(selectedTestsFile);
+            LibraryImpactDrainResult drainResult = LibraryImpactDrainResultSerializer.deserialize(
+                    System.getProperty(SelectionHandoff.PROP_DRAIN_RESULT_FILE));
             // The per-run selection breakdown that TestRunResult carries through to the history
-            // row. Left empty() for a distributed runner - the build-level breakdown for that case
-            // is written by the sealer, and this fork's own share is not the figure to show.
+            // row. Empty when no file was handed over.
             TestRunSelectionDetails selectionDetails = TestRunSelectionDetails.empty();
-
-            if (distributedRunnerContext != null){
-                // forRunner, not validated: this config exists only to key the derivation's reads
-                // by the run id the group was claimed under. No drain result is carried: the plan
-                // already ran the drain once, and applying its cleanup belongs to the sealer.
-                DistributedRunConfig config = DistributedRunConfig.forRunner(
-                        distributedRunnerContext.getRunId(), distributedRunnerContext.getRunnerKey());
-                // A surplus runner (null group number) ignores every suite and runs none.
-                DistributedRunnerAssignment assignment = DistributedRunnerAssignment.forClaimedRunner(
-                        dataStore, config, distributedRunnerContext.getRunnerKey(),
-                        distributedRunnerContext.getGroupNumber());
-                testsToRun = assignment.getTestsToRun();
-                ignoredTests = assignment.getTestsToIgnore();
-                drainResult = null;
-            } else {
-                String ignoredTestsFile = System.getProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE);
-                String selectedTestsFile = System.getProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE);
-                if (ignoredTestsFile == null || selectedTestsFile == null) {
-                    throw new IllegalStateException("Tia is enabled but the Gradle plugin handed this test "
-                            + "JVM no test selection (" + SelectionHandoff.PROP_IGNORED_TESTS_FILE + " / "
-                            + SelectionHandoff.PROP_SELECTED_TESTS_FILE + " are not set). Apply the Tia "
-                            + "Gradle plugin to the project running this test task.");
-                }
-                ignoredTests = SelectionHandoff.readSuiteNames(ignoredTestsFile);
-                testsToRun = SelectionHandoff.readSuiteNames(selectedTestsFile);
-                drainResult = LibraryImpactDrainResultSerializer.deserialize(
-                        System.getProperty(SelectionHandoff.PROP_DRAIN_RESULT_FILE));
-                String selectionDetailsFile = System.getProperty(SelectionHandoff.PROP_SELECTION_DETAILS_FILE);
-                if (selectionDetailsFile != null) {
-                    selectionDetails = RunSelectionDetailsCodec.read(new File(selectionDetailsFile));
-                }
+            String selectionDetailsFile = System.getProperty(SelectionHandoff.PROP_SELECTION_DETAILS_FILE);
+            if (selectionDetailsFile != null) {
+                selectionDetails = RunSelectionDetailsCodec.read(new File(selectionDetailsFile));
             }
 
             if (tiaUpdateDBMapping || tiaUpdateDBTestRunHistory){
