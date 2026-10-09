@@ -11,6 +11,7 @@ import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -72,7 +73,7 @@ class JdbcDataStoreLongMethodNameTest {
         staged.put(101, new MethodImpactTracker(longMethodName, 10, 20));
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", staged);
+        dataStore.persistStagedMethodTrackers("run-1", staged, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then

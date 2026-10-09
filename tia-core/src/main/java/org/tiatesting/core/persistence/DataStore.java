@@ -722,10 +722,15 @@ public interface DataStore extends AutoCloseable {
      * takes the later value. That is safe because every runner is verified at the plan's commit
      * before it runs, so two runners observing the same method observe the same line numbers.
      *
+     * <p>The ids of the methods the runner's suites executed are staged in the same transaction,
+     * merged across runners into a union, so the sealer can count each method's executed runs.
+     *
      * @param runId the distributed run to stage under
      * @param methodsTracked the trackers this runner observed, keyed by method id; may be empty
+     * @param coveredMethodIds the ids of the methods this runner's suites executed; may be empty
      */
-    void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked);
+    void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked,
+                                     final Set<Integer> coveredMethodIds);
 
     /**
      * Read the union of every runner's staged method trackers for a run. The sealer resolves the
@@ -738,7 +743,17 @@ public interface DataStore extends AutoCloseable {
     Map<Integer, MethodImpactTracker> readStagedMethodTrackers(final String runId);
 
     /**
-     * Delete a run's staged method trackers once the sealer has consumed them. The staging table
+     * Read the union of the method ids every runner staged as executed for a run. The sealer counts
+     * an executed run against each of them - see the "Method run stats" chapter in {@code WIKI.md}.
+     *
+     * @param runId the distributed run to read
+     * @return the staged covered method ids, empty if nothing was staged
+     */
+    Set<Integer> readStagedCoveredMethodIds(final String runId);
+
+    /**
+     * Delete a run's staged method trackers and covered method ids once the sealer has consumed
+     * them. The staging table
      * is roughly the size of the method catalogue, so it is cleared at the seal rather than left
      * until the next plan.
      *

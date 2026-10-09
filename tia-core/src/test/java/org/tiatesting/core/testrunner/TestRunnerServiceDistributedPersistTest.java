@@ -973,9 +973,10 @@ class TestRunnerServiceDistributedPersistTest {
          */
         @Override
         public void persistStagedMethodTrackers(final String runId,
-                                                final Map<Integer, MethodImpactTracker> methodsTracked) {
+                                                final Map<Integer, MethodImpactTracker> methodsTracked,
+                                                Set<Integer> coveredMethodIds) {
             callOrder.add("persistStagedMethodTrackers");
-            super.persistStagedMethodTrackers(runId, methodsTracked);
+            super.persistStagedMethodTrackers(runId, methodsTracked, coveredMethodIds);
         }
 
         /**

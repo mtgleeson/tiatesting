@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Tests how {@link SealedRunDataAssembler} accumulates the per-method run stats when it rebuilds
- * the method catalogue: stored counts are carried onto freshly observed trackers, each observed
+ * the method catalogue: stored counts are carried onto freshly observed trackers, each covered
  * method's executed-run count goes up by one for a counted run, as does each triggering method's
  * triggered-run count, and a retry adds nothing. Uses a
  * temp-directory embedded H2 database so the assembler reads a real edge table and catalogue.
@@ -80,16 +80,17 @@ class SealedRunDataAssemblerRunStatsTest {
     }
 
     /**
-     * A counted run adds one to each observed method's executed-run count on top of its stored
+     * A counted run adds one to each covered method's executed-run count on top of its stored
      * counts, starts a newly catalogued method at one, and leaves an unobserved method as stored.
      */
     @Test
-    void countedRunIncrementsObservedMethodsAndCarriesStoredCounts() {
+    void countedRunIncrementsCoveredMethodsAndCarriesStoredCounts() {
         // given
         Map<Integer, MethodImpactTracker> observed = observedTrackers();
 
         // when
-        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, true, Collections.emptySet());
+        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, true, coveredIds(),
+                Collections.emptySet());
 
         // then
         assertEquals(5, catalogue.get(EXECUTED_ID).getExecutedRunCount());
@@ -98,6 +99,25 @@ class SealedRunDataAssemblerRunStatsTest {
         assertEquals(1, catalogue.get(NOT_EXECUTED_ID).getTriggeredRunCount());
         assertEquals(1, catalogue.get(NEW_ID).getExecutedRunCount());
         assertEquals(0, catalogue.get(NEW_ID).getTriggeredRunCount());
+    }
+
+    /**
+     * A method the run observed but didn't execute - an uncovered method of a covered class, which
+     * the coverage client still reports so the seal can refresh its line numbers - gains no
+     * executed run, while the covered method alongside it does.
+     */
+    @Test
+    void observedButUncoveredMethodIsNotCounted() {
+        // given
+        Map<Integer, MethodImpactTracker> observed = observedTrackers();
+        Set<Integer> covered = Collections.singleton(EXECUTED_ID);
+
+        // when
+        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, true, covered, Collections.emptySet());
+
+        // then
+        assertEquals(5, catalogue.get(EXECUTED_ID).getExecutedRunCount());
+        assertEquals(0, catalogue.get(NEW_ID).getExecutedRunCount());
     }
 
     /**
@@ -110,7 +130,8 @@ class SealedRunDataAssemblerRunStatsTest {
         Map<Integer, MethodImpactTracker> observed = observedTrackers();
 
         // when
-        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, false, Collections.emptySet());
+        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, false, coveredIds(),
+                Collections.emptySet());
 
         // then
         assertEquals(4, catalogue.get(EXECUTED_ID).getExecutedRunCount());
@@ -133,7 +154,7 @@ class SealedRunDataAssemblerRunStatsTest {
         // when
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 observedTrackers(), null, "commitB", false, CoreStatsIncrement.none(), false, true,
-                Collections.singleton(NOT_EXECUTED_ID)));
+                coveredIds(), Collections.singleton(NOT_EXECUTED_ID)));
         Map<Integer, MethodImpactTracker> read = dataStore.getMethodsTracked();
 
         // then
@@ -155,7 +176,7 @@ class SealedRunDataAssemblerRunStatsTest {
         Set<Integer> triggered = new HashSet<>(Arrays.asList(EXECUTED_ID, NOT_EXECUTED_ID, REMOVED_ID));
 
         // when
-        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, true, triggered);
+        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, true, coveredIds(), triggered);
 
         // then
         assertEquals(3, catalogue.get(EXECUTED_ID).getTriggeredRunCount());
@@ -175,7 +196,7 @@ class SealedRunDataAssemblerRunStatsTest {
         Set<Integer> triggered = new HashSet<>(Arrays.asList(EXECUTED_ID, NOT_EXECUTED_ID));
 
         // when
-        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, false, triggered);
+        Map<Integer, MethodImpactTracker> catalogue = assemble(observed, false, coveredIds(), triggered);
 
         // then
         assertEquals(2, catalogue.get(EXECUTED_ID).getTriggeredRunCount());
@@ -187,14 +208,26 @@ class SealedRunDataAssemblerRunStatsTest {
      *
      * @param observed the trackers observed by the run being sealed
      * @param countRun whether the seal counts as a run in the per-method stats
+     * @param coveredMethodIds the ids of the methods the run's suites executed
      * @param triggeredMethodIds the ids of the changed methods that triggered the run
      * @return the rebuilt catalogue keyed by method id
      */
     private Map<Integer, MethodImpactTracker> assemble(Map<Integer, MethodImpactTracker> observed, boolean countRun,
+                                                       Set<Integer> coveredMethodIds,
                                                        Set<Integer> triggeredMethodIds) {
         TiaData tiaData = dataStore.getTiaCore();
         return new SealedRunDataAssembler(dataStore).assemble(tiaData, observed, null, "commitB",
-                false, CoreStatsIncrement.none(), false, countRun, triggeredMethodIds).getMethodsTracked();
+                false, CoreStatsIncrement.none(), false, countRun, coveredMethodIds, triggeredMethodIds)
+                .getMethodsTracked();
+    }
+
+    /**
+     * The ids of the methods the run's suites executed: both observed methods, 1 and 3.
+     *
+     * @return the covered method ids
+     */
+    private Set<Integer> coveredIds() {
+        return new HashSet<>(Arrays.asList(EXECUTED_ID, NEW_ID));
     }
 
     /**

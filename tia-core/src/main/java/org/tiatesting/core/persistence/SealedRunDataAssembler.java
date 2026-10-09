@@ -70,6 +70,10 @@ public final class SealedRunDataAssembler {
      * @param countRun whether this seal counts as a run in the per-method run stats; false for a
      *                 retry of failed tests, which the first attempt already counted - see the
      *                 "Method run stats" chapter in {@code WIKI.md}
+     * @param coveredMethodIds the ids of the methods the run's suites executed (had line coverage);
+     *                         each catalogued one gains an executed run when {@code countRun} is
+     *                         set. Narrower than {@code observedMethodTrackers}, which also holds
+     *                         the uncovered methods of each covered class
      * @param triggeredMethodIds the ids of the changed methods whose covering suites the run's
      *                           selection pulled in; each catalogued one gains a triggered run
      *                           when {@code countRun} is set
@@ -81,9 +85,10 @@ public final class SealedRunDataAssembler {
                                   final String commitValue, final boolean allTestsRun,
                                   final CoreStatsIncrement statsIncrement,
                                   final boolean reseed, final boolean countRun,
+                                  final Set<Integer> coveredMethodIds,
                                   final Set<Integer> triggeredMethodIds) {
-        Map<Integer, MethodImpactTracker> methodsTracked =
-                buildMethodsTracked(tiaData, observedMethodTrackers, countRun, triggeredMethodIds);
+        Map<Integer, MethodImpactTracker> methodsTracked = buildMethodsTracked(tiaData,
+                observedMethodTrackers, countRun, coveredMethodIds, triggeredMethodIds);
 
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedMethodKeys = Collections.emptyList();
         List<LibraryImpactDrainResult.DrainedBatchKey> drainedForcedKeys = Collections.emptyList();
@@ -107,17 +112,19 @@ public final class SealedRunDataAssembler {
      * @param tiaData the Tia DB, updated in place with the resulting catalogue
      * @param observedMethodTrackers all source code methods covered by any test suite executed for
      *                               the commit being sealed
-     * @param countRun whether this seal adds to the run stats of the observed and triggering methods
+     * @param countRun whether this seal adds to the run stats of the covered and triggering methods
+     * @param coveredMethodIds the ids of the methods the run's suites executed
      * @param triggeredMethodIds the ids of the changed methods that triggered the run
      * @return the catalogue to persist, keyed by method id
      */
     private Map<Integer, MethodImpactTracker> buildMethodsTracked(final TiaData tiaData,
                                                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
                                                                   final boolean countRun,
+                                                                  final Set<Integer> coveredMethodIds,
                                                                   final Set<Integer> triggeredMethodIds) {
         Map<Integer, MethodImpactTracker> methodTrackersOnDisk = dataStore.getMethodsTracked();
-        Map<Integer, MethodImpactTracker> updatedMethodTrackers =
-                updateMethodTracker(methodTrackersOnDisk, observedMethodTrackers, countRun, triggeredMethodIds);
+        Map<Integer, MethodImpactTracker> updatedMethodTrackers = updateMethodTracker(methodTrackersOnDisk,
+                observedMethodTrackers, countRun, coveredMethodIds, triggeredMethodIds);
         tiaData.setMethodsTracked(updatedMethodTrackers);
         return updatedMethodTrackers;
     }
@@ -131,20 +138,23 @@ public final class SealedRunDataAssembler {
      *
      * <p>Each method's run stats are carried forward from the on-disk tracker, since an observed
      * tracker is built fresh from coverage and starts at zero. When {@code countRun} is set, every
-     * observed method's executed-run count goes up by one, and so does the triggered-run count of
-     * every method whose change triggered the run. A triggering method no longer in the catalogue
+     * covered method's executed-run count goes up by one, and so does the triggered-run count of
+     * every method whose change triggered the run. Covered, not observed: the observed trackers also
+     * hold the uncovered methods of each covered class, which the run didn't execute. A triggering method no longer in the catalogue
      * (deleted, or no longer covered) has nowhere to record the run and is skipped. See the
      * "Method run stats" chapter in {@code WIKI.md}.
      *
      * @param methodTrackerOnDisk current method tracker persisted on disk
      * @param observedMethodTrackers methods called by the test runs covering the commit being sealed
-     * @param countRun whether this seal adds to the run stats of the observed and triggering methods
+     * @param countRun whether this seal adds to the run stats of the covered and triggering methods
+     * @param coveredMethodIds the ids of the methods the run's suites executed
      * @param triggeredMethodIds the ids of the changed methods that triggered the run
      * @return the updated method tracker map, with any orphaned ids dropped
      */
     private Map<Integer, MethodImpactTracker> updateMethodTracker(final Map<Integer, MethodImpactTracker> methodTrackerOnDisk,
                                                                   final Map<Integer, MethodImpactTracker> observedMethodTrackers,
                                                                   final boolean countRun,
+                                                                  final Set<Integer> coveredMethodIds,
                                                                   final Set<Integer> triggeredMethodIds){
 
         // Set containing the combined method ids using the updated test mapping after the test run
@@ -176,7 +186,7 @@ public final class SealedRunDataAssembler {
                 continue;
             }
 
-            carryRunStats(tracker, diskTracker, observedTracker != null && countRun,
+            carryRunStats(tracker, diskTracker, countRun && coveredMethodIds.contains(methodImpactedId),
                     countRun && triggeredMethodIds.contains(methodImpactedId));
             newMethodTracker.put(methodImpactedId, tracker);
         }

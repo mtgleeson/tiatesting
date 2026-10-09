@@ -1,11 +1,13 @@
 package org.tiatesting.core.testrunner;
 
 import org.tiatesting.core.library.LibraryImpactDrainResult;
+import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.TestRunSelectionDetails;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TestStats;
 
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -147,6 +149,24 @@ public class TestRunResult {
 
     public Map<Integer, MethodImpactTracker> getMethodTrackersFromTestRun() {
         return methodTrackersFromTestRun;
+    }
+
+    /**
+     * The ids of the methods this run's suites executed: the union of every suite's coverage
+     * edges. Narrower than {@link #getMethodTrackersFromTestRun()}, which also holds every other
+     * method of each covered class so the seal can refresh their line numbers. Used to count each
+     * method's executed runs - see the "Method run stats" chapter in {@code WIKI.md}.
+     *
+     * @return the ids of the methods with line coverage in this run; empty if no suite ran
+     */
+    public Set<Integer> getCoveredMethodIds() {
+        Set<Integer> covered = new HashSet<>();
+        for (TestSuiteTracker suite : testSuiteTrackers.values()) {
+            for (ClassImpactTracker classImpacted : suite.getClassesImpacted()) {
+                covered.addAll(classImpacted.getMethodsImpacted());
+            }
+        }
+        return covered;
     }
 
     public TestStats getTestStats() {

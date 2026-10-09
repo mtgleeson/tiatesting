@@ -269,7 +269,8 @@ public class TestRunnerService {
             // 3. Staging replaces the catalogue write a single-host run makes here. Method ids hash
             //    the class, method and descriptor only, so the ids this runner staged stay valid
             //    against the catalogue the sealer writes at the end of the build.
-            runnerPersist.stageMethodTrackers(testRunResult.getMethodTrackersFromTestRun());
+            runnerPersist.stageMethodTrackers(testRunResult.getMethodTrackersFromTestRun(),
+                    testRunResult.getCoveredMethodIds());
         }
 
         // 4. No history row and no core row: one distributed build produces one aggregated history
@@ -431,6 +432,7 @@ public class TestRunnerService {
                 testRunResult.getMethodTrackersFromTestRun(),
                 testRunResult.getLibraryImpactDrainResult(), commitValue, allTestsRun,
                 statsIncrement, isReseed(testRunResult), !testRunResult.getRunAttempt().isRerun(),
+                testRunResult.getCoveredMethodIds(),
                 testRunResult.getSelectionDetails().getTriggeredMethodIds()));
     }
 

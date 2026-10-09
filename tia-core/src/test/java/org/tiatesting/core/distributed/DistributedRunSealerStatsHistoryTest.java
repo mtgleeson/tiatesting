@@ -393,6 +393,35 @@ class DistributedRunSealerStatsHistoryTest {
     }
 
     /**
+     * The seal counts an executed run against each method a runner staged as covered, not against
+     * every method it staged a tracker for: a runner stages the trackers of every method in each
+     * covered class, including ones its suites loaded but didn't execute.
+     */
+    @Test
+    void theSealCountsAnExecutedRunOnlyForStagedCoveredMethods() {
+        // given - methods 100 and 101 catalogued; the runner staged trackers for both but only
+        // executed method 100
+        seedTrackedSuites(2, 0);
+        Map<Integer, MethodImpactTracker> catalogue = new HashMap<>();
+        catalogue.put(100, new MethodImpactTracker("com/example/Source0.method.()V", 1, 5));
+        catalogue.put(101, new MethodImpactTracker("com/example/Source1.method.()V", 1, 5));
+        dataStore.persistSourceMethods(catalogue);
+        persistPlan(RUN_ID, Collections.singletonList(trackedSuiteNames(0, 1)));
+        dataStore.persistStagedMethodTrackers(RUN_ID, catalogue, Collections.singleton(100));
+        completeGroup(RUN_ID, 0, RUNNER_A, 3_000L, 1, 0);
+
+        // when
+        sealerFor(RUNNER_A, 0).sealIfElected(true, false, 9000L);
+
+        // then
+        Map<Integer, MethodImpactTracker> sealed = dataStore.getMethodsTracked();
+        assertEquals(1L, sealed.get(100).getExecutedRunCount(),
+                "the method a runner executed must be counted once for the build");
+        assertEquals(0L, sealed.get(101).getExecutedRunCount(),
+                "a method a runner only loaded must not be counted");
+    }
+
+    /**
      * The seal counts a triggered run against each catalogued method whose change the plan's
      * selection staged as a trigger, and does so even when the build is not recording history -
      * the per-method run stats belong to the seal, not to the history row.
