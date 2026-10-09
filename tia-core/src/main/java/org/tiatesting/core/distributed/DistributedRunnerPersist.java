@@ -10,6 +10,7 @@ import org.tiatesting.core.model.SelectionMode;
 import org.tiatesting.core.persistence.DataStore;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The four datastore operations that belong to a distributed runner's persist and to nothing
@@ -24,7 +25,7 @@ import java.util.Map;
  *   <li>{@link #claimIsLive()} runs <b>before any write</b>. A runner from a superseded build whose
  *       plan rows a newer build has cleared must write nothing at all, or it leaves mapping rows
  *       from its own older commit under the commit the newer build has already stored.</li>
- *   <li>{@link #stageMethodTrackers(Map)} replaces the catalogue write a single-host run makes. The
+ *   <li>{@link #stageMethodTrackers(Map, Set)} replaces the catalogue write a single-host run makes. The
  *       catalogue is rebuilt wholesale from the suite-to-method edge table, so writing it while
  *       another group is still running would drop every method reachable only from that group's
  *       suites. Only the run's sealer may write it, after the barrier.</li>
@@ -130,13 +131,20 @@ public final class DistributedRunnerPersist {
      * are valid to write early because method ids hash the class, method and descriptor only, so
      * they are independent of the line numbers the catalogue stores.
      *
+     * <p>The ids of the methods this runner's suites executed are staged alongside, for the sealer
+     * to count each method's executed runs from - see the "Method run stats" chapter in
+     * {@code WIKI.md}.
+     *
      * @param methodTrackersFromTestRun the trackers observed by the suites this runner executed,
      *                                  keyed by method id; may be empty, which stages nothing
+     * @param coveredMethodIds the ids of the methods this runner's suites executed; may be empty
      */
-    public void stageMethodTrackers(final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun) {
-        dataStore.persistStagedMethodTrackers(context.getRunId(), methodTrackersFromTestRun);
-        log.debug("Distributed run '{}': runner '{}' staged {} method tracker(s) for the sealer.",
-                context.getRunId(), context.getRunnerKey(), methodTrackersFromTestRun.size());
+    public void stageMethodTrackers(final Map<Integer, MethodImpactTracker> methodTrackersFromTestRun,
+                                    final Set<Integer> coveredMethodIds) {
+        dataStore.persistStagedMethodTrackers(context.getRunId(), methodTrackersFromTestRun, coveredMethodIds);
+        log.debug("Distributed run '{}': runner '{}' staged {} method tracker(s) and {} covered method "
+                        + "id(s) for the sealer.", context.getRunId(), context.getRunnerKey(),
+                methodTrackersFromTestRun.size(), coveredMethodIds.size());
     }
 
     /**

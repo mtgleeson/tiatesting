@@ -321,10 +321,12 @@ public final class DistributedRunSealer {
         LibraryImpactDrainResult drainResult =
                 dataStore.readDistributedRunDrainResult(context.getRunId());
 
-        // The build seals once, so it counts as exactly one run in each method's run stats.
+        // The build seals once, so it counts as exactly one run in each method's run stats: one
+        // executed run for each method any runner's suites covered, from the union they staged.
+        Set<Integer> coveredMethodIds = dataStore.readStagedCoveredMethodIds(context.getRunId());
         dataStore.persistSealedRunData(new SealedRunDataAssembler(dataStore).assemble(tiaData,
                 stagedMethodTrackers, drainResult, commitValue, allTestsRun, statsIncrement, reseed,
-                true, triggeredMethodIds));
+                true, coveredMethodIds, triggeredMethodIds));
 
         log.info("Distributed run '{}': sealed at commit '{}' with {} method(s) in the catalogue.",
                 context.getRunId(), commitValue, tiaData.getMethodsTracked().size());

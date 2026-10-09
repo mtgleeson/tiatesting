@@ -120,6 +120,7 @@ public class JdbcDataStore implements DataStore {
     private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP = TABLE_TIA_DISTRIBUTED_RUN + "_group";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE = TABLE_TIA_DISTRIBUTED_RUN_GROUP + "_suite";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE = TABLE_TIA_DISTRIBUTED_RUN + "_method_stage";
+    private static final String TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD = TABLE_TIA_DISTRIBUTED_RUN + "_covered_method";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_SELECTION = TABLE_TIA_DISTRIBUTED_RUN + "_selection";
     private static final String TABLE_TIA_DISTRIBUTED_RUN_TRIGGER = TABLE_TIA_DISTRIBUTED_RUN + "_trigger";
     private static final String COL_RUN_ID = "run_id";
@@ -1805,6 +1806,7 @@ public class JdbcDataStore implements DataStore {
                 String[] tablesToClear = {
                         TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
                         TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
+                        TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD,
                         TABLE_TIA_DISTRIBUTED_RUN_GROUP,
                         TABLE_TIA_DISTRIBUTED_RUN,
                         TABLE_TIA_DISTRIBUTED_RUN_SELECTION,
@@ -2855,20 +2857,25 @@ public class JdbcDataStore implements DataStore {
      * means every runner takes the shared rows' locks in the same sequence, so the second runner to
      * reach a contended row simply waits for the first to commit rather than the two deadlocking
      * against each other. This is not an optional tidiness pass - removing the sort reintroduces the
-     * deadlock.
+     * deadlock. The covered method ids are upserted in ascending order for the same reason, after
+     * the trackers.
      *
      * @param runId the distributed run to stage under
      * @param methodsTracked the trackers this runner observed, keyed by method id; may be empty
+     * @param coveredMethodIds the ids of the methods this runner's suites executed; may be empty
      */
     @Override
-    public void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked) {
+    public void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked,
+                                            final Set<Integer> coveredMethodIds) {
         List<String> columns = Arrays.asList(COL_RUN_ID, COL_ID, COL_METHOD_NAME,
                 COL_LINE_NUMBER_START, COL_LINE_NUMBER_END, COL_LINE_RANGES);
         List<String> keyColumns = Arrays.asList(COL_RUN_ID, COL_ID);
         String sql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE, columns, keyColumns);
+        String coveredSql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD, keyColumns, keyColumns);
         // Ascending-id order, not the caller's map order: see the deadlock-avoidance note on this
         // method's javadoc above.
         Map<Integer, MethodImpactTracker> orderedMethodsTracked = new TreeMap<>(methodsTracked);
+        Set<Integer> orderedCoveredMethodIds = new TreeSet<>(coveredMethodIds);
 
         Connection connection = getConnection();
         try {
@@ -2887,6 +2894,16 @@ public class JdbcDataStore implements DataStore {
                             statement.setInt(4, tracker.getLineNumberStart());
                             statement.setInt(5, tracker.getLineNumberEnd());
                             statement.setString(6, LineRanges.format(tracker.getLineRanges()));
+                            statement.addBatch();
+                        }
+                        statement.executeBatch();
+                    }
+                }
+                if (!orderedCoveredMethodIds.isEmpty()) {
+                    try (PreparedStatement statement = connection.prepareStatement(coveredSql)) {
+                        for (Integer methodId : orderedCoveredMethodIds) {
+                            statement.setString(1, runId);
+                            statement.setInt(2, methodId);
                             statement.addBatch();
                         }
                         statement.executeBatch();
@@ -2948,6 +2965,33 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
+     * @param runId the distributed run to read
+     * @return the staged covered method ids, empty if nothing was staged
+     */
+    @Override
+    public Set<Integer> readStagedCoveredMethodIds(final String runId) {
+        String sql = "SELECT " + COL_ID + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD
+                + " WHERE " + COL_RUN_ID + " = ?";
+        Set<Integer> covered = new HashSet<>();
+        try (Connection connection = getConnection()) {
+            ensureSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, runId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        covered.add(resultSet.getInt(COL_ID));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new TiaPersistenceException(e);
+        }
+        return covered;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>Calls {@link #ensureSchema(Connection)} before deleting, since this can be the first call
      * any caller makes on a freshly created per-branch schema.
      *
@@ -2955,12 +2999,15 @@ public class JdbcDataStore implements DataStore {
      */
     @Override
     public void deleteStagedMethodTrackers(final String runId) {
-        String sql = "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " WHERE " + COL_RUN_ID + " = ?";
         try (Connection connection = getConnection()) {
             ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                statement.executeUpdate();
+            for (String table : new String[]{TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
+                    TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD}) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM " + table + " WHERE " + COL_RUN_ID + " = ?")) {
+                    statement.setString(1, runId);
+                    statement.executeUpdate();
+                }
             }
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -4748,6 +4795,21 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
+     * Build the DDL for the {@code tia_distributed_run_covered_method} table. Runners stage the ids
+     * of the methods their suites executed here, one row per id per run, so the sealer can count
+     * each method's executed runs from the union. See the "Method run stats" chapter in
+     * {@code WIKI.md}.
+     *
+     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the covered method table
+     */
+    private String buildCreateDistributedRunCoveredMethodTableSql() {
+        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD + " ("
+                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
+                + COL_ID + " INT NOT NULL, "
+                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
+    }
+
+    /**
      * Build the DDL for the index backing group lookups by status within one run. Both the claim
      * query and the barrier check filter one run's groups by status, and the composite primary
      * key leads with {@code run_id} but has no status component.
@@ -4856,6 +4918,7 @@ public class JdbcDataStore implements DataStore {
             statement.addBatch(buildCreateDistributedRunGroupTableSql());
             statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
             statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
+            statement.addBatch(buildCreateDistributedRunCoveredMethodTableSql());
             statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
             statement.addBatch(buildAddSelectionModeColumnSql());
             statement.addBatch(buildDropSeedRunColumnSql());

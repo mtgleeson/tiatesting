@@ -639,7 +639,8 @@ class TestSelectorUpdateDBMappingGateTest {
          * @throws UnsupportedOperationException always
          */
         @Override
-        public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked) {
+        public void persistStagedMethodTrackers(String runId, Map<Integer, MethodImpactTracker> methodsTracked,
+                                                Set<Integer> coveredMethodIds) {
             throw new UnsupportedOperationException("not used by this test");
         }
 
@@ -652,6 +653,17 @@ class TestSelectorUpdateDBMappingGateTest {
          */
         @Override
         public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(String runId) {
+            throw new UnsupportedOperationException("not used by this test");
+        }
+
+        /**
+         * Not used by this test.
+         *
+         * @param runId ignored
+         * @return never returns
+         */
+        @Override
+        public Set<Integer> readStagedCoveredMethodIds(String runId) {
             throw new UnsupportedOperationException("not used by this test");
         }
 

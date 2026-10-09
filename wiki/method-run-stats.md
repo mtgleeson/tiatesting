@@ -3,7 +3,8 @@
 Every method in the catalogue (`tia_source_method`) carries two counters:
 
 - **`executed_run_count`** - the number of runs that executed the method, meaning at least one of
-  the run's test suites covered it.
+  the run's test suites had line coverage in it. A method whose class the run loaded but whose
+  lines it never reached isn't counted.
 - **`triggered_run_count`** - the number of runs whose test selection was triggered by a change to
   the method, meaning the diff touched its lines and its covering suites were selected because of it.
 
@@ -21,6 +22,10 @@ the counters. Within that:
   carries the same selection, so counting it again would double the triggered count too. This is
   the same rule that keeps a retry out of the core stats (see
   [Failed-suite tracking](failed-suite-tracking.md) for how a retry is detected).
+  - **Caveat:** a method that only the retry reached isn't counted for that run. For example, a
+    test that fails before calling the method in the first attempt and passes on the retry. Counting
+    it would mean remembering which methods the first attempt counted, which a retry in a fresh JVM
+    doesn't know.
 - **A distributed build counts once.** The sealer seals once per build, using the union of every
   runner's observed methods and the triggers the plan staged. See
   [Distributed test runs](distributed-test-runs.md).
@@ -34,11 +39,23 @@ rebuilds the catalogue from the on-disk trackers and the trackers the run observ
 tracker is built fresh from JaCoCo coverage and starts at zero, so the assembler first copies each
 method's stored counts onto whichever tracker it keeps, then:
 
-- adds one to `executed_run_count` for every method the run observed, and
+- adds one to `executed_run_count` for every method the run covered, and
 - adds one to `triggered_run_count` for every catalogued method whose change triggered the run.
 
 A triggering method that is no longer in the catalogue (deleted, or no longer covered by any suite)
 has nowhere to record the run and is skipped.
+
+**Covered, not observed.** The observed trackers can't stand in for the executed set. JaCoCo
+reports every method of each class a suite touched, and Tia keeps them all so the seal can refresh
+the line numbers of methods pushed down by an edit. Only the coverage edges record which methods
+had line coverage. So the executed set is the union of the run's coverage edges:
+
+- **Single-host runs:** `TestRunResult.getCoveredMethodIds()`, built from the suite trackers the
+  run already holds in memory.
+- **Distributed runs:** each runner stages its covered ids in `tia_distributed_run_covered_method`
+  in the same transaction as its method trackers, and the sealer reads back the union. A covered
+  flag on the method stage wouldn't work: the stage is an upsert, so a runner that loaded a method
+  without executing it would overwrite another runner's "covered".
 
 ### Carrying the triggering method ids to the seal
 
