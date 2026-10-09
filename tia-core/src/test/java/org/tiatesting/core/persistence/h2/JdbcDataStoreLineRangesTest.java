@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -113,7 +114,7 @@ class JdbcDataStoreLineRangesTest {
         Map<Integer, MethodImpactTracker> staged = catalogue();
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", staged);
+        dataStore.persistStagedMethodTrackers("run-1", staged, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then
@@ -147,7 +148,7 @@ class JdbcDataStoreLineRangesTest {
         JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
                 BranchSchema.schemaName("test", null));
         Map<Integer, MethodImpactTracker> legacyRead = migrated.getTiaData().getMethodsTracked();
-        migrated.persistStagedMethodTrackers("run-1", catalogue());
+        migrated.persistStagedMethodTrackers("run-1", catalogue(), Collections.emptySet());
         Map<Integer, MethodImpactTracker> stagedRead = migrated.readStagedMethodTrackers("run-1");
         migrated.close();
 

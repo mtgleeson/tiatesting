@@ -30,6 +30,7 @@ erDiagram
     tia_distributed_run ||--o{ tia_distributed_run_group : "by run id"
     tia_distributed_run_group ||--o{ tia_distributed_run_group_suite : "by run id + group"
     tia_distributed_run ||--o{ tia_distributed_run_method_stage : "by run id"
+    tia_distributed_run ||--o{ tia_distributed_run_covered_method : "by run id"
     tia_distributed_run ||--o{ tia_distributed_run_selection : "by run id"
     tia_distributed_run ||--o{ tia_distributed_run_trigger : "by run id"
     tia_test_run_history ||--o{ tia_test_run_history_trigger : "FK (cascade)"
@@ -190,6 +191,11 @@ erDiagram
         VARCHAR line_ranges
     }
 
+    tia_distributed_run_covered_method {
+        VARCHAR run_id PK
+        INT id PK
+    }
+
     tia_distributed_run_selection {
         VARCHAR run_id PK
         INT num_modified_test_files
@@ -302,6 +308,10 @@ rather than needing their own cleanup.)
 - **tia_distributed_run_method_stage** - staged method trackers from every runner, held until the
   sealer rebuilds `tia_source_method` from them. Staged rather than written directly because no
   single runner sees the whole build's methods.
+- **tia_distributed_run_covered_method** - the ids of the methods each runner's suites executed,
+  one row per id per run, so overlapping ids from several runners merge into a union. The sealer
+  counts an executed run against each - see [Method run stats](method-run-stats.md). Kept apart
+  from the method stage because a stage row covers every method of a covered class, executed or not.
 - **tia_distributed_run_selection** - one row per distributed run, staging the same five
   selection-source counters `tia_test_run_history` stores. Written at plan time; the sealer copies
   it onto the build's single history row. See the

@@ -20,9 +20,12 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -79,7 +82,7 @@ class JdbcDataStoreMethodStagingTest {
         staged.put(102, new MethodImpactTracker("com/example/B.bar.()V", 30, 45));
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", staged);
+        dataStore.persistStagedMethodTrackers("run-1", staged, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then
@@ -105,8 +108,8 @@ class JdbcDataStoreMethodStagingTest {
         fromRunnerTwo.put(202, new MethodImpactTracker("com/example/C.baz.()V", 5, 9));
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", fromRunnerOne);
-        dataStore.persistStagedMethodTrackers("run-1", fromRunnerTwo);
+        dataStore.persistStagedMethodTrackers("run-1", fromRunnerOne, Collections.emptySet());
+        dataStore.persistStagedMethodTrackers("run-1", fromRunnerTwo, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then
@@ -132,8 +135,8 @@ class JdbcDataStoreMethodStagingTest {
         secondStage.put(101, new MethodImpactTracker("com/example/A.foo.()V", 11, 25));
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", firstStage);
-        dataStore.persistStagedMethodTrackers("run-1", secondStage);
+        dataStore.persistStagedMethodTrackers("run-1", firstStage, Collections.emptySet());
+        dataStore.persistStagedMethodTrackers("run-1", secondStage, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then
@@ -156,8 +159,8 @@ class JdbcDataStoreMethodStagingTest {
         runTwoStaged.put(202, new MethodImpactTracker("com/example/C.baz.()V", 5, 9));
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", runOneStaged);
-        dataStore.persistStagedMethodTrackers("run-2", runTwoStaged);
+        dataStore.persistStagedMethodTrackers("run-1", runOneStaged, Collections.emptySet());
+        dataStore.persistStagedMethodTrackers("run-2", runTwoStaged, Collections.emptySet());
         Map<Integer, MethodImpactTracker> readRunOne = dataStore.readStagedMethodTrackers("run-1");
         Map<Integer, MethodImpactTracker> readRunTwo = dataStore.readStagedMethodTrackers("run-2");
 
@@ -195,7 +198,7 @@ class JdbcDataStoreMethodStagingTest {
         Map<Integer, MethodImpactTracker> empty = new HashMap<>();
 
         // when
-        dataStore.persistStagedMethodTrackers("run-1", empty);
+        dataStore.persistStagedMethodTrackers("run-1", empty, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = dataStore.readStagedMethodTrackers("run-1");
 
         // then
@@ -214,8 +217,8 @@ class JdbcDataStoreMethodStagingTest {
         runOneStaged.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
         Map<Integer, MethodImpactTracker> runTwoStaged = new HashMap<>();
         runTwoStaged.put(202, new MethodImpactTracker("com/example/C.baz.()V", 5, 9));
-        dataStore.persistStagedMethodTrackers("run-1", runOneStaged);
-        dataStore.persistStagedMethodTrackers("run-2", runTwoStaged);
+        dataStore.persistStagedMethodTrackers("run-1", runOneStaged, Collections.emptySet());
+        dataStore.persistStagedMethodTrackers("run-2", runTwoStaged, Collections.emptySet());
 
         // when
         dataStore.deleteStagedMethodTrackers("run-1");
@@ -223,6 +226,46 @@ class JdbcDataStoreMethodStagingTest {
         // then
         assertTrue(dataStore.readStagedMethodTrackers("run-1").isEmpty());
         assertEquals(1, dataStore.readStagedMethodTrackers("run-2").size());
+    }
+
+    /**
+     * Verify that the covered method ids several runners stage under one run read back as their
+     * union, with an id staged by both appearing once rather than failing on the primary key, and
+     * that another run's ids are kept apart. The sealer counts an executed run against each id in
+     * this union.
+     */
+    @Test
+    void shouldUnionCoveredMethodIdsStagedBySeveralRunners() {
+        // given
+        Map<Integer, MethodImpactTracker> none = Collections.emptyMap();
+
+        // when
+        dataStore.persistStagedMethodTrackers("run-1", none, new HashSet<>(Arrays.asList(101, 303)));
+        dataStore.persistStagedMethodTrackers("run-1", none, new HashSet<>(Arrays.asList(202, 303)));
+        dataStore.persistStagedMethodTrackers("run-2", none, Collections.singleton(404));
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList(101, 202, 303)), dataStore.readStagedCoveredMethodIds("run-1"));
+        assertEquals(Collections.singleton(404), dataStore.readStagedCoveredMethodIds("run-2"));
+    }
+
+    /**
+     * Verify that deleting a run's staged trackers also deletes its staged covered method ids, and
+     * only that run's.
+     */
+    @Test
+    void shouldDeleteOnlyTheNamedRunsCoveredMethodIds() {
+        // given
+        Map<Integer, MethodImpactTracker> none = Collections.emptyMap();
+        dataStore.persistStagedMethodTrackers("run-1", none, Collections.singleton(101));
+        dataStore.persistStagedMethodTrackers("run-2", none, Collections.singleton(202));
+
+        // when
+        dataStore.deleteStagedMethodTrackers("run-1");
+
+        // then
+        assertTrue(dataStore.readStagedCoveredMethodIds("run-1").isEmpty());
+        assertEquals(Collections.singleton(202), dataStore.readStagedCoveredMethodIds("run-2"));
     }
 
     /**
@@ -239,7 +282,7 @@ class JdbcDataStoreMethodStagingTest {
     }
 
     /**
-     * Verify that {@link DataStore#persistStagedMethodTrackers(String, Map)} bootstraps the schema
+     * Verify that {@link DataStore#persistStagedMethodTrackers(String, Map, Set)} bootstraps the schema
      * itself on a datastore that has never had {@code getTiaData} called on it. Every other test in
      * this class bootstraps via {@code setUp}'s {@code getTiaData()} call, which would mask a
      * datastore that forgot to call {@code ensureSchema} on its own staging write path - a brand
@@ -262,7 +305,7 @@ class JdbcDataStoreMethodStagingTest {
             staged.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
 
             // when
-            freshDataStore.persistStagedMethodTrackers("run-1", staged);
+            freshDataStore.persistStagedMethodTrackers("run-1", staged, Collections.emptySet());
             Map<Integer, MethodImpactTracker> read = freshDataStore.readStagedMethodTrackers("run-1");
 
             // then
@@ -274,7 +317,7 @@ class JdbcDataStoreMethodStagingTest {
     }
 
     /**
-     * Verify that {@link JdbcDataStore#persistStagedMethodTrackers(String, Map)} writes method ids
+     * Verify that {@link JdbcDataStore#persistStagedMethodTrackers(String, Map, Set)} writes method ids
      * to the database in ascending order regardless of the order the caller's map iterates them in.
      * This is the property the deadlock fix depends on: two distributed runners staging the same
      * overlapping ids from differently-ordered maps must still take Postgres row locks in the same
@@ -312,12 +355,12 @@ class JdbcDataStoreMethodStagingTest {
 
         try {
             // when
-            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedAscending);
+            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedAscending, Collections.emptySet());
             List<Integer> writeOrderForAscendingInput =
                     new ArrayList<>(recordingConnectionProvider.recordedMethodIdWriteOrder());
             recordingConnectionProvider.recordedMethodIdWriteOrder().clear();
 
-            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedDescending);
+            recordingDataStore.persistStagedMethodTrackers("run-1", idsInsertedDescending, Collections.emptySet());
             List<Integer> writeOrderForDescendingInput =
                     new ArrayList<>(recordingConnectionProvider.recordedMethodIdWriteOrder());
 

@@ -23,7 +23,8 @@ and a copy-paste CI pipeline - see the README's
 The run's state lives in four tables - `tia_distributed_run` (one row per logical build),
 `tia_distributed_run_group` (one row per group), `tia_distributed_run_group_suite` (which suites
 belong to which group), and `tia_distributed_run_method_stage` (the runners' staged method
-trackers). A run row moves `OPEN -> SEALED`; a group row moves `PENDING -> CLAIMED -> COMPLETED`
+trackers, with the ids of the methods they executed alongside in
+`tia_distributed_run_covered_method`). A run row moves `OPEN -> SEALED`; a group row moves `PENDING -> CLAIMED -> COMPLETED`
 and never backwards.
 
 ## Group assignment
