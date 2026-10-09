@@ -14,7 +14,10 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,7 +122,7 @@ class PostgresMethodStagingTest {
         staged.put(102, new MethodImpactTracker("com/example/B.bar.()V", 30, 45));
 
         // when
-        postgresStore.persistStagedMethodTrackers("pg-run-1", staged);
+        postgresStore.persistStagedMethodTrackers("pg-run-1", staged, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = postgresStore.readStagedMethodTrackers("pg-run-1");
 
         // then
@@ -146,8 +149,8 @@ class PostgresMethodStagingTest {
         fromRunnerTwo.put(202, new MethodImpactTracker("com/example/C.baz.()V", 5, 9));
 
         // when
-        postgresStore.persistStagedMethodTrackers("pg-run-1", fromRunnerOne);
-        postgresStore.persistStagedMethodTrackers("pg-run-1", fromRunnerTwo);
+        postgresStore.persistStagedMethodTrackers("pg-run-1", fromRunnerOne, Collections.emptySet());
+        postgresStore.persistStagedMethodTrackers("pg-run-1", fromRunnerTwo, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = postgresStore.readStagedMethodTrackers("pg-run-1");
 
         // then
@@ -156,6 +159,25 @@ class PostgresMethodStagingTest {
         assertTrue(read.containsKey(202));
         assertEquals("com/example/A.foo.()V", read.get(101).getMethodName());
         assertEquals("com/example/C.baz.()V", read.get(202).getMethodName());
+    }
+
+    /**
+     * Verify that covered method ids staged by several runners under one run read back as their
+     * union on Postgres, where an id staged twice relies on the key-only upsert's
+     * {@code ON CONFLICT ... DO NOTHING} rather than failing on the primary key.
+     */
+    @Test
+    void shouldUnionCoveredMethodIdsStagedBySeveralRunnersOnPostgres() {
+        // given
+        Map<Integer, MethodImpactTracker> none = Collections.emptyMap();
+
+        // when
+        postgresStore.persistStagedMethodTrackers("pg-run-1", none, new HashSet<>(Arrays.asList(101, 303)));
+        postgresStore.persistStagedMethodTrackers("pg-run-1", none, new HashSet<>(Arrays.asList(202, 303)));
+
+        // then
+        assertEquals(new HashSet<>(Arrays.asList(101, 202, 303)),
+                postgresStore.readStagedCoveredMethodIds("pg-run-1"));
     }
 
     /**
@@ -176,8 +198,8 @@ class PostgresMethodStagingTest {
         secondStage.put(101, new MethodImpactTracker("com/example/A.foo.()V", 11, 25));
 
         // when
-        postgresStore.persistStagedMethodTrackers("pg-run-1", firstStage);
-        postgresStore.persistStagedMethodTrackers("pg-run-1", secondStage);
+        postgresStore.persistStagedMethodTrackers("pg-run-1", firstStage, Collections.emptySet());
+        postgresStore.persistStagedMethodTrackers("pg-run-1", secondStage, Collections.emptySet());
         Map<Integer, MethodImpactTracker> read = postgresStore.readStagedMethodTrackers("pg-run-1");
 
         // then
@@ -198,8 +220,8 @@ class PostgresMethodStagingTest {
         runOneStaged.put(101, new MethodImpactTracker("com/example/A.foo.()V", 10, 20));
         Map<Integer, MethodImpactTracker> runTwoStaged = new HashMap<>();
         runTwoStaged.put(202, new MethodImpactTracker("com/example/C.baz.()V", 5, 9));
-        postgresStore.persistStagedMethodTrackers("pg-run-1", runOneStaged);
-        postgresStore.persistStagedMethodTrackers("pg-run-2", runTwoStaged);
+        postgresStore.persistStagedMethodTrackers("pg-run-1", runOneStaged, Collections.emptySet());
+        postgresStore.persistStagedMethodTrackers("pg-run-2", runTwoStaged, Collections.emptySet());
 
         // when
         postgresStore.deleteStagedMethodTrackers("pg-run-1");

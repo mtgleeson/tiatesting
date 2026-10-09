@@ -131,9 +131,9 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.BTest", "com/example/B.java", 202);
         persistPlan(RUN_ID, 2, null);
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(101, "com/example/A.a.()V", 40, 50));
+                trackers(101, "com/example/A.a.()V", 40, 50), Collections.emptySet());
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(202, "com/example/B.b.()V", 60, 70));
+                trackers(202, "com/example/B.b.()V", 60, 70), Collections.emptySet());
         completeAllGroups(RUN_ID, RUNNER_A, RUNNER_B);
 
         // when
@@ -231,7 +231,7 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101, 999);
         persistPlan(RUN_ID, 1, null);
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(101, "com/example/A.a.()V", 40, 50));
+                trackers(101, "com/example/A.a.()V", 40, 50), Collections.emptySet());
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
@@ -258,7 +258,7 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101, 777);
         persistPlan(RUN_ID, 1, null);
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(101, "com/example/A.a.()V", 40, 50));
+                trackers(101, "com/example/A.a.()V", 40, 50), Collections.emptySet());
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
@@ -344,7 +344,7 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
         persistPlan(RUN_ID, 1, null);
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(101, "com/example/A.a.()V", 40, 50));
+                trackers(101, "com/example/A.a.()V", 40, 50), Collections.emptySet());
         completeAllGroups(RUN_ID, RUNNER_A);
 
         // when
@@ -389,7 +389,7 @@ class DistributedRunSealerTest {
         seedSuiteEdges("com.example.ATest", "com/example/A.java", 101);
         persistPlan(RUN_ID, 2, null);
         dataStore.persistStagedMethodTrackers(RUN_ID,
-                trackers(101, "com/example/A.a.()V", 40, 50));
+                trackers(101, "com/example/A.a.()V", 40, 50), Collections.emptySet());
         claimAndComplete(RUN_ID, RUNNER_A);
         dataStore.callOrder.clear();
 
@@ -907,9 +907,10 @@ class DistributedRunSealerTest {
          */
         @Override
         public void persistStagedMethodTrackers(final String runId,
-                                                final Map<Integer, MethodImpactTracker> methodsTracked) {
+                                                final Map<Integer, MethodImpactTracker> methodsTracked,
+                                                Set<Integer> coveredMethodIds) {
             callOrder.add("persistStagedMethodTrackers");
-            super.persistStagedMethodTrackers(runId, methodsTracked);
+            super.persistStagedMethodTrackers(runId, methodsTracked, coveredMethodIds);
             if (afterStagingMethodTrackers != null) {
                 afterStagingMethodTrackers.run();
             }
