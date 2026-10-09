@@ -755,7 +755,7 @@ The log level for this JVM is controlled by whichever binding you use - for exam
 
 For Gradle, declare the binding with `testRuntimeOnly` (for example `testRuntimeOnly 'ch.qos.logback:logback-classic:1.2.13'`) and set `testLogging.showStandardStreams = true` on the test task to see the output on the console.
 
-The JUnit 5 agent itself is the exception: it has to start even where your test classpath is not reachable from it, so it cannot use SLF4J and logs through `java.util.logging` instead. It only logs the values it hands to the listener, at `FINEST`. To see them, run the test JVM with a `java.util.logging` configuration that sets `org.tiatesting.agent.level = FINEST` and a handler at that level (for example `-Djava.util.logging.config.file=...` on Surefire's `argLine` or Gradle's `jvmArgs`).
+The JUnit 5 agent itself is the exception: it has to start even where your test classpath is not reachable from it, so it cannot use SLF4J and logs through `java.util.logging` instead. It only logs the values it hands to the listener, at `FINEST`. To see them, run the test JVM with a `java.util.logging` configuration that sets `org.tiatesting.agent.level = FINEST` and a handler at that level (for example `-Djava.util.logging.config.file=...` on Surefire's `argLine` or Gradle's `jvmArgs`). On Maven, start the `argLine` with `@{argLine}`, or it replaces Tia's own agent and selection silently stops. The [logging conventions](wiki/logging-conventions.md) wiki chapter has complete examples for both build tools.
 
 Two Surefire settings can hide this output even when a binding is present:
 
