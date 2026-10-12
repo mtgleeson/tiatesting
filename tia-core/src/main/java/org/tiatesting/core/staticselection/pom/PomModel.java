@@ -159,6 +159,51 @@ final class PomModel {
     }
 
     /**
+     * @return the parent's {@code <relativePath>} as written: {@code null} when absent (Maven then
+     *         looks in {@code ../pom.xml}), empty when present but empty (Maven then skips the
+     *         repository lookup).
+     */
+    String getParentRelativePath() {
+        return PomXml.childText(parent, "relativePath");
+    }
+
+    /**
+     * The {@code <module>} entries of the project and of every profile, as written.
+     *
+     * @return the module entries, in document order; empty when the POM aggregates nothing.
+     */
+    List<String> getModules() {
+        List<String> modules = new ArrayList<>();
+        addModules(project, modules);
+        for (Element profile : profiles.values()) {
+            addModules(profile, modules);
+        }
+        return modules;
+    }
+
+    /**
+     * Append an owner's {@code <modules>} entries.
+     *
+     * @param owner the project or profile element.
+     * @param modules the accumulator.
+     */
+    private static void addModules(final Element owner, final List<String> modules) {
+        for (Element module : PomXml.children(PomXml.child(owner, "modules"), "module")) {
+            String entry = PomXml.text(module);
+            if (!entry.isEmpty()) {
+                modules.add(entry);
+            }
+        }
+    }
+
+    /**
+     * @return the name of every property referenced anywhere in the POM.
+     */
+    Set<String> getPropertyReferences() {
+        return propertyReferences;
+    }
+
+    /**
      * @return the profiles by id (or by position, for a profile with no id).
      */
     Map<String, Element> getProfiles() {

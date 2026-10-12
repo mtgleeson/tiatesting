@@ -25,14 +25,18 @@ import java.util.Set;
  * {@link PomChangeCategory#OTHER}.
  *
  * <p>Values are compared after resolving {@code ${...}} references against the POM's own
- * properties, so a property change is classified by what it changes. A changed property is itself
- * {@code OTHER} when nothing in this POM references it, or when the POM may be a parent whose
- * children could reference it; this classifier sees one file only.
+ * properties and those inherited from in-repo parents, so a property change is classified by what
+ * it changes. A changed property is itself inert when this POM or its child modules reference it
+ * (a child's resulting changes are added, see {@link PomEnvironment#childChanges()}), and
+ * {@code OTHER} when nothing references it.
  *
- * <p>The reactor checks are heuristics that need no other file: a parent is in the same reactor
- * when the project inherits its version or moved in lockstep with it, and a dependency is a
- * reactor module when its version is {@code ${project.version}} or it shares the project's
- * groupId and moved in lockstep with the project version.
+ * <p>The surrounding POMs come from a {@link PomEnvironment}. A parent is in the same reactor
+ * when it is in the repository at the declared version, and a dependency is a reactor module when
+ * its coordinates belong to the reactor. With {@link PomEnvironment#NONE} (a single file) the
+ * classifier falls back to heuristics: a parent is in the reactor when the project inherits its
+ * version or moved in lockstep with it; a dependency is a reactor module when its version is
+ * {@code ${project.version}} or it shares the project's groupId and moved in lockstep with the
+ * project version; and a changed property in a POM that may be a parent is {@code OTHER}.
  */
 public final class PomChangeClassifier {
 
@@ -66,6 +70,9 @@ public final class PomChangeClassifier {
     /** {@code <build>} children compared by dedicated logic. */
     private static final Set<String> PLUGIN_BUILD_ELEMENTS = new HashSet<>(Arrays.asList("plugins", "pluginManagement"));
 
+    /** Suffix of a property change whose uses in this POM are classified where they are. */
+    private static final String USED_HERE = " (its uses in this POM are classified separately)";
+
     private final Set<String> trackedLibraries;
 
     /**
@@ -80,13 +87,30 @@ public final class PomChangeClassifier {
     }
 
     /**
-     * Classify the difference between two versions of one POM.
+     * Classify the difference between two versions of one POM on its own, with no knowledge of
+     * other POMs: reactor and parent checks use the single-file heuristics, and a changed property
+     * in a POM that may be a parent is {@code OTHER}.
      *
      * @param oldPom the POM text before the change, or {@code null} when the POM was added.
      * @param newPom the POM text after the change, or {@code null} when the POM was deleted.
      * @return every change found, functional and inert; empty when the two versions are equivalent.
      */
     public PomChangeReport classify(final String oldPom, final String newPom) {
+        return classify(oldPom, newPom, PomEnvironment.NONE);
+    }
+
+    /**
+     * Classify the difference between two versions of one POM in the environment of the other
+     * POMs in its repository: properties inherited from in-repo parents are resolved, the parent
+     * and reactor checks use the real parent location and reactor modules, and a changed property
+     * is classified by what it changes in the POM's child modules (see {@link PomEnvironment}).
+     *
+     * @param oldPom the POM text before the change, or {@code null} when the POM was added.
+     * @param newPom the POM text after the change, or {@code null} when the POM was deleted.
+     * @param environment the POM's surroundings; {@link PomEnvironment#NONE} for a single file.
+     * @return every change found, functional and inert; empty when the two versions are equivalent.
+     */
+    PomChangeReport classify(final String oldPom, final String newPom, final PomEnvironment environment) {
         List<PomChange> changes = new ArrayList<>();
         if (oldPom == null && newPom == null) {
             return new PomChangeReport(changes);
@@ -99,8 +123,8 @@ public final class PomChangeClassifier {
         Side oldSide;
         Side newSide;
         try {
-            oldSide = new Side(PomModel.parse(oldPom));
-            newSide = new Side(PomModel.parse(newPom));
+            oldSide = new Side(PomModel.parse(oldPom), environment, false);
+            newSide = new Side(PomModel.parse(newPom), environment, true);
         } catch (PomParseException e) {
             changes.add(PomChange.functional(PomChangeCategory.OTHER, "POM could not be parsed: " + e.getMessage()));
             return new PomChangeReport(changes);
@@ -112,6 +136,9 @@ public final class PomChangeClassifier {
                 oldSide.resolver, newSide.resolver, PROJECT_SPECIFIC_ELEMENTS, "", changes);
         compareProfiles(oldSide, newSide, changes);
         compareProperties(oldSide, newSide, changes);
+        if (newSide.childrenAffected) {
+            changes.addAll(environment.childChanges());
+        }
         return new PomChangeReport(changes);
     }
 
@@ -174,13 +201,34 @@ public final class PomChangeClassifier {
             return;
         }
         String description = "parent " + newCoordinates + " version " + oldVersion + " -> " + newVersion;
-        boolean inheritsVersion = newSide.model.getVersion() == null;
-        boolean lockstep = Objects.equals(oldSide.version, oldVersion) && Objects.equals(newSide.version, newVersion);
-        if (inheritsVersion || lockstep) {
+        if (isReactorParent(oldSide, newSide, oldVersion, newVersion)) {
             changes.add(PomChange.inert("reactor " + description));
         } else {
             changes.add(PomChange.functional(PomChangeCategory.DEPENDENCY_VERSIONS, "external " + description));
         }
+    }
+
+    /**
+     * Check whether a parent whose version changed is part of the same reactor. With a known
+     * environment, the parent is in the reactor when the new side's parent POM is in the
+     * repository at the declared version. Without one, the single-file heuristic applies: the
+     * project inherits its version from the parent, or moved in lockstep with it.
+     *
+     * @param oldSide the POM before the change.
+     * @param newSide the POM after the change.
+     * @param oldVersion the parent version before the change.
+     * @param newVersion the parent version after the change.
+     * @return {@code true} when the parent version change is inert.
+     */
+    private boolean isReactorParent(final Side oldSide, final Side newSide,
+                                    final String oldVersion, final String newVersion) {
+        PomEnvironment.ParentLocation location = newSide.environment.parentLocation(true);
+        if (location != PomEnvironment.ParentLocation.UNKNOWN) {
+            return location == PomEnvironment.ParentLocation.IN_REPO;
+        }
+        boolean inheritsVersion = newSide.model.getVersion() == null;
+        boolean lockstep = Objects.equals(oldSide.version, oldVersion) && Objects.equals(newSide.version, newVersion);
+        return inheritsVersion || lockstep;
     }
 
     /**
@@ -347,9 +395,10 @@ public final class PomChangeClassifier {
     }
 
     /**
-     * Check whether a dependency is another module of the same reactor: its version is the
-     * project's own version reference, or it shares the project's groupId and its version moved
-     * in lockstep with a project version change.
+     * Check whether a dependency is another module of the same reactor. With a known environment
+     * this is reactor membership of its {@code groupId:artifactId}. Without one, the single-file
+     * heuristic applies: its version is the project's own version reference, or it shares the
+     * project's groupId and its version moved in lockstep with a project version change.
      *
      * @param before the dependency before the change.
      * @param after the dependency after the change.
@@ -359,6 +408,11 @@ public final class PomChangeClassifier {
      */
     private boolean isReactorModule(final Dependency before, final Dependency after,
                                     final Side oldSide, final Side newSide) {
+        Set<String> reactorModules = newSide.environment.reactorModules();
+        if (reactorModules != null) {
+            return reactorModules.contains(before.groupId + ":" + before.artifactId)
+                    || reactorModules.contains(after.groupId + ":" + after.artifactId);
+        }
         if (referencesProjectVersion(before.rawVersion) && referencesProjectVersion(after.rawVersion)) {
             return true;
         }
@@ -549,8 +603,8 @@ public final class PomChangeClassifier {
                 }
             }
             compareBody(before, after, oldSide, newSide,
-                    PomPropertyResolver.forProfile(oldSide.model, before),
-                    PomPropertyResolver.forProfile(newSide.model, after),
+                    PomPropertyResolver.forProfile(oldSide.model, before, oldSide.inherited),
+                    PomPropertyResolver.forProfile(newSide.model, after, newSide.inherited),
                     PROFILE_SPECIFIC_ELEMENTS, label, changes);
         }
     }
@@ -564,10 +618,14 @@ public final class PomChangeClassifier {
      *   <li>{@code COMPILER} or {@code TEST_RUNNER} for properties those plugins read implicitly;</li>
      *   <li>inert when the project's own or parent version references it (e.g. a CI-friendly
      *       {@code ${revision}}): it is the project version, which children use the same way;</li>
-     *   <li>{@code OTHER} when nothing in this POM references it (a plugin may read it implicitly),
-     *       or when the POM may be a parent whose children could reference it;</li>
-     *   <li>otherwise inert, its uses having been classified.</li>
+     *   <li>inert when this POM or its child modules reference it: its uses are classified where
+     *       they are (in a child via {@link PomEnvironment#childChanges()});</li>
+     *   <li>{@code OTHER} when nothing references it (a plugin may read it implicitly), or when
+     *       the POM may be a parent and its children are unknown.</li>
      * </ul>
+     *
+     * <p>When a changed property is referenced by a child module, {@code newSide.childrenAffected}
+     * is set so the children's resulting changes are added.
      *
      * @param oldSide the POM before the change.
      * @param newSide the POM after the change.
@@ -582,8 +640,8 @@ public final class PomChangeClassifier {
             Element before = oldProfiles.get(id);
             Element after = newProfiles.get(id);
             compareOwnerProperties(before, after,
-                    PomPropertyResolver.forProfile(oldSide.model, before),
-                    PomPropertyResolver.forProfile(newSide.model, after),
+                    PomPropertyResolver.forProfile(oldSide.model, before, oldSide.inherited),
+                    PomPropertyResolver.forProfile(newSide.model, after, newSide.inherited),
                     oldSide, newSide, " in profile " + id, changes);
         }
     }
@@ -619,7 +677,8 @@ public final class PomChangeClassifier {
     }
 
     /**
-     * Classify a changed property; see {@link #compareProperties}.
+     * Classify a changed property; see {@link #compareProperties}. Sets
+     * {@code newSide.childrenAffected} when a child module references it.
      *
      * @param name the property name.
      * @param description the change description.
@@ -639,13 +698,24 @@ public final class PomChangeClassifier {
         if (oldSide.isVersionProperty(name) || newSide.isVersionProperty(name)) {
             return PomChange.inert(description + " (project version)");
         }
-        if (!oldSide.model.references(name) && !newSide.model.references(name)) {
-            return PomChange.functional(PomChangeCategory.OTHER, description + " (not referenced in this POM)");
+        boolean referencedHere = oldSide.model.references(name) || newSide.model.references(name);
+        if (!oldSide.model.mayHaveChildren() && !newSide.model.mayHaveChildren()) {
+            return referencedHere
+                    ? PomChange.inert(description + USED_HERE)
+                    : PomChange.functional(PomChangeCategory.OTHER, description + " (not referenced in this POM)");
         }
-        if (oldSide.model.mayHaveChildren() || newSide.model.mayHaveChildren()) {
-            return PomChange.functional(PomChangeCategory.OTHER, description + " (child modules may reference it)");
+        Set<String> childReferences = newSide.environment.childPropertyReferences();
+        if (childReferences == null) {
+            return PomChange.functional(PomChangeCategory.OTHER, description
+                    + (referencedHere ? " (child modules may reference it)" : " (not referenced in this POM)"));
         }
-        return PomChange.inert(description + " (its uses in this POM are classified separately)");
+        if (childReferences.contains(name)) {
+            newSide.childrenAffected = true;
+            return PomChange.inert(description + " (its uses in this POM and its modules are classified separately)");
+        }
+        return referencedHere
+                ? PomChange.inert(description + USED_HERE)
+                : PomChange.functional(PomChangeCategory.OTHER, description + " (not referenced in this POM or its modules)");
     }
 
     /**
@@ -687,19 +757,27 @@ public final class PomChangeClassifier {
      */
     private static final class Side {
         private final PomModel model;
+        private final PomEnvironment environment;
+        private final Map<String, String> inherited;
         private final PomPropertyResolver resolver;
         private final String groupId;
+        /** Set when a changed property is used by a child module, so the children's changes are added. */
+        private boolean childrenAffected;
         private final String artifactId;
         private final String version;
 
         /**
-         * Resolve the project's effective coordinates.
+         * Resolve the project's effective coordinates, with the properties inherited on this side.
          *
          * @param model the parsed POM.
+         * @param environment the POM's surroundings.
+         * @param newSide {@code true} for the "after" side of the diff.
          */
-        private Side(final PomModel model) {
+        private Side(final PomModel model, final PomEnvironment environment, final boolean newSide) {
             this.model = model;
-            this.resolver = PomPropertyResolver.forProject(model);
+            this.environment = environment;
+            this.inherited = environment.inheritedProperties(newSide);
+            this.resolver = PomPropertyResolver.forProject(model, inherited);
             this.groupId = resolver.resolve("${project.groupId}");
             this.artifactId = resolver.resolve("${project.artifactId}");
             this.version = resolver.resolve("${project.version}");

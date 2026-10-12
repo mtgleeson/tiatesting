@@ -11,15 +11,15 @@ import java.util.Set;
 
 /**
  * Classifies the changes to POMs over one diff (a commit range or the local workspace) for
- * POM-aware static test selection rules. Content is fetched from the VCS only when asked, in one
- * batched call per request, and each POM is classified once and cached, so several rules matching
- * the same POM share the work. One instance serves one test selection run.
+ * POM-aware static test selection rules. Each POM is classified in the environment of the other
+ * POMs in the repository (in-repo parents, the reactor, child modules; see {@link PomTree}), which
+ * are read only when a classification decision needs them. Content is fetched in batched VCS
+ * calls, and each POM is classified once and cached, so several rules matching the same POM share
+ * the work. One instance serves one test selection run.
  */
 public class PomChangeAnalyzer {
 
-    private final VCSReader vcsReader;
-    private final String baseChangeNum;
-    private final boolean checkLocalChanges;
+    private final PomTree tree;
     private final PomChangeClassifier classifier;
     private final Map<String, PomChangeReport> reportsByPath = new HashMap<>();
 
@@ -33,15 +33,14 @@ public class PomChangeAnalyzer {
      */
     public PomChangeAnalyzer(final VCSReader vcsReader, final String baseChangeNum, final boolean checkLocalChanges,
                              final PomChangeClassifier classifier) {
-        this.vcsReader = vcsReader;
-        this.baseChangeNum = baseChangeNum;
-        this.checkLocalChanges = checkLocalChanges;
+        this.tree = new PomTree(vcsReader, baseChangeNum, checkLocalChanges);
         this.classifier = classifier;
     }
 
     /**
-     * Classify the changes to each given POM. Paths not analysed before are fetched in a single
-     * {@link VCSReader#loadFileContents} call.
+     * Classify the changes to each given POM. The given POMs not analysed before are fetched in a
+     * single {@link VCSReader#loadFileContents} call; other POMs are read only if a classification
+     * needs them.
      *
      * @param paths the repo-relative POM paths, as {@link VCSReader#getChangedFilePaths} returns them.
      * @return one report per requested path, in the iteration order of {@code paths}.
@@ -50,12 +49,11 @@ public class PomChangeAnalyzer {
         Set<String> missing = new HashSet<>(paths);
         missing.removeAll(reportsByPath.keySet());
         if (!missing.isEmpty()) {
-            Map<String, FileContentPair> contents = vcsReader.loadFileContents(missing, baseChangeNum, checkLocalChanges);
+            tree.loadParentChains(missing);
             for (String path : missing) {
-                FileContentPair content = contents.get(path);
-                reportsByPath.put(path, content == null
-                        ? classifier.classify(null, null)
-                        : classifier.classify(content.getOldContent(), content.getNewContent()));
+                FileContentPair content = tree.content(path);
+                reportsByPath.put(path, classifier.classify(content.getOldContent(), content.getNewContent(),
+                        PomTreeEnvironment.forChangedPom(tree, classifier, path)));
             }
         }
 
