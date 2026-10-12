@@ -7,6 +7,7 @@ import com.perforce.p4java.option.server.GetChangelistsOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class P4Reader implements VCSReader {
@@ -70,6 +72,15 @@ public class P4Reader implements VCSReader {
     @Override
     public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
         return p4DiffAnalyzer.getChangedFilePaths(p4Context, baseChangeNum, checkLocalChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                         final boolean checkLocalChanges) {
+        return p4DiffAnalyzer.loadFileContents(p4Context, paths, baseChangeNum, checkLocalChanges);
     }
 
     @Override

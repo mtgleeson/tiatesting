@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.vcs.perforce.connection.P4Connection;
 
@@ -166,6 +167,181 @@ public class P4DiffAnalyzer {
         }
 
         return changedPaths;
+    }
+
+    /**
+     * Load the "before" and "after" content of the given workspace-root-relative paths (the
+     * form {@link #getChangedFilePaths} returns). Each path is resolved to its depot path through
+     * the client view with one {@code p4 where} call. For the CL range the "before" side is
+     * printed at {@code baseCl} and the "after" side at head; for local changes the "before" side
+     * is printed at head and the "after" side is the working-copy file on disk. Each printed side
+     * is one {@code p4 files} existence query plus one batched {@code p4 print}, regardless of
+     * how many paths are requested.
+     *
+     * @param p4Context the Perforce context (connection + head CL).
+     * @param paths the workspace-root-relative, forward-slash paths to load.
+     * @param baseCl the stored changelist the mapping is valid for (the CL-range "before");
+     *               ignored when {@code checkLocalChanges} is {@code true}.
+     * @param checkLocalChanges whether to compare head against the working copy.
+     * @return one entry per requested path; a side is {@code null} when the file does not exist
+     *         there. A path the client view does not map has no depot side, so only its
+     *         working-copy side (local changes) can be non-null.
+     */
+    Map<String, FileContentPair> loadFileContents(final P4Context p4Context, final Set<String> paths,
+                                                  final String baseCl, final boolean checkLocalChanges) {
+        Map<String, FileContentPair> contents = new HashMap<>();
+        if (paths.isEmpty()) {
+            return contents;
+        }
+
+        P4Connection p4Connection = p4Context.getP4Connection();
+        String workspaceRootPrefix = buildWorkspaceRootPrefix(p4Connection);
+        Map<String, String> depotPathByPath = resolveDepotPaths(p4Connection, paths, workspaceRootPrefix);
+
+        Map<String, String> oldByDepotPath;
+        Map<String, String> newByDepotPath;
+        if (checkLocalChanges) {
+            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), p4Context.getHeadCL());
+            newByDepotPath = null;
+        } else {
+            oldByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), baseCl);
+            newByDepotPath = printExistingDepotFiles(p4Connection, depotPathByPath.values(), p4Context.getHeadCL());
+        }
+
+        for (String path : paths) {
+            String depotPath = depotPathByPath.get(path);
+            String oldContent = depotPath != null ? oldByDepotPath.get(depotPath) : null;
+            String newContent = checkLocalChanges
+                    ? readWorkspaceFile(workspaceRootPrefix + path)
+                    : (depotPath != null ? newByDepotPath.get(depotPath) : null);
+            contents.put(path, new FileContentPair(oldContent, newContent));
+        }
+        return contents;
+    }
+
+    /**
+     * Resolve workspace-root-relative paths to depot paths through the client view with a single
+     * {@code p4 where} call. Each where-result is matched back to the requested path by
+     * relativizing its local path against the workspace root. Entries with no depot path (the
+     * overridden line of a layered client view) or no local path are ignored, so paths the view
+     * does not map are absent from the result.
+     *
+     * @param p4Connection the Perforce connection.
+     * @param paths the workspace-root-relative paths to resolve.
+     * @param workspaceRootPrefix the normalised workspace root prefix (see {@link #buildWorkspaceRootPrefix}).
+     * @return depot path keyed by requested path, for the paths the client view maps.
+     */
+    private Map<String, String> resolveDepotPaths(final P4Connection p4Connection, final Set<String> paths,
+                                                  final String workspaceRootPrefix) {
+        List<String> localPaths = new ArrayList<>(paths.size());
+        for (String path : paths) {
+            localPaths.add(workspaceRootPrefix + path);
+        }
+
+        Map<String, String> depotPathByPath = new HashMap<>();
+        try {
+            List<IFileSpec> whereFileSpecs = p4Connection.getClient().where(FileSpecBuilder.makeFileSpecList(localPaths));
+            for (IFileSpec whereFileSpec : whereFileSpecs) {
+                String depotPath = whereFileSpec.getDepotPathString();
+                String localPath = whereFileSpec.getLocalPathString();
+                if (depotPath == null || localPath == null) {
+                    continue;
+                }
+                String normalizedLocalPath = localPath.replace('\\', '/');
+                if (!normalizedLocalPath.startsWith(workspaceRootPrefix)) {
+                    continue;
+                }
+                String path = normalizedLocalPath.substring(workspaceRootPrefix.length());
+                if (paths.contains(path)) {
+                    depotPathByPath.put(path, depotPath);
+                }
+            }
+        } catch (P4JavaException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        if (depotPathByPath.size() < paths.size()) {
+            Set<String> unmapped = new HashSet<>(paths);
+            unmapped.removeAll(depotPathByPath.keySet());
+            log.debug("Paths not mapped in the client view, loaded with no content: {}", unmapped);
+        }
+        return depotPathByPath;
+    }
+
+    /**
+     * Print the content of the given depot paths at a changelist, skipping paths that do not
+     * exist there. Existence is checked first with one {@code p4 files} query: a path missing at
+     * the changelist comes back with no depot path, and a path whose revision at the changelist
+     * is a delete has no content to print. The remaining paths are fetched in one batched
+     * {@code p4 print}.
+     *
+     * @param p4Connection the Perforce connection.
+     * @param depotPaths the depot paths to print.
+     * @param cl the changelist to print at.
+     * @return content keyed by depot path, for the paths that exist at {@code cl}.
+     */
+    private Map<String, String> printExistingDepotFiles(final P4Connection p4Connection,
+                                                        final Collection<String> depotPaths, final String cl) {
+        if (depotPaths.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<String> annotatedPaths = new ArrayList<>(depotPaths.size());
+        for (String depotPath : depotPaths) {
+            annotatedPaths.add(depotPath + "@" + cl);
+        }
+
+        Set<String> requestedDepotPaths = new HashSet<>(depotPaths);
+        List<String> existingDepotPaths = new ArrayList<>();
+        try {
+            List<IFileSpec> fileSpecs = p4Connection.getServer().getDepotFiles(
+                    FileSpecBuilder.makeFileSpecList(annotatedPaths), false);
+            if (fileSpecs != null) {
+                for (IFileSpec fileSpec : fileSpecs) {
+                    String depotPath = fileSpec.getDepotPathString();
+                    if (depotPath != null && requestedDepotPaths.contains(depotPath) && !isDeletedRevision(fileSpec)) {
+                        existingDepotPaths.add(depotPath);
+                    }
+                }
+            }
+        } catch (P4JavaException e) {
+            throw new VCSAnalyzerException(e);
+        }
+
+        if (existingDepotPaths.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return printDepotFilesAtChangelist(p4Connection, existingDepotPaths, cl, "content by path at CL " + cl);
+    }
+
+    /**
+     * Check whether a {@code p4 files} result names a revision with no content: the head action
+     * at the queried changelist removed the file.
+     *
+     * @param fileSpec the file spec returned by {@code getDepotFiles}.
+     * @return {@code true} when the revision is a delete, move/delete or purge.
+     */
+    private boolean isDeletedRevision(final IFileSpec fileSpec) {
+        FileAction action = fileSpec.getAction();
+        return action == FileAction.DELETE || action == FileAction.MOVE_DELETE || action == FileAction.PURGE;
+    }
+
+    /**
+     * Read a working-copy file as UTF-8.
+     *
+     * @param localPath the absolute local path of the file.
+     * @return the file content, or {@code null} when no file exists at that path.
+     */
+    private String readWorkspaceFile(final String localPath) {
+        File file = new File(localPath);
+        if (!file.isFile()) {
+            return null;
+        }
+        try {
+            return FileUtils.readFileToString(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
     }
 
     /**
@@ -885,7 +1061,6 @@ public class P4DiffAnalyzer {
                                                      boolean forOriginal,
                                                      String cl) {
         List<String> expectedDepotPaths = new ArrayList<>(revisionFileSpecs.size());
-        List<String> argvList = new ArrayList<>(revisionFileSpecs.size());
         for (IFileSpec fileSpec : revisionFileSpecs) {
             String depotPath = fileSpec.getDepotPathString();
             if (depotPath == null) {
@@ -901,10 +1076,41 @@ public class P4DiffAnalyzer {
                 continue;
             }
             expectedDepotPaths.add(depotPath);
-            argvList.add(depotPath + "@" + cl);
         }
-        if (argvList.isEmpty()) {
+        if (expectedDepotPaths.isEmpty()) {
             return;
+        }
+
+        Map<String, String> contentByDepotPath = printDepotFilesAtChangelist(p4Connection, expectedDepotPaths, cl,
+                "forOriginal=" + forOriginal);
+        for (String depotPath : expectedDepotPaths) {
+            loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, depotPath,
+                    contentByDepotPath.get(depotPath));
+        }
+    }
+
+    /**
+     * Fetch the content of every given depot path at the given changelist in a single batched
+     * {@code p4 print} round-trip and return it keyed by depot path. See
+     * {@link #loadFileSpecsContentIntoDiffContext} for why the argv is built by hand with an
+     * {@code @CL} annotation and how the concatenated output is split per file. Every requested
+     * path must exist at the changelist: a path whose header is missing from the response fails
+     * fast rather than being returned without content, because silently missing content would
+     * mis-select tests.
+     *
+     * @param p4Connection the Perforce connection used to call {@code execStreamCmd}.
+     * @param depotPaths the depot paths to print; must be non-empty and exist at {@code cl}.
+     * @param cl the changelist id each path is printed at.
+     * @param requestLabel a short description of the request, included in error messages.
+     * @return the content of every requested depot path, keyed by depot path.
+     */
+    private Map<String, String> printDepotFilesAtChangelist(final P4Connection p4Connection,
+                                                            final List<String> depotPaths,
+                                                            final String cl,
+                                                            final String requestLabel) {
+        List<String> argvList = new ArrayList<>(depotPaths.size());
+        for (String depotPath : depotPaths) {
+            argvList.add(depotPath + "@" + cl);
         }
 
         byte[] streamBytes;
@@ -913,7 +1119,7 @@ public class P4DiffAnalyzer {
                     argvList.toArray(new String[0]));
             if (stream == null) {
                 throw new VCSAnalyzerException("Batched p4 print returned a null stream for "
-                        + argvList.size() + " files (forOriginal=" + forOriginal + ")");
+                        + argvList.size() + " files (" + requestLabel + ")");
             }
             try {
                 streamBytes = readAllBytes(stream);
@@ -924,20 +1130,18 @@ public class P4DiffAnalyzer {
             throw new VCSAnalyzerException(e);
         }
 
-        Map<String, String> contentByDepotPath = parseBatchedPrintStream(streamBytes, expectedDepotPaths);
-
-        for (String depotPath : expectedDepotPaths) {
-            String content = contentByDepotPath.get(depotPath);
-            if (content == null) {
+        Map<String, String> contentByDepotPath = parseBatchedPrintStream(streamBytes, depotPaths);
+        for (String depotPath : depotPaths) {
+            if (!contentByDepotPath.containsKey(depotPath)) {
                 // We asked p4 print for this depot path but no header for it appeared in the
                 // response. Either p4java returned a partial stream or the demux missed a
-                // header - either way, silently leaving the diff context with null content
-                // would mis-select tests, so fail fast.
+                // header - either way, silently leaving the content null would mis-select
+                // tests, so fail fast.
                 throw new VCSAnalyzerException("Batched p4 print returned no content for depot path "
-                        + depotPath + " (forOriginal=" + forOriginal + ")");
+                        + depotPath + " (" + requestLabel + ")");
             }
-            loadFileContentIntoDiffContext(sourceFileDiffContexts, forOriginal, depotPath, content);
         }
+        return contentByDepotPath;
     }
 
     /**
