@@ -11,8 +11,12 @@ import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.DataStore;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
+import org.tiatesting.core.staticselection.FiredStaticRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
+import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
+import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
+import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -88,7 +92,8 @@ public class LibraryPublishStamper {
     public PublishStampResult stampPublish(DataStore dataStore, VCSReader vcsReader, String groupArtifact,
                                            String publishedVersion, String jarFilePath,
                                            final StaticTestSelectionConfig staticConfig) {
-        TrackedLibrary tracked = dataStore.readTrackedLibraries().get(groupArtifact);
+        Map<String, TrackedLibrary> trackedLibraries = dataStore.readTrackedLibraries();
+        TrackedLibrary tracked = trackedLibraries.get(groupArtifact);
         if (tracked == null) {
             log.warn("Library '{}' is not tracked (no tia_library row) - skipping publish stamp.", groupArtifact);
             return new PublishStampResult(PublishStampResult.Outcome.SKIPPED_NOT_TRACKED, 0, Collections.emptySet(),
@@ -116,7 +121,7 @@ public class LibraryPublishStamper {
         Set<Integer> impactedMethods = findImpactedMethodsSinceBaseline(dataStore, vcsReader, tracked,
                 previousPublishCommit);
         List<PendingLibraryForcedSelection> forcedSelections = evaluateForcedSelections(
-                vcsReader, tracked, previousPublishCommit, publishedVersion, staticConfig);
+                vcsReader, tracked, previousPublishCommit, publishedVersion, staticConfig, trackedLibraries.keySet());
         long seq = dataStore.persistLibraryPublish(publish, impactedMethods, forcedSelections);
         log.info("Stamped publish of library '{}' version '{}' at seq {} with {} impacted methods and {} forced-selection rule(s).",
                 groupArtifact, publishedVersion, seq, impactedMethods.size(), forcedSelections.size());
@@ -264,7 +269,8 @@ public class LibraryPublishStamper {
 
     /**
      * Evaluate the library's own static test selection rules against the files it changed since its
-     * previous publish, producing a forced-selection batch per matching rule. The since-previous-publish
+     * previous publish, producing a forced-selection batch per firing rule (a POM-aware rule fires only
+     * for POM changes in its categories, as in consumer-side selection). The since-previous-publish
      * scope deduplicates: a version-only or no-matching-change re-publish yields nothing, mirroring the
      * method-stamp dedup. All changed file types are considered (the unfiltered
      * {@link VCSReader#getChangedFilePaths}) and evaluated repo-wide: a rule can match non-code files
@@ -278,11 +284,13 @@ public class LibraryPublishStamper {
      * @param previousPublishCommit the commit of the library's previous publish (the diff baseline here).
      * @param publishedVersion the version being published (recorded as each batch's stamp version).
      * @param staticConfig the library's static test selection config; may be disabled/empty.
-     * @return the forced-selection batches; empty when the config is disabled or no rule matches.
+     * @param trackedLibraries the {@code groupId:artifactId} of every tracked library; their version
+     *                         changes are inert for POM-aware rules, since the drain handles them.
+     * @return the forced-selection batches; empty when the config is disabled or no rule fires.
      */
     private List<PendingLibraryForcedSelection> evaluateForcedSelections(
             VCSReader vcsReader, TrackedLibrary tracked, String previousPublishCommit,
-            String publishedVersion, StaticTestSelectionConfig staticConfig) {
+            String publishedVersion, StaticTestSelectionConfig staticConfig, Set<String> trackedLibraries) {
         if (staticConfig == null || !staticConfig.isEnabled() || previousPublishCommit == null) {
             return Collections.emptyList();
         }
@@ -291,25 +299,19 @@ public class LibraryPublishStamper {
             return Collections.emptyList();
         }
 
+        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, previousPublishCommit, false,
+                new PomChangeClassifier(trackedLibraries));
         List<PendingLibraryForcedSelection> forced = new ArrayList<>();
-        for (StaticTestSelectionRule rule : staticConfig.getRules()) {
-            boolean matched = false;
-            for (String path : changedPaths) {
-                if (rule.getFilePathPattern().matcher(path).find()) {
-                    matched = true;
-                    break;
-                }
+        for (FiredStaticRule fired : new StaticTestSelectionResolver(staticConfig).evaluateRules(changedPaths, pomAnalyzer)) {
+            StaticTestSelectionRule rule = fired.getRule();
+            List<String> patternStrings = new ArrayList<>();
+            for (Pattern p : rule.getSuiteNamePatterns()) {
+                patternStrings.add(p.pattern());
             }
-            if (matched) {
-                List<String> patternStrings = new ArrayList<>();
-                for (Pattern p : rule.getSuiteNamePatterns()) {
-                    patternStrings.add(p.pattern());
-                }
-                forced.add(new PendingLibraryForcedSelection(tracked.getGroupArtifact(), publishedVersion,
-                        0L, rule.getName(), rule.getMode(), patternStrings));
-                log.info("Library '{}' static rule '{}' matched a changed file - recording forced selection (mode {}).",
-                        tracked.getGroupArtifact(), rule.getName(), rule.getMode());
-            }
+            forced.add(new PendingLibraryForcedSelection(tracked.getGroupArtifact(), publishedVersion,
+                    0L, rule.getName(), rule.getMode(), patternStrings));
+            log.info("Library '{}' static rule '{}' matched a changed file - recording forced selection (mode {}).",
+                    tracked.getGroupArtifact(), rule.getName(), rule.getMode());
         }
         return forced;
     }

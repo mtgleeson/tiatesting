@@ -42,6 +42,65 @@ The union becomes the "must run" set; everything else is the "ignore" set. There
 
 `RUN_ALL` is the degenerate case at the static end: a `RUN_ALL` rule that fires effectively short-circuits the union to "every tracked suite," because adding "every tracked suite" to anything is "every tracked suite." That's the intended behaviour — `RUN_ALL` is for change drivers whose blast radius is "we don't know, run it all."
 
+### POM-aware rules
+
+A plain rule that matches `pom.xml` fires on every POM edit. A release commit that bumps the project version in every module, a tracked-library version bump that the library publish stamp and drain already handle precisely, and an edit to `<scm>` or the javadoc plugin all force the same full run. A POM-aware rule fires only when the POM change can affect what the code or tests do.
+
+A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of categories. Its `filePathPattern` then defaults to any `pom.xml` (`(^|/)pom\.xml$`), and `mode` works as for any other rule:
+
+```xml
+<tiaStaticTestSelectionRule>
+  <name>Functional POM changes</name>
+  <pomChanges>FUNCTIONAL</pomChanges>
+  <mode>RUN_ALL</mode>
+</tiaStaticTestSelectionRule>
+<tiaStaticTestSelectionRule>
+  <name>Test runner config</name>
+  <pomChanges>TEST_RUNNER</pomChanges>
+  <mode>SUITE_NAMES</mode>
+  <suiteNamePatterns>
+    <suiteNamePattern>IT$</suiteNamePattern>
+  </suiteNamePatterns>
+</tiaStaticTestSelectionRule>
+```
+
+`FUNCTIONAL` is the recommended setting: it fires for any change that is not known to be inert. The finer categories are for targeting a subset of suites with `SUITE_NAMES`:
+
+| Category | Fires on |
+|---|---|
+| `DEPENDENCY_VERSIONS` | The resolved version of an untracked, non-reactor dependency or managed dependency changed; a managed entry was added or removed; a BOM import or an external parent version changed. |
+| `DEPENDENCY_SET` | A dependency was added or removed, or its scope, classifier, type, optional flag, system path or exclusions changed (tracked libraries included). |
+| `COMPILER` | The compiler plugin (including annotation processors) or a `maven.compiler.*` / `project.build.sourceEncoding` property changed. |
+| `TEST_RUNNER` | The surefire or failsafe plugin, or `argLine`, `skipTests` and the `surefire.*` / `failsafe.*` properties changed. |
+| `CODE_GENERATION` | A known code generation plugin changed (openapi-generator, jaxb, cxf, protobuf, avro, antlr, jooq, build-helper and similar). Its output is not in version control, so coverage can't see the change. |
+| `RESOURCES` | Resources, resource filtering, filters or the source directory layout changed. |
+| `BUILD_PLUGINS` | Any other plugin or plugin management entry that is not inert changed. |
+| `FUNCTIONAL` | All of the above, plus anything unrecognised: modules, packaging, repositories, extensions, profile activation, a changed property nothing in the POM references, and an added, deleted or unparseable POM. |
+
+These changes never fire a POM-aware rule:
+
+- project metadata (`name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement`, `reporting`, ...);
+- the project's own version, including through a CI-friendly `${revision}`, a same-reactor parent version, and the versions of dependencies on other reactor modules;
+- version changes of tracked libraries (`tiaSourceLibs`), which the library publish stamp and drain own, including when the drain holds back (unknown build, downgrade);
+- publishing, reporting and quality plugins (deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer, ...);
+- Tia's own plugin configuration and `tia*` properties;
+- whitespace, comments, and reordering of dependencies, plugins or executions.
+
+A filtered resource that embeds `${project.version}` is a real behaviour change that the classifier treats as inert. If a test asserts on such a value, add a plain path or `SUITE_NAMES` rule for it.
+
+**How the classification works.** When a POM-aware rule's path pattern matches a changed file, Tia reads that file's content on both sides of the diff with `VCSReader.loadFileContents`. That is one batched read for every matched POM, shared by all POM-aware rules. `PomChangeClassifier` then compares the two versions. Values are compared after resolving `${...}` against the POM's own properties, so a property change is judged by what it changes: a bumped `lib.version` shows up as the dependency version change it causes. Content is never read when no POM-aware rule matches, and plain rules never read content.
+
+The classifier reads one POM at a time, which has two consequences for now:
+
+- A changed property in a POM that may be a parent (`pom` packaging or `<modules>`) counts as `FUNCTIONAL`, because a child module could reference it. This includes a tracked library version kept as a property in a parent POM.
+- Reactor modules are recognised by heuristics: a dependency at `${project.version}`, or one that shares the project's groupId and moved in lockstep with the project version.
+
+**Logging and history.** When a POM-aware rule matches a POM, an INFO line says why it fired or why it did not, listing the first few changes, e.g. `Static test selection rule 'Functional POM changes' matched [pom.xml] but none of the changes is in [FUNCTIONAL]: [project version 1.4.0 -> 1.5.0 (inert)]`. The full change list is logged at DEBUG. The run-history trigger records the categories that fired, e.g. `Functional POM changes [DEPENDENCY_VERSIONS]`.
+
+**Library rules.** A library's own static rules, evaluated at publish time against the files changed since its previous publish, use the same evaluation. A library's POM-aware rule therefore records a forced selection for a consumer only for a functional POM change.
+
+POM-aware rules are Maven-only. Gradle build scripts are code, not data, and the Gradle extension does not expose `pomChanges`.
+
 ### When this design might shift
 
 Two evolutions are already plausible:
