@@ -21,6 +21,8 @@ import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionResolver;
 import org.tiatesting.core.staticselection.StaticTestSelectionResult;
+import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
+import org.tiatesting.core.staticselection.pom.PomChangeClassifier;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.persistence.DataStore;
@@ -141,7 +143,7 @@ public class TestSelector {
                 libraryConfig, testsToRun, testSuitesTracked);
 
         List<TestRunTrigger> staticRuleTriggers = applyStaticTestSelection(vcsReader, staticMappingConfig,
-                tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges);
+                tiaCore.getCommitValue(), testSuitesTracked, testsToRun, checkLocalChanges, libraryConfig);
 
         // @Nested families are selected whole - added after every other source of selection, so it
         // covers all of them. See NestedTestSuites#addFamilies for why.
@@ -1001,6 +1003,9 @@ public class TestSelector {
      *                          used to resolve each rule's forced suite set.
      * @param testsToRun the dynamic run set; forced suites are added in place.
      * @param checkLocalChanges whether to query the local workspace instead of the commit range.
+     * @param libraryConfig the library impact analysis config; its tracked-library coordinates
+     *                      make those libraries' version changes inert for POM-aware rules. May be
+     *                      {@code null}.
      * @return one {@link TestRunTrigger} per fired rule, for the run-history selection breakdown;
      *         empty when no rule fired or {@code staticMappingConfig} is null/disabled.
      */
@@ -1009,7 +1014,8 @@ public class TestSelector {
                                           final String storedCommitValue,
                                           final Map<String, TestSuiteTracker> testSuitesTracked,
                                           final Set<String> testsToRun,
-                                          final boolean checkLocalChanges) {
+                                          final boolean checkLocalChanges,
+                                          final LibraryImpactAnalysisConfig libraryConfig) {
         if (staticMappingConfig == null || !staticMappingConfig.isEnabled()) {
             return Collections.emptyList();
         }
@@ -1018,7 +1024,12 @@ public class TestSelector {
         resolver.warnOnEmptyRules(testSuitesTracked);
 
         Set<String> changedPaths = vcsReader.getChangedFilePaths(storedCommitValue, checkLocalChanges);
-        StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked);
+        // POM content is fetched lazily by the analyzer, only if a POM-aware rule matches a changed path.
+        List<String> trackedLibraries = libraryConfig != null && libraryConfig.isEnabled()
+                ? libraryConfig.getCoordinates() : Collections.<String>emptyList();
+        PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges,
+                new PomChangeClassifier(trackedLibraries));
+        StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked, pomAnalyzer);
         Set<String> forced = staticResult.getForcedSuites();
         // Always log the static selection outcome when rules are configured - an empty result
         // is as informative as a hit, and this matches the unconditional logging of the other

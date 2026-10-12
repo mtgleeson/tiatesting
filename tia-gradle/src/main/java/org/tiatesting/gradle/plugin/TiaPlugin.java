@@ -22,6 +22,7 @@ import org.tiatesting.core.library.LibraryImpactAnalysisConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.vcs.VCSReader;
 import org.tiatesting.core.vcs.VCSReaderFactory;
 import org.tiatesting.core.vcs.VcsDetector;
@@ -47,6 +48,7 @@ import org.tiatesting.core.util.StringUtil;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -1293,8 +1295,10 @@ public class TiaPlugin implements Plugin<Project> {
         List<StaticTestSelectionRule> compiledRules = new ArrayList<>(rawRules.size());
         for (GradleStaticTestSelectionRule raw : rawRules) {
             StaticTestSelectionRuleMode mode = parseStaticTestSelectionRuleMode(raw.getMode(), raw.getFilePathPattern());
+            // POM-aware rules are Maven-only: a Gradle build has no POMs to classify.
             compiledRules.add(new StaticTestSelectionRule(
-                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns()));
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(),
+                    Collections.<PomChangeCategory>emptySet()));
         }
         return new StaticTestSelectionConfig(compiledRules);
     }

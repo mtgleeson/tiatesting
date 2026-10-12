@@ -22,6 +22,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -302,7 +303,7 @@ class LibraryPublishStamperTest {
         // since that previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)));
 
         // when a publish is stamped with no tracked method change but a matching SQL file change
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -321,6 +322,75 @@ class LibraryPublishStamperTest {
     }
 
     /**
+     * A library's POM-aware rule is evaluated like a consumer's: it fires for a functional POM
+     * change since the previous publish, with the POM content read over that same diff.
+     */
+    @Test
+    void publishRecordsForcedSelectionForAFunctionalPomChange() {
+        // given a library POM whose external dependency was bumped since the previous publish
+        trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
+                new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))));
+        StubVCSReader reader = new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(),
+                Collections.emptyMap(), changedPathsAt("prev-commit", "libs/widget/pom.xml"))
+                .withFileContents(Collections.singletonMap("libs/widget/pom.xml",
+                        new FileContentPair(libraryPom("1.0", "org.lib", "lib", "2.0"),
+                                libraryPom("1.0", "org.lib", "lib", "2.1"))));
+
+        // when
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config);
+
+        // then
+        assertEquals(1, result.getForcedSelections().size());
+        assertEquals("pom-changes", result.getForcedSelections().get(0).getRuleName());
+        assertEquals("prev-commit", reader.fileContentsBase);
+    }
+
+    /**
+     * A library POM-aware rule records nothing for an inert POM change: a release version bump, or a
+     * bump of another tracked library (owned by the drain).
+     */
+    @Test
+    void publishRecordsNoForcedSelectionForAnInertPomChange() {
+        // given a library POM whose only changes are its own version and a tracked library's version
+        trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
+        String[] tracked = LIB.split(":");
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
+                new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))));
+        StubVCSReader reader = new StubVCSReader("head-2", Collections.<SourceFileDiffContext>emptySet(),
+                Collections.emptyMap(), changedPathsAt("prev-commit", "libs/widget/pom.xml"))
+                .withFileContents(Collections.singletonMap("libs/widget/pom.xml",
+                        new FileContentPair(libraryPom("1.0", tracked[0], tracked[1], "3.0"),
+                                libraryPom("1.1", tracked[0], tracked[1], "3.1"))));
+
+        // when
+        PublishStampResult result = stamper.stampPublish(dataStore, reader, LIB, "1.2.0", null, config);
+
+        // then
+        assertEquals(PublishStampResult.Outcome.STAMPED, result.getOutcome());
+        assertTrue(result.getForcedSelections().isEmpty());
+    }
+
+    /**
+     * A jar POM {@code org.acme:widget-app} with one dependency.
+     *
+     * @param version the project version.
+     * @param dependencyGroupId the dependency's groupId.
+     * @param dependencyArtifactId the dependency's artifactId.
+     * @param dependencyVersion the dependency's version.
+     * @return the POM text.
+     */
+    private static String libraryPom(String version, String dependencyGroupId, String dependencyArtifactId,
+                                     String dependencyVersion) {
+        return "<project><groupId>org.acme</groupId><artifactId>widget-app</artifactId><version>" + version
+                + "</version><dependencies><dependency><groupId>" + dependencyGroupId + "</groupId><artifactId>"
+                + dependencyArtifactId + "</artifactId><version>" + dependencyVersion
+                + "</version></dependency></dependencies></project>";
+    }
+
+    /**
      * A changed file that matches no configured rule records no forced selection - static rules only
      * add selections on an actual pattern match, they never force anything speculatively.
      */
@@ -329,7 +399,7 @@ class LibraryPublishStamperTest {
         // given the same setup but the changed file does not match the configured rule
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)));
 
         // when
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -355,7 +425,7 @@ class LibraryPublishStamperTest {
         // given a tracked library with a baseline and a previous publish
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)));
 
         // when publish A's diff since "prev-commit" has a matching SQL file
         PublishStampResult first = stamper.stampPublish(dataStore,
@@ -388,7 +458,7 @@ class LibraryPublishStamperTest {
         // given a tracked library "widget" and a rule matching any .sql file
         trackedLibraryWithBaseline(LIB_ABS_SRC_DIR, "baseline-1", "prev-commit");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null)));
+                new StaticTestSelectionRule("sql-run-all", "\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null)));
 
         // when the only changed file since the previous publish is under a sibling module "gadget"
         PublishStampResult result = stamper.stampPublish(dataStore,
@@ -497,6 +567,8 @@ class LibraryPublishStamperTest {
         private final Set<SourceFileDiffContext> defaultDiffs;
         private final Map<String, Set<SourceFileDiffContext>> diffsByBase;
         private final Map<String, Set<String>> changedFilePathsByBase;
+        private Map<String, FileContentPair> fileContents = Collections.emptyMap();
+        private String fileContentsBase;
 
         StubVCSReader(String headCommit, SourceFileDiffContext... diffs) {
             this(headCommit, new HashSet<>(Arrays.asList(diffs)), Collections.emptyMap(), Collections.emptyMap());
@@ -555,17 +627,33 @@ class LibraryPublishStamperTest {
         }
 
         /**
-         * Content-by-path loading is not exercised by these tests.
+         * Serve the before / after content of files by path, for POM-aware rules.
          *
-         * @param paths unused.
-         * @param baseChangeNum unused.
+         * @param contents the content by repo-relative path.
+         * @return this reader.
+         */
+        StubVCSReader withFileContents(Map<String, FileContentPair> contents) {
+            this.fileContents = contents;
+            return this;
+        }
+
+        /**
+         * Serve the configured content for the requested paths and record the diff baseline.
+         *
+         * @param paths the requested paths.
+         * @param baseChangeNum the diff baseline, recorded.
          * @param checkLocalChanges unused.
-         * @return never returns.
+         * @return the configured content of each requested path (absent paths have none).
          */
         @Override
         public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
                                                              final boolean checkLocalChanges) {
-            throw new UnsupportedOperationException("loadFileContents is not used by this test");
+            fileContentsBase = baseChangeNum;
+            Map<String, FileContentPair> loaded = new HashMap<>();
+            for (String path : paths) {
+                loaded.put(path, fileContents.containsKey(path) ? fileContents.get(path) : new FileContentPair(null, null));
+            }
+            return loaded;
         }
 
         @Override public void close() { }

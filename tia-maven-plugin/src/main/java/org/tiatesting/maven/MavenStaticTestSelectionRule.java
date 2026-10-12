@@ -19,7 +19,10 @@ public class MavenStaticTestSelectionRule {
     /** Optional human-readable rule name used in log output. */
     private String name;
 
-    /** Regex matched against the repo-relative path of each changed file. Required. */
+    /**
+     * Regex matched against the repo-relative path of each changed file. Required, except for a
+     * POM-aware rule ({@link #pomChanges} set), where it defaults to any {@code pom.xml}.
+     */
     private String filePathPattern;
 
     /**
@@ -34,6 +37,14 @@ public class MavenStaticTestSelectionRule {
      * modes.
      */
     private List<String> suiteNamePatterns;
+
+    /**
+     * Optional comma-separated POM change categories, e.g. {@code FUNCTIONAL} or
+     * {@code DEPENDENCY_VERSIONS,TEST_RUNNER}. When set the rule is POM-aware: it fires only when a
+     * matched POM's changes include one of these categories, and {@code filePathPattern} defaults
+     * to any {@code pom.xml}.
+     */
+    private String pomChanges;
 
     public String getName() {
         return name;
@@ -65,5 +76,19 @@ public class MavenStaticTestSelectionRule {
 
     public void setSuiteNamePatterns(final List<String> suiteNamePatterns) {
         this.suiteNamePatterns = suiteNamePatterns;
+    }
+
+    /**
+     * @return the raw comma-separated POM change categories, or {@code null} for a plain path rule.
+     */
+    public String getPomChanges() {
+        return pomChanges;
+    }
+
+    /**
+     * @param pomChanges the raw comma-separated POM change categories.
+     */
+    public void setPomChanges(final String pomChanges) {
+        this.pomChanges = pomChanges;
     }
 }
