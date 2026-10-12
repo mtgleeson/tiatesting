@@ -10,10 +10,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Resolves {@code ${...}} property references in POM values against the POM's own properties and
- * the {@code project.*} built-ins (groupId, artifactId and version, falling back to the parent's).
- * References to anything else (environment, settings, properties defined in other POMs) are left
- * as written, so two versions of a value compare by their raw text.
+ * Resolves {@code ${...}} property references in POM values against the properties inherited from
+ * in-repo parents, the POM's own properties, and the {@code project.*} built-ins (groupId,
+ * artifactId and version, falling back to the parent's). References to anything else
+ * (environment, settings, properties of parents outside the repository) are left as written, so
+ * two versions of a value compare by their raw text.
  */
 final class PomPropertyResolver {
 
@@ -34,14 +35,15 @@ final class PomPropertyResolver {
     }
 
     /**
-     * Build the resolver for the POM's top level: its {@code <properties>} plus the
-     * {@code project.*} built-ins.
+     * Build the resolver for the POM's top level: the properties inherited from in-repo parents,
+     * overridden by its own {@code <properties>}, plus the {@code project.*} built-ins.
      *
      * @param model the POM.
+     * @param inherited the properties inherited from in-repo parents, as written; may be empty.
      * @return the resolver.
      */
-    static PomPropertyResolver forProject(final PomModel model) {
-        return new PomPropertyResolver(projectValues(model));
+    static PomPropertyResolver forProject(final PomModel model, final Map<String, String> inherited) {
+        return new PomPropertyResolver(projectValues(model, inherited));
     }
 
     /**
@@ -50,23 +52,28 @@ final class PomPropertyResolver {
      *
      * @param model the POM.
      * @param profile the profile element; {@code null} gives the top-level resolver.
+     * @param inherited the properties inherited from in-repo parents, as written; may be empty.
      * @return the resolver.
      */
-    static PomPropertyResolver forProfile(final PomModel model, final Element profile) {
-        Map<String, String> values = projectValues(model);
+    static PomPropertyResolver forProfile(final PomModel model, final Element profile,
+                                          final Map<String, String> inherited) {
+        Map<String, String> values = projectValues(model, inherited);
         values.putAll(PomModel.properties(profile));
         return new PomPropertyResolver(values);
     }
 
     /**
-     * Collect the top-level property values and built-ins. Built-ins are added after the
-     * {@code <properties>} so a POM cannot shadow them, matching Maven.
+     * Collect the inherited and top-level property values and the built-ins. The POM's own
+     * properties override inherited ones, and built-ins are added last so a POM cannot shadow
+     * them, matching Maven.
      *
      * @param model the POM.
+     * @param inherited the properties inherited from in-repo parents, as written.
      * @return a mutable map of values by property name.
      */
-    private static Map<String, String> projectValues(final PomModel model) {
-        Map<String, String> values = new HashMap<>(PomModel.properties(model.getProject()));
+    private static Map<String, String> projectValues(final PomModel model, final Map<String, String> inherited) {
+        Map<String, String> values = new HashMap<>(inherited);
+        values.putAll(PomModel.properties(model.getProject()));
         putBuiltIn(values, "groupId", model.getGroupId() != null ? model.getGroupId() : model.getParentGroupId());
         putBuiltIn(values, "artifactId", model.getArtifactId());
         putBuiltIn(values, "version", model.getVersion() != null ? model.getVersion() : model.getParentVersion());
