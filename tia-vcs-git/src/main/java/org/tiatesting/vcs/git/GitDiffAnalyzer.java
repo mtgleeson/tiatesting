@@ -16,11 +16,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.ChangeType;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import static org.tiatesting.core.sourcefile.FileExtensions.GROOVY_FILE_EXT;
@@ -142,6 +144,101 @@ public class GitDiffAnalyzer {
         }
 
         return changedPaths;
+    }
+
+    /**
+     * Load the "before" and "after" content of the given repo-relative paths. For the commit
+     * range the "before" side is read from the tree at {@code commitFrom} and the "after" side
+     * from the tree at head; for local changes the "before" side is read at head and the "after"
+     * side from the working copy on disk. Each path is looked up directly in the commit tree
+     * (no full tree walk), so the cost scales with the number of paths requested.
+     *
+     * @param gitContext the Git context (repository + head).
+     * @param paths the repo-relative, forward-slash paths to load.
+     * @param commitFrom the commit the mapping is valid for (the commit-range "before"); ignored
+     *                   when {@code checkLocalChanges} is {@code true}.
+     * @param checkLocalChanges whether to compare head against the working copy.
+     * @return one entry per requested path; a side is {@code null} when the file does not exist there.
+     */
+    Map<String, FileContentPair> loadFileContents(final GitContext gitContext, final Set<String> paths,
+                                                  final String commitFrom, final boolean checkLocalChanges) {
+        Map<String, FileContentPair> contents = new HashMap<>();
+        if (paths.isEmpty()) {
+            return contents;
+        }
+
+        Repository repository = gitContext.getRepository();
+        Map<String, String> oldContent;
+        Map<String, String> newContent;
+        if (checkLocalChanges) {
+            oldContent = readContentAtCommit(repository, gitContext.getHeadObjectId(), paths);
+            newContent = readWorkingCopyContent(repository, paths);
+        } else {
+            ObjectId commitFromObjectId = getObjectId(gitContext, commitFrom);
+            if (commitFromObjectId == null) {
+                throw new VCSAnalyzerException("Couldn't resolve the commit " + commitFrom + " in the Git repository");
+            }
+            oldContent = readContentAtCommit(repository, commitFromObjectId, paths);
+            newContent = readContentAtCommit(repository, gitContext.getHeadObjectId(), paths);
+        }
+
+        for (String path : paths) {
+            contents.put(path, new FileContentPair(oldContent.get(path), newContent.get(path)));
+        }
+        return contents;
+    }
+
+    /**
+     * Read the UTF-8 content of each path that exists in the tree of the given commit. Paths
+     * missing from the tree (or naming a directory) are absent from the result.
+     *
+     * @param repository the Git repository.
+     * @param commitObjectId the commit whose tree is read.
+     * @param paths the repo-relative paths to read.
+     * @return content keyed by path, for the paths that exist as files at that commit.
+     */
+    private Map<String, String> readContentAtCommit(final Repository repository, final ObjectId commitObjectId,
+                                                    final Set<String> paths) {
+        Map<String, String> contentByPath = new HashMap<>();
+        try (RevWalk revWalk = new RevWalk(repository)) {
+            RevTree tree = revWalk.parseCommit(commitObjectId).getTree();
+            for (String path : paths) {
+                try (TreeWalk treeWalk = TreeWalk.forPath(repository, path, tree)) {
+                    if (treeWalk == null || treeWalk.isSubtree()) {
+                        continue;
+                    }
+                    ObjectLoader loader = repository.open(treeWalk.getObjectId(0));
+                    contentByPath.put(path, new String(loader.getBytes(), StandardCharsets.UTF_8));
+                }
+            }
+        } catch (IOException e) {
+            throw new VCSAnalyzerException(e);
+        }
+        return contentByPath;
+    }
+
+    /**
+     * Read the UTF-8 content of each path that exists as a file in the working copy.
+     *
+     * @param repository the Git repository whose working copy is read.
+     * @param paths the repo-relative paths to read.
+     * @return content keyed by path, for the paths that exist on disk.
+     */
+    private Map<String, String> readWorkingCopyContent(final Repository repository, final Set<String> paths) {
+        Map<String, String> contentByPath = new HashMap<>();
+        String projectPath = getProjectPath(repository);
+        for (String path : paths) {
+            File file = new File(buildLocalFilePath(path, projectPath));
+            if (!file.isFile()) {
+                continue;
+            }
+            try {
+                contentByPath.put(path, FileUtils.readFileToString(file, StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                throw new VCSAnalyzerException(e);
+            }
+        }
+        return contentByPath;
     }
 
     /**

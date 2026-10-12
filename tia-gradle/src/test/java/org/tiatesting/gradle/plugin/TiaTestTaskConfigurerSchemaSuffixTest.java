@@ -7,6 +7,7 @@ import org.gradle.api.tasks.testing.Test;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.io.TempDir;
 import org.tiatesting.core.persistence.DataStoreFactory;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
 import org.tiatesting.core.diff.SourceFileDiffContext;
@@ -310,6 +311,20 @@ class TiaTestTaskConfigurerSchemaSuffixTest {
         @Override
         public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
             throw new UnsupportedOperationException("the schema guard must not diff");
+        }
+
+        /**
+         * Content-by-path loading is not exercised by these tests.
+         *
+         * @param paths unused.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
         }
 
         /** No resource to release. */
