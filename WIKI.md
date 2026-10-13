@@ -61,8 +61,9 @@ wiki can also be read front to back.
 - [Static test selection](wiki/static-test-selection.md) - user-declared change-to-suite rules
   layered on top of dynamic selection.
 - [Matching a diff to tracked methods](wiki/method-diff-matching.md) - the line numbers stored for
-  a method, the original-side hunk lines they're compared with, and how the matched range is padded
-  and its begin widened over blank and comment lines, annotations and a multi-line signature.
+  a method, the original-side hunk lines they're compared with, how the matched range is padded
+  and its begin widened over blank and comment lines, annotations and a multi-line signature, and
+  how class header and field declaration changes impact every method of the class.
 - [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
   declared after other methods stretches a constructor's line range over them, and the exact line
   ranges Tia records and matches instead.

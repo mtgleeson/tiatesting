@@ -89,6 +89,54 @@ JaCoCo's first code line. Matching at diff time keeps the walk in the same file 
 line numbers, and keeps source reading off the coverage-collection path. The cost is a few line checks
 per tracked method of each changed file, on content already in memory.
 
+### Class-level declaration changes
+
+Some lines change a whole class rather than one method, and no method's line range covers them:
+
+- the **class header** - class annotations (`@Transactional`, `@RequestMapping("/v1")`, `@Profile`),
+  the declaration line, and a multi-line `extends`/`implements` clause;
+- **field declarations** - a field's annotations (`@Value("${timeout}")`, `@Qualifier`,
+  `@Column(length = 50)`) and, for a field with no initializer, its declaration line (type and
+  modifiers). A field with no initializer has no code, so no method covers it.
+
+`ClassDeclarationScanner` finds these lines in the original file and `MethodImpactAnalyzer`
+impacts **every tracked method of the class** when a hunk touches them. Each impacted method becomes
+its own source-method trigger, so these changes show up in the run history (and each method's
+"runs triggered" count) like any method change.
+
+The scanner is one pass over the file that tracks brace depth, skipping braces inside comments,
+string and character literals and text blocks, and keeps a stack of the enclosing classes. That lets
+it attribute a nested class's lines to it: the scanner keys classes by their nesting path in the file
+(`Outer$Inner`), which is the tracked method name's class part without the package. Local and
+anonymous classes aren't attributed. At class-body level each member runs from its first code line
+(annotations included, Javadoc excluded) to the `;` or `{` that ends it:
+
+| Member ends with | Example | Class-level lines |
+|------------------|---------|-------------------|
+| `{` after a `class`/`interface`/`enum`/`record`/`@interface`/`trait` declaration | `@Service public class Cars extends Base {` | all of it (the header) |
+| `;` with no initializer | `@Value("${limit}") private int limit;` | all of it |
+| `;` or `{` with an initializer, `static final` or in an interface | `static final int MAX = 5;` | all of it |
+| `;` or `{` with any other initializer | `@Inject private Clock clock = Clock.systemUTC();` | only the lines above the `=` line (its annotations) |
+| `{` with no initializer | a method, constructor or initializer block | none - matched to the method itself |
+| an enum constant list | `FAST, SLOW;` | all of it |
+
+An initializer compiles into the constructor or static initializer, whose line ranges already match
+it, so treating it as class-level too would select the whole class for every initializer edit. The
+exception is a constant: a `static final` field with a literal value (and every interface field, being
+implicitly `static final`) is inlined by the compiler and has no initializer code, so without this an
+edit to it would match nothing.
+
+A hunk that changes or removes original lines counts when it overlaps the class-level lines. A pure
+insertion (`-N,0`) counts only when line N is a class-level line and the inserted lines continue its
+declaration rather than add a member: they must hold code, and every code line must be a declaration
+line (an annotation or modifier - nothing ending with `;` or a brace). So an annotation added above a
+field or the class counts, while a new field or method added directly above an existing one doesn't:
+it can't change behaviour until something uses it, and that change is matched on its own. A comment
+added above a field holds no code and doesn't count either.
+
+The scan costs about 1.7 ms for a 5,000-line file, once per changed file that has tracked methods,
+on content already in memory.
+
 ### Over-selection
 
 The widening heuristics only ever widen, so their failure mode is selecting extra tests:
@@ -107,7 +155,15 @@ The widening heuristics only ever widen, so their failure mode is selecting extr
 
 ### Limitations
 
-- **Class-level annotations** apply to every method and aren't attributed to any one method.
+- **Class-level changes select the whole class.** Every tracked method of the class is impacted,
+  even when an annotation only matters to some of them. An abstract or interface method declaration
+  ends with `;`, so changing one impacts the class's tracked (default or concrete) methods.
+- **Groovy fields without a semicolon** run into the next member, so a field declared directly above a
+  method isn't recognised as class-level (and one with an initializer pulls the method's signature in).
+- **Constants used from other classes** are inlined into those classes too; only the declaring class's
+  methods are impacted.
+- **New members aren't class-level.** A new field or method only matters once something uses it, and
+  that change is matched on its own.
 - **Block comment lines without a leading `*`** stop the blank/comment walk, so code added above them
   isn't matched - the same as without the widening.
 - **Lambdas.** A lambda compiles to its own synthetic method whose lines sit inside its enclosing
