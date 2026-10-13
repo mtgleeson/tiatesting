@@ -178,7 +178,8 @@ public class MethodImpactAnalyzer {
      *   <li>Over the blank and comment-only lines directly above the padded begin, stopping at and
      *       including the first line with anything else on it - normally the signature line. A
      *       statement block opener with no code of its own (e.g. <code>try &#123;</code> at the top of the
-     *       body - see {@link #opensStatementBlock(String)}) is stepped over and the walk repeated.</li>
+     *       body) is stepped over and the walk repeated - see
+     *       {@link #stepOverStatementBlockOpeners(int, List)}.</li>
      *   <li>Unless that line ends the previous member (it ends with <code>;</code> or
      *       <code>&#125;</code>, as for a one-line method or a constructor whose first line is its
      *       signature), on over the lines directly above it that belong to the declaration - see
@@ -198,10 +199,8 @@ public class MethodImpactAnalyzer {
             return matchedLineBegin;
         }
 
-        int lineNumber = walkOverBlankAndCommentLines(matchedLineBegin, originalFileLines);
-        while (lineNumber > 1 && opensStatementBlock(originalFileLines.get(lineNumber - 1))) {
-            lineNumber = walkOverBlankAndCommentLines(lineNumber - 1, originalFileLines);
-        }
+        int lineNumber = stepOverStatementBlockOpeners(
+                walkOverBlankAndCommentLines(matchedLineBegin, originalFileLines), originalFileLines);
 
         if (endsStatementOrBlock(codeWithoutTrailingComment(originalFileLines.get(lineNumber - 1)))) {
             // the walk landed on the previous member's last line, not this method's signature
@@ -231,23 +230,52 @@ public class MethodImpactAnalyzer {
     }
 
     /**
-     * Whether a source line opens a statement block that can sit at the top of a method body with no
-     * code on its own line - {@code try}, {@code do}, or a {@code while}/{@code for} loop whose
-     * condition compiles to no instructions there (e.g. {@code while (true)}). JaCoCo's first code line
-     * is then inside the block, so the padded begin lands on the opener rather than the signature. A
-     * declaration line never starts with these keywords, so stepping over the line is always safe.
+     * Step upwards over statement block openers that sit at the top of a method body with no code on
+     * their own line (see {@link #opensStatementBlock(String)}), walking over the blank and comment
+     * lines above each. JaCoCo's first code line is then inside the block, so the walk lands on the
+     * opener rather than the signature. An opening brace on its own line (Allman style) is taken
+     * together with the line above it, so {@code try} followed by a lone brace is stepped over too,
+     * while a signature followed by a lone brace is not.
      *
-     * @param line the source line
-     * @return true when the line's code starts with one of the keywords and ends with an opening brace
+     * @param lineNumber the 1-based line the blank and comment walk stopped at
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @return the 1-based line above any openers, or {@code lineNumber} when it isn't one
      */
-    private static boolean opensStatementBlock(final String line){
-        return STATEMENT_BLOCK_OPENER_PATTERN.matcher(codeWithoutTrailingComment(line)).matches();
+    private static int stepOverStatementBlockOpeners(final int lineNumber, final List<String> originalFileLines){
+        int current = lineNumber;
+        while (current > 1) {
+            int openerLine = current;
+            String code = codeWithoutTrailingComment(originalFileLines.get(current - 1));
+            if (code.equals("{")) {
+                // Allman style: the opener's keyword sits on the line above its brace
+                openerLine = walkOverBlankAndCommentLines(current - 1, originalFileLines);
+                code = codeWithoutTrailingComment(originalFileLines.get(openerLine - 1)) + " {";
+            }
+            if (!opensStatementBlock(code)) {
+                break;
+            }
+            current = openerLine > 1 ? walkOverBlankAndCommentLines(openerLine - 1, originalFileLines) : 1;
+        }
+        return current;
+    }
+
+    /**
+     * Whether a line of code opens a statement block that can sit at the top of a method body with no
+     * code on its own line - {@code try}, {@code do}, or a {@code while}/{@code for} loop whose
+     * condition compiles to no instructions there (e.g. {@code while (true)}). A declaration line never
+     * starts with these keywords, so stepping over such a line never skips past a signature.
+     *
+     * @param code the trimmed code, without a trailing line comment
+     * @return true when the code starts with one of the keywords and ends with an opening brace
+     */
+    private static boolean opensStatementBlock(final String code){
+        return STATEMENT_BLOCK_OPENER_PATTERN.matcher(code).matches();
     }
 
     /**
      * Whether a source line holds nothing but whitespace or comment text. Recognises line comments,
      * the start of a block comment, block comment continuation lines ({@code *}) and a line closing a
-     * block comment. The markers are shared by Java, Kotlin, Groovy and Scala.
+     * block comment. The markers are shared by Java and Groovy, the languages Tia diffs.
      *
      * @param line the source line
      * @return true when the line is blank or comment-only

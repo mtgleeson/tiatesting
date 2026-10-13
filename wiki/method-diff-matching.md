@@ -4,7 +4,8 @@ Dynamic test selection turns a source diff into a set of impacted methods, then 
 whose coverage includes one of them. This chapter covers the first step: which line numbers Tia
 stores for a method, which line numbers it reads from the diff, and how the two are compared. The
 code is `MethodImpactAnalyzer`, called from `FileImpactAnalyzer.getMethodsForFilesChanged` for each
-changed source file.
+changed source file. Only `.java` and `.groovy` files are diffed (the VCS providers filter on those
+extensions), so the line heuristics below only need to handle Java and Groovy syntax.
 
 ### What is stored
 
@@ -68,12 +69,14 @@ Without widening, these edits wouldn't impact the method:
 
 The widening is two walks upwards from the padded begin:
 
-1. Over blank and comment-only lines (`//`, `/*`, `*` - shared by Java, Kotlin, Groovy and Scala),
+1. Over blank and comment-only lines (`//`, `/*`, `*` - shared by Java and Groovy),
    stopping at and including the first line with anything else on it - normally the signature.
    A statement block opener with no code on its own line - `try {`, `do {`, or a `while`/`for` loop
    such as `while (true) {` - is the exception: when the method body starts with one, JaCoCo's first
    code line is inside the block, so the walk lands on the opener. It is stepped over and the walk
-   repeated. No declaration line starts with those keywords, so this never skips past a signature.
+   repeated. With the brace on its own line (Allman style), the lone `{` is taken together with the
+   keyword line above it, so `try` then `{` is stepped over too, while a signature then `{` is not.
+   No declaration line starts with those keywords, so this never skips past a signature.
 2. Unless that line ends the previous member (it ends with `;` or `}`), on over the declaration
    lines directly above it: annotations, including multi-line ones, and earlier signature lines.
    It stops at a blank line, at a comment (so a Javadoc edit doesn't select the method), and at a
@@ -93,7 +96,7 @@ The widening heuristics only ever widen, so their failure mode is selecting extr
 - For a method whose first code line sits on its signature line (a one-line method, or a constructor
   whose implicit `super()` call is attributed to its signature), walk 1 starts above the method and
   can cross its Javadoc and blank lines to the previous member, so a Javadoc edit selects it.
-- In Kotlin and Groovy, where semicolons are optional, a property declared directly above a method
+- In Groovy, where semicolons are optional, a property declared directly above a method
   with no blank line between them is pulled into the method's range.
 - A `//` inside a string literal is treated as a comment start, which can only leave a line looking
   unterminated.
