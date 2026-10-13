@@ -96,30 +96,58 @@ A pure insertion hunk is written by java-diff-utils as `-N,0`, meaning the new l
 original line N, so it touches a range that contains either neighbour, N-1 or N. That is what makes
 a new field added directly after the last field still count as a constructor change.
 
-For a method matched by start-end, the begin line is also widened upwards over any blank and
-comment-only lines directly above it (`MethodImpactAnalyzer.widenStartOverBlankAndCommentLines`),
-stopping at and including the first line with anything else on it - normally the signature. JaCoCo
-(like any bytecode library, since it reads the `LineNumberTable`) records a method's first line as its
-first line with code, so with a blank line and a comment between the signature and the first
-statement, the one-line padding reaches only the comment:
+For a method matched by start-end, the begin line is also widened upwards to the top of the
+method's declaration (`MethodImpactAnalyzer.widenStartToDeclaration`). JaCoCo (like any bytecode
+library, since it reads the `LineNumberTable`) records a method's first line as its first line with
+code, and the one-line padding only reaches the line above it, so without widening these edits
+wouldn't impact the method:
 
 ```java
-    public void tidy() {           // line 5  <- widened begin
-                                   // line 6
-        // remove stale entries    // line 7
-        // before saving           // line 8  <- padded begin
-        clean();                   // line 9  <- first code line
+    /**
+     * Finds a car.                         // Javadoc - not widened over
+     */
+    @Transactional(readOnly = true)         // line 6  <- widened begin
+    public synchronized Car find(           // line 7
+            long id) {                      // line 8
+                                            // line 9
+        // look up the cache first          // line 10 <- padded begin
+        return cars.get(id);                // line 11 <- first code line
     }
 ```
 
-Without the widening, code added after line 5 or written over line 6 wouldn't impact `tidy`. The
-walk uses the original file content the diff is already built from, so it costs a few line checks per
-tracked method of each changed file. Comment markers (`//`, `/*`, `*`) are shared by Java, Kotlin,
-Groovy and Scala. It only widens, so the worst case is over-selection: for a method whose first code
-line sits on its signature line (a one-line method), the walk crosses the Javadoc above it to the
-previous member, so a Javadoc edit selects it. Methods with exact line ranges aren't widened, and the
-HTML "Lines matched for changes" value shows the padded range without it, as the report doesn't read
-the source.
+- an annotation change (`@Transactional`, `@Cacheable`, ...) on line 6,
+- a modifier change on line 7 (an earlier line of a multi-line signature),
+- code added after line 8 or written over line 9.
+
+The widening is two walks upwards over the original file content the diff is already built from:
+
+1. Over blank and comment-only lines (`//`, `/*`, `*` - shared by Java, Kotlin, Groovy and Scala),
+   stopping at and including the first line with anything else on it - normally the signature.
+2. Unless that line ends the previous member (it ends with `;` or `}`), on over the declaration
+   lines directly above it: annotations, including multi-line ones, and earlier signature lines.
+   It stops at a blank line, at a comment (so a Javadoc edit doesn't select the method), and at a
+   line ending with `;` or `}` (the previous member) or `{` (e.g. the class declaration). A trailing
+   `//` comment is ignored when checking a line's ending, and an annotation line ending with `{` (an
+   array argument such as `@SuppressWarnings({`) still counts as part of the declaration.
+
+Nothing is stored: the widened begin exists only while matching a diff, and `tia_source_method` keeps
+JaCoCo's first code line. The cost is a few line checks per tracked method of each changed file.
+
+The heuristics only ever widen, so their failure mode is over-selection:
+
+- For a method whose first code line sits on its signature line (a one-line method, or a constructor
+  whose implicit `super()` call is attributed to its signature), walk 1 starts above the method and
+  can cross its Javadoc and blank lines to the previous member, so a Javadoc edit selects it.
+- In Kotlin and Groovy, where semicolons are optional, a property declared directly above a method
+  with no blank line between them is pulled into the method's range.
+- A `//` inside a string literal is treated as a comment start, which can only leave a line looking
+  unterminated.
+- An implicit default constructor (placed on the class declaration line) or a class annotated on its
+  declaration line can pull the class annotations into the first member's range.
+
+Annotations on the class itself apply to every method and aren't attributed to any one method. Methods
+with exact line ranges aren't widened, and the HTML "Lines matched for changes" value shows the padded
+range without the widening, as the report doesn't read the source.
 
 With the example above:
 

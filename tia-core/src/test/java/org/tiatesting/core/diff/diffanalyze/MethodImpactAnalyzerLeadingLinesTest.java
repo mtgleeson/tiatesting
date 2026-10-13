@@ -15,9 +15,10 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Verifies that {@link MethodImpactAnalyzer} matches changes made to the blank and comment lines
- * between a method's signature and its first code line. JaCoCo records a method's first line as its
- * first line with code, so those lines sit above the stored range.
+ * Verifies that {@link MethodImpactAnalyzer} matches changes made above a method's first code line:
+ * to the blank and comment lines between the signature and the first code line, to the earlier lines
+ * of a multi-line signature, and to the method's annotations. JaCoCo records a method's first line as
+ * its first line with code, so those lines sit above the stored range.
  */
 class MethodImpactAnalyzerLeadingLinesTest {
 
@@ -41,6 +42,35 @@ class MethodImpactAnalyzerLeadingLinesTest {
             "        persist();",                   // 13
             "    }",                                // 14
             "}");                                   // 15
+
+    private static final List<String> REPOSITORY = Arrays.asList(
+            "public class CarRepository {",           // 1
+            "",                                       // 2
+            "    /**",                                // 3
+            "     * Finds a car.",                    // 4
+            "     */",                                // 5
+            "    @Transactional(readOnly = true)",    // 6
+            "    @SuppressWarnings({",                // 7
+            "            \"unchecked\",",             // 8
+            "            \"rawtypes\"})",             // 9
+            "    public Car find(",                   // 10
+            "            long id,",                   // 11
+            "            boolean fresh) {",           // 12
+            "        return cars.get(id);",           // 13
+            "    }",                                  // 14
+            "",                                       // 15
+            "    /**",                                // 16
+            "     * Audits the cars.",                // 17
+            "     */",                                // 18
+            "    public void audit() {",              // 19
+            "        log(cars);",                     // 20
+            "    }",                                  // 21
+            "}");                                     // 22
+
+    private static final MethodImpactTracker FIND = new MethodImpactTracker(
+            "com/example/CarRepository.find.(JZ)Lcom/example/Car;", 13, 13);
+    private static final MethodImpactTracker AUDIT = new MethodImpactTracker(
+            "com/example/CarRepository.audit.()V", 20, 21);
 
     private static final MethodImpactTracker TIDY = new MethodImpactTracker(
             "com/example/Widget.tidy.()V", 9, 10);
@@ -104,7 +134,7 @@ class MethodImpactAnalyzerLeadingLinesTest {
         int paddedBegin = 12;
 
         // when
-        int widenedBegin = MethodImpactAnalyzer.widenStartOverBlankAndCommentLines(paddedBegin, WIDGET);
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(paddedBegin, WIDGET);
 
         // then
         assertEquals(12, widenedBegin);
@@ -125,7 +155,7 @@ class MethodImpactAnalyzerLeadingLinesTest {
                 "        clean();");                // 5
 
         // when
-        int widenedBegin = MethodImpactAnalyzer.widenStartOverBlankAndCommentLines(4, lines);
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(4, lines);
 
         // then
         assertEquals(1, widenedBegin);
@@ -140,10 +170,184 @@ class MethodImpactAnalyzerLeadingLinesTest {
         int paddedBegin = WIDGET.size() + 5;
 
         // when
-        int widenedBegin = MethodImpactAnalyzer.widenStartOverBlankAndCommentLines(paddedBegin, WIDGET);
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(paddedBegin, WIDGET);
 
         // then
         assertEquals(paddedBegin, widenedBegin);
+    }
+
+    /**
+     * Editing a single-line annotation above the signature impacts the method.
+     */
+    @Test
+    void annotationEditImpactsTheMethod() {
+        // given
+        List<String> revised = replaceLine(REPOSITORY, 6, "    @Transactional(readOnly = false)");
+
+        // when
+        Set<Integer> impacted = analyze(REPOSITORY, revised, FIND, AUDIT);
+
+        // then
+        assertEquals(idsOf(FIND), impacted);
+    }
+
+    /**
+     * Adding an annotation above an un-annotated method's signature impacts the method.
+     */
+    @Test
+    void annotationAddedImpactsTheMethod() {
+        // given
+        List<String> revised = insertLineAfter(REPOSITORY, 18, "    @Async");
+
+        // when
+        Set<Integer> impacted = analyze(REPOSITORY, revised, FIND, AUDIT);
+
+        // then
+        assertEquals(idsOf(AUDIT), impacted);
+    }
+
+    /**
+     * Editing a line of a multi-line annotation impacts the method.
+     */
+    @Test
+    void multiLineAnnotationEditImpactsTheMethod() {
+        // given
+        List<String> revised = replaceLine(REPOSITORY, 8, "            \"unchecked\", \"deprecation\",");
+
+        // when
+        Set<Integer> impacted = analyze(REPOSITORY, revised, FIND, AUDIT);
+
+        // then
+        assertEquals(idsOf(FIND), impacted);
+    }
+
+    /**
+     * Changing a modifier on the first line of a multi-line signature impacts the method.
+     */
+    @Test
+    void multiLineSignatureModifierEditImpactsTheMethod() {
+        // given
+        List<String> revised = replaceLine(REPOSITORY, 10, "    public synchronized Car find(");
+
+        // when
+        Set<Integer> impacted = analyze(REPOSITORY, revised, FIND, AUDIT);
+
+        // then
+        assertEquals(idsOf(FIND), impacted);
+    }
+
+    /**
+     * The declaration walk stops at the method's Javadoc, so a Javadoc edit doesn't impact it.
+     */
+    @Test
+    void javadocEditDoesNotImpactTheMethod() {
+        // given
+        List<String> revised = replaceLine(REPOSITORY, 4, "     * Finds a car by its id.");
+
+        // when
+        Set<Integer> impacted = analyze(REPOSITORY, revised, FIND, AUDIT);
+
+        // then
+        assertEquals(Collections.emptySet(), impacted);
+    }
+
+    /**
+     * The declaration walks over every annotation and signature line up to the Javadoc, including the
+     * first line of an annotation's array argument.
+     */
+    @Test
+    void declarationWalkReachesTheFirstAnnotation() {
+        // given
+        int paddedBegin = 12;
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(paddedBegin, REPOSITORY);
+
+        // then
+        assertEquals(6, widenedBegin);
+    }
+
+    /**
+     * A field directly above the method, with no blank line between them, ends the declaration walk
+     * even when it carries a trailing comment.
+     */
+    @Test
+    void declarationWalkStopsAtPreviousMember() {
+        // given
+        List<String> lines = Arrays.asList(
+                "    private int hits = 0; // hit count",   // 1
+                "    @Override",                           // 2
+                "    public void tidy() {",                // 3
+                "        clean();");                       // 4
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(3, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
+     * When the blank-line walk lands on the previous member's last line - here a field above a
+     * one-line method, whose first code line is its signature - the declaration walk doesn't continue
+     * into that member's annotations.
+     */
+    @Test
+    void declarationWalkDoesNotEnterThePreviousMember() {
+        // given
+        List<String> lines = Arrays.asList(
+                "    @Column",                             // 1
+                "    private int hits;",                   // 2
+                "",                                        // 3
+                "    int size() { return hits; }");        // 4
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(3, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
+     * With the opening brace on its own line, the walk continues over the signature and annotation
+     * lines above it.
+     */
+    @Test
+    void declarationWalkCrossesAnOwnLineBrace() {
+        // given
+        List<String> lines = Arrays.asList(
+                "",                                        // 1
+                "    @Override",                           // 2
+                "    public void tidy()",                  // 3
+                "    {",                                   // 4
+                "",                                        // 5
+                "        clean();");                       // 6
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(5, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
+     * The class declaration line opens a block, so the walk stops below it for the first member.
+     */
+    @Test
+    void declarationWalkStopsAtTheClassDeclaration() {
+        // given
+        List<String> lines = Arrays.asList(
+                "@Entity",                                 // 1
+                "public class Widget {",                   // 2
+                "    @Override",                           // 3
+                "    public void tidy() {",                // 4
+                "        clean();");                       // 5
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(4, lines);
+
+        // then
+        assertEquals(3, widenedBegin);
     }
 
     /**
