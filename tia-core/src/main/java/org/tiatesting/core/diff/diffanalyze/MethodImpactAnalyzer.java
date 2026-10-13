@@ -11,6 +11,8 @@ import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.sourcefile.SourceFilenameUtil;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +28,8 @@ public class MethodImpactAnalyzer {
     private static final Pattern UNIFIED_DIFF_HUNK_PATTERN = Pattern.compile("^@@ \\-(\\d+),(\\d+) \\+(\\d+),(\\d+) @@$");
     private static final int HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX = 1;
     private static final int HUNK_DIFF_ORIG_LINE_START_COUNT_GROUP_INDEX = 2;
+    private static final int HUNK_DIFF_REVISED_LINE_START_GROUP_INDEX = 3;
+    private static final int HUNK_DIFF_REVISED_LINE_COUNT_GROUP_INDEX = 4;
     private static final Pattern STATEMENT_BLOCK_OPENER_PATTERN = Pattern.compile("^(try|do|while|for)\\b.*\\{$");
 
     /**
@@ -68,6 +72,9 @@ public class MethodImpactAnalyzer {
                     getMethodsTrackedForSourceFile(methodsTrackedByFile, originalFileName, sourceFilesDirs);
 
             if (methodsTrackedForSourceFile != null && !methodsTrackedForSourceFile.isEmpty()){
+                Map<String, Set<Integer>> methodIdsByClass = groupMethodIdsByClassPath(methodsTrackedForSourceFile);
+                Map<String, int[]> declarationLinesByClass = ClassDeclarationScanner.scan(originalFileLines);
+
                 unifiedDiff.forEach( patchDiff -> {
 
                     DiffContext diffContext = new DiffContext();
@@ -76,6 +83,8 @@ public class MethodImpactAnalyzer {
                     if (diffContext.isUnifiedDiff()){
                         findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, originalFileLines,
                                 methodsInvokedByChanges);
+                        findTrackedClassesForDeclarationDiff(diffContext, declarationLinesByClass, methodIdsByClass,
+                                newFileLines, methodsInvokedByChanges);
                     }
                 });
             }
@@ -169,6 +178,123 @@ public class MethodImpactAnalyzer {
     }
 
     /**
+     * Group a file's tracked method ids by the class they belong to, keyed by the class's nesting path
+     * within the file - its internal name without the package, e.g. {@code Outer} or
+     * {@code Outer$Inner} for {@code com/example/Outer$Inner.method.()V}. This is the key
+     * {@link ClassDeclarationScanner#scan(List)} uses.
+     *
+     * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
+     * @return the method ids per class nesting path
+     */
+    private static Map<String, Set<Integer>> groupMethodIdsByClassPath(
+            final Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile){
+        Map<String, Set<Integer>> methodIdsByClass = new HashMap<>();
+        for (Map.Entry<Integer, MethodImpactTracker> trackedMethod : methodsTrackedForSourceFile.entrySet()) {
+            String methodName = trackedMethod.getValue().getMethodName();
+            int classEnd = methodName.indexOf('.');
+            String className = classEnd < 0 ? methodName : methodName.substring(0, classEnd);
+            String classPath = className.substring(className.lastIndexOf('/') + 1);
+            methodIdsByClass.computeIfAbsent(classPath, key -> new HashSet<>()).add(trackedMethod.getKey());
+        }
+        return methodIdsByClass;
+    }
+
+    /**
+     * Impact every tracked method of a class when a diff hunk touches the class's class-level
+     * declaration lines - its header (annotations, declaration, {@code extends}/{@code implements}) or
+     * a field declaration with its annotations (see {@link ClassDeclarationScanner}). Those lines change
+     * the behaviour of the class as a whole, and no method's line range covers them. Each impacted
+     * method becomes its own source-method trigger downstream.
+     *
+     * @param diffContext the parsed diff hunk
+     * @param declarationLinesByClass the class-level lines per class nesting path, from the original file
+     * @param methodIdsByClass the tracked method ids per class nesting path
+     * @param newFileLines the revised file content, line 1 at index 0, for reading inserted lines
+     * @param methodsInvokedByChanges accumulator for the ids of methods the diff impacts
+     */
+    private void findTrackedClassesForDeclarationDiff(final DiffContext diffContext,
+                                                      final Map<String, int[]> declarationLinesByClass,
+                                                      final Map<String, Set<Integer>> methodIdsByClass,
+                                                      final List<String> newFileLines,
+                                                      final Set<Integer> methodsInvokedByChanges){
+        for (Map.Entry<String, Set<Integer>> trackedClass : methodIdsByClass.entrySet()) {
+            int[] declarationLines = declarationLinesByClass.get(trackedClass.getKey());
+            if (declarationLines != null && diffTouchesDeclarationLines(diffContext, declarationLines, newFileLines)) {
+                methodsInvokedByChanges.addAll(trackedClass.getValue());
+                log.debug("Class-level declaration change in {}, diff line begin: {}, diff line end: {}, impacting its {} tracked methods",
+                        trackedClass.getKey(), diffContext.getImpactedLineNumBegin(),
+                        diffContext.getImpactedLineNumEnd(), trackedClass.getValue().size());
+            }
+        }
+    }
+
+    /**
+     * Check whether a diff hunk changes a class's class-level declaration lines. A hunk that changes
+     * or removes original lines counts when it overlaps them. A pure insertion ({@code -N,0}, new
+     * lines before original line N) counts only when line N is a declaration line and the inserted
+     * lines continue that declaration - e.g. an annotation added above a field or the class - rather
+     * than adding a new member: they hold code, and every code line is a declaration line (see
+     * {@link #isDeclarationLine(String)}), so a new field or method, which ends with <code>;</code>
+     * or a brace, doesn't count.
+     *
+     * @param diffContext the parsed diff hunk
+     * @param declarationLines the class's class-level lines as flat inclusive {@code [start, end, ...]} pairs
+     * @param newFileLines the revised file content, line 1 at index 0
+     * @return true when the hunk changes the class's declaration
+     */
+    private boolean diffTouchesDeclarationLines(final DiffContext diffContext, final int[] declarationLines,
+                                                final List<String> newFileLines){
+        if (diffContext.isInsertion()) {
+            int insertedBefore = diffContext.getImpactedLineNumBegin();
+            return rangesTouch(declarationLines, insertedBefore, insertedBefore)
+                    && insertionContinuesDeclaration(diffContext, newFileLines);
+        }
+        return rangesTouch(declarationLines, diffContext.getImpactedLineNumBegin(), diffContext.getImpactedLineNumEnd());
+    }
+
+    /**
+     * Whether a pure insertion's new lines only continue the declaration below them: at least one code
+     * line, and every code line a declaration line (an annotation, modifier or signature part).
+     *
+     * @param diffContext the parsed insertion hunk, carrying the revised-side line range
+     * @param newFileLines the revised file content, line 1 at index 0
+     * @return true when the inserted lines continue a declaration rather than add a member
+     */
+    private static boolean insertionContinuesDeclaration(final DiffContext diffContext, final List<String> newFileLines){
+        int first = diffContext.getRevisedLineBegin();
+        int last = Math.min(first + diffContext.getRevisedLineCount() - 1, newFileLines.size());
+        boolean hasCode = false;
+        for (int lineNumber = Math.max(first, 1); lineNumber <= last; lineNumber++) {
+            String line = newFileLines.get(lineNumber - 1);
+            if (isBlankOrCommentLine(line)) {
+                continue;
+            }
+            if (!isDeclarationLine(line)) {
+                return false;
+            }
+            hasCode = true;
+        }
+        return hasCode;
+    }
+
+    /**
+     * Whether an inclusive line range overlaps any of a set of ranges.
+     *
+     * @param lineRanges flat inclusive {@code [start, end, ...]} pairs
+     * @param begin the 1-based first line
+     * @param end the 1-based last line
+     * @return true when the range overlaps at least one pair
+     */
+    private static boolean rangesTouch(final int[] lineRanges, final int begin, final int end){
+        for (int i = 0; i < lineRanges.length; i += 2) {
+            if (begin <= lineRanges[i + 1] && end >= lineRanges[i]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Widen a method's matched begin line upwards to the top of the method's declaration. JaCoCo's
      * first line for a method is its first line with code, not its signature, and the one-line padding
      * only reaches the line above that. Without widening, code added below the signature above blank or
@@ -178,7 +304,8 @@ public class MethodImpactAnalyzer {
      *   <li>Over the blank and comment-only lines directly above the padded begin, stopping at and
      *       including the first line with anything else on it - normally the signature line. A
      *       statement block opener with no code of its own (e.g. <code>try &#123;</code> at the top of the
-     *       body - see {@link #opensStatementBlock(String)}) is stepped over and the walk repeated.</li>
+     *       body) is stepped over and the walk repeated - see
+     *       {@link #stepOverStatementBlockOpeners(int, List)}.</li>
      *   <li>Unless that line ends the previous member (it ends with <code>;</code> or
      *       <code>&#125;</code>, as for a one-line method or a constructor whose first line is its
      *       signature), on over the lines directly above it that belong to the declaration - see
@@ -198,10 +325,8 @@ public class MethodImpactAnalyzer {
             return matchedLineBegin;
         }
 
-        int lineNumber = walkOverBlankAndCommentLines(matchedLineBegin, originalFileLines);
-        while (lineNumber > 1 && opensStatementBlock(originalFileLines.get(lineNumber - 1))) {
-            lineNumber = walkOverBlankAndCommentLines(lineNumber - 1, originalFileLines);
-        }
+        int lineNumber = stepOverStatementBlockOpeners(
+                walkOverBlankAndCommentLines(matchedLineBegin, originalFileLines), originalFileLines);
 
         if (endsStatementOrBlock(codeWithoutTrailingComment(originalFileLines.get(lineNumber - 1)))) {
             // the walk landed on the previous member's last line, not this method's signature
@@ -231,23 +356,52 @@ public class MethodImpactAnalyzer {
     }
 
     /**
-     * Whether a source line opens a statement block that can sit at the top of a method body with no
-     * code on its own line - {@code try}, {@code do}, or a {@code while}/{@code for} loop whose
-     * condition compiles to no instructions there (e.g. {@code while (true)}). JaCoCo's first code line
-     * is then inside the block, so the padded begin lands on the opener rather than the signature. A
-     * declaration line never starts with these keywords, so stepping over the line is always safe.
+     * Step upwards over statement block openers that sit at the top of a method body with no code on
+     * their own line (see {@link #opensStatementBlock(String)}), walking over the blank and comment
+     * lines above each. JaCoCo's first code line is then inside the block, so the walk lands on the
+     * opener rather than the signature. An opening brace on its own line (Allman style) is taken
+     * together with the line above it, so {@code try} followed by a lone brace is stepped over too,
+     * while a signature followed by a lone brace is not.
      *
-     * @param line the source line
-     * @return true when the line's code starts with one of the keywords and ends with an opening brace
+     * @param lineNumber the 1-based line the blank and comment walk stopped at
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @return the 1-based line above any openers, or {@code lineNumber} when it isn't one
      */
-    private static boolean opensStatementBlock(final String line){
-        return STATEMENT_BLOCK_OPENER_PATTERN.matcher(codeWithoutTrailingComment(line)).matches();
+    private static int stepOverStatementBlockOpeners(final int lineNumber, final List<String> originalFileLines){
+        int current = lineNumber;
+        while (current > 1) {
+            int openerLine = current;
+            String code = codeWithoutTrailingComment(originalFileLines.get(current - 1));
+            if (code.equals("{")) {
+                // Allman style: the opener's keyword sits on the line above its brace
+                openerLine = walkOverBlankAndCommentLines(current - 1, originalFileLines);
+                code = codeWithoutTrailingComment(originalFileLines.get(openerLine - 1)) + " {";
+            }
+            if (!opensStatementBlock(code)) {
+                break;
+            }
+            current = openerLine > 1 ? walkOverBlankAndCommentLines(openerLine - 1, originalFileLines) : 1;
+        }
+        return current;
+    }
+
+    /**
+     * Whether a line of code opens a statement block that can sit at the top of a method body with no
+     * code on its own line - {@code try}, {@code do}, or a {@code while}/{@code for} loop whose
+     * condition compiles to no instructions there (e.g. {@code while (true)}). A declaration line never
+     * starts with these keywords, so stepping over such a line never skips past a signature.
+     *
+     * @param code the trimmed code, without a trailing line comment
+     * @return true when the code starts with one of the keywords and ends with an opening brace
+     */
+    private static boolean opensStatementBlock(final String code){
+        return STATEMENT_BLOCK_OPENER_PATTERN.matcher(code).matches();
     }
 
     /**
      * Whether a source line holds nothing but whitespace or comment text. Recognises line comments,
      * the start of a block comment, block comment continuation lines ({@code *}) and a line closing a
-     * block comment. The markers are shared by Java, Kotlin, Groovy and Scala.
+     * block comment. The markers are shared by Java and Groovy, the languages Tia diffs.
      *
      * @param line the source line
      * @return true when the line is blank or comment-only
@@ -319,12 +473,7 @@ public class MethodImpactAnalyzer {
     private boolean diffTouchesLineRanges(final DiffContext diffContext, final int[] lineRanges){
         int diffLineEnd = diffContext.getImpactedLineNumEnd();
         int diffLineBegin = diffContext.isInsertion() ? diffLineEnd - 1 : diffContext.getImpactedLineNumBegin();
-        for (int i = 0; i < lineRanges.length; i += 2) {
-            if (diffLineBegin <= lineRanges[i + 1] && diffLineEnd >= lineRanges[i]) {
-                return true;
-            }
-        }
-        return false;
+        return rangesTouch(lineRanges, diffLineBegin, diffLineEnd);
     }
 
     /**
@@ -351,6 +500,8 @@ public class MethodImpactAnalyzer {
 
             sourceFileDiffContext.setImpactedLineNumBegin(revisionLineBegin);
             sourceFileDiffContext.setImpactedLineNumEnd(revisionLineBegin + (revisionLineCount - 1));
+            sourceFileDiffContext.setRevisedLineBegin(Integer.parseInt(matcher.group(HUNK_DIFF_REVISED_LINE_START_GROUP_INDEX)));
+            sourceFileDiffContext.setRevisedLineCount(Integer.parseInt(matcher.group(HUNK_DIFF_REVISED_LINE_COUNT_GROUP_INDEX)));
 
             log.debug("getImpactedLineNumBegin: " + sourceFileDiffContext.getImpactedLineNumBegin() + " getImpactedLineNumEnd: " + sourceFileDiffContext.getImpactedLineNumEnd());
         }
@@ -361,6 +512,45 @@ public class MethodImpactAnalyzer {
         boolean insertion;
         int impactedLineNumBegin;
         int impactedLineNumEnd;
+        int revisedLineBegin;
+        int revisedLineCount;
+
+        /**
+         * The first line of the hunk in the revised file ({@code +M} in {@code +M,K}).
+         *
+         * @return the 1-based first revised line
+         */
+        public int getRevisedLineBegin() {
+            return revisedLineBegin;
+        }
+
+        /**
+         * Record the first line of the hunk in the revised file.
+         *
+         * @param revisedLineBegin the 1-based first revised line
+         */
+        public void setRevisedLineBegin(int revisedLineBegin) {
+            this.revisedLineBegin = revisedLineBegin;
+        }
+
+        /**
+         * The number of revised-file lines in the hunk ({@code K} in {@code +M,K}); zero for a pure
+         * deletion.
+         *
+         * @return the revised line count
+         */
+        public int getRevisedLineCount() {
+            return revisedLineCount;
+        }
+
+        /**
+         * Record the number of revised-file lines in the hunk.
+         *
+         * @param revisedLineCount the revised line count
+         */
+        public void setRevisedLineCount(int revisedLineCount) {
+            this.revisedLineCount = revisedLineCount;
+        }
 
         /**
          * Whether the hunk is a pure insertion ({@code -N,0}), i.e. it adds lines before original
