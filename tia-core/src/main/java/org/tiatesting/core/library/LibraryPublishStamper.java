@@ -300,7 +300,7 @@ public class LibraryPublishStamper {
         }
 
         PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, previousPublishCommit, false,
-                new PomChangeClassifier(trackedLibraries));
+                new PomChangeClassifier(trackedLibraries), staticConfig.getExternalPomSource());
         List<PendingLibraryForcedSelection> forced = new ArrayList<>();
         for (FiredStaticRule fired : new StaticTestSelectionResolver(staticConfig).evaluateRules(changedPaths, pomAnalyzer)) {
             StaticTestSelectionRule rule = fired.getRule();

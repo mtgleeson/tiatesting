@@ -33,7 +33,7 @@ class StaticTestSelectionConfigTest {
     void nullRulesListBehavesAsEmpty() {
         // given
         // when
-        StaticTestSelectionConfig config = new StaticTestSelectionConfig(null);
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(null, null);
 
         // then
         assertFalse(config.isEnabled());
@@ -44,7 +44,7 @@ class StaticTestSelectionConfigTest {
     void emptyRulesListBehavesAsDisabled() {
         // given
         // when
-        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.emptyList());
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.emptyList(), null);
 
         // then
         assertFalse(config.isEnabled());
@@ -57,7 +57,7 @@ class StaticTestSelectionConfigTest {
                 "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null);
 
         // when
-        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(rule));
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(rule), null);
 
         // then
         assertTrue(config.isEnabled());
@@ -71,7 +71,7 @@ class StaticTestSelectionConfigTest {
         StaticTestSelectionRule rule = new StaticTestSelectionRule(
                 "sql-migration", ".*\\.sql$", StaticTestSelectionRuleMode.RUN_ALL, null, null);
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(
-                new java.util.ArrayList<>(Collections.singletonList(rule)));
+                new java.util.ArrayList<>(Collections.singletonList(rule)), null);
 
         // when
         List<StaticTestSelectionRule> rules = config.getRules();
@@ -90,7 +90,7 @@ class StaticTestSelectionConfigTest {
                 Collections.singletonList(".*IT$"), null);
 
         // when
-        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Arrays.asList(first, second));
+        StaticTestSelectionConfig config = new StaticTestSelectionConfig(Arrays.asList(first, second), null);
 
         // then
         assertEquals(2, config.getRules().size());

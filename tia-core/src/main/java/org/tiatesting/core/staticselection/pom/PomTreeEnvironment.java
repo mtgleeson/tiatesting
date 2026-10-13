@@ -156,6 +156,47 @@ final class PomTreeEnvironment implements PomEnvironment {
     }
 
     /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String externalPom(final String groupId, final String artifactId, final String version) {
+        return tree.getExternalPoms().readPom(groupId, artifactId, version);
+    }
+
+    /**
+     * The external parent's "children" are this POM and its in-repo child modules: a parent
+     * property either uses is inert, and the effect on the children is this POM's
+     * {@link #childChanges()} (each child classified with this POM, and so its external parent
+     * version, switched old to new). This POM's own uses are classified by this POM's diff, since
+     * its inherited properties include the external parents'.
+     *
+     * @param oldParentPom the parent POM text at the old version.
+     * @param newParentPom the parent POM text at the new version.
+     * @return the parent's environment.
+     */
+    @Override
+    public PomEnvironment externalParentEnvironment(final String oldParentPom, final String newParentPom) {
+        return new ExternalPomEnvironment(tree.getExternalPoms(), oldParentPom, newParentPom, 1, () -> {
+            Set<String> references = new HashSet<>(childPropertyReferences());
+            for (boolean newSide : new boolean[]{false, true}) {
+                PomModel model = tree.model(path, (newSide ? newSides : oldSides).test(path));
+                if (model != null) {
+                    references.addAll(model.getPropertyReferences());
+                }
+            }
+            return references;
+        }, this::childChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public PomEnvironment importedBomEnvironment(final String oldBomPom, final String newBomPom) {
+        return ExternalPomEnvironment.forImportedBom(tree.getExternalPoms(), oldBomPom, newBomPom, 1);
+    }
+
+    /**
      * @return the POM's in-repo child modules, read on first use.
      */
     private Set<String> children() {

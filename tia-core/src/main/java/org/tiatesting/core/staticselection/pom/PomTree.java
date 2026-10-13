@@ -50,6 +50,7 @@ final class PomTree {
     private final Map<String, PomModel> oldModels = new HashMap<>();
     private final Map<String, PomModel> newModels = new HashMap<>();
     private final Map<String, Set<String>> reactorsByRoot = new HashMap<>();
+    private final ExternalPoms externalPoms;
 
     /**
      * Construct a tree over one diff.
@@ -57,11 +58,22 @@ final class PomTree {
      * @param vcsReader the VCS reader POM content is read from.
      * @param baseChangeNum the "before" commit of the diff.
      * @param checkLocalChanges whether the diff is head against the working copy.
+     * @param externalPomSource reads POMs outside the repository (external parents, imported
+     *                          BOMs); {@code null} when they are not available.
      */
-    PomTree(final VCSReader vcsReader, final String baseChangeNum, final boolean checkLocalChanges) {
+    PomTree(final VCSReader vcsReader, final String baseChangeNum, final boolean checkLocalChanges,
+            final ExternalPomSource externalPomSource) {
         this.vcsReader = vcsReader;
         this.baseChangeNum = baseChangeNum;
         this.checkLocalChanges = checkLocalChanges;
+        this.externalPoms = new ExternalPoms(externalPomSource);
+    }
+
+    /**
+     * @return the reader for POMs outside the repository.
+     */
+    ExternalPoms getExternalPoms() {
+        return externalPoms;
     }
 
     /**
@@ -215,11 +227,13 @@ final class PomTree {
     }
 
     /**
-     * The properties a POM inherits from its in-repo ancestors, as written, nearest ancestor winning.
+     * The properties a POM inherits from its ancestors, as written, nearest ancestor winning: its
+     * in-repo parents, then the external parents above the top-most in-repo one, when they can be
+     * read.
      *
      * @param path the POM path.
      * @param sides which side of the diff to read each POM on.
-     * @return the inherited properties; empty when the POM has no in-repo parent.
+     * @return the inherited properties; empty when no parent can be read.
      */
     Map<String, String> inheritedProperties(final String path, final Predicate<String> sides) {
         return inheritedProperties(path, sides, 0);
@@ -237,7 +251,7 @@ final class PomTree {
                                                     final int depth) {
         String parent = parentPath(path, sides, depth);
         if (parent == null) {
-            return Collections.emptyMap();
+            return externalPoms.inheritedProperties(model(path, sides.test(path)), 0);
         }
         Map<String, String> properties = new HashMap<>(inheritedProperties(parent, sides, depth + 1));
         properties.putAll(PomModel.properties(model(parent, sides.test(parent)).getProject()));

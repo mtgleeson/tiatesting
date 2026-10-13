@@ -68,7 +68,7 @@ class PomTreeTest {
                 .unchanged("module-b/pom.xml", project("com.acme", "b", "1.0",
                         parent("org.springframework.boot", "spring-boot-starter-parent", "3.2.0")))
                 .unchanged("module-c/pom.xml", project(null, "c", null, parent("com.acme", "root", "0.9")));
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         String parentOfA = tree.parentPath("module-a/pom.xml", NEW);
@@ -87,7 +87,7 @@ class PomTreeTest {
         InMemoryPomRepository repository = new InMemoryPomRepository()
                 .unchanged("pom.xml", project("com.acme", "root", "1.0"))
                 .unchanged("app/pom.xml", project(null, "app", null, parent("com.acme", "root", "1.0", "")));
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         String parent = tree.parentPath("app/pom.xml", NEW);
@@ -102,7 +102,7 @@ class PomTreeTest {
         InMemoryPomRepository repository = new InMemoryPomRepository()
                 .unchanged("pom.xml", project("com.acme", "root", "${revision}", properties("revision", "2.0")))
                 .unchanged("app/pom.xml", project(null, "app", null, parent("com.acme", "root", "${revision}")));
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         String parent = tree.parentPath("app/pom.xml", NEW);
@@ -121,7 +121,7 @@ class PomTreeTest {
                         properties("lib.version", "2")))
                 .unchanged("platform/app/pom.xml", project(null, "app", null,
                         parent("com.acme", "platform", "1.0")));
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         Map<String, String> inherited = tree.inheritedProperties("platform/app/pom.xml", NEW);
@@ -135,7 +135,7 @@ class PomTreeTest {
     void reactorIsTheTopMostAggregatorTreeIncludingThePom() {
         // given - root aggregates parent and services; services aggregates orders
         InMemoryPomRepository repository = reactorWithSeparateParent();
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         Set<String> reactor = tree.reactor("services/orders/pom.xml");
@@ -149,7 +149,7 @@ class PomTreeTest {
     void childrenAreFoundThroughTheReactorEvenWhenTheParentDoesNotAggregate() {
         // given - parent/pom.xml lists no modules; orders declares it as parent via relativePath
         InMemoryPomRepository repository = reactorWithSeparateParent();
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         Set<String> children = tree.children("parent/pom.xml");
@@ -162,7 +162,7 @@ class PomTreeTest {
     void reactorModulesUseInheritedGroupIds() {
         // given
         InMemoryPomRepository repository = reactorWithSeparateParent();
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         Set<String> modules = tree.reactorModules("services/orders/pom.xml");
@@ -180,7 +180,7 @@ class PomTreeTest {
                 .unchanged("a/pom.xml", project(null, "a", null, parent("com.acme", "root", "1.0")))
                 .unchanged("a/x/pom.xml", project(null, "x", null, parent("com.acme", "a", "1.0")))
                 .unchanged("a/y/pom.xml", project(null, "y", null, parent("com.acme", "a", "1.0")));
-        PomTree tree = new PomTree(repository, "base", false);
+        PomTree tree = new PomTree(repository, "base", false, null);
 
         // when
         tree.loadParentChains(Arrays.asList("a/x/pom.xml", "a/y/pom.xml"));

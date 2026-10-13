@@ -1028,7 +1028,7 @@ public class TestSelector {
         List<String> trackedLibraries = libraryConfig != null && libraryConfig.isEnabled()
                 ? libraryConfig.getCoordinates() : Collections.<String>emptyList();
         PomChangeAnalyzer pomAnalyzer = new PomChangeAnalyzer(vcsReader, storedCommitValue, checkLocalChanges,
-                new PomChangeClassifier(trackedLibraries));
+                new PomChangeClassifier(trackedLibraries), staticMappingConfig.getExternalPomSource());
         StaticTestSelectionResult staticResult = resolver.resolve(changedPaths, testSuitesTracked, pomAnalyzer);
         Set<String> forced = staticResult.getForcedSuites();
         // Always log the static selection outcome when rules are configured - an empty result

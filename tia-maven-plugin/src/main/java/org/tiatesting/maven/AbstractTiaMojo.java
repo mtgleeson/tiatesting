@@ -24,6 +24,7 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.staticselection.pom.ExternalPomSource;
 import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
@@ -1083,7 +1084,22 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
             compiledRules.add(new StaticTestSelectionRule(
                     raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges));
         }
-        return new StaticTestSelectionConfig(compiledRules);
+        return new StaticTestSelectionConfig(compiledRules, buildExternalPomSource());
+    }
+
+    /**
+     * Build the reader POM-aware static rules use for external parent and BOM POMs: the session's
+     * local repository. Returns {@code null} when there is no session (e.g. a mojo built in a
+     * unit test), making external bumps {@code DEPENDENCY_VERSIONS}.
+     *
+     * @return the local-repository POM source, or {@code null}.
+     */
+    private ExternalPomSource buildExternalPomSource() {
+        if (session == null || session.getRepositorySession() == null
+                || session.getRepositorySession().getLocalRepository() == null) {
+            return null;
+        }
+        return new LocalRepositoryPomSource(session.getRepositorySession().getLocalRepository().getBasedir(), getLog());
     }
 
     /**

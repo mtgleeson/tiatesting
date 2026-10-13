@@ -87,7 +87,7 @@ class TestSelectorSelectionDetailsTest {
         seedMapping();
         StaticTestSelectionConfig staticConfig = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-migrations", ".*\\.sql$",
-                        StaticTestSelectionRuleMode.RUN_ALL, null, null)));
+                        StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
         CombinedVCSReader vcsReader = new CombinedVCSReader(modifiedDiff(TRACKED_FILE_KEY),
                 Collections.singleton("src/main/resources/db/V001.sql"));
         TestSelector selector = new TestSelector(dataStore, new File("."));

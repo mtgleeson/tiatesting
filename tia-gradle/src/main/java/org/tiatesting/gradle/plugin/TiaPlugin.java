@@ -1300,7 +1300,7 @@ public class TiaPlugin implements Plugin<Project> {
                     raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(),
                     Collections.<PomChangeCategory>emptySet()));
         }
-        return new StaticTestSelectionConfig(compiledRules);
+        return new StaticTestSelectionConfig(compiledRules, null);
     }
 
     /**
