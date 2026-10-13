@@ -72,7 +72,7 @@ suite" section of the [test-run history chapter](test-run-history.md) for the fu
 skipped and why, and for the line that separates an empty run from the nothing-impacted run that
 legitimately executes no suite.
 
-### Per-call atomicity inside JdbcDataStore
+### Per-call atomicity inside the JDBC datastore
 
 Each individual persist call is internally atomic:
 

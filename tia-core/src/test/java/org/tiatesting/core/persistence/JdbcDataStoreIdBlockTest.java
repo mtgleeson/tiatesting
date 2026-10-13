@@ -34,12 +34,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JdbcDataStoreIdBlockTest {
 
     private JdbcDataStore dataStore;
+    private MappingWriter mappingWriter;
     private File tempDir;
 
     /**
      * Create a fresh embedded H2 database in a new temp directory and bootstrap its schema
      * (including the {@code tia_id_block} table), so each test method starts from a clean,
-     * isolated store with no ids allocated yet.
+     * isolated store with no ids allocated yet. The allocator lives on {@link MappingWriter}, so
+     * a writer is built over the store's own connection source.
      *
      * @throws Exception if the temp directory cannot be created or schema bootstrap fails
      */
@@ -52,6 +54,8 @@ class JdbcDataStoreIdBlockTest {
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(tempDir.getAbsolutePath())),
                 BranchSchema.schemaName("test", null));
         dataStore.getTiaData();
+        mappingWriter = new MappingWriter(new H2Dialect(), dataStore::getConnection,
+                new SchemaManager(new H2Dialect(), dataStore::getConnection, "unused"));
     }
 
     /**
@@ -69,8 +73,8 @@ class JdbcDataStoreIdBlockTest {
         Connection connection = dataStore.getConnection();
 
         // when
-        long firstBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
-        long secondBlockStart = dataStore.allocateSourceClassIdBlock(connection, 5);
+        long firstBlockStart = mappingWriter.allocateSourceClassIdBlock(connection, 10);
+        long secondBlockStart = mappingWriter.allocateSourceClassIdBlock(connection, 5);
         connection.close();
 
         // then
@@ -91,7 +95,7 @@ class JdbcDataStoreIdBlockTest {
                 public Long call() throws Exception {
                     Connection connection = dataStore.getConnection();
                     try {
-                        return dataStore.allocateSourceClassIdBlock(connection, blockSize);
+                        return mappingWriter.allocateSourceClassIdBlock(connection, blockSize);
                     } finally {
                         connection.close();
                     }
@@ -125,7 +129,7 @@ class JdbcDataStoreIdBlockTest {
         }
 
         // when
-        long firstBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+        long firstBlockStart = mappingWriter.allocateSourceClassIdBlock(connection, 10);
         connection.close();
 
         // then
@@ -136,10 +140,10 @@ class JdbcDataStoreIdBlockTest {
     void repeatedAllocationDoesNotReseedOrResetTheCounter() throws Exception {
         // given - the block is already seeded and advanced by a first allocation
         Connection connection = dataStore.getConnection();
-        long firstBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+        long firstBlockStart = mappingWriter.allocateSourceClassIdBlock(connection, 10);
 
         // when - a later allocation runs the (now short-circuited) seed path again
-        long secondBlockStart = dataStore.allocateSourceClassIdBlock(connection, 10);
+        long secondBlockStart = mappingWriter.allocateSourceClassIdBlock(connection, 10);
         connection.close();
 
         // then - the counter continues on from where the first allocation left it, rather than
@@ -163,7 +167,7 @@ class JdbcDataStoreIdBlockTest {
         Connection connection = dataStore.getConnection();
 
         // when
-        Executable seedAttempt = () -> dataStore.allocateSourceClassIdBlock(connection, 10);
+        Executable seedAttempt = () -> mappingWriter.allocateSourceClassIdBlock(connection, 10);
 
         // then
         assertThrows(SQLException.class, seedAttempt,

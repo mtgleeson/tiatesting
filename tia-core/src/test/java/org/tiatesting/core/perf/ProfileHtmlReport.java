@@ -22,7 +22,7 @@ import java.util.Map;
  * <p>Phases reported separately:
  * <ol>
  *     <li>{@code Phase A} - {@code dataStore.getTiaData()}, the legacy bulk load of every
- *         suite + class + method edge (on {@link JdbcDataStore} this is {@code readTiaDataFromDB}).
+ *         suite + class + method edge (on {@link JdbcDataStore} this is {@code getTiaData}).
  *         This is the same full-mapping read the {@code tia-html-report} task performs before
  *         rendering, and the read path already optimised for {@code select-tests} via
  *         diff-sized targeted queries.</li>

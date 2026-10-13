@@ -298,7 +298,7 @@ class TestRunnerServiceSealOrderTest {
 
     /**
      * Build a {@link TestRunResult} whose sole suite tracker carries one impacted class/method, so
-     * a mapping-update persist actually reaches {@link JdbcDataStore#persistTestSuiteClasses} and
+     * a mapping-update persist actually reaches {@code MappingWriter.persistTestSuiteClasses} and
      * flags the suite unsealed - {@link #makeResult()}'s empty-mapping tracker never does, since
      * the unsealed write only fires for suites with non-empty coverage this run.
      *
