@@ -1,0 +1,39 @@
+package com.example;
+
+import java.util.List;
+
+/**
+ * Car service.
+ */
+@Service
+@Transactional(readOnly = true)
+public class CarService
+        extends BaseService implements Auditable {
+
+    @Value("${car.limit}")
+    private int limit;
+
+    private final List<String> names = new ArrayList<>();
+
+    @SuppressWarnings({"unchecked"})
+    private Comparator<Car> order = (a, b) -> {
+        return a.compareTo(b);
+    };
+
+    @RequestMapping(value = "/cars")
+    public List<Car> list() {
+        return repo.findAll();
+    }
+
+    static class Cache {
+        @Value("${cache.size}") private int size;
+
+        int size() {
+            return size;
+        }
+    }
+
+    enum Mode { FAST, SLOW }
+
+    private String label = "}"; // a brace in a string
+}
