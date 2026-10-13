@@ -115,16 +115,19 @@ anonymous classes aren't attributed. At class-body level each member runs from i
 |------------------|---------|-------------------|
 | `{` after a `class`/`interface`/`enum`/`record`/`@interface`/`trait` declaration | `@Service public class Cars extends Base {` | all of it (the header) |
 | `;` with no initializer | `@Value("${limit}") private int limit;` | all of it |
-| `;` or `{` with an initializer, `static final` or in an interface | `static final int MAX = 5;` | all of it |
+| `;` with a constant initializer, `static final` or in an interface | `static final int MAX = 5;` | all of it |
 | `;` or `{` with any other initializer | `@Inject private Clock clock = Clock.systemUTC();` | only the lines above the `=` line (its annotations) |
+| `;` after a parameter list | `abstract void process(Order o);` | none - implementers change with it |
 | `{` with no initializer | a method, constructor or initializer block | none - matched to the method itself |
-| an enum constant list | `FAST, SLOW;` | all of it |
+| an enum constant list without arguments | `FAST, SLOW;` | all of it |
 
 An initializer compiles into the constructor or static initializer, whose line ranges already match
 it, so treating it as class-level too would select the whole class for every initializer edit. The
-exception is a constant: a `static final` field with a literal value (and every interface field, being
-implicitly `static final`) is inlined by the compiler and has no initializer code, so without this an
-edit to it would match nothing.
+exception is a constant: a `static final` field built from literals and other constants (and such an
+interface field, being implicitly `static final`) is inlined by the compiler and has no initializer
+code, so without this an edit to it would match nothing. An initializer that makes a call, uses `new`
+or opens a block (`LoggerFactory.getLogger(...)`, `new HashMap<>()`, `{2, 3, 5}`) can't be inlined
+and compiles into the static initializer, so it is treated like any other initialized field.
 
 A hunk that changes or removes original lines counts when it overlaps the class-level lines. A pure
 insertion (`-N,0`) counts only when line N is a class-level line and the inserted lines continue its
@@ -162,6 +165,10 @@ The widening heuristics only ever widen, so their failure mode is selecting extr
   method isn't recognised as class-level (and one with an initializer pulls the method's signature in).
 - **Constants used from other classes** are inlined into those classes too; only the declaring class's
   methods are impacted.
+- **A constant initializer with parentheses** (e.g. a cast, `(long) 5`) looks like a call, so the
+  constant is treated as an initialized field and only its annotation lines are class-level.
+- **Anonymous and Groovy closure classes** (`Outer$1`, `Outer$_closure1`) aren't impacted by their
+  enclosing class's class-level changes; their own lines are still matched as methods.
 - **New members aren't class-level.** A new field or method only matters once something uses it, and
   that change is matched on its own.
 - **Block comment lines without a leading `*`** stop the blank/comment walk, so code added above them
