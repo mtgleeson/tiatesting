@@ -64,27 +64,31 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 </tiaStaticTestSelectionRule>
 ```
 
-`FUNCTIONAL` is the recommended setting: it fires for any change that is not known to be inert. The finer categories are for targeting a subset of suites with `SUITE_NAMES`:
+`FUNCTIONAL` is the recommended setting: it fires for any change that is not known to be inert. The finer categories are for targeting a subset of suites with `SUITE_NAMES`.
 
-| Category | Fires on |
-|---|---|
-| `DEPENDENCY_VERSIONS` | The resolved version of an untracked, non-reactor dependency or managed dependency changed; a managed entry was added or removed; an external parent or BOM import version changed in a way that changes managed versions (or could not be read). |
-| `DEPENDENCY_SET` | A dependency was added or removed, or its scope, classifier, type, optional flag, system path or exclusions changed (tracked libraries included). |
-| `COMPILER` | The compiler plugin (including annotation processors) or a `maven.compiler.*` / `project.build.sourceEncoding` property changed. |
-| `TEST_RUNNER` | The surefire or failsafe plugin, or `argLine`, `skipTests` and the `surefire.*` / `failsafe.*` properties changed. |
-| `CODE_GENERATION` | A known code generation plugin changed (openapi-generator, jaxb, cxf, protobuf, avro, antlr, jooq, build-helper and similar). Its output is not in version control, so coverage can't see the change. |
-| `RESOURCES` | Resources, resource filtering, filters or the source directory layout changed. |
-| `BUILD_PLUGINS` | Any other plugin or plugin management entry that is not inert changed. |
-| `FUNCTIONAL` | All of the above, plus anything unrecognised: modules, packaging, repositories, extensions, profile activation, a changed property nothing in the POM references, and an added, deleted or unparseable POM. |
+**Fires the rule.** Every category below fires a `FUNCTIONAL` rule. A rule set to a narrower category fires only on that category's changes.
 
-These changes never fire a POM-aware rule:
+- **`DEPENDENCY_VERSIONS`:** the resolved version of an untracked, non-reactor dependency or managed dependency changed, or a managed entry was added or removed. Also fires when an external parent or BOM version bump changes managed versions, or when either version can't be read from the local repository.
+- **`DEPENDENCY_SET`:** a dependency was added or removed, or its scope, classifier, type, optional flag, system path or exclusions changed. This includes tracked libraries.
+- **`COMPILER`:** the compiler plugin (including annotation processors), or a `maven.compiler.*` or `project.build.sourceEncoding` property changed.
+- **`TEST_RUNNER`:** the surefire or failsafe plugin, `argLine`, `skipTests`, or a `surefire.*` or `failsafe.*` property changed.
+- **`CODE_GENERATION`:** a known code generation plugin changed (openapi-generator, jaxb, cxf, protobuf, avro, antlr, jooq, build-helper and similar). Its output is not in version control, so coverage can't see the change.
+- **`BUILD_PLUGINS`:** any other plugin or plugin management entry that is not on the inert list changed.
+- **`RESOURCES`:** resources, resource filtering, filters or the source directory layout changed.
+- **Anything else** (only a `FUNCTIONAL` rule fires on these):
+  - modules, packaging, repositories, extensions or profile activation changed
+  - a changed property that nothing in the POM or its modules references
+  - a POM was added, deleted or can't be parsed
 
-- project metadata (`name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement`, `reporting`, ...);
-- the project's own version, including through a CI-friendly `${revision}`, a same-reactor parent version, and the versions of dependencies on other reactor modules;
-- version changes of tracked libraries (`tiaSourceLibs`), which the library publish stamp and drain own, including when the drain holds back (unknown build, downgrade);
-- publishing, reporting and quality plugins (deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer, ...);
-- Tia's own plugin configuration and `tia*` properties;
-- whitespace, comments, and reordering of dependencies, plugins or executions.
+**Never fires (inert).**
+
+- The project's own version, including through a CI-friendly `${revision}`, a same-reactor parent version, and the versions of dependencies on other reactor modules.
+- Tracked library versions (`tiaSourceLibs`), which the library publish stamp and drain handle, including when the drain holds back (unknown build, downgrade).
+- Project metadata such as `name`, `description`, `url`, `scm`, `developers`, `licenses`, `distributionManagement` and `reporting`.
+- Publishing, reporting and quality plugins: deploy, install, javadoc, source, gpg, release, site, checkstyle, spotbugs, pmd, enforcer and similar.
+- Tia's own plugin configuration and `tia*` properties.
+- Whitespace, comments, and reordering of dependencies, plugins or executions.
+- An external parent or BOM version bump whose content didn't change in any of the ways listed above.
 
 A filtered resource that embeds `${project.version}` is a real behaviour change that the classifier treats as inert. If a test asserts on such a value, add a plain path or `SUITE_NAMES` rule for it.
 
