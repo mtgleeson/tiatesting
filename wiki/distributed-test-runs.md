@@ -226,7 +226,7 @@ crash detection.
 
 ### The claim protocol
 
-No runner is told which group it is. Each runner claims one, and `JdbcDataStore.claimNextPendingGroup`
+No runner is told which group it is. Each runner claims one, and `DistributedRunGroupRepository.claimNextPendingGroup`
 is the operation that decides which. Three steps:
 
 - **Step 0 - does this runner key already hold a group in this run?** If so, that group is returned
@@ -487,7 +487,7 @@ against the catalogue the sealer writes at the end.
 `DistributedRunnerPersist.reportGroupProgress` is called on **every** persist, and a persist happens
 once per finished test plan - which means several times per JVM when Surefire retries failed tests.
 The figures it carries fall into three kinds that must not be treated alike, and
-`JdbcDataStore.reportGroupProgress` writes each differently:
+`DistributedRunGroupRepository.reportGroupProgress` writes each differently:
 
 - `actual_duration_ms` is a **counter**: `COALESCE(column, 0) + ?`, so several test plans in one
   JVM sum to the JVM's total instead of the last one silently overwriting the ones before it - a

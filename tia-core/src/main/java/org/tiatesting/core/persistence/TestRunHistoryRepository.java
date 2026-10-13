@@ -98,6 +98,7 @@ class TestRunHistoryRepository extends JdbcRepository {
             }
         }
     }
+
     /**
      * Read every run-history row, most recent first. Implements {@link DataStore#readTestRunHistory}.
      *

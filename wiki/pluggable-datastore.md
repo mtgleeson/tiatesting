@@ -24,7 +24,12 @@ Three pieces divide the responsibility:
   (the stable id used for the `tiaDBDialect` override and in error messages). `H2Dialect` and
   `PostgresDialect` are the two implementations today. `JdbcDataStore` (the datastore
   implementation that replaced the H2-specific one) is written entirely against this interface -
-  it has no vendor-specific branches of its own.
+  it has no vendor-specific branches of its own. `JdbcDataStore` itself is a thin facade: it owns
+  connection acquisition (the per-branch schema below) and delegates each area of the schema to a
+  package-private repository built on `JdbcRepository` - `SchemaManager` (DDL and migrations),
+  `MappingReader` / `MappingWriter` (the suite-to-method mapping), `SealRepository` (the core row
+  and the seal transaction), `LibraryRepository`, `TestRunHistoryRepository`, and the three
+  distributed-run repositories. Table and column names live in `TiaSchema`.
 - **`ConnectionProvider`** (`org.tiatesting.core.persistence.connection`) - how to obtain a
   `java.sql.Connection`. `H2ConnectionProvider` carries H2's embedded-vs-server-mode split: engine
   options (`PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY`, `DB_CLOSE_ON_EXIT`) only in embedded mode,

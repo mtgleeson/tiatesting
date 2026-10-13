@@ -71,6 +71,7 @@ class LibraryRepository extends JdbcRepository {
 
         return libraries;
     }
+
     /**
      * Upsert one tracked library over its own connection. Implements {@link DataStore#persistTrackedLibrary}.
      *
@@ -121,6 +122,7 @@ class LibraryRepository extends JdbcRepository {
         }
         log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
     }
+
     /**
      * Delete a tracked library; its publishes and pending stamps cascade with it. Implements {@link DataStore#deleteTrackedLibrary}.
      *
@@ -148,6 +150,7 @@ class LibraryRepository extends JdbcRepository {
             }
         }
     }
+
     /**
      * Read one library's pending impacted-method stamps. Implements {@link DataStore#readPendingLibraryImpactedMethods}.
      *
@@ -179,6 +182,7 @@ class LibraryRepository extends JdbcRepository {
 
         return result;
     }
+
     /**
      * Read every library's pending impacted-method stamps. Implements {@link DataStore#readAllPendingLibraryImpactedMethods}.
      *
@@ -207,6 +211,7 @@ class LibraryRepository extends JdbcRepository {
 
         return result;
     }
+
     /**
      * Write one pending impacted-method batch. Implements {@link DataStore#persistPendingLibraryImpactedMethods}.
      *
@@ -247,6 +252,7 @@ class LibraryRepository extends JdbcRepository {
             }
         }
     }
+
     /**
      * Delete one drained impacted-method batch over its own connection. Implements {@link DataStore#deletePendingLibraryImpactedMethods}.
      *
@@ -390,6 +396,7 @@ class LibraryRepository extends JdbcRepository {
         }
         log.debug("Deleted pending forced selections for {} at seq {}", groupArtifact, publishSeq);
     }
+
     /**
      * Read one library's publish ledger. Implements {@link DataStore#readLibraryPublishes}.
      *
@@ -545,6 +552,7 @@ class LibraryRepository extends JdbcRepository {
             }
         }
     }
+
     /**
      * Read every library's publish ledger. Implements {@link DataStore#readAllLibraryPublishes}.
      *
@@ -577,6 +585,7 @@ class LibraryRepository extends JdbcRepository {
 
         return result;
     }
+
     /**
      * Find the publish matching a resolved library jar. Implements {@link DataStore#lookupLibraryPublish}.
      *

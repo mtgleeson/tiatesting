@@ -64,7 +64,7 @@ The column is part of the `tia_core` DDL in `createTiaDB`. Tia is pre-release wi
 
 ### Server-mode prerequisite: `-ifNotExists`
 
-`JdbcDataStore` auto-creates Tia's tables (and, in embedded mode, the database file itself) on first use via `createTiaDB()`, and separately creates the current branch's schema the first time that branch is selected (see "What actually differs between the modes" above). An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag. So running a server-mode Tia against a server without that flag fails on the very first run. This is a deployment precondition Tia can't paper over from the client side, so it's documented rather than worked around.
+`JdbcDataStore` auto-creates Tia's tables (and, in embedded mode, the database file itself) on first use via `SchemaManager.createTiaDB()`, and separately creates the current branch's schema the first time that branch is selected (see "What actually differs between the modes" above). An H2 TCP server refuses to create a database for a remote client unless it was started with the `-ifNotExists` flag. So running a server-mode Tia against a server without that flag fails on the very first run. This is a deployment precondition Tia can't paper over from the client side, so it's documented rather than worked around.
 
 ### Concurrency: one mapping writer, best-effort statistics
 
@@ -78,7 +78,7 @@ This is a deliberate non-goal. Statistics in Tia are advisory: they drive report
 
 You don't need a separate H2 install to exercise server mode on a dev machine: Tia already depends on H2 (`com.h2database:h2:2.2.224` in `tia-core/build.gradle`), so the runnable jar is sitting in your Gradle cache. The same jar that backs embedded mode also ships H2's `org.h2.tools.Server` entry point.
 
-**1. Start the TCP server.** The one non-negotiable flag is `-ifNotExists`: `JdbcDataStore.createTiaDB()` creates the database on the first run, and an H2 TCP server refuses to create a database for a remote client unless it was started with that flag (see the prerequisite subsection above).
+**1. Start the TCP server.** The one non-negotiable flag is `-ifNotExists`: `SchemaManager.createTiaDB()` creates the database on the first run, and an H2 TCP server refuses to create a database for a remote client unless it was started with that flag (see the prerequisite subsection above).
 
 ```bash
 mkdir -p ~/h2-tia
