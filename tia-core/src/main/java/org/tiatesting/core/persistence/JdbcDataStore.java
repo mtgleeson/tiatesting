@@ -17,7 +17,6 @@ import org.tiatesting.core.model.MethodIdSet;
 import org.tiatesting.core.model.MethodImpactTracker;
 import org.tiatesting.core.model.PendingLibraryForcedSelection;
 import org.tiatesting.core.model.PendingLibraryImpactedMethod;
-import org.tiatesting.core.model.RunOrigin;
 import org.tiatesting.core.model.CoreStatsIncrement;
 import org.tiatesting.core.model.TestRunHistoryEntry;
 import org.tiatesting.core.model.TestRunSelectionDetails;
@@ -28,7 +27,6 @@ import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
 import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
-import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
 import java.sql.*;
 import java.util.*;
@@ -60,6 +58,8 @@ public class JdbcDataStore implements DataStore {
     // created it, later connections only need the (cheap) SET SCHEMA / search_path selection.
     private boolean branchSchemaCreated;
     private final SchemaManager schemaManager;
+    private final TestRunHistoryRepository testRunHistoryRepository;
+    private final LibraryRepository libraryRepository;
 
     /**
      * Construct a datastore over a vendor-neutral SQL dialect and connection provider. The dialect
@@ -79,6 +79,8 @@ public class JdbcDataStore implements DataStore {
         this.connectionProvider = connectionProvider;
         this.schema = schema;
         this.schemaManager = new SchemaManager(dialect, this::getConnection, connectionProvider.jdbcUrl());
+        this.testRunHistoryRepository = new TestRunHistoryRepository(dialect, this::getConnection, schemaManager);
+        this.libraryRepository = new LibraryRepository(dialect, this::getConnection, schemaManager);
 
         String schemaDescription = (schema == null || schema.trim().isEmpty())
                 ? "the connection's default schema"
@@ -496,13 +498,13 @@ public class JdbcDataStore implements DataStore {
                 writeSourceMethods(connection, sealedRunData.getMethodsTracked());
 
                 for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedMethodBatchKeys()){
-                    deletePendingLibraryImpactedMethods(connection, key.getGroupArtifact(), key.getPublishSeq());
+                    libraryRepository.deletePendingLibraryImpactedMethods(connection, key.getGroupArtifact(), key.getPublishSeq());
                 }
                 for (LibraryImpactDrainResult.DrainedBatchKey key : sealedRunData.getDrainedForcedBatchKeys()){
-                    deletePendingLibraryForcedSelections(connection, key.getGroupArtifact(), key.getPublishSeq());
+                    libraryRepository.deletePendingLibraryForcedSelections(connection, key.getGroupArtifact(), key.getPublishSeq());
                 }
                 for (TrackedLibrary library : sealedRunData.getLibrariesToPersist()){
-                    persistTrackedLibrary(connection, library);
+                    libraryRepository.persistTrackedLibrary(connection, library);
                 }
 
                 if (sealedRunData.isReseed()) {
@@ -736,523 +738,122 @@ public class JdbcDataStore implements DataStore {
         log.debug("Time to delete the removed test suites from disk (ms): " + (System.currentTimeMillis() - startTime));
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readTrackedLibraries}.
+     */
     @Override
     public Map<String, TrackedLibrary> readTrackedLibraries() {
-        Map<String, TrackedLibrary> libraries = new HashMap<>();
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
-                return libraries;
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY;
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(sql);
-
-            while (resultSet.next()) {
-                TrackedLibrary lib = new TrackedLibrary();
-                lib.setGroupArtifact(resultSet.getString(COL_GROUP_ARTIFACT));
-                lib.setProjectDir(resultSet.getString(COL_PROJECT_DIR));
-                lib.setSourceDirsCsv(resultSet.getString(COL_SOURCE_DIRS_CSV));
-                lib.setMappingBaselineCommit(resultSet.getString(COL_MAPPING_BASELINE_COMMIT));
-                long lastAppliedSeq = resultSet.getLong(COL_LAST_APPLIED_SEQ);
-                lib.setLastAppliedSeq(resultSet.wasNull() ? null : lastAppliedSeq);
-                libraries.put(lib.getGroupArtifact(), lib);
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return libraries;
+        return libraryRepository.readTrackedLibraries();
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#persistTrackedLibrary}.
+     */
     @Override
     public void persistTrackedLibrary(final TrackedLibrary trackedLibrary) {
-        Connection connection = getConnection();
-
-        try {
-            persistTrackedLibrary(connection, trackedLibrary);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        libraryRepository.persistTrackedLibrary(trackedLibrary);
     }
 
     /**
-     * Upsert one tracked library row on a caller-supplied connection, so the write can join the
-     * seal transaction rather than committing on its own.
-     *
-     * @param connection the connection to write on
-     * @param trackedLibrary the tracked library to persist
-     * @throws SQLException if the upsert fails
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#deleteTrackedLibrary}.
      */
-    private void persistTrackedLibrary(Connection connection, TrackedLibrary trackedLibrary) throws SQLException {
-        schemaManager.ensureLibraryTableExists(connection);
-        String sql = dialect.upsert(TABLE_TIA_LIBRARY,
-                Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
-                        COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
-                Collections.singletonList(COL_GROUP_ARTIFACT));
-
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, trackedLibrary.getGroupArtifact());
-            ps.setString(2, trackedLibrary.getProjectDir());
-            ps.setString(3, trackedLibrary.getSourceDirsCsv());
-            ps.setString(4, trackedLibrary.getMappingBaselineCommit());
-            if (trackedLibrary.getLastAppliedSeq() != null) {
-                ps.setLong(5, trackedLibrary.getLastAppliedSeq());
-            } else {
-                ps.setNull(5, Types.BIGINT);
-            }
-            ps.executeUpdate();
-        }
-        log.debug("Persisted tracked library: {}", trackedLibrary.getGroupArtifact());
-    }
-
     @Override
     public void deleteTrackedLibrary(final String groupArtifact) {
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
-                return;
-            }
-            String sql = "DELETE FROM " + TABLE_TIA_LIBRARY + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            ps.executeUpdate();
-            log.debug("Deleted tracked library: {}", groupArtifact);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        libraryRepository.deleteTrackedLibrary(groupArtifact);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readPendingLibraryImpactedMethods}.
+     */
     @Override
     public List<PendingLibraryImpactedMethod> readPendingLibraryImpactedMethods(final String groupArtifact) {
-        List<PendingLibraryImpactedMethod> result = new ArrayList<>();
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-                return result;
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            result = buildPendingBatchesFromResultSet(ps.executeQuery());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return result;
+        return libraryRepository.readPendingLibraryImpactedMethods(groupArtifact);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readAllPendingLibraryImpactedMethods}.
+     */
     @Override
     public List<PendingLibraryImpactedMethod> readAllPendingLibraryImpactedMethods() {
-        List<PendingLibraryImpactedMethod> result = new ArrayList<>();
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-                return result;
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD;
-            Statement statement = connection.createStatement();
-            result = buildPendingBatchesFromResultSet(statement.executeQuery(sql));
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return result;
+        return libraryRepository.readAllPendingLibraryImpactedMethods();
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#persistPendingLibraryImpactedMethods}.
+     */
     @Override
     public void persistPendingLibraryImpactedMethods(final PendingLibraryImpactedMethod pending) {
-        Connection connection = getConnection();
-
-        try {
-            schemaManager.ensurePendingLibraryImpactedMethodTableExists(connection);
-
-            if (!pending.getSourceMethodIds().isEmpty()) {
-                String insertSql = dialect.upsert(TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD,
-                        Arrays.asList(COL_GROUP_ARTIFACT, COL_STAMP_VERSION, COL_PUBLISH_SEQ,
-                                COL_TIA_SOURCE_METHOD_ID),
-                        Arrays.asList(COL_GROUP_ARTIFACT, COL_PUBLISH_SEQ, COL_TIA_SOURCE_METHOD_ID));
-                PreparedStatement insertPs = connection.prepareStatement(insertSql);
-
-                for (Integer methodId : pending.getSourceMethodIds()) {
-                    insertPs.setString(1, pending.getGroupArtifact());
-                    insertPs.setString(2, pending.getStampVersion());
-                    insertPs.setLong(3, pending.getPublishSeq());
-                    insertPs.setInt(4, methodId);
-                    insertPs.addBatch();
-                }
-                insertPs.executeBatch();
-            }
-
-            log.debug("Persisted {} pending impacted methods for {} at seq {}",
-                    pending.getSourceMethodIds().size(), pending.getGroupArtifact(), pending.getPublishSeq());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        libraryRepository.persistPendingLibraryImpactedMethods(pending);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#deletePendingLibraryImpactedMethods}.
+     */
     @Override
     public void deletePendingLibraryImpactedMethods(final String groupArtifact, final long publishSeq) {
-        Connection connection = getConnection();
-
-        try {
-            deletePendingLibraryImpactedMethods(connection, groupArtifact, publishSeq);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        libraryRepository.deletePendingLibraryImpactedMethods(groupArtifact, publishSeq);
     }
 
     /**
-     * Delete one drained publish's pending impacted-method rows on a caller-supplied connection,
-     * so the delete can join the seal transaction rather than committing on its own.
-     *
-     * @param connection the connection to delete on
-     * @param groupArtifact the {@code groupId:artifactId} of the library
-     * @param publishSeq the publish sequence whose stamp rows to delete
-     * @throws SQLException if the delete fails
-     */
-    private void deletePendingLibraryImpactedMethods(Connection connection, String groupArtifact,
-                                                     long publishSeq) throws SQLException {
-        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-            return;
-        }
-        String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
-                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, groupArtifact);
-            ps.setLong(2, publishSeq);
-            ps.executeUpdate();
-        }
-        log.debug("Deleted pending impacted methods for {} at seq {}", groupArtifact, publishSeq);
-    }
-
-    /**
-     * Read every pending forced-selection batch across all tracked libraries.
-     *
-     * @return the forced-selection batches; never {@code null}, may be empty.
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readAllPendingLibraryForcedSelections}.
      */
     @Override
     public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
-        Connection connection = getConnection();
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-                return new ArrayList<>();
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION;
-            Statement statement = connection.createStatement();
-            return buildForcedBatchesFromResultSet(statement.executeQuery(sql));
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        return libraryRepository.readAllPendingLibraryForcedSelections();
     }
 
     /**
-     * Read the pending forced-selection batches for one tracked library.
-     *
-     * @param groupArtifact the {@code groupId:artifactId} of the library.
-     * @return the library's forced-selection batches; never {@code null}, may be empty.
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readPendingLibraryForcedSelections}.
      */
     @Override
     public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(final String groupArtifact) {
-        Connection connection = getConnection();
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-                return new ArrayList<>();
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            return buildForcedBatchesFromResultSet(ps.executeQuery());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        return libraryRepository.readPendingLibraryForcedSelections(groupArtifact);
     }
 
     /**
-     * Delete the forced-selection rows of one published build after they have been drained.
-     *
-     * @param groupArtifact the {@code groupId:artifactId} of the library.
-     * @param publishSeq the publish sequence whose forced-selection rows to delete.
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#deletePendingLibraryForcedSelections}.
      */
     @Override
     public void deletePendingLibraryForcedSelections(final String groupArtifact, final long publishSeq) {
-        Connection connection = getConnection();
-        try {
-            deletePendingLibraryForcedSelections(connection, groupArtifact, publishSeq);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        libraryRepository.deletePendingLibraryForcedSelections(groupArtifact, publishSeq);
     }
 
     /**
-     * Delete one drained publish's pending forced-selection rows on a caller-supplied connection,
-     * so the delete can join the seal transaction rather than committing on its own.
-     *
-     * @param connection the connection to delete on
-     * @param groupArtifact the {@code groupId:artifactId} of the library
-     * @param publishSeq the publish sequence whose forced-selection rows to delete
-     * @throws SQLException if the delete fails
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readLibraryPublishes}.
      */
-    private void deletePendingLibraryForcedSelections(Connection connection, String groupArtifact,
-                                                       long publishSeq) throws SQLException {
-        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-            return;
-        }
-        String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
-                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + COL_PUBLISH_SEQ + " = ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, groupArtifact);
-            ps.setLong(2, publishSeq);
-            ps.executeUpdate();
-        }
-        log.debug("Deleted pending forced selections for {} at seq {}", groupArtifact, publishSeq);
-    }
-
     @Override
     public List<LibraryPublish> readLibraryPublishes(final String groupArtifact) {
-        List<LibraryPublish> result = new ArrayList<>();
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return result;
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
-                    + " WHERE " + COL_GROUP_ARTIFACT + " = ? ORDER BY " + COL_PUBLISH_SEQ + " ASC";
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, groupArtifact);
-            ResultSet resultSet = ps.executeQuery();
-            while (resultSet.next()) {
-                result.add(buildLibraryPublishFromRow(resultSet));
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return result;
+        return libraryRepository.readLibraryPublishes(groupArtifact);
     }
 
     /**
-     * Persist a published library build and, atomically, the impacted-method stamp and any
-     * forced-selection batches for that build. Assigns and returns the next per-library publish
-     * sequence. All rows are written in one transaction so a ledger row can never exist without
-     * the stamps of the build it identifies.
-     *
-     * @param publish the publish-ledger row to write.
-     * @param impactedMethodIds the tracked source method ids impacted since the baseline; may be empty.
-     * @param forcedSelections the forced-selection batches produced by the library's static rules;
-     *                         may be empty.
-     * @return the assigned publish sequence.
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#persistLibraryPublish}.
      */
     @Override
     public long persistLibraryPublish(final LibraryPublish publish, final Set<Integer> impactedMethodIds,
                                       final List<PendingLibraryForcedSelection> forcedSelections) {
-        Connection connection = getConnection();
-
-        try {
-            schemaManager.ensureLibraryPublishTableExists(connection);
-            connection.setAutoCommit(false);
-
-            // Assign the next per-library sequence inside the insert transaction. Under a
-            // concurrent publish (server mode) two writers can race to the same max; the
-            // (group_artifact, publish_seq) primary key turns that into a duplicate-key failure
-            // rather than a silent double-assignment.
-            String maxSql = "SELECT COALESCE(MAX(" + COL_PUBLISH_SEQ + "), 0) FROM "
-                    + TABLE_TIA_LIBRARY_PUBLISH + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
-            PreparedStatement maxPs = connection.prepareStatement(maxSql);
-            maxPs.setString(1, publish.getGroupArtifact());
-            ResultSet maxRs = maxPs.executeQuery();
-            maxRs.next();
-            long assignedSeq = maxRs.getLong(1) + 1;
-
-            String insertSql = "INSERT INTO " + TABLE_TIA_LIBRARY_PUBLISH + " ("
-                    + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_PUBLISHED_VERSION + ", "
-                    + COL_JAR_HASH + ", " + COL_COMMIT_VALUE + ", " + COL_PUBLISHED_AT + ") "
-                    + "VALUES (?, ?, ?, ?, ?, ?)";
-            PreparedStatement insertPs = connection.prepareStatement(insertSql);
-            insertPs.setString(1, publish.getGroupArtifact());
-            insertPs.setLong(2, assignedSeq);
-            insertPs.setString(3, publish.getPublishedVersion());
-            insertPs.setString(4, publish.getJarHash());
-            insertPs.setString(5, publish.getCommitValue());
-            insertPs.setLong(6, publish.getPublishedAt());
-            insertPs.executeUpdate();
-
-            // Stamp the impacted methods against the assigned sequence in the same transaction,
-            // so a publish row can never exist without the stamps of the build it identifies.
-            if (impactedMethodIds != null && !impactedMethodIds.isEmpty()) {
-                String stampSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
-                        + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", "
-                        + COL_PUBLISH_SEQ + ", "
-                        + COL_TIA_SOURCE_METHOD_ID + ") "
-                        + "VALUES (?, ?, ?, ?)";
-                PreparedStatement stampPs = connection.prepareStatement(stampSql);
-                for (Integer methodId : impactedMethodIds) {
-                    stampPs.setString(1, publish.getGroupArtifact());
-                    stampPs.setString(2, publish.getPublishedVersion());
-                    stampPs.setLong(3, assignedSeq);
-                    stampPs.setInt(4, methodId);
-                    stampPs.addBatch();
-                }
-                stampPs.executeBatch();
-            }
-
-            // Persist the forced-selection batches against the assigned sequence in the same
-            // transaction as the ledger row and the impacted-method stamp, so a publish can never
-            // exist without the forced selections its own static rules produced.
-            int forcedRowCount = 0;
-            if (forcedSelections != null && !forcedSelections.isEmpty()) {
-                schemaManager.ensurePendingLibraryForcedSelectionTableExists(connection);
-                String forcedSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
-                        + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_PUBLISH_SEQ + ", "
-                        + COL_RULE_NAME + ", " + COL_MODE + ", " + COL_SUITE_NAME_PATTERN + ") "
-                        + "VALUES (?, ?, ?, ?, ?, ?)";
-                PreparedStatement forcedPs = connection.prepareStatement(forcedSql);
-                for (PendingLibraryForcedSelection forced : forcedSelections) {
-                    if (forced.getSuiteNamePatterns().isEmpty()) {
-                        forcedPs.setString(1, publish.getGroupArtifact());
-                        forcedPs.setString(2, publish.getPublishedVersion());
-                        forcedPs.setLong(3, assignedSeq);
-                        forcedPs.setString(4, forced.getRuleName());
-                        forcedPs.setString(5, forced.getMode().name());
-                        forcedPs.setNull(6, Types.VARCHAR);
-                        forcedPs.addBatch();
-                        forcedRowCount++;
-                    } else {
-                        for (String pattern : forced.getSuiteNamePatterns()) {
-                            forcedPs.setString(1, publish.getGroupArtifact());
-                            forcedPs.setString(2, publish.getPublishedVersion());
-                            forcedPs.setLong(3, assignedSeq);
-                            forcedPs.setString(4, forced.getRuleName());
-                            forcedPs.setString(5, forced.getMode().name());
-                            forcedPs.setString(6, pattern);
-                            forcedPs.addBatch();
-                            forcedRowCount++;
-                        }
-                    }
-                }
-                forcedPs.executeBatch();
-            }
-
-            connection.commit();
-
-            publish.setPublishSeq(assignedSeq);
-            log.debug("Persisted library publish {} at seq {} (version '{}', {} stamped methods, "
-                            + "{} forced-selection row(s) across {} batch(es)).",
-                    publish.getGroupArtifact(), assignedSeq, publish.getPublishedVersion(),
-                    impactedMethodIds != null ? impactedMethodIds.size() : 0,
-                    forcedRowCount, forcedSelections != null ? forcedSelections.size() : 0);
-            return assignedSeq;
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        return libraryRepository.persistLibraryPublish(publish, impactedMethodIds, forcedSelections);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#readAllLibraryPublishes}.
+     */
     @Override
     public List<LibraryPublish> readAllLibraryPublishes() {
-        List<LibraryPublish> result = new ArrayList<>();
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return result;
-            }
-            String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
-                    + " ORDER BY " + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + " ASC";
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(sql);
-            while (resultSet.next()) {
-                result.add(buildLibraryPublishFromRow(resultSet));
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return result;
+        return libraryRepository.readAllLibraryPublishes();
     }
 
     @Override
@@ -1302,314 +903,58 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link LibraryRepository#lookupLibraryPublish}.
+     */
     @Override
     public LibraryPublish lookupLibraryPublish(final String groupArtifact, final String jarHash, final String version) {
-        Connection connection = getConnection();
-
-        try {
-            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-                return null;
-            }
-
-            LibraryPublish byHash = findHighestSeqPublish(connection, groupArtifact, COL_JAR_HASH, jarHash);
-            if (byHash != null) {
-                return byHash;
-            }
-            return findHighestSeqPublish(connection, groupArtifact, COL_PUBLISHED_VERSION, version);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        return libraryRepository.lookupLibraryPublish(groupArtifact, jarHash, version);
     }
 
     /**
-     * Find the highest-sequence publish row for a library where the given column equals the given
-     * value. Matches are expected to be rare (usually one), so the highest sequence is selected in
-     * Java rather than with a dialect-specific row-limit clause.
-     *
-     * @param connection the open H2 connection to query on
-     * @param groupArtifact the library coordinate to search within
-     * @param matchColumn the ledger column to match on ({@code jar_hash} or {@code published_version})
-     * @param matchValue the value to match; a null value skips the match and returns null
-     * @return the matching row with the highest {@code publish_seq}, or null when nothing matches
-     * @throws SQLException if the query fails
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunHistoryRepository#persistTestRunHistoryEntry}.
      */
-    private LibraryPublish findHighestSeqPublish(Connection connection, String groupArtifact,
-                                                 String matchColumn, String matchValue) throws SQLException {
-        if (matchValue == null) {
-            return null;
-        }
-        String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
-                + " WHERE " + COL_GROUP_ARTIFACT + " = ? AND " + matchColumn + " = ?";
-        PreparedStatement ps = connection.prepareStatement(sql);
-        ps.setString(1, groupArtifact);
-        ps.setString(2, matchValue);
-        ResultSet resultSet = ps.executeQuery();
-
-        LibraryPublish best = null;
-        while (resultSet.next()) {
-            LibraryPublish candidate = buildLibraryPublishFromRow(resultSet);
-            if (best == null || candidate.getPublishSeq() > best.getPublishSeq()) {
-                best = candidate;
-            }
-        }
-        return best;
-    }
-
-    /**
-     * Materialise a {@link LibraryPublish} from the current row of a {@code tia_library_publish}
-     * result set.
-     *
-     * @param resultSet the result set positioned on a ledger row
-     * @return the populated publish model
-     * @throws SQLException if a column read fails
-     */
-    private LibraryPublish buildLibraryPublishFromRow(ResultSet resultSet) throws SQLException {
-        LibraryPublish publish = new LibraryPublish();
-        publish.setGroupArtifact(resultSet.getString(COL_GROUP_ARTIFACT));
-        publish.setPublishSeq(resultSet.getLong(COL_PUBLISH_SEQ));
-        publish.setPublishedVersion(resultSet.getString(COL_PUBLISHED_VERSION));
-        publish.setJarHash(resultSet.getString(COL_JAR_HASH));
-        publish.setCommitValue(resultSet.getString(COL_COMMIT_VALUE));
-        publish.setPublishedAt(resultSet.getLong(COL_PUBLISHED_AT));
-        return publish;
-    }
-
     @Override
     public void persistTestRunHistoryEntry(final TestRunHistoryEntry entry) {
-        Connection connection = getConnection();
-
-        try {
-            schemaManager.ensureTestRunHistoryTableExists(connection);
-            String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
-                    Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
-                            COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
-                            COL_DURATION_MS, COL_UPDATED_DB_MAPPING, COL_TIME_SAVINGS,
-                            COL_SAVINGS_PERCENT, COL_WALL_CLOCK_SAVINGS,
-                            COL_WALL_CLOCK_SAVINGS_PERCENT, COL_RUN_ID, COL_WALL_CLOCK_MS,
-                            COL_GROUP_COUNT, COL_GROUPS_AVAILABLE, COL_RUN_SOURCE, COL_HOST_NAME,
-                            COL_NUM_MODIFIED_TEST_FILES,
-                            COL_NUM_NEW_TEST_FILES, COL_NUM_PREVIOUSLY_FAILED, COL_NUM_UNSEALED_MAPPING,
-                            COL_NUM_PENDING_LIBRARY, COL_RERUN, COL_SELECTION_MODE),
-                    Collections.singletonList(COL_ID));
-
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setString(1, entry.getId());
-            ps.setLong(2, entry.getRunTimestampMs());
-            ps.setString(3, entry.getBranch());
-            ps.setString(4, entry.getCommit());
-            ps.setInt(5, entry.getNumSuitesRan());
-            ps.setInt(6, entry.getNumSuitesIgnored());
-            ps.setInt(7, entry.getNumSuitesFailed());
-            ps.setLong(8, entry.getDurationMs());
-            ps.setBoolean(9, entry.isUpdatedDbMapping());
-            ps.setLong(10, entry.getTimeSavingsMs());
-            ps.setInt(11, entry.getSavingsPercent());
-            ps.setLong(12, entry.getWallClockSavingsMs());
-            ps.setInt(13, entry.getWallClockSavingsPercent());
-            // A single-host run binds SQL NULL for all four, so its row stays exactly what it was
-            // before distributed runs existed.
-            setNullableString(ps, 14, entry.getRunId());
-            setNullableLong(ps, 15, entry.getWallClockMs());
-            setNullableInt(ps, 16, entry.getGroupCount());
-            setNullableInt(ps, 17, entry.getGroupsAvailable());
-            // Both nullable for the same reason as the distributed columns above: an unknown origin
-            // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
-            setNullableString(ps, 18, entry.getRunOrigin().getRunSource());
-            setNullableString(ps, 19, entry.getRunOrigin().getHostName());
-            // Nullable for the same reason: a row written before this feature, or an all-tests run
-            // with nothing to attribute, stores SQL NULL rather than a made-up zero.
-            setNullableInt(ps, 20, entry.getNumModifiedTestFiles());
-            setNullableInt(ps, 21, entry.getNumNewTestFiles());
-            setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
-            setNullableInt(ps, 23, entry.getNumUnsealedMapping());
-            setNullableInt(ps, 24, entry.getNumPendingLibrary());
-            ps.setBoolean(25, entry.isRerun());
-            // Nullable like the counters: a row whose mode was not recorded stores SQL NULL.
-            setNullableString(ps, 26, entry.getSelectionMode() == null ? null
-                    : entry.getSelectionMode().name());
-            ps.executeUpdate();
-            log.debug("Persisted test run history entry {} ({})", entry.getId(), entry.getRunTimestampMs());
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-    }
-
-    @Override
-    public List<TestRunHistoryEntry> readTestRunHistory() {
-        List<TestRunHistoryEntry> history = new ArrayList<>();
-        Connection connection = getConnection();
-
-        try {
-            // Ensure table exists for older DBs that pre-date this feature; reads return empty
-            // until the first insert.
-            schemaManager.ensureTestRunHistoryTableExists(connection);
-
-            String sql = "SELECT * FROM " + TABLE_TIA_TEST_RUN_HISTORY
-                    + " ORDER BY " + COL_RUN_TIMESTAMP + " DESC";
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(sql);
-
-            while (resultSet.next()) {
-                history.add(new TestRunHistoryEntry(
-                        resultSet.getString(COL_ID),
-                        resultSet.getLong(COL_RUN_TIMESTAMP),
-                        resultSet.getString(COL_BRANCH),
-                        resultSet.getString(COL_COMMIT_VALUE),
-                        resultSet.getInt(COL_NUM_SUITES_RAN),
-                        resultSet.getInt(COL_NUM_SUITES_IGNORED),
-                        resultSet.getInt(COL_NUM_SUITES_FAILED),
-                        resultSet.getLong(COL_DURATION_MS),
-                        resultSet.getBoolean(COL_UPDATED_DB_MAPPING),
-                        resultSet.getLong(COL_TIME_SAVINGS),
-                        resultSet.getInt(COL_SAVINGS_PERCENT),
-                        resultSet.getLong(COL_WALL_CLOCK_SAVINGS),
-                        resultSet.getInt(COL_WALL_CLOCK_SAVINGS_PERCENT),
-                        resultSet.getString(COL_RUN_ID),
-                        getNullableLong(resultSet, COL_WALL_CLOCK_MS),
-                        getNullableInt(resultSet, COL_GROUP_COUNT),
-                        getNullableInt(resultSet, COL_GROUPS_AVAILABLE),
-                        RunOrigin.of(resultSet.getString(COL_RUN_SOURCE),
-                                resultSet.getString(COL_HOST_NAME)),
-                        getNullableInt(resultSet, COL_NUM_MODIFIED_TEST_FILES),
-                        getNullableInt(resultSet, COL_NUM_NEW_TEST_FILES),
-                        getNullableInt(resultSet, COL_NUM_PREVIOUSLY_FAILED),
-                        getNullableInt(resultSet, COL_NUM_UNSEALED_MAPPING),
-                        getNullableInt(resultSet, COL_NUM_PENDING_LIBRARY),
-                        resultSet.getBoolean(COL_RERUN),
-                        readSelectionMode(resultSet)));
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-
-        return history;
+        testRunHistoryRepository.persistTestRunHistoryEntry(entry);
     }
 
     /**
-     * Persist one run history row's selection triggers, replacing whatever was previously stored
-     * for that row. Delete-then-batch-insert makes the operation idempotent - re-persisting the
-     * same list (a retried fork, a re-run of the same seal) leaves exactly one row per trigger
-     * rather than accumulating duplicates.
-     *
-     * @param historyId the {@code tia_test_run_history} row these triggers belong to
-     * @param triggers the triggers to store; null or empty leaves the row with no triggers
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunHistoryRepository#readTestRunHistory}.
+     */
+    @Override
+    public List<TestRunHistoryEntry> readTestRunHistory() {
+        return testRunHistoryRepository.readTestRunHistory();
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunHistoryRepository#persistTestRunTriggers}.
      */
     @Override
     public void persistTestRunTriggers(final String historyId, final List<TestRunTrigger> triggers) {
-        Connection connection = getConnection();
-        try {
-            schemaManager.ensureTestRunHistoryTableExists(connection); // also ensures the trigger table
-            try (PreparedStatement delete = connection.prepareStatement(
-                    "DELETE FROM " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER
-                            + " WHERE " + COL_HISTORY_ID + " = ?")) {
-                delete.setString(1, historyId);
-                delete.executeUpdate();
-            }
-            if (triggers != null && !triggers.isEmpty()) {
-                String insert = "INSERT INTO " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " ("
-                        + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                        + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?)";
-                try (PreparedStatement ps = connection.prepareStatement(insert)) {
-                    for (TestRunTrigger t : triggers) {
-                        ps.setString(1, historyId);
-                        ps.setString(2, t.getType().name());
-                        ps.setString(3, t.getName());
-                        ps.setInt(4, t.getTestCount());
-                        ps.addBatch();
-                    }
-                    ps.executeBatch();
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        testRunHistoryRepository.persistTestRunTriggers(historyId, triggers);
     }
 
     /**
-     * Read the selection triggers for one run history row, highest suite count first.
-     *
-     * @param historyId the {@code tia_test_run_history} row to read triggers for
-     * @return the row's triggers ordered by suite count descending; empty if none were recorded
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunHistoryRepository#readTestRunTriggers}.
      */
     @Override
     public List<TestRunTrigger> readTestRunTriggers(final String historyId) {
-        return readTestRunTriggersByHistoryId(Collections.singletonList(historyId))
-                .getOrDefault(historyId, Collections.emptyList());
+        return testRunHistoryRepository.readTestRunTriggers(historyId);
     }
 
     /**
-     * Bulk-read the selection triggers for several run history rows in one query, for report
-     * generation over a page of history rows rather than one query per row.
-     *
-     * @param historyIds the {@code tia_test_run_history} row ids to read triggers for
-     * @return map of history id to its triggers, each ordered by suite count descending; empty when
-     *         {@code historyIds} is null or empty, and a history id with no triggers is simply
-     *         absent from the map
+     * {@inheritDoc}
+     * <p>Delegates to {@link TestRunHistoryRepository#readTestRunTriggersByHistoryId}.
      */
     @Override
     public Map<String, List<TestRunTrigger>> readTestRunTriggersByHistoryId(final Collection<String> historyIds) {
-        Map<String, List<TestRunTrigger>> byId = new LinkedHashMap<>();
-        if (historyIds == null || historyIds.isEmpty()) {
-            return byId;
-        }
-        Connection connection = getConnection();
-        try {
-            schemaManager.ensureTestRunHistoryTableExists(connection);
-            String placeholders = String.join(",", Collections.nCopies(historyIds.size(), "?"));
-            String sql = "SELECT " + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", "
-                    + COL_TRIGGER_NAME + ", " + COL_TEST_COUNT + " FROM "
-                    + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " WHERE " + COL_HISTORY_ID
-                    + " IN (" + placeholders + ") ORDER BY " + COL_TEST_COUNT + " DESC";
-            try (PreparedStatement ps = connection.prepareStatement(sql)) {
-                int i = 1;
-                for (String id : historyIds) {
-                    ps.setString(i++, id);
-                }
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        byId.computeIfAbsent(rs.getString(COL_HISTORY_ID), k -> new ArrayList<>())
-                                .add(new TestRunTrigger(
-                                        TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
-                                        rs.getString(COL_TRIGGER_NAME),
-                                        null,
-                                        rs.getInt(COL_TEST_COUNT)));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
-        return byId;
+        return testRunHistoryRepository.readTestRunTriggersByHistoryId(historyIds);
     }
 
     /**
@@ -2739,71 +2084,6 @@ public class JdbcDataStore implements DataStore {
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
         }
-    }
-
-    /**
-     * Group flat pending rows from a result set into batches keyed by
-     * {@code (groupArtifact, stampVersion)}.
-     *
-     * <p>The reducer uses a {@link LinkedHashMap}, so it tolerates rows arriving in arbitrary
-     * order - rows for the same batch are accumulated by key regardless of where they appear
-     * in the result. Callers therefore do not need to apply an {@code ORDER BY} in the SQL,
-     * which lets H2 skip materialising an {@code MVSortedTempResult} for these reads.
-     *
-     * @param resultSet the JDBC result set positioned before the first row
-     * @return one {@link PendingLibraryImpactedMethod} per distinct
-     *         {@code (groupArtifact, publishSeq)} pair in the result
-     * @throws SQLException if the underlying result-set traversal fails
-     */
-    private List<PendingLibraryImpactedMethod> buildPendingBatchesFromResultSet(ResultSet resultSet) throws SQLException {
-        Map<String, PendingLibraryImpactedMethod> batchMap = new LinkedHashMap<>();
-
-        while (resultSet.next()) {
-            String ga = resultSet.getString(COL_GROUP_ARTIFACT);
-            long publishSeq = resultSet.getLong(COL_PUBLISH_SEQ);
-            String key = ga + "|" + publishSeq;
-
-            PendingLibraryImpactedMethod batch = batchMap.get(key);
-            if (batch == null) {
-                batch = new PendingLibraryImpactedMethod(ga, resultSet.getString(COL_STAMP_VERSION),
-                        publishSeq, new HashSet<>());
-                batchMap.put(key, batch);
-            }
-            batch.getSourceMethodIds().add(resultSet.getInt(COL_TIA_SOURCE_METHOD_ID));
-        }
-
-        return new ArrayList<>(batchMap.values());
-    }
-
-    /**
-     * Group flat forced-selection rows into batches keyed by
-     * {@code (group_artifact, publish_seq, rule_name)}, collecting each batch's non-null patterns.
-     *
-     * @param resultSet the result set over the forced-selection table.
-     * @return one {@link PendingLibraryForcedSelection} per distinct batch key.
-     * @throws SQLException if the result set cannot be read.
-     */
-    private List<PendingLibraryForcedSelection> buildForcedBatchesFromResultSet(ResultSet resultSet) throws SQLException {
-        Map<String, PendingLibraryForcedSelection> batchMap = new LinkedHashMap<>();
-        while (resultSet.next()) {
-            String ga = resultSet.getString(COL_GROUP_ARTIFACT);
-            long seq = resultSet.getLong(COL_PUBLISH_SEQ);
-            String ruleName = resultSet.getString(COL_RULE_NAME);
-            String key = ga + "|" + seq + "|" + ruleName;
-            PendingLibraryForcedSelection batch = batchMap.get(key);
-            if (batch == null) {
-                batch = new PendingLibraryForcedSelection(ga, resultSet.getString(COL_STAMP_VERSION),
-                        seq, ruleName,
-                        StaticTestSelectionRuleMode.valueOf(resultSet.getString(COL_MODE)),
-                        new ArrayList<String>());
-                batchMap.put(key, batch);
-            }
-            String pattern = resultSet.getString(COL_SUITE_NAME_PATTERN);
-            if (pattern != null) {
-                batch.getSuiteNamePatterns().add(pattern);
-            }
-        }
-        return new ArrayList<>(batchMap.values());
     }
 
     /**
