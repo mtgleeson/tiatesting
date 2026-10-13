@@ -29,7 +29,7 @@ class StaticTestSelectionResolverResultTest {
         Set<String> changedPaths = setOf("db/schema.sql");
 
         // when
-        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked, null);
 
         // then
         assertEquals(setOf("com.example.ASpec", "com.example.BSpec"), result.getForcedSuites());
@@ -48,7 +48,7 @@ class StaticTestSelectionResolverResultTest {
         Set<String> changedPaths = setOf("src/main/java/Foo.java");
 
         // when
-        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked, null);
 
         // then
         assertTrue(result.getForcedSuites().isEmpty());
@@ -67,7 +67,7 @@ class StaticTestSelectionResolverResultTest {
                 "src/main/resources/application.properties");
 
         // when
-        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked);
+        StaticTestSelectionResult result = new StaticTestSelectionResolver(config).resolve(changedPaths, tracked, null);
 
         // then - both rules fired, so both contribute a trigger even though their forced sets overlap
         assertEquals(setOf("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT"), result.getForcedSuites());
@@ -82,7 +82,7 @@ class StaticTestSelectionResolverResultTest {
 
         // when
         StaticTestSelectionResult result =
-                new StaticTestSelectionResolver(config).resolve(Collections.<String>emptySet(), tracked);
+                new StaticTestSelectionResolver(config).resolve(Collections.<String>emptySet(), tracked, null);
 
         // then
         assertTrue(result.getForcedSuites().isEmpty());
@@ -98,17 +98,17 @@ class StaticTestSelectionResolverResultTest {
     }
 
     private static StaticTestSelectionConfig configWith(StaticTestSelectionRule... rules) {
-        return new StaticTestSelectionConfig(Arrays.asList(rules));
+        return new StaticTestSelectionConfig(Arrays.asList(rules), null);
     }
 
     private static StaticTestSelectionRule runAllRule(String name, String filePattern) {
-        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null);
+        return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.RUN_ALL, null, null);
     }
 
     private static StaticTestSelectionRule suiteNamesRule(String name, String filePattern,
                                                           String... suitePatterns) {
         return new StaticTestSelectionRule(name, filePattern, StaticTestSelectionRuleMode.SUITE_NAMES,
-                Arrays.asList(suitePatterns));
+                Arrays.asList(suitePatterns), null);
     }
 
     private static Set<String> setOf(String... values) {

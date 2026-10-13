@@ -20,6 +20,7 @@ import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -86,7 +87,7 @@ class TestSelectorSelectionDetailsTest {
         seedMapping();
         StaticTestSelectionConfig staticConfig = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-migrations", ".*\\.sql$",
-                        StaticTestSelectionRuleMode.RUN_ALL, null)));
+                        StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
         CombinedVCSReader vcsReader = new CombinedVCSReader(modifiedDiff(TRACKED_FILE_KEY),
                 Collections.singleton("src/main/resources/db/V001.sql"));
         TestSelector selector = new TestSelector(dataStore, new File("."));
@@ -230,6 +231,20 @@ class TestSelectorSelectionDetailsTest {
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return changedPaths;
+        }
+
+        /**
+         * Content-by-path loading is not exercised by these tests.
+         *
+         * @param paths unused.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
         }
 
         @Override

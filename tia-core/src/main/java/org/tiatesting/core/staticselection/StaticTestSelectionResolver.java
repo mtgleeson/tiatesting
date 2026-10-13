@@ -4,10 +4,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
+import org.tiatesting.core.staticselection.pom.PomChange;
+import org.tiatesting.core.staticselection.pom.PomChangeAnalyzer;
+import org.tiatesting.core.staticselection.pom.PomChangeCategory;
+import org.tiatesting.core.staticselection.pom.PomChangeReport;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -17,9 +24,14 @@ import java.util.regex.Pattern;
  * Evaluates {@link StaticTestSelectionRule}s against the set of changed file paths and the
  * tracked test suites, returning the set of tracked suites that should be force-run.
  *
- * <p>Static rules are additive only: the forced suites in the {@link #resolve(Set, Map)} output
- * are intended to be unioned into the existing dynamic test selection by the caller. A rule can
- * cause additional tests to run; it can never cause a test to be skipped.
+ * <p>Static rules are additive only: the forced suites in the
+ * {@link #resolve(Set, Map, PomChangeAnalyzer)} output are intended to be unioned into the existing
+ * dynamic test selection by the caller. A rule can cause additional tests to run; it can never
+ * cause a test to be skipped.
+ *
+ * <p>A POM-aware rule (one with {@link StaticTestSelectionRule#getPomChanges() pomChanges}) fires
+ * only when a matched POM's changes fall into one of its categories, as classified by a
+ * {@link PomChangeAnalyzer}. POM content is fetched only when such a rule's path pattern matches.
  *
  * <p>Modes {@link StaticTestSelectionRuleMode#RUN_ALL} and
  * {@link StaticTestSelectionRuleMode#SUITE_NAMES} are implemented. The constructor of
@@ -37,11 +49,14 @@ public class StaticTestSelectionResolver {
 
     private static final Logger log = LoggerFactory.getLogger(StaticTestSelectionResolver.class);
 
+    /** How many POM changes a rule's INFO line lists before summarising the rest as a count. */
+    private static final int MAX_LOGGED_POM_CHANGES = 3;
+
     private final StaticTestSelectionConfig config;
 
     /**
      * Lazy {@link SuiteNameIndex}, built on first SUITE_NAMES rule hit and cached. Bound to
-     * the first tracked-suites map passed to {@link #resolve(Set, Map)} or
+     * the first tracked-suites map passed to {@link #resolve(Set, Map, PomChangeAnalyzer)} or
      * {@link #warnOnEmptyRules(Map)}; callers must pass the same map to both methods within
      * a run.
      */
@@ -60,48 +75,174 @@ public class StaticTestSelectionResolver {
 
     /**
      * Resolve every rule against the changed file paths and return the union of forced
-     * suite names. For each rule whose file-path regex matches at least one changed path,
-     * the rule's mode-specific resolution is applied to the tracked suites and the result is
-     * unioned in. Rules whose file-path regex matches no changed paths contribute nothing.
+     * suite names. Which rules fire is decided by {@link #evaluateRules(Set, PomChangeAnalyzer)};
+     * each fired rule's mode-specific resolution is applied to the tracked suites and unioned in.
      *
      * <p>Per fired rule, an INFO log line records the rule name, matched-file count, and
-     * forced-suite count. When DEBUG is enabled an additional line lists the individual
-     * changed file(s) that matched the rule; that per-match detail is gathered only when
-     * DEBUG is on so the read path stays cheap on high-volume commit ranges.
+     * forced-suite count.
      *
      * @param changedPaths the repo-relative, forward-slash-normalised paths of every file
      *                     changed in the current commit range / local workspace.
      * @param testSuitesTracked the tracked test suites keyed by suite name; used to resolve
      *                          forced suite sets.
+     * @param pomAnalyzer classifies the changes to matched POMs for POM-aware rules; may be
+     *                    {@code null} only when the config has no POM-aware rules.
      * @return the union of forced suite names plus one {@link TestRunTrigger} per fired rule;
      *         never {@code null}, both may be empty.
      */
     public StaticTestSelectionResult resolve(final Set<String> changedPaths,
-                               final Map<String, TestSuiteTracker> testSuitesTracked) {
+                                             final Map<String, TestSuiteTracker> testSuitesTracked,
+                                             final PomChangeAnalyzer pomAnalyzer) {
         Set<String> forced = new HashSet<>();
         List<TestRunTrigger> ruleTriggers = new ArrayList<>();
+        for (FiredStaticRule fired : evaluateRules(changedPaths, pomAnalyzer)) {
+            StaticTestSelectionRule rule = fired.getRule();
+            Set<String> ruleForced = resolveRule(rule, testSuitesTracked);
+            log.info("Static test selection rule '{}' matched {} changed file(s), forcing {} test suite(s).",
+                    rule.getName(), fired.getMatchedFileCount(), ruleForced.size());
+            forced.addAll(ruleForced);
+            ruleTriggers.add(new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, fired.getTriggerName(), null,
+                    ruleForced.size()));
+        }
+        return new StaticTestSelectionResult(forced, ruleTriggers);
+    }
+
+    /**
+     * Decide which rules fire for the changed file paths. A plain path rule fires when its
+     * file-path regex matches at least one changed path. A POM-aware rule additionally needs a
+     * matched file's changes to include one of its {@link StaticTestSelectionRule#getPomChanges()
+     * categories}: the POMs matched by any POM-aware rule are classified together in one
+     * {@link PomChangeAnalyzer#analyze} call, so content is fetched only when such a rule matches.
+     * Shared by test selection and the library publish stamper so both evaluate rules the same way.
+     *
+     * <p>For each POM-aware rule that matched, an INFO line explains the outcome: the changes that
+     * made it fire, or the changes it saw when it did not (e.g. a release version bump, all inert).
+     * When DEBUG is enabled each rule's matched files are listed; that detail is gathered only
+     * when DEBUG is on so the read path stays cheap on high-volume commit ranges.
+     *
+     * @param changedPaths the repo-relative, forward-slash-normalised changed file paths.
+     * @param pomAnalyzer classifies the changes to matched POMs; may be {@code null} only when the
+     *                    config has no POM-aware rules.
+     * @return the fired rules, in configuration order; never {@code null}.
+     * @throws IllegalStateException if a POM-aware rule matched and {@code pomAnalyzer} is {@code null}.
+     */
+    public List<FiredStaticRule> evaluateRules(final Set<String> changedPaths, final PomChangeAnalyzer pomAnalyzer) {
+        List<FiredStaticRule> fired = new ArrayList<>();
         if (changedPaths == null || changedPaths.isEmpty()) {
-            return new StaticTestSelectionResult(forced, ruleTriggers);
+            return fired;
         }
 
         boolean debugEnabled = log.isDebugEnabled();
+        Map<StaticTestSelectionRule, List<String>> pomRuleMatches = new LinkedHashMap<>();
+        Set<String> matchedPoms = new LinkedHashSet<>();
         for (StaticTestSelectionRule rule : config.getRules()) {
+            if (rule.isPomAware()) {
+                List<String> matchedPaths = matchingPaths(rule, changedPaths);
+                if (!matchedPaths.isEmpty()) {
+                    pomRuleMatches.put(rule, matchedPaths);
+                    matchedPoms.addAll(matchedPaths);
+                }
+            }
+        }
+        Map<String, PomChangeReport> reports = Collections.emptyMap();
+        if (!matchedPoms.isEmpty()) {
+            if (pomAnalyzer == null) {
+                throw new IllegalStateException("A POM-aware static test selection rule matched, but no POM change"
+                        + " analyzer was supplied.");
+            }
+            reports = pomAnalyzer.analyze(matchedPoms);
+        }
+
+        for (StaticTestSelectionRule rule : config.getRules()) {
+            if (rule.isPomAware()) {
+                List<String> matchedPaths = pomRuleMatches.get(rule);
+                if (matchedPaths == null) {
+                    log.debug("Static test selection rule '{}' did not match any changes, skipping.", rule.getName());
+                    continue;
+                }
+                FiredStaticRule firedPomRule = evaluatePomRule(rule, matchedPaths, reports);
+                if (firedPomRule != null) {
+                    fired.add(firedPomRule);
+                }
+                continue;
+            }
+
             List<String> matchedPaths = debugEnabled ? matchingPaths(rule, changedPaths) : null;
             int matchedFileCount = debugEnabled ? matchedPaths.size() : countMatchingPaths(rule, changedPaths);
             if (matchedFileCount == 0) {
                 log.debug("Static test selection rule '{}' did not match any changes, skipping.", rule.getName());
                 continue;
             }
-            Set<String> ruleForced = resolveRule(rule, testSuitesTracked);
-            log.info("Static test selection rule '{}' matched {} changed file(s), forcing {} test suite(s).",
-                    rule.getName(), matchedFileCount, ruleForced.size());
             if (debugEnabled) {
                 log.debug("Static test selection rule '{}' matched changed file(s): {}", rule.getName(), matchedPaths);
             }
-            forced.addAll(ruleForced);
-            ruleTriggers.add(new TestRunTrigger(TestRunTrigger.Type.STATIC_RULE, rule.getName(), null, ruleForced.size()));
+            fired.add(new FiredStaticRule(rule, matchedFileCount, Collections.<PomChangeCategory>emptySet()));
         }
-        return new StaticTestSelectionResult(forced, ruleTriggers);
+        return fired;
+    }
+
+    /**
+     * Decide whether a POM-aware rule fires for the POMs it matched, and log why.
+     *
+     * @param rule the POM-aware rule.
+     * @param matchedPaths the changed POM paths the rule's path pattern matched.
+     * @param reports the classified changes of every matched POM, keyed by path.
+     * @return the fired rule, or {@code null} when none of the matched POMs' changes is in the
+     *         rule's categories.
+     */
+    private FiredStaticRule evaluatePomRule(final StaticTestSelectionRule rule, final List<String> matchedPaths,
+                                            final Map<String, PomChangeReport> reports) {
+        Set<PomChangeCategory> firedCategories = EnumSet.noneOf(PomChangeCategory.class);
+        List<PomChange> firingChanges = new ArrayList<>();
+        List<PomChange> otherChanges = new ArrayList<>();
+        for (String path : matchedPaths) {
+            for (PomChange change : reports.get(path).getChanges()) {
+                if (!change.isInert() && coveredByRule(rule, change.getCategory())) {
+                    firedCategories.add(change.getCategory());
+                    firingChanges.add(change);
+                } else {
+                    otherChanges.add(change);
+                }
+            }
+        }
+        log.debug("Static test selection rule '{}' matched POM(s) {}; changes: {}",
+                rule.getName(), matchedPaths, reports.values());
+
+        if (firedCategories.isEmpty()) {
+            log.info("Static test selection rule '{}' matched {} but none of the changes is in {}: {}",
+                    rule.getName(), matchedPaths, rule.getPomChanges(),
+                    otherChanges.isEmpty() ? "no changes" : summarize(otherChanges));
+            return null;
+        }
+        log.info("Static test selection rule '{}' fired for {} change(s) in {}: {}",
+                rule.getName(), firedCategories, matchedPaths, summarize(firingChanges));
+        return new FiredStaticRule(rule, matchedPaths.size(), firedCategories);
+    }
+
+    /**
+     * @param rule a POM-aware rule.
+     * @param category a functional change's category.
+     * @return {@code true} when one of the rule's configured categories covers the change.
+     */
+    private boolean coveredByRule(final StaticTestSelectionRule rule, final PomChangeCategory category) {
+        for (PomChangeCategory ruleCategory : rule.getPomChanges()) {
+            if (ruleCategory.covers(category)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Summarise changes for a log line: the first few, plus a count of the rest.
+     *
+     * @param changes the changes.
+     * @return the summary.
+     */
+    private String summarize(final List<PomChange> changes) {
+        int shown = Math.min(changes.size(), MAX_LOGGED_POM_CHANGES);
+        String summary = changes.subList(0, shown).toString();
+        return changes.size() > shown ? summary + " and " + (changes.size() - shown) + " more" : summary;
     }
 
     /**
@@ -116,7 +257,7 @@ public class StaticTestSelectionResolver {
      * that specific pattern matches no tracked suite; this lets a rule with a mix of working
      * and broken patterns still surface the broken ones individually.
      *
-     * <p>Only invoked once per test-selection run; not called from {@link #resolve(Set, Map)}
+     * <p>Only invoked once per test-selection run; not called from {@link #resolve(Set, Map, PomChangeAnalyzer)}
      * so the warnings are not duplicated when the rule actually fires.
      *
      * @param testSuitesTracked the tracked test suites keyed by suite name, used to resolve
@@ -219,9 +360,10 @@ public class StaticTestSelectionResolver {
     /**
      * Collect the changed file paths that match the rule's file-path regex via
      * {@link java.util.regex.Matcher#find()} (substring match). This is the file-listing
-     * counterpart to {@link #countMatchingPaths} and backs the per-rule DEBUG log line in
-     * {@link #resolve(Set, Map)}; it is invoked only when DEBUG logging is enabled so the
-     * hot read path avoids the extra allocation on high-volume commit ranges.
+     * counterpart to {@link #countMatchingPaths}. {@link #evaluateRules} uses it for POM-aware
+     * rules, which need the matched POMs, and for plain rules only when DEBUG logging is enabled
+     * (backing the per-rule DEBUG line) so the hot read path avoids the extra allocation on
+     * high-volume commit ranges.
      *
      * @param rule the rule whose file-path pattern is applied.
      * @param changedPaths the changed file paths to test.

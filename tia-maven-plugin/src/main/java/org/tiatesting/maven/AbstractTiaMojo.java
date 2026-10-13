@@ -24,6 +24,8 @@ import org.tiatesting.core.persistence.DataStoreFactory;
 import org.tiatesting.core.staticselection.StaticTestSelectionConfig;
 import org.tiatesting.core.staticselection.StaticTestSelectionRule;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.staticselection.pom.ExternalPomSource;
+import org.tiatesting.core.staticselection.pom.PomChangeCategory;
 import org.tiatesting.core.util.ProjectDirs;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
@@ -39,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public abstract class AbstractTiaMojo extends AbstractMojo {
 
@@ -405,8 +408,17 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
      *       <suiteNamePattern>.*MigrationIT$</suiteNamePattern>
      *     </suiteNamePatterns>
      *   </tiaStaticTestSelectionRule>
+     *   <tiaStaticTestSelectionRule>
+     *     <name>pom-changes</name>
+     *     <pomChanges>FUNCTIONAL</pomChanges>
+     *     <mode>RUN_ALL</mode>
+     *   </tiaStaticTestSelectionRule>
      * </tiaStaticTestSelectionRules>
      * }</pre>
+     *
+     * <p>A rule with {@code pomChanges} is POM-aware: it fires only when a matched POM's changes
+     * fall into one of the listed categories (release version bumps, metadata and tracked-library
+     * version changes never do), and its {@code filePathPattern} defaults to any {@code pom.xml}.
      */
     @Parameter
     List<MavenStaticTestSelectionRule> tiaStaticTestSelectionRules;
@@ -1046,8 +1058,8 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
     /**
      * Build the static test selection configuration from the Maven nested
      * {@code <tiaStaticTestSelectionRules>} block. Validates each entry, parses its mode, and
-     * pre-compiles its regex patterns. Returns {@link StaticTestSelectionConfig#EMPTY} when
-     * no rules are configured.
+     * pre-compiles its regex patterns, and parses its optional {@code pomChanges} categories.
+     * Returns {@link StaticTestSelectionConfig#EMPTY} when no rules are configured.
      *
      * @return the parsed static test selection config.
      * @throws IllegalArgumentException if any rule is missing required fields, has an unknown
@@ -1062,10 +1074,32 @@ public abstract class AbstractTiaMojo extends AbstractMojo {
         List<StaticTestSelectionRule> compiledRules = new ArrayList<>(rawRules.size());
         for (MavenStaticTestSelectionRule raw : rawRules) {
             StaticTestSelectionRuleMode mode = parseStaticTestSelectionRuleMode(raw.getMode(), raw.getFilePathPattern());
+            Set<PomChangeCategory> pomChanges;
+            try {
+                pomChanges = PomChangeCategory.parseList(raw.getPomChanges());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Static test selection rule '"
+                        + (raw.getName() != null ? raw.getName() : raw.getFilePathPattern()) + "': " + e.getMessage(), e);
+            }
             compiledRules.add(new StaticTestSelectionRule(
-                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns()));
+                    raw.getName(), raw.getFilePathPattern(), mode, raw.getSuiteNamePatterns(), pomChanges));
         }
-        return new StaticTestSelectionConfig(compiledRules);
+        return new StaticTestSelectionConfig(compiledRules, buildExternalPomSource());
+    }
+
+    /**
+     * Build the reader POM-aware static rules use for external parent and BOM POMs: the session's
+     * local repository. Returns {@code null} when there is no session (e.g. a mojo built in a
+     * unit test), making external bumps {@code DEPENDENCY_VERSIONS}.
+     *
+     * @return the local-repository POM source, or {@code null}.
+     */
+    private ExternalPomSource buildExternalPomSource() {
+        if (session == null || session.getRepositorySession() == null
+                || session.getRepositorySession().getLocalRepository() == null) {
+            return null;
+        }
+        return new LocalRepositoryPomSource(session.getRepositorySession().getLocalRepository().getBasedir(), getLog());
     }
 
     /**

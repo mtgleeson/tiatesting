@@ -7,6 +7,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.diff.SourceFileDiffContext;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSAnalyzerException;
 import org.tiatesting.core.vcs.VCSReader;
 
@@ -15,6 +16,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class GitReader implements VCSReader {
@@ -58,6 +60,15 @@ public class GitReader implements VCSReader {
     @Override
     public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
         return gitDiffAnalyzer.getChangedFilePaths(gitContext, baseChangeNum, checkLocalChanges);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                         final boolean checkLocalChanges) {
+        return gitDiffAnalyzer.loadFileContents(gitContext, paths, baseChangeNum, checkLocalChanges);
     }
 
     @Override

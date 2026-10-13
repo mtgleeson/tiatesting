@@ -5,6 +5,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -70,6 +71,20 @@ public class StubVCSReaderProvider implements VCSReaderProvider {
             @Override
             public Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges) {
                 return Collections.emptySet();
+            }
+
+            /**
+             * Content-by-path loading is not exercised by these tests.
+             *
+             * @param paths unused.
+             * @param baseChangeNum unused.
+             * @param checkLocalChanges unused.
+             * @return never returns.
+             */
+            @Override
+            public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                                 final boolean checkLocalChanges) {
+                throw new UnsupportedOperationException("loadFileContents is not used by this test");
             }
 
             @Override

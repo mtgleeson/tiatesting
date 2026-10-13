@@ -16,6 +16,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.File;
@@ -23,6 +24,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -397,6 +399,20 @@ class TiaPluginPublishStampHookTest {
             return changed;
         }
 
+        /**
+         * Content-by-path loading is not exercised by these tests.
+         *
+         * @param paths unused.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
+        }
+
         @Override public void close() { }
     }
 
@@ -423,6 +439,20 @@ class TiaPluginPublishStampHookTest {
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return new HashSet<>();
+        }
+
+        /**
+         * Content-by-path loading is not exercised by these tests.
+         *
+         * @param paths unused.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
         }
 
         @Override public void close() { }

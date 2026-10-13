@@ -4,6 +4,7 @@ import org.tiatesting.core.diff.SourceFileDiffContext;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -75,6 +76,29 @@ public interface VCSReader {
      * @return the set of changed file paths; never {@code null}, may be empty.
      */
     Set<String> getChangedFilePaths(final String baseChangeNum, final boolean checkLocalChanges);
+
+    /**
+     * Load the "before" and "after" content of arbitrary files by path. Unlike
+     * {@link #loadContentForDiffs}, the paths need not come from {@link #getDiffFiles} and need not
+     * be changed at all: an unchanged file comes back with equal old and new content. Used by
+     * POM-aware static test selection rules, which classify what changed inside a build file
+     * (and read unchanged parent / module POMs to resolve it).
+     *
+     * <p>For the commit range the "before" side is the file at {@code baseChangeNum} and the
+     * "after" side is the file at head. For local changes the "before" side is the file at the
+     * workspace head and the "after" side is the working-copy file on disk. A side is
+     * {@code null} when the file does not exist there.
+     *
+     * @param paths the repo-relative, forward-slash-normalised paths to load, in the same form
+     *              {@link #getChangedFilePaths} returns.
+     * @param baseChangeNum the current commit number stored in the mapping (the "before" baseline
+     *                      for the commit range; ignored when {@code checkLocalChanges} is {@code true}).
+     * @param checkLocalChanges whether to compare the workspace head against the working copy
+     *                          instead of the commit range.
+     * @return one entry per requested path, keyed by the path as given; never {@code null}.
+     */
+    Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                  final boolean checkLocalChanges);
 
     /**
      * Do any clean up action when no further interactions with the VCS are needed.

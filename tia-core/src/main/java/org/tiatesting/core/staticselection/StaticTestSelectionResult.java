@@ -17,7 +17,8 @@ public final class StaticTestSelectionResult {
     private final List<TestRunTrigger> ruleTriggers;
 
     /**
-     * Build the resolution outcome for one {@link StaticTestSelectionResolver#resolve(Set, java.util.Map)}
+     * Build the resolution outcome for one {@link StaticTestSelectionResolver#resolve(Set, java.util.Map,
+     * org.tiatesting.core.staticselection.pom.PomChangeAnalyzer)}
      * call, normalising null inputs to empty collections so callers never need to null-check the
      * getters.
      *
