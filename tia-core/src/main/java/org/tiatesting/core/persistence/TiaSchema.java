@@ -1,0 +1,122 @@
+package org.tiatesting.core.persistence;
+
+/**
+ * Table, column and index names of the Tia relational schema, shared by every JDBC class in this
+ * package. {@link SchemaManager} creates and migrates the tables; the repositories read and write
+ * them. Kept in one place so a rename cannot leave the DDL and the queries disagreeing.
+ */
+final class TiaSchema {
+    static final String COL_COMMIT_VALUE = "commit_value";
+    static final String COL_LAST_UPDATED = "last_updated";
+    static final String COL_NUM_RUNS = "num_runs";
+    static final String COL_AVG_RUN_TIME = "avg_run_time";
+    static final String COL_NUM_SUCCESS_RUNS = "num_success_runs";
+    static final String COL_NUM_FAIL_RUNS = "num_fail_runs";
+    static final String COL_ALL_TESTS_RUN_TIME = "all_tests_run_time";
+    static final String COL_NUM_ALL_TESTS_RUNS = "num_all_tests_runs";
+    static final String COL_FIXED_OVERHEAD_MS = "fixed_overhead_ms";
+    static final String COL_CAPTURE_OVERHEAD_PER_SUITE_MS = "capture_overhead_per_suite_ms";
+    static final String COL_NUM_OVERHEAD_MEASUREMENTS = "num_overhead_measurements";
+    static final String COL_DEVELOPER_DISABLED = "developer_disabled";
+    static final String COL_UNSEALED = "unsealed";
+    static final String TABLE_TIA_CORE = "tia_core";
+    static final String TABLE_TIA_TEST_SUITE = "tia_test_suite";
+    static final String TABLE_TIA_TEST_SUITES_FAILED = TABLE_TIA_TEST_SUITE + "s_failed";
+    static final String TABLE_TIA_SOURCE_METHOD = "tia_source_method";
+    static final String COL_NAME = "name";
+    static final String COL_SOURCE_FILENAME = "source_file" + COL_NAME;
+    static final String TABLE_TIA_SOURCE_CLASS = "tia_source_class";
+    static final String COL_ID = "id";
+    static final String COL_TIA_TEST_SUITE_ID = "tia_test_suite_" + COL_ID;
+    static final String TABLE_TIA_SOURCE_CLASS_METHOD = "tia_source_class_method";
+    static final String COL_TIA_SOURCE_CLASS_ID = "tia_source_class_" + COL_ID;
+    static final String COL_TIA_SOURCE_METHOD_ID = "tia_source_method_" + COL_ID;
+    static final String COL_METHOD_NAME = "method_" + COL_NAME;
+    static final String COL_LINE_NUMBER_START = "line_number_start";
+    static final String COL_LINE_NUMBER_END = "line_number_end";
+    static final String COL_LINE_RANGES = "line_ranges";
+    static final String COL_EXECUTED_RUN_COUNT = "executed_run_count";
+    static final String COL_TRIGGERED_RUN_COUNT = "triggered_run_count";
+    static final String COL_TRIGGER_METHOD_ID = "trigger_method_id";
+    static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
+    static final String TABLE_TIA_LIBRARY = "tia_library";
+    static final String COL_GROUP_ARTIFACT = "group_artifact";
+    static final String COL_PROJECT_DIR = "project_dir";
+    static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
+    static final String COL_MAPPING_BASELINE_COMMIT = "mapping_baseline_commit";
+    static final String COL_LAST_APPLIED_SEQ = "last_applied_seq";
+    static final String TABLE_TIA_LIBRARY_PUBLISH = "tia_library_publish";
+    static final String COL_PUBLISH_SEQ = "publish_seq";
+    static final String COL_PUBLISHED_VERSION = "published_version";
+    static final String COL_JAR_HASH = "jar_hash";
+    static final String COL_PUBLISHED_AT = "published_at";
+    static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
+    static final String COL_STAMP_VERSION = "stamp_version";
+    static final String TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION = "tia_pending_library_forced_selection";
+    static final String COL_RULE_NAME = "rule_name";
+    static final String COL_MODE = "mode";
+    static final String COL_SUITE_NAME_PATTERN = "suite_name_pattern";
+    static final String TABLE_TIA_TEST_RUN_HISTORY = "tia_test_run_history";
+    static final String COL_RUN_TIMESTAMP = "run_timestamp";
+    static final String COL_BRANCH = "branch";
+    static final String COL_NUM_SUITES_RAN = "num_suites_ran";
+    static final String COL_NUM_SUITES_IGNORED = "num_suites_ignored";
+    static final String COL_NUM_SUITES_FAILED = "num_suites_failed";
+    static final String COL_DURATION_MS = "duration_ms";
+    static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
+    static final String COL_TIME_SAVINGS = "time_savings";
+    static final String COL_SAVINGS_PERCENT = "savings_percent";
+    static final String COL_WALL_CLOCK_SAVINGS = "wall_clock_savings";
+    static final String COL_WALL_CLOCK_SAVINGS_PERCENT = "wall_clock_savings_percent";
+    static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
+    static final String COL_RUN_SOURCE = "run_source";
+    static final String COL_HOST_NAME = "host_name";
+    static final String COL_NUM_MODIFIED_TEST_FILES = "num_modified_test_files";
+    static final String COL_NUM_NEW_TEST_FILES = "num_new_test_files";
+    static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
+    static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
+    static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
+    static final String COL_RERUN = "rerun";
+    static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
+    static final String COL_HISTORY_ID = "history_id";
+    static final String COL_TRIGGER_TYPE = "trigger_type";
+    static final String COL_TRIGGER_NAME = "trigger_name";
+    static final String COL_TEST_COUNT = "test_count";
+    static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
+    static final String COL_BLOCK_NAME = "block_name";
+    static final String COL_NEXT_VALUE = "next_value";
+    static final String ID_BLOCK_SOURCE_CLASS = TABLE_TIA_SOURCE_CLASS;
+    static final String TABLE_TIA_DISTRIBUTED_RUN = "tia_distributed_run";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP = TABLE_TIA_DISTRIBUTED_RUN + "_group";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE = TABLE_TIA_DISTRIBUTED_RUN_GROUP + "_suite";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE = TABLE_TIA_DISTRIBUTED_RUN + "_method_stage";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD = TABLE_TIA_DISTRIBUTED_RUN + "_covered_method";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_SELECTION = TABLE_TIA_DISTRIBUTED_RUN + "_selection";
+    static final String TABLE_TIA_DISTRIBUTED_RUN_TRIGGER = TABLE_TIA_DISTRIBUTED_RUN + "_trigger";
+    static final String COL_RUN_ID = "run_id";
+    static final String COL_STATUS = "status";
+    static final String COL_GROUP_COUNT = "group_count";
+    static final String COL_TARGET_RUN_TIME_MS = "target_run_time_ms";
+    static final String COL_ESTIMATED_TOTAL_MS = "estimated_total_ms";
+    static final String COL_CREATED_AT = "created_at";
+    static final String COL_SEALED_BY = "sealed_by";
+    static final String COL_SEALED_AT = "sealed_at";
+    static final String COL_DRAIN_RESULT = "drain_result";
+    static final String COL_SELECTION_MODE = "selection_mode";
+    static final String COL_GROUPS_AVAILABLE = "groups_available";
+    static final String COL_GROUP_NUMBER = "group_number";
+    static final String COL_RUNNER_KEY = "runner_key";
+    static final String COL_CLAIMED_AT = "claimed_at";
+    static final String COL_COMPLETED_AT = "completed_at";
+    static final String COL_ESTIMATED_MS = "estimated_ms";
+    static final String COL_ACTUAL_DURATION_MS = "actual_duration_ms";
+    static final String COL_SUITES_RAN = "suites_ran";
+    static final String COL_SUITES_FAILED = "suites_failed";
+    static final String COL_SUITES_OBSERVED = "suites_observed";
+    static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
+    static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
+    static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
+
+    private TiaSchema() {
+    }
+}
