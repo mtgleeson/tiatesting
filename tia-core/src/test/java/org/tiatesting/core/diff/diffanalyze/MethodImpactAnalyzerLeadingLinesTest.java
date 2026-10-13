@@ -393,6 +393,29 @@ class MethodImpactAnalyzerLeadingLinesTest {
     }
 
     /**
+     * With Allman-style braces the {@code try} keyword and its brace are on separate lines; the walk
+     * steps over both to reach the signature and its annotation.
+     */
+    @Test
+    void declarationWalkStepsOverAnAllmanTryBlock() {
+        // given
+        List<String> lines = Arrays.asList(
+                "",                                        // 1
+                "    @Transactional",                      // 2
+                "    public void save()",                  // 3
+                "    {",                                   // 4
+                "        try",                             // 5
+                "        {",                               // 6
+                "            repo.save();");               // 7
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(6, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
      * A line whose first word only starts with a block keyword (here {@code format}) isn't a block
      * opener, so the walk treats it as part of the declaration as usual and stops at the brace above.
      */
