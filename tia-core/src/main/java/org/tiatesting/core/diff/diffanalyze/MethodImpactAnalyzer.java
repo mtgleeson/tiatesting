@@ -26,6 +26,7 @@ public class MethodImpactAnalyzer {
     private static final Pattern UNIFIED_DIFF_HUNK_PATTERN = Pattern.compile("^@@ \\-(\\d+),(\\d+) \\+(\\d+),(\\d+) @@$");
     private static final int HUNK_DIFF_ORIG_LINE_START_GROUP_INDEX = 1;
     private static final int HUNK_DIFF_ORIG_LINE_START_COUNT_GROUP_INDEX = 2;
+    private static final Pattern STATEMENT_BLOCK_OPENER_PATTERN = Pattern.compile("^(try|do|while|for)\\b.*\\{$");
 
     /**
      * Compare two versions of a source file and create a unified diff.
@@ -175,15 +176,17 @@ public class MethodImpactAnalyzer {
      * (e.g. {@code @Transactional}) wouldn't impact the method. Two walks, both upwards:
      * <ol>
      *   <li>Over the blank and comment-only lines directly above the padded begin, stopping at and
-     *       including the first line with anything else on it - normally the signature line.</li>
-     *   <li>Unless that line ends the previous member (it ends with <code>;</code> or <code>&#125;</code>, as for a
-     *       one-line method or a constructor whose first line is its signature), on over the lines
-     *       directly above it that belong to the declaration - see
+     *       including the first line with anything else on it - normally the signature line. A
+     *       statement block opener with no code of its own (e.g. <code>try &#123;</code> at the top of the
+     *       body - see {@link #opensStatementBlock(String)}) is stepped over and the walk repeated.</li>
+     *   <li>Unless that line ends the previous member (it ends with <code>;</code> or
+     *       <code>&#125;</code>, as for a one-line method or a constructor whose first line is its
+     *       signature), on over the lines directly above it that belong to the declaration - see
      *       {@link #isDeclarationLine(String)}. This stops at a blank line, at a comment (the method's
      *       Javadoc) and at the end of the previous member.</li>
      * </ol>
      * This only widens the range, so at worst a few extra tests are selected.
-     * See the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
+     * See the "Matching a diff to tracked methods" chapter in {@code WIKI.md}.
      *
      * @param matchedLineBegin the 1-based padded begin line (the line before the first code line)
      * @param originalFileLines the original (pre-change) file content, line 1 at index 0
@@ -195,9 +198,9 @@ public class MethodImpactAnalyzer {
             return matchedLineBegin;
         }
 
-        int lineNumber = matchedLineBegin;
-        while (lineNumber > 1 && isBlankOrCommentLine(originalFileLines.get(lineNumber - 1))) {
-            lineNumber--;
+        int lineNumber = walkOverBlankAndCommentLines(matchedLineBegin, originalFileLines);
+        while (lineNumber > 1 && opensStatementBlock(originalFileLines.get(lineNumber - 1))) {
+            lineNumber = walkOverBlankAndCommentLines(lineNumber - 1, originalFileLines);
         }
 
         if (endsStatementOrBlock(codeWithoutTrailingComment(originalFileLines.get(lineNumber - 1)))) {
@@ -209,6 +212,36 @@ public class MethodImpactAnalyzer {
             lineNumber--;
         }
         return lineNumber;
+    }
+
+    /**
+     * Walk upwards from a line over blank and comment-only lines.
+     *
+     * @param lineNumber the 1-based line to start from, within the file
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @return the 1-based first line at or above {@code lineNumber} that isn't blank or comment-only,
+     *         or line 1
+     */
+    private static int walkOverBlankAndCommentLines(final int lineNumber, final List<String> originalFileLines){
+        int current = lineNumber;
+        while (current > 1 && isBlankOrCommentLine(originalFileLines.get(current - 1))) {
+            current--;
+        }
+        return current;
+    }
+
+    /**
+     * Whether a source line opens a statement block that can sit at the top of a method body with no
+     * code on its own line - {@code try}, {@code do}, or a {@code while}/{@code for} loop whose
+     * condition compiles to no instructions there (e.g. {@code while (true)}). JaCoCo's first code line
+     * is then inside the block, so the padded begin lands on the opener rather than the signature. A
+     * declaration line never starts with these keywords, so stepping over the line is always safe.
+     *
+     * @param line the source line
+     * @return true when the line's code starts with one of the keywords and ends with an opening brace
+     */
+    private static boolean opensStatementBlock(final String line){
+        return STATEMENT_BLOCK_OPENER_PATTERN.matcher(codeWithoutTrailingComment(line)).matches();
     }
 
     /**

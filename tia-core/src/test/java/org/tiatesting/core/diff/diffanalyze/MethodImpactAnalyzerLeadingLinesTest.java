@@ -351,6 +351,67 @@ class MethodImpactAnalyzerLeadingLinesTest {
     }
 
     /**
+     * A {@code try} block at the top of a method has no code on its own line, so JaCoCo's first code
+     * line is inside it. The walk steps over the opener to reach the signature and annotations.
+     */
+    @Test
+    void declarationWalkStepsOverATryBlockOpener() {
+        // given
+        List<String> lines = Arrays.asList(
+                "",                                        // 1
+                "    @Transactional",                      // 2
+                "    public void save() {",                // 3
+                "",                                        // 4
+                "        try { // persist",                // 5
+                "            repo.save();");               // 6
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(5, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
+     * Nested code-less openers ({@code while (true)} then {@code try}) are all stepped over.
+     */
+    @Test
+    void declarationWalkStepsOverNestedBlockOpeners() {
+        // given
+        List<String> lines = Arrays.asList(
+                "    @Scheduled",                          // 1
+                "    public void poll() {",                // 2
+                "        while (true) {",                  // 3
+                "            try {",                       // 4
+                "                drain();");               // 5
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(4, lines);
+
+        // then
+        assertEquals(1, widenedBegin);
+    }
+
+    /**
+     * A line whose first word only starts with a block keyword (here {@code format}) isn't a block
+     * opener, so the walk treats it as part of the declaration as usual and stops at the brace above.
+     */
+    @Test
+    void identifierStartingWithKeywordIsNotABlockOpener() {
+        // given
+        List<String> lines = Arrays.asList(
+                "public class Widget {",                   // 1
+                "    format(Locale.UK) {",                 // 2
+                "        apply();");                       // 3
+
+        // when
+        int widenedBegin = MethodImpactAnalyzer.widenStartToDeclaration(2, lines);
+
+        // then
+        assertEquals(2, widenedBegin);
+    }
+
+    /**
      * Runs the analyzer over one file's diff with the given tracked methods, keyed by their ids.
      *
      * @param original the original file lines
