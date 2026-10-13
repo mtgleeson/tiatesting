@@ -2,10 +2,10 @@
 
 Tia maps a source diff onto tracked methods by line number: each method in `tia_source_method` has
 the first and last line JaCoCo reports for it, and `MethodImpactAnalyzer` selects every method whose
-range (padded by one line either side, for the signature and closing brace) overlaps a changed
-hunk. That works for ordinary methods, whose lines are contiguous. It does not work for
-constructors (`<init>`) and static initializers (`<clinit>`), and this chapter covers why and what
-Tia records for them instead.
+range overlaps a changed hunk (see [Matching a diff to tracked methods](method-diff-matching.md)).
+That works for ordinary methods, whose lines are contiguous. It does not work for constructors
+(`<init>`) and static initializers (`<clinit>`), and this chapter covers why and what Tia records
+for them instead.
 
 ### The problem: field initializers are compiled into the constructor
 
@@ -87,14 +87,12 @@ field (or initializer block) after another member.
 ### How a diff is matched
 
 `MethodImpactAnalyzer.findTrackedMethodsForSourceDiff` matches a method that has line ranges against
-those ranges instead of its start-end range, with no extra padding (the ranges already include it).
-`MethodImpactTracker.getMatchedLineRanges()` is the single definition of the lines a change must
-touch: the stored ranges when present, otherwise start-end widened by one line either side. The
-HTML method detail page shows it as "Lines matched for changes" next to the first and last code
-line, so the one-line allowance is visible for every method, not just split initializers.
-A pure insertion hunk is written by java-diff-utils as `-N,0`, meaning the new lines go before
-original line N, so it touches a range that contains either neighbour, N-1 or N. That is what makes
-a new field added directly after the last field still count as a constructor change.
+those ranges instead of its start-end range, with no extra padding (the ranges already include it)
+and without the begin-line widening ordinary methods get. `MethodImpactTracker.getMatchedLineRanges()`
+returns the stored ranges when present, and the HTML method detail page shows them as "Lines matched
+for changes". A pure insertion hunk (`-N,0`, new lines before original line N) touches a range that
+contains either neighbour, N-1 or N. That is what makes a new field added directly after the last
+field still count as a constructor change.
 
 With the example above:
 

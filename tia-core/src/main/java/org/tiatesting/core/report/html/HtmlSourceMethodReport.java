@@ -46,7 +46,9 @@ public class HtmlSourceMethodReport {
      */
     private static final String LINES_MATCHED_EXPLANATION = "A source change impacts this method when it "
             + "touches any of the lines matched for changes: its code lines plus the line before the first "
-            + "and the line after the last, so edits to its signature and closing brace also count.";
+            + "and the line after the last, so edits to its signature and closing brace also count. Unless "
+            + "the method is a split initializer, the start also extends upwards when a diff is matched, over "
+            + "blank and comment lines, annotations and a multi-line signature above it.";
 
     /**
      * Extra explanation for a constructor or static initializer whose range is split by other
