@@ -174,6 +174,50 @@ class ClassDeclarationScannerTest {
     }
 
     /**
+     * A static final field whose initializer makes a call, uses new or opens a block compiles into
+     * the static initializer, so like any initialized field only its annotation lines are class-level.
+     */
+    @Test
+    void staticFinalWithCodeInitializerIsNotAConstant() {
+        // given
+        List<String> lines = Arrays.asList(
+                "public class Widget {",                                                      // 1
+                "    private static final Logger log = LoggerFactory.getLogger(Widget.class);", // 2
+                "    @Deprecated",                                                            // 3
+                "    private static final Map<String, Integer> SIZES = new HashMap<>();",     // 4
+                "    private static final int[] PRIMES = {2, 3, 5};",                         // 5
+                "}");                                                                         // 6
+
+        // when
+        Map<String, int[]> declarations = ClassDeclarationScanner.scan(lines);
+
+        // then
+        assertArrayEquals(new int[]{1, 1, 3, 3}, declarations.get("Widget"));
+    }
+
+    /**
+     * Abstract and interface method declarations end with a semicolon but aren't fields, so they
+     * aren't class-level - including one with a throws clause and annotated parameters.
+     */
+    @Test
+    void abstractMethodDeclarationIsNotClassLevel() {
+        // given
+        List<String> lines = Arrays.asList(
+                "public abstract class Worker {",                                    // 1
+                "    @Override",                                                     // 2
+                "    public abstract void process(@NotNull Order order);",           // 3
+                "    protected abstract Result load(String id) throws IOException;", // 4
+                "    @Value(\"${size}\") private int size;",                          // 5
+                "}");                                                                // 6
+
+        // when
+        Map<String, int[]> declarations = ClassDeclarationScanner.scan(lines);
+
+        // then
+        assertArrayEquals(new int[]{1, 1, 5, 5}, declarations.get("Worker"));
+    }
+
+    /**
      * A field of an interface is implicitly static final, so it is class-level even without the
      * modifiers.
      */

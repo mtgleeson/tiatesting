@@ -16,16 +16,17 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>the class header - its annotations, the declaration line and a multi-line
  *       {@code extends}/{@code implements} clause, down to the line with the class's opening brace;</li>
- *   <li>each member that ends with a semicolon at class-body level - a field with its annotations,
- *       an enum constant list, or an abstract/interface method.</li>
+ *   <li>each field at class-body level with its annotations, and an enum constant list.</li>
  * </ul>
  * A field with an initializer is different: the initializer compiles into the constructor or static
  * initializer, whose line ranges already match it, so only its annotation lines above the line with
- * the {@code =} are class-level. The exception is a {@code static final} field (or any field of an
- * interface or annotation type, which is implicitly {@code static final}): a constant with a literal
- * value is inlined by the compiler and has no initializer code, so its whole declaration is
- * class-level. Methods, constructors and initializer blocks are not class-level: their lines are
- * matched to the method itself. Comments, including Javadoc, are never part of a range.
+ * the {@code =} are class-level. The exception is a constant the compiler may inline - a
+ * {@code static final} field (or any field of an interface or annotation type, which is implicitly
+ * {@code static final}) whose initializer makes no call, uses no {@code new} and opens no block. It has
+ * no initializer code, so its whole declaration is class-level. Methods (including abstract and
+ * interface method declarations), constructors and initializer blocks are not class-level: their lines
+ * are matched to the method itself, and implementers change with an abstract method's signature.
+ * Comments, including Javadoc, are never part of a range.
  *
  * <p>The scan is a single pass that tracks brace depth, skipping braces inside comments, string and
  * character literals and text blocks, and keeps a stack of the enclosing classes so a nested class's
@@ -38,6 +39,14 @@ final class ClassDeclarationScanner {
             "(?:^|\\s)(@interface|class|interface|enum|record|trait)\\s+([A-Za-z_$][\\w$]*)");
     private static final Pattern STATIC_PATTERN = Pattern.compile("(?:^|\\s)static\\s");
     private static final Pattern FINAL_PATTERN = Pattern.compile("(?:^|\\s)final\\s");
+    private static final Pattern NEW_PATTERN = Pattern.compile("(?:^|[^\\w$])new(?:[^\\w$]|$)");
+    /**
+     * A member whose code (with each top-level parenthesized part reduced to {@code ()}) ends with a
+     * parameter list and an optional {@code throws} clause is a method declaration. The name before
+     * the list must not be an annotation's.
+     */
+    private static final Pattern METHOD_DECLARATION_PATTERN = Pattern.compile(
+            "(?:^|[^@\\w$])[A-Za-z_$][\\w$]*\\s*\\(\\)\\s*(?:throws\\s+[\\w$.,\\s<>]+)?\\s*$");
 
     private ClassDeclarationScanner() {
     }
@@ -75,6 +84,8 @@ final class ClassDeclarationScanner {
         private int memberStartLine = -1;
         /** The line of the current member's first {@code =} at paren depth 0, or -1 for none. */
         private int assignmentLine = -1;
+        /** Whether the current member's initializer makes a call or opens a block, so can't be inlined. */
+        private boolean initializerHasCode;
 
         /**
          * @param classPath the class's nesting path, or {@code null} for a block or the file
@@ -103,6 +114,7 @@ final class ClassDeclarationScanner {
             member.setLength(0);
             memberStartLine = -1;
             assignmentLine = -1;
+            initializerHasCode = false;
         }
 
         /**
@@ -230,6 +242,13 @@ final class ClassDeclarationScanner {
 
             switch (c) {
                 case '(':
+                    if (frame.parenDepth == 0) {
+                        // keep a marker for the parenthesized part, so a parameter list stays visible
+                        frame.member.append("()");
+                        if (frame.assignmentLine > 0) {
+                            frame.initializerHasCode = true;
+                        }
+                    }
                     frame.parenDepth++;
                     break;
                 case ')':
@@ -297,6 +316,8 @@ final class ClassDeclarationScanner {
                 return;
             }
             if (frame.isClassBody() && frame.hasMember() && frame.assignmentLine > 0) {
+                // the initializer opens a block (an array, lambda or anonymous class), so it has code
+                frame.initializerHasCode = true;
                 addFieldRange(frame, lineNumber);
             }
             frame.resetMember();
@@ -345,15 +366,19 @@ final class ClassDeclarationScanner {
         }
 
         /**
-         * Record the class-level lines of a field-like member ending on the given line. Without an
-         * initializer, or for a constant (see {@link #isConstant(Frame)}), that is the whole member.
-         * Otherwise the initializer is matched to the constructor or static initializer, so only the
-         * lines above the one with the {@code =} - its annotations - are class-level.
+         * Record the class-level lines of a member ending with a semicolon (or an enum constant list
+         * closed by the enum's brace). A method declaration (abstract or in an interface) has none.
+         * Without an initializer, or for a constant (see {@link #isConstant(Frame)}), that is the whole
+         * member. Otherwise the initializer is matched to the constructor or static initializer, so only
+         * the lines above the one with the {@code =} - its annotations - are class-level.
          *
          * @param frame the class body frame holding the member
          * @param endLine the 1-based line the member ends on
          */
         private void addFieldRange(final Frame frame, final int endLine) {
+            if (frame.assignmentLine < 0 && METHOD_DECLARATION_PATTERN.matcher(frame.member).find()) {
+                return;
+            }
             if (frame.assignmentLine < 0 || isConstant(frame)) {
                 addRange(frame.classPath, frame.memberStartLine, endLine);
             } else if (frame.assignmentLine > frame.memberStartLine) {
@@ -363,13 +388,20 @@ final class ClassDeclarationScanner {
 
         /**
          * Whether the frame's current member is a constant the compiler may inline: a field of an
-         * interface or annotation type, or one declared {@code static final}.
+         * interface or annotation type, or one declared {@code static final}, whose initializer makes no
+         * call, uses no {@code new} and opens no block - i.e. one built from literals and other
+         * constants. Any other initializer compiles into the static initializer.
          *
          * @param frame the class body frame holding the member
          * @return true when the member may be an inlined constant
          */
         private boolean isConstant(final Frame frame) {
             String member = frame.member.toString();
+            int assignment = member.indexOf('=');
+            if (frame.initializerHasCode || (assignment >= 0
+                    && NEW_PATTERN.matcher(member.substring(assignment + 1)).find())) {
+                return false;
+            }
             return frame.interfaceBody
                     || (STATIC_PATTERN.matcher(member).find() && FINAL_PATTERN.matcher(member).find());
         }
