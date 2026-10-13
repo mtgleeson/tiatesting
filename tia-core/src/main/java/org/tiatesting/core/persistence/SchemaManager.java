@@ -794,7 +794,7 @@ class SchemaManager {
      *
      * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
      * #ensureDistributedRunSelectionTablesExist}, since they belong to the same distributed-run
-     * schema even though {@link JdbcDataStore#persistDistributedRunPlan} does not write them itself.
+     * schema even though {@link DistributedRunRepository#persistDistributedRunPlan} does not write them itself.
      *
      * @param connection the connection to issue the DDL on
      * @throws SQLException if any DDL statement fails
@@ -840,8 +840,8 @@ class SchemaManager {
      * Build the DDL for the {@code tia_distributed_run_trigger} table: one row per selection
      * trigger staged for a distributed run, mirroring {@code tia_test_run_history_trigger}'s shape
      * but keyed by run id rather than history id, and with no foreign key - the run-id-keyed
-     * tables are cleared explicitly by {@link JdbcDataStore#persistDistributedRunSelectionDetails} and by
-     * {@link JdbcDataStore#persistDistributedRunPlan}'s {@code tablesToClear}, not by a cascade.
+     * tables are cleared explicitly by {@link DistributedRunRepository#persistDistributedRunSelectionDetails} and by
+     * {@link DistributedRunRepository#persistDistributedRunPlan}'s {@code tablesToClear}, not by a cascade.
      *
      * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-trigger table
      */
