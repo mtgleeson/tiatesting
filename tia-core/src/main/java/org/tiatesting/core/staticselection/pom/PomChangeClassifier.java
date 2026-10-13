@@ -204,7 +204,9 @@ public final class PomChangeClassifier {
         if (isReactorParent(oldSide, newSide, oldVersion, newVersion)) {
             changes.add(PomChange.inert("reactor " + description));
         } else {
-            changes.add(PomChange.functional(PomChangeCategory.DEPENDENCY_VERSIONS, "external " + description));
+            classifyExternalPomBump(false, newSide.resolver.resolve(PomXml.childText(newParent, "groupId")),
+                    newSide.resolver.resolve(PomXml.childText(newParent, "artifactId")), oldVersion, newVersion,
+                    "external " + description, newSide.environment, changes);
         }
     }
 
@@ -388,9 +390,57 @@ public final class PomChangeClassifier {
                     + " (handled by library impact analysis)"));
         } else if (isReactorModule(before, after, oldSide, newSide)) {
             changes.add(PomChange.inert("reactor module " + after.displayName() + versions));
+        } else if (after.isBomImport() && before.isBomImport()) {
+            classifyExternalPomBump(true, after.groupId, after.artifactId, before.version, after.version,
+                    "BOM import " + after.displayName() + versions, newSide.environment, changes);
         } else {
             changes.add(PomChange.functional(PomChangeCategory.DEPENDENCY_VERSIONS,
-                    (after.isBomImport() ? "BOM import " : kind) + after.displayName() + versions));
+                    kind + after.displayName() + versions));
+        }
+    }
+
+    /**
+     * Classify a version bump of a POM outside the repository (an external parent or an imported
+     * BOM) by what it changes. Both versions are read through the environment; when either is
+     * unavailable the bump is {@code DEPENDENCY_VERSIONS}. Otherwise the two versions are
+     * classified like any POM diff, and the bump itself is recorded as inert with the external
+     * POM's functional changes listed after it. For a BOM only dependency changes count, since an
+     * import brings in only its dependency management.
+     *
+     * @param bom {@code true} for an imported BOM, {@code false} for an external parent.
+     * @param groupId the external POM's groupId.
+     * @param artifactId the external POM's artifactId.
+     * @param oldVersion the version before the change.
+     * @param newVersion the version after the change.
+     * @param description the description of the bump.
+     * @param environment the environment of the POM that declares the parent or import.
+     * @param changes the accumulator.
+     */
+    private void classifyExternalPomBump(final boolean bom, final String groupId, final String artifactId,
+                                         final String oldVersion, final String newVersion, final String description,
+                                         final PomEnvironment environment, final List<PomChange> changes) {
+        String oldPom = environment.externalPom(groupId, artifactId, oldVersion);
+        String newPom = environment.externalPom(groupId, artifactId, newVersion);
+        if (oldPom == null || newPom == null) {
+            changes.add(PomChange.functional(PomChangeCategory.DEPENDENCY_VERSIONS, description));
+            return;
+        }
+
+        PomEnvironment externalEnvironment = bom
+                ? environment.importedBomEnvironment(oldPom, newPom)
+                : environment.externalParentEnvironment(oldPom, newPom);
+        List<PomChange> relevant = new ArrayList<>();
+        for (PomChange change : classify(oldPom, newPom, externalEnvironment).getChanges()) {
+            if (!change.isInert() && (!bom || change.getCategory() == PomChangeCategory.DEPENDENCY_VERSIONS
+                    || change.getCategory() == PomChangeCategory.DEPENDENCY_SET)) {
+                relevant.add(change);
+            }
+        }
+        changes.add(PomChange.inert(description + (relevant.isEmpty()
+                ? " (no functional changes in it)" : " (its changes are listed separately)")));
+        String label = " (in " + (bom ? "BOM " : "parent ") + groupId + ":" + artifactId + ":" + newVersion + ")";
+        for (PomChange change : relevant) {
+            changes.add(PomChange.functional(change.getCategory(), change.getDescription() + label));
         }
     }
 

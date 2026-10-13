@@ -71,7 +71,7 @@ class TestSelectorStaticTestSelectionTest {
         seedTrackedSuites("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-migrations", ".*\\.sql$",
-                        StaticTestSelectionRuleMode.RUN_ALL, null, null)));
+                        StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/resources/db/V001.sql"));
 
         // when
@@ -91,7 +91,7 @@ class TestSelectorStaticTestSelectionTest {
         seedTrackedSuites("com.acme.OrderServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("sql-migrations", ".*\\.sql$",
-                        StaticTestSelectionRuleMode.RUN_ALL, null, null)));
+                        StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
         VCSReader vcsReader = new StubVCSReader(Collections.singleton("src/main/java/com/acme/Order.java"));
 
         // when
@@ -142,7 +142,7 @@ class TestSelectorStaticTestSelectionTest {
         seedTrackedSuites("com.acme.OrderServiceIT", "com.acme.PaymentServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL))));
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))), null);
         StubVCSReader vcsReader = new StubVCSReader(Collections.singleton("pom.xml"),
                 Collections.singletonMap("pom.xml", new FileContentPair(pom("1.0", "org.lib", "2.0"),
                         pom("1.0", "org.lib", "2.1"))));
@@ -164,7 +164,7 @@ class TestSelectorStaticTestSelectionTest {
         seedTrackedSuites("com.acme.OrderServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL))));
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))), null);
         StubVCSReader vcsReader = new StubVCSReader(Collections.singleton("pom.xml"),
                 Collections.singletonMap("pom.xml", new FileContentPair(pom("1.0", "org.lib", "2.0"),
                         pom("1.1", "org.lib", "2.0"))));
@@ -185,7 +185,7 @@ class TestSelectorStaticTestSelectionTest {
         seedTrackedSuites("com.acme.OrderServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
                 new StaticTestSelectionRule("pom-changes", null, StaticTestSelectionRuleMode.RUN_ALL, null,
-                        EnumSet.of(PomChangeCategory.FUNCTIONAL))));
+                        EnumSet.of(PomChangeCategory.FUNCTIONAL))), null);
         StubVCSReader vcsReader = new StubVCSReader(Collections.singleton("pom.xml"),
                 Collections.singletonMap("pom.xml", new FileContentPair(pom("1.0", "com.example", "2.0"),
                         pom("1.0", "com.example", "2.1"))));
@@ -207,7 +207,7 @@ class TestSelectorStaticTestSelectionTest {
         // given
         seedTrackedSuites("com.acme.OrderServiceIT");
         StaticTestSelectionConfig config = new StaticTestSelectionConfig(Collections.singletonList(
-                new StaticTestSelectionRule("poms", "pom\\.xml$", StaticTestSelectionRuleMode.RUN_ALL, null, null)));
+                new StaticTestSelectionRule("poms", "pom\\.xml$", StaticTestSelectionRuleMode.RUN_ALL, null, null)), null);
         StubVCSReader vcsReader = new StubVCSReader(Collections.singleton("pom.xml"));
 
         // when

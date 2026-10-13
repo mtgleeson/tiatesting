@@ -151,7 +151,7 @@ class StaticTestSelectionResolverPomRuleTest {
      * @return an analyzer over the reader with no tracked libraries.
      */
     private static PomChangeAnalyzer analyzer(VCSReader reader) {
-        return new PomChangeAnalyzer(reader, "base", false, new PomChangeClassifier(Collections.<String>emptyList()));
+        return new PomChangeAnalyzer(reader, "base", false, new PomChangeClassifier(Collections.<String>emptyList()), null);
     }
 
     /**
@@ -193,7 +193,7 @@ class StaticTestSelectionResolverPomRuleTest {
      * @return a config holding them.
      */
     private static StaticTestSelectionConfig configWith(StaticTestSelectionRule... rules) {
-        return new StaticTestSelectionConfig(Arrays.asList(rules));
+        return new StaticTestSelectionConfig(Arrays.asList(rules), null);
     }
 
     /**

@@ -68,7 +68,7 @@ A rule becomes POM-aware when it sets `pomChanges` to a comma-separated list of 
 
 | Category | Fires on |
 |---|---|
-| `DEPENDENCY_VERSIONS` | The resolved version of an untracked, non-reactor dependency or managed dependency changed; a managed entry was added or removed; a BOM import or an external parent version changed. |
+| `DEPENDENCY_VERSIONS` | The resolved version of an untracked, non-reactor dependency or managed dependency changed; a managed entry was added or removed; an external parent or BOM import version changed in a way that changes managed versions (or could not be read). |
 | `DEPENDENCY_SET` | A dependency was added or removed, or its scope, classifier, type, optional flag, system path or exclusions changed (tracked libraries included). |
 | `COMPILER` | The compiler plugin (including annotation processors) or a `maven.compiler.*` / `project.build.sourceEncoding` property changed. |
 | `TEST_RUNNER` | The surefire or failsafe plugin, or `argLine`, `skipTests` and the `surefire.*` / `failsafe.*` properties changed. |
@@ -95,6 +95,12 @@ A filtered resource that embeds `${project.version}` is a real behaviour change 
 - *Inherited properties.* A POM's `<parent>` is looked up in the repository through `<relativePath>` (default `../pom.xml`). It counts as in-repo only when that file has the declared groupId, artifactId and version, which is the same check Maven makes. Properties inherited from in-repo parents resolve like the POM's own, so a child switching `${old.version}` to `${new.version}` is judged by the resolved versions.
 - *Properties used by child modules.* When a parent changes a property, its child modules are found and classified with their own content unchanged and only the parent's side switched. A bumped `lib.version` in the root shows up as `dependency org.lib:lib version 1.0 -> 2.0 (in module-a/pom.xml)`. A tracked library versioned from a parent property is therefore inert, and a property nothing in the POM or its modules references is `FUNCTIONAL`. A child that overrides the property, or a child's own edits, are not attributed to the parent.
 - *The reactor.* A dependency is a reactor module when its groupId and artifactId belong to a POM in the reactor. The reactor is every POM reachable through `<modules>` from the top-most `pom.xml` above the changed POM whose module tree includes it. Child modules are found in the reactor too, so a parent that is not also the aggregator still finds its children. A parent version change is inert when the new parent is in the repository at that version, and `DEPENDENCY_VERSIONS` when Maven would resolve it externally.
+
+**External parents and BOMs.** When an external parent (such as `spring-boot-starter-parent`) or an imported BOM changes version, Tia reads both versions from the Maven local repository and classifies their diff the same way, without downloading anything:
+
+- *External parent.* The parent's functional changes are listed under the bump, labelled e.g. `(in parent org.springframework.boot:spring-boot-starter-parent:3.3.0)`. The bump is inert when the parent's diff is, for example when only its version moved. A parent property that the in-repo POMs use is classified by those uses: in-repo POMs resolve properties through their external parents too, and child modules are classified as for an in-repo parent. A grandparent bump is followed through the parent.
+- *Imported BOM.* An import brings in only the BOM's dependency management, so only dependency changes in the BOM count, labelled e.g. `(in BOM org.junit:junit-bom:5.11.4)`. A BOM bump that changes only tracked libraries, or nothing a consumer would see, is inert.
+- *Not available.* If either version's POM is not in the local repository, the bump is `DEPENDENCY_VERSIONS`, which is the safe direction. The new version is always there, because Maven resolved it to build. The previous one usually is on a developer machine, but may be missing from a fresh CI cache.
 
 Reads are batched: the changed POMs' parent chains are read one level per VCS call across all of them, and the reactor is read one module-tree level per call, once per run. A POM whose change needs neither the reactor nor its children (for example a compiler property) causes no further reads.
 

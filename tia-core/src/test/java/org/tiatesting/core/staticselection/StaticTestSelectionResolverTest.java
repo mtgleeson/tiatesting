@@ -356,7 +356,7 @@ class StaticTestSelectionResolverTest {
     }
 
     private static StaticTestSelectionConfig configWith(StaticTestSelectionRule... rules) {
-        return new StaticTestSelectionConfig(Arrays.asList(rules));
+        return new StaticTestSelectionConfig(Arrays.asList(rules), null);
     }
 
     private static StaticTestSelectionRule runAllRule(String name, String filePattern) {

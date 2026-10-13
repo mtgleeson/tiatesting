@@ -11,6 +11,7 @@ import java.util.EnumSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,6 +69,21 @@ class AbstractTiaMojoStaticRulesTest {
         // then
         assertTrue(error.getMessage().startsWith("Static test selection rule 'pom-changes': Unknown POM change"),
                 error.getMessage());
+    }
+
+    /**
+     * With no Maven session (as here) there is no local repository to read external POMs from.
+     */
+    @Test
+    void noSessionMeansNoExternalPomSource() {
+        // given
+        TestMojo mojo = mojoWith(rule("pom-changes", null, "RUN_ALL", "FUNCTIONAL"));
+
+        // when
+        StaticTestSelectionConfig config = mojo.buildStaticTestSelectionConfig();
+
+        // then
+        assertNull(config.getExternalPomSource());
     }
 
     /**

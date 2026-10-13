@@ -33,7 +33,7 @@ class PomChangeAnalyzerTest {
         contents.put("a/pom.xml", new FileContentPair(pom("1.0"), pom("1.0")));
         RecordingVCSReader reader = new RecordingVCSReader(contents);
         PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base123", true,
-                new PomChangeClassifier(Collections.<String>emptyList()));
+                new PomChangeClassifier(Collections.<String>emptyList()), null);
 
         // when
         Map<String, PomChangeReport> first = analyzer.analyze(new HashSet<>(Collections.singletonList("pom.xml")));
@@ -53,7 +53,7 @@ class PomChangeAnalyzerTest {
         RecordingVCSReader reader = new RecordingVCSReader(Collections.singletonMap("pom.xml",
                 new FileContentPair(pom("1.0"), pom("2.0"))));
         PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false,
-                new PomChangeClassifier(Collections.singletonList("org.lib:lib")));
+                new PomChangeClassifier(Collections.singletonList("org.lib:lib")), null);
 
         // when
         Map<String, PomChangeReport> reports = analyzer.analyze(Collections.singleton("pom.xml"));
@@ -67,7 +67,7 @@ class PomChangeAnalyzerTest {
         // given - the reader returns nothing for the path
         RecordingVCSReader reader = new RecordingVCSReader(Collections.<String, FileContentPair>emptyMap());
         PomChangeAnalyzer analyzer = new PomChangeAnalyzer(reader, "base", false,
-                new PomChangeClassifier(Collections.<String>emptyList()));
+                new PomChangeClassifier(Collections.<String>emptyList()), null);
 
         // when
         Map<String, PomChangeReport> reports = analyzer.analyze(Collections.singleton("pom.xml"));

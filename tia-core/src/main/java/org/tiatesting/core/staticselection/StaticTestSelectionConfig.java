@@ -1,5 +1,7 @@
 package org.tiatesting.core.staticselection;
 
+import org.tiatesting.core.staticselection.pom.ExternalPomSource;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,19 +25,37 @@ public class StaticTestSelectionConfig {
      * when the feature is not configured.
      */
     public static final StaticTestSelectionConfig EMPTY =
-            new StaticTestSelectionConfig(Collections.emptyList());
+            new StaticTestSelectionConfig(Collections.emptyList(), null);
 
     private final List<StaticTestSelectionRule> rules;
+
+    /**
+     * Reads POMs outside the repository (external parents, imported BOMs) for POM-aware rules;
+     * {@code null} when the build tool provides none.
+     */
+    private final ExternalPomSource externalPomSource;
 
     /**
      * Construct a static test selection config from a list of pre-built rules.
      *
      * @param rules the rules to apply during test selection; {@code null} is treated as empty.
+     * @param externalPomSource reads POMs outside the repository so POM-aware rules can classify
+     *                          external parent and BOM version bumps by what they change;
+     *                          {@code null} when not available.
      */
-    public StaticTestSelectionConfig(final List<StaticTestSelectionRule> rules) {
+    public StaticTestSelectionConfig(final List<StaticTestSelectionRule> rules,
+                                     final ExternalPomSource externalPomSource) {
         this.rules = (rules != null && !rules.isEmpty())
                 ? Collections.unmodifiableList(new ArrayList<>(rules))
                 : Collections.emptyList();
+        this.externalPomSource = externalPomSource;
+    }
+
+    /**
+     * @return the reader for POMs outside the repository, or {@code null} when not available.
+     */
+    public ExternalPomSource getExternalPomSource() {
+        return externalPomSource;
     }
 
     /**

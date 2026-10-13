@@ -30,10 +30,14 @@ public class PomChangeAnalyzer {
      * @param baseChangeNum the "before" commit of the diff; ignored when {@code checkLocalChanges} is {@code true}.
      * @param checkLocalChanges whether the diff is head against the working copy.
      * @param classifier the classifier, carrying the tracked-library coordinates.
+     * @param externalPomSource reads POMs outside the repository (external parents, imported BOMs)
+     *                          so their version bumps are classified by what they change;
+     *                          {@code null} when not available, making such bumps
+     *                          {@code DEPENDENCY_VERSIONS}.
      */
     public PomChangeAnalyzer(final VCSReader vcsReader, final String baseChangeNum, final boolean checkLocalChanges,
-                             final PomChangeClassifier classifier) {
-        this.tree = new PomTree(vcsReader, baseChangeNum, checkLocalChanges);
+                             final PomChangeClassifier classifier, final ExternalPomSource externalPomSource) {
+        this.tree = new PomTree(vcsReader, baseChangeNum, checkLocalChanges, externalPomSource);
         this.classifier = classifier;
     }
 
