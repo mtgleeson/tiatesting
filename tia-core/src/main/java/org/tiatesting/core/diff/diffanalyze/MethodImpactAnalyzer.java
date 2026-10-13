@@ -73,7 +73,8 @@ public class MethodImpactAnalyzer {
                     setImpactedLineBeginEnd(patchDiff, diffContext);
 
                     if (diffContext.isUnifiedDiff()){
-                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, methodsInvokedByChanges);
+                        findTrackedMethodsForSourceDiff(diffContext, methodsTrackedForSourceFile, originalFileLines,
+                                methodsInvokedByChanges);
                     }
                 });
             }
@@ -117,12 +118,17 @@ public class MethodImpactAnalyzer {
      * is split by other members) is instead matched against those ranges - see
      * {@link #diffTouchesLineRanges(DiffContext, int[])}.
      *
+     * A method matched by start-end has its begin widened upwards over any blank and comment-only
+     * lines above its first code line - see {@link #widenStartOverBlankAndCommentLines(int, List)}.
+     *
      * @param diffContext the parsed diff hunk carrying the impacted line range
      * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
      * @param methodsInvokedByChanges accumulator for the ids of methods the diff impacts
      */
     private void findTrackedMethodsForSourceDiff(final DiffContext diffContext,
                                                  final Map<Integer, MethodImpactTracker> methodsTrackedForSourceFile,
+                                                 final List<String> originalFileLines,
                                                  final Set<Integer> methodsInvokedByChanges){
         for (Map.Entry<Integer, MethodImpactTracker> trackedMethod : methodsTrackedForSourceFile.entrySet()) {
             Integer methodHashcode = trackedMethod.getKey();
@@ -141,9 +147,10 @@ public class MethodImpactAnalyzer {
             }
 
             // start-end widened by one line either side, to catch changes to the method name line and
-            // the closing brace
+            // the closing brace, then upwards over blank and comment lines between the signature and the
+            // first code line
             int[] matchedLineRange = methodImpactTracker.getMatchedLineRanges();
-            int methodLineBegin = matchedLineRange[0];
+            int methodLineBegin = widenStartOverBlankAndCommentLines(matchedLineRange[0], originalFileLines);
             int methodLineEnd = matchedLineRange[1];
             log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
 
@@ -157,6 +164,47 @@ public class MethodImpactAnalyzer {
                         methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
             }
         }
+    }
+
+    /**
+     * Widen a method's matched begin line upwards over the blank and comment-only lines directly above
+     * it. JaCoCo's first line for a method is its first line with code, not its signature, so blank or
+     * comment lines between the signature and that first code line aren't part of the stored range,
+     * and the one-line padding only covers one of them. Without this, code added (or a blank line
+     * replaced) near the top of such a method wouldn't impact it. The walk stops at the first line that
+     * has anything else on it - normally the signature line - and includes it. This only widens the
+     * range, so at worst a comment edit selects a few extra tests.
+     * See the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
+     *
+     * @param matchedLineBegin the 1-based padded begin line (the line before the first code line)
+     * @param originalFileLines the original (pre-change) file content, line 1 at index 0
+     * @return the 1-based widened begin line, never greater than {@code matchedLineBegin}
+     */
+    static int widenStartOverBlankAndCommentLines(final int matchedLineBegin, final List<String> originalFileLines){
+        if (matchedLineBegin < 1 || matchedLineBegin > originalFileLines.size()) {
+            // the stored lines don't fit the file (stale mapping) - keep the padded begin
+            return matchedLineBegin;
+        }
+
+        int lineNumber = matchedLineBegin;
+        while (lineNumber > 1 && isBlankOrCommentLine(originalFileLines.get(lineNumber - 1))) {
+            lineNumber--;
+        }
+        return lineNumber;
+    }
+
+    /**
+     * Whether a source line holds nothing but whitespace or comment text. Recognises line comments,
+     * the start of a block comment, block comment continuation lines ({@code *}) and a line closing a
+     * block comment. The markers are shared by Java, Kotlin, Groovy and Scala.
+     *
+     * @param line the source line
+     * @return true when the line is blank or comment-only
+     */
+    private static boolean isBlankOrCommentLine(final String line){
+        String trimmed = line.trim();
+        return trimmed.isEmpty() || trimmed.startsWith("//") || trimmed.startsWith("/*")
+                || trimmed.startsWith("*");
     }
 
     /**

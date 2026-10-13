@@ -96,6 +96,31 @@ A pure insertion hunk is written by java-diff-utils as `-N,0`, meaning the new l
 original line N, so it touches a range that contains either neighbour, N-1 or N. That is what makes
 a new field added directly after the last field still count as a constructor change.
 
+For a method matched by start-end, the begin line is also widened upwards over any blank and
+comment-only lines directly above it (`MethodImpactAnalyzer.widenStartOverBlankAndCommentLines`),
+stopping at and including the first line with anything else on it - normally the signature. JaCoCo
+(like any bytecode library, since it reads the `LineNumberTable`) records a method's first line as its
+first line with code, so with a blank line and a comment between the signature and the first
+statement, the one-line padding reaches only the comment:
+
+```java
+    public void tidy() {           // line 5  <- widened begin
+                                   // line 6
+        // remove stale entries    // line 7
+        // before saving           // line 8  <- padded begin
+        clean();                   // line 9  <- first code line
+    }
+```
+
+Without the widening, code added after line 5 or written over line 6 wouldn't impact `tidy`. The
+walk uses the original file content the diff is already built from, so it costs a few line checks per
+tracked method of each changed file. Comment markers (`//`, `/*`, `*`) are shared by Java, Kotlin,
+Groovy and Scala. It only widens, so the worst case is over-selection: for a method whose first code
+line sits on its signature line (a one-line method), the walk crosses the Javadoc above it to the
+previous member, so a Javadoc edit selects it. Methods with exact line ranges aren't widened, and the
+HTML "Lines matched for changes" value shows the padded range without it, as the report doesn't read
+the source.
+
 With the example above:
 
 | Change                                   | Impacted                    |
