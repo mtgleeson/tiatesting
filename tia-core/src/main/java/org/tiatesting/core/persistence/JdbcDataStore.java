@@ -4,7 +4,6 @@ package org.tiatesting.core.persistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tiatesting.core.library.LibraryImpactDrainResult;
-import org.tiatesting.core.library.LibraryImpactDrainResultSerializer;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
@@ -31,121 +30,13 @@ import org.tiatesting.core.persistence.connection.ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.SqlDialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 
-import java.io.IOException;
 import java.sql.*;
 import java.util.*;
 
-public class JdbcDataStore implements DataStore {
-    private static final String COL_COMMIT_VALUE = "commit_value";
-    private static final String COL_LAST_UPDATED = "last_updated";
-    private static final String COL_NUM_RUNS = "num_runs";
-    private static final String COL_AVG_RUN_TIME = "avg_run_time";
-    private static final String COL_NUM_SUCCESS_RUNS = "num_success_runs";
-    private static final String COL_NUM_FAIL_RUNS = "num_fail_runs";
-    private static final String COL_ALL_TESTS_RUN_TIME = "all_tests_run_time";
-    private static final String COL_NUM_ALL_TESTS_RUNS = "num_all_tests_runs";
-    private static final String COL_FIXED_OVERHEAD_MS = "fixed_overhead_ms";
-    private static final String COL_CAPTURE_OVERHEAD_PER_SUITE_MS = "capture_overhead_per_suite_ms";
-    private static final String COL_NUM_OVERHEAD_MEASUREMENTS = "num_overhead_measurements";
-    private static final String COL_DEVELOPER_DISABLED = "developer_disabled";
-    private static final String COL_UNSEALED = "unsealed";
-    private static final String TABLE_TIA_CORE = "tia_core";
-    private static final String TABLE_TIA_TEST_SUITE = "tia_test_suite";
-    private static final String TABLE_TIA_TEST_SUITES_FAILED = TABLE_TIA_TEST_SUITE + "s_failed";
-    private static final String TABLE_TIA_SOURCE_METHOD = "tia_source_method";
-    private static final String COL_NAME = "name";
-    private static final String COL_SOURCE_FILENAME = "source_file" + COL_NAME;
-    private static final String TABLE_TIA_SOURCE_CLASS = "tia_source_class";
-    private static final String COL_ID = "id";
-    private static final String COL_TIA_TEST_SUITE_ID = "tia_test_suite_" + COL_ID;
-    private static final String TABLE_TIA_SOURCE_CLASS_METHOD = "tia_source_class_method";
-    private static final String COL_TIA_SOURCE_CLASS_ID = "tia_source_class_" + COL_ID;
-    private static final String COL_TIA_SOURCE_METHOD_ID = "tia_source_method_" + COL_ID;
-    private static final String COL_METHOD_NAME = "method_" + COL_NAME;
-    private static final String COL_LINE_NUMBER_START = "line_number_start";
-    private static final String COL_LINE_NUMBER_END = "line_number_end";
-    private static final String COL_LINE_RANGES = "line_ranges";
-    private static final String COL_EXECUTED_RUN_COUNT = "executed_run_count";
-    private static final String COL_TRIGGERED_RUN_COUNT = "triggered_run_count";
-    private static final String COL_TRIGGER_METHOD_ID = "trigger_method_id";
-    private static final String COL_TEST_SUITE_NAME = "test_suite_" + COL_NAME;
-    private static final String TABLE_TIA_LIBRARY = "tia_library";
-    private static final String COL_GROUP_ARTIFACT = "group_artifact";
-    private static final String COL_PROJECT_DIR = "project_dir";
-    private static final String COL_SOURCE_DIRS_CSV = "source_dirs_csv";
-    private static final String COL_MAPPING_BASELINE_COMMIT = "mapping_baseline_commit";
-    private static final String COL_LAST_APPLIED_SEQ = "last_applied_seq";
-    private static final String TABLE_TIA_LIBRARY_PUBLISH = "tia_library_publish";
-    private static final String COL_PUBLISH_SEQ = "publish_seq";
-    private static final String COL_PUBLISHED_VERSION = "published_version";
-    private static final String COL_JAR_HASH = "jar_hash";
-    private static final String COL_PUBLISHED_AT = "published_at";
-    private static final String TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD = "tia_pending_library_impacted_method";
-    private static final String COL_STAMP_VERSION = "stamp_version";
-    private static final String TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION = "tia_pending_library_forced_selection";
-    private static final String COL_RULE_NAME = "rule_name";
-    private static final String COL_MODE = "mode";
-    private static final String COL_SUITE_NAME_PATTERN = "suite_name_pattern";
-    private static final String TABLE_TIA_TEST_RUN_HISTORY = "tia_test_run_history";
-    private static final String COL_RUN_TIMESTAMP = "run_timestamp";
-    private static final String COL_BRANCH = "branch";
-    private static final String COL_NUM_SUITES_RAN = "num_suites_ran";
-    private static final String COL_NUM_SUITES_IGNORED = "num_suites_ignored";
-    private static final String COL_NUM_SUITES_FAILED = "num_suites_failed";
-    private static final String COL_DURATION_MS = "duration_ms";
-    private static final String COL_UPDATED_DB_MAPPING = "updated_db_mapping";
-    private static final String COL_TIME_SAVINGS = "time_savings";
-    private static final String COL_SAVINGS_PERCENT = "savings_percent";
-    private static final String COL_WALL_CLOCK_SAVINGS = "wall_clock_savings";
-    private static final String COL_WALL_CLOCK_SAVINGS_PERCENT = "wall_clock_savings_percent";
-    private static final String COL_WALL_CLOCK_MS = "wall_clock_ms";
-    private static final String COL_RUN_SOURCE = "run_source";
-    private static final String COL_HOST_NAME = "host_name";
-    private static final String COL_NUM_MODIFIED_TEST_FILES = "num_modified_test_files";
-    private static final String COL_NUM_NEW_TEST_FILES = "num_new_test_files";
-    private static final String COL_NUM_PREVIOUSLY_FAILED = "num_previously_failed";
-    private static final String COL_NUM_UNSEALED_MAPPING = "num_unsealed_mapping";
-    private static final String COL_NUM_PENDING_LIBRARY = "num_pending_library";
-    private static final String COL_RERUN = "rerun";
-    private static final String TABLE_TIA_TEST_RUN_HISTORY_TRIGGER = TABLE_TIA_TEST_RUN_HISTORY + "_trigger";
-    private static final String COL_HISTORY_ID = "history_id";
-    private static final String COL_TRIGGER_TYPE = "trigger_type";
-    private static final String COL_TRIGGER_NAME = "trigger_name";
-    private static final String COL_TEST_COUNT = "test_count";
-    private static final String TABLE_TIA_ID_BLOCK = "tia_id_block";
-    private static final String COL_BLOCK_NAME = "block_name";
-    private static final String COL_NEXT_VALUE = "next_value";
-    private static final String ID_BLOCK_SOURCE_CLASS = TABLE_TIA_SOURCE_CLASS;
-    private static final String TABLE_TIA_DISTRIBUTED_RUN = "tia_distributed_run";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP = TABLE_TIA_DISTRIBUTED_RUN + "_group";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE = TABLE_TIA_DISTRIBUTED_RUN_GROUP + "_suite";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE = TABLE_TIA_DISTRIBUTED_RUN + "_method_stage";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD = TABLE_TIA_DISTRIBUTED_RUN + "_covered_method";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_SELECTION = TABLE_TIA_DISTRIBUTED_RUN + "_selection";
-    private static final String TABLE_TIA_DISTRIBUTED_RUN_TRIGGER = TABLE_TIA_DISTRIBUTED_RUN + "_trigger";
-    private static final String COL_RUN_ID = "run_id";
-    private static final String COL_STATUS = "status";
-    private static final String COL_GROUP_COUNT = "group_count";
-    private static final String COL_TARGET_RUN_TIME_MS = "target_run_time_ms";
-    private static final String COL_ESTIMATED_TOTAL_MS = "estimated_total_ms";
-    private static final String COL_CREATED_AT = "created_at";
-    private static final String COL_SEALED_BY = "sealed_by";
-    private static final String COL_SEALED_AT = "sealed_at";
-    private static final String COL_DRAIN_RESULT = "drain_result";
-    private static final String COL_SELECTION_MODE = "selection_mode";
-    private static final String COL_GROUPS_AVAILABLE = "groups_available";
-    private static final String COL_GROUP_NUMBER = "group_number";
-    private static final String COL_RUNNER_KEY = "runner_key";
-    private static final String COL_CLAIMED_AT = "claimed_at";
-    private static final String COL_COMPLETED_AT = "completed_at";
-    private static final String COL_ESTIMATED_MS = "estimated_ms";
-    private static final String COL_ACTUAL_DURATION_MS = "actual_duration_ms";
-    private static final String COL_SUITES_RAN = "suites_ran";
-    private static final String COL_SUITES_FAILED = "suites_failed";
-    private static final String COL_SUITES_OBSERVED = "suites_observed";
-    private static final String COL_SUITES_DURATION_MS = "suites_duration_ms";
-    private static final String IDX_DISTRIBUTED_RUN_GROUP_STATUS = "idx_distributed_run_group_status";
+import static org.tiatesting.core.persistence.JdbcRows.*;
+import static org.tiatesting.core.persistence.TiaSchema.*;
 
+public class JdbcDataStore implements DataStore {
     // H2's executeBatch sends one wire round trip per row, so on a remote server a seed persist of
     // millions of rows is dominated by round trips. Multi-row INSERT (... VALUES (?,?),(?,?),...)
     // collapses INSERT_CHUNK rows into one round trip. A full-chunk statement is prepared once and
@@ -157,26 +48,6 @@ public class JdbcDataStore implements DataStore {
             buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS, SOURCE_CLASS_COLS, 3, INSERT_CHUNK);
     private static final String INSERT_SOURCE_CLASS_METHOD_CHUNK_SQL =
             buildMultiRowInsertSql(TABLE_TIA_SOURCE_CLASS_METHOD, SOURCE_CLASS_METHOD_COLS, 2, INSERT_CHUNK);
-
-    /**
-     * Build a multi-row {@code INSERT ... VALUES (?,..),(?,..),...} statement with {@code rows}
-     * value tuples, each carrying {@code paramsPerRow} placeholders.
-     *
-     * @param table the target table
-     * @param columnsCsv the comma-separated column list
-     * @param paramsPerRow the number of columns (placeholders) per row
-     * @param rows the number of value tuples
-     * @return the parameterised multi-row insert SQL
-     */
-    private static String buildMultiRowInsertSql(String table, String columnsCsv, int paramsPerRow, int rows) {
-        StringBuilder tuple = new StringBuilder("(");
-        for (int p = 0; p < paramsPerRow; p++) { tuple.append(p > 0 ? ", ?" : "?"); }
-        tuple.append(')');
-        StringBuilder sb = new StringBuilder("INSERT INTO ").append(table).append(" (").append(columnsCsv).append(") VALUES ");
-        for (int r = 0; r < rows; r++) { if (r > 0) { sb.append(','); } sb.append(tuple); }
-        return sb.toString();
-    }
-    private static final String IDX_TEST_RUN_HISTORY_TS = "idx_test_run_history_ts";
     // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
     // statement well under H2's parameter limits and bounds per-statement parse cost;
     // larger inputs are split into multiple queries and merged client-side.
@@ -185,12 +56,10 @@ public class JdbcDataStore implements DataStore {
     private final SqlDialect dialect;
     private final ConnectionProvider connectionProvider;
     private final String schema;
-    // Memoizes ensureSchema: once the DB is known to exist with migrations applied, later
-    // calls on this instance skip the existence-check and DDL round trips.
-    private boolean schemaEnsured;
     // Memoizes the per-branch schema's CREATE SCHEMA IF NOT EXISTS: once this instance has
     // created it, later connections only need the (cheap) SET SCHEMA / search_path selection.
     private boolean branchSchemaCreated;
+    private final SchemaManager schemaManager;
 
     /**
      * Construct a datastore over a vendor-neutral SQL dialect and connection provider. The dialect
@@ -209,6 +78,7 @@ public class JdbcDataStore implements DataStore {
         this.dialect = dialect;
         this.connectionProvider = connectionProvider;
         this.schema = schema;
+        this.schemaManager = new SchemaManager(dialect, this::getConnection, connectionProvider.jdbcUrl());
 
         String schemaDescription = (schema == null || schema.trim().isEmpty())
                 ? "the connection's default schema"
@@ -234,7 +104,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // The targeted select-tests path reads the core row before any full load has run,
             // so this may be the first ever contact with the DB - bootstrap the schema first.
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             tiaData = getCoreData(connection);
         } catch (SQLException e) {
             throw new TiaPersistenceException(e);
@@ -390,7 +260,7 @@ public class JdbcDataStore implements DataStore {
         }
 
         try (Connection connection = getConnection()){
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             List<String> filenames = new ArrayList<>(sourceFilenames);
             for (int from = 0; from < filenames.size(); from += IN_CLAUSE_CHUNK_SIZE){
                 List<String> chunk = filenames.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, filenames.size()));
@@ -458,7 +328,7 @@ public class JdbcDataStore implements DataStore {
         }
 
         try (Connection connection = getConnection()){
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             List<Integer> ids = new ArrayList<>(methodIds);
             for (int from = 0; from < ids.size(); from += IN_CLAUSE_CHUNK_SIZE){
                 List<Integer> chunk = ids.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, ids.size()));
@@ -619,7 +489,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
             // it inside the transaction would silently break atomicity.
-            ensureLibraryTableExists(connection);
+            schemaManager.ensureLibraryTableExists(connection);
             connection.setAutoCommit(false);
 
             try {
@@ -798,19 +668,6 @@ public class JdbcDataStore implements DataStore {
         }
     }
 
-    /**
-     * Read a history row's selection mode, keeping null for a row recorded before modes were
-     * rather than reading it as selective.
-     *
-     * @param resultSet the history result set, positioned on a row
-     * @return the row's mode, or null when none was recorded
-     * @throws SQLException if the column cannot be read
-     */
-    private static SelectionMode readSelectionMode(ResultSet resultSet) throws SQLException {
-        String mode = resultSet.getString(COL_SELECTION_MODE);
-        return mode == null ? null : SelectionMode.fromStoredName(mode);
-    }
-
     private void clearUnsealedTestSuites(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             int cleared = statement.executeUpdate("UPDATE " + TABLE_TIA_TEST_SUITE
@@ -885,7 +742,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
                 return libraries;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY;
@@ -941,7 +798,7 @@ public class JdbcDataStore implements DataStore {
      * @throws SQLException if the upsert fails
      */
     private void persistTrackedLibrary(Connection connection, TrackedLibrary trackedLibrary) throws SQLException {
-        ensureLibraryTableExists(connection);
+        schemaManager.ensureLibraryTableExists(connection);
         String sql = dialect.upsert(TABLE_TIA_LIBRARY,
                 Arrays.asList(COL_GROUP_ARTIFACT, COL_PROJECT_DIR, COL_SOURCE_DIRS_CSV,
                         COL_MAPPING_BASELINE_COMMIT, COL_LAST_APPLIED_SEQ),
@@ -967,7 +824,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY)) {
                 return;
             }
             String sql = "DELETE FROM " + TABLE_TIA_LIBRARY + " WHERE " + COL_GROUP_ARTIFACT + " = ?";
@@ -992,7 +849,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
                 return result;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
@@ -1019,7 +876,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
                 return result;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD;
@@ -1043,7 +900,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            ensurePendingLibraryImpactedMethodTableExists(connection);
+            schemaManager.ensurePendingLibraryImpactedMethodTableExists(connection);
 
             if (!pending.getSourceMethodIds().isEmpty()) {
                 String insertSql = dialect.upsert(TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD,
@@ -1103,7 +960,7 @@ public class JdbcDataStore implements DataStore {
      */
     private void deletePendingLibraryImpactedMethods(Connection connection, String groupArtifact,
                                                      long publishSeq) throws SQLException {
-        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
+        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
             return;
         }
         String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD
@@ -1125,7 +982,7 @@ public class JdbcDataStore implements DataStore {
     public List<PendingLibraryForcedSelection> readAllPendingLibraryForcedSelections() {
         Connection connection = getConnection();
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
                 return new ArrayList<>();
             }
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION;
@@ -1152,7 +1009,7 @@ public class JdbcDataStore implements DataStore {
     public List<PendingLibraryForcedSelection> readPendingLibraryForcedSelections(final String groupArtifact) {
         Connection connection = getConnection();
         try {
-            if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
                 return new ArrayList<>();
             }
             String sql = "SELECT * FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
@@ -1204,7 +1061,7 @@ public class JdbcDataStore implements DataStore {
      */
     private void deletePendingLibraryForcedSelections(Connection connection, String groupArtifact,
                                                        long publishSeq) throws SQLException {
-        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
+        if (!schemaManager.checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
             return;
         }
         String sql = "DELETE FROM " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION
@@ -1223,7 +1080,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
                 return result;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
@@ -1265,7 +1122,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            ensureLibraryPublishTableExists(connection);
+            schemaManager.ensureLibraryPublishTableExists(connection);
             connection.setAutoCommit(false);
 
             // Assign the next per-library sequence inside the insert transaction. Under a
@@ -1317,7 +1174,7 @@ public class JdbcDataStore implements DataStore {
             // exist without the forced selections its own static rules produced.
             int forcedRowCount = 0;
             if (forcedSelections != null && !forcedSelections.isEmpty()) {
-                ensurePendingLibraryForcedSelectionTableExists(connection);
+                schemaManager.ensurePendingLibraryForcedSelectionTableExists(connection);
                 String forcedSql = "INSERT INTO " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
                         + COL_GROUP_ARTIFACT + ", " + COL_STAMP_VERSION + ", " + COL_PUBLISH_SEQ + ", "
                         + COL_RULE_NAME + ", " + COL_MODE + ", " + COL_SUITE_NAME_PATTERN + ") "
@@ -1375,7 +1232,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
                 return result;
             }
             String sql = "SELECT * FROM " + TABLE_TIA_LIBRARY_PUBLISH
@@ -1406,7 +1263,7 @@ public class JdbcDataStore implements DataStore {
         }
 
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             List<Integer> ids = new ArrayList<>(methodIds);
             for (int from = 0; from < ids.size(); from += IN_CLAUSE_CHUNK_SIZE) {
                 List<Integer> chunk = ids.subList(from, Math.min(from + IN_CLAUSE_CHUNK_SIZE, ids.size()));
@@ -1450,7 +1307,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
+            if (!schemaManager.checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
                 return null;
             }
 
@@ -1528,7 +1385,7 @@ public class JdbcDataStore implements DataStore {
         Connection connection = getConnection();
 
         try {
-            ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureTestRunHistoryTableExists(connection);
             String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
@@ -1597,7 +1454,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // Ensure table exists for older DBs that pre-date this feature; reads return empty
             // until the first insert.
-            ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureTestRunHistoryTableExists(connection);
 
             String sql = "SELECT * FROM " + TABLE_TIA_TEST_RUN_HISTORY
                     + " ORDER BY " + COL_RUN_TIMESTAMP + " DESC";
@@ -1659,7 +1516,7 @@ public class JdbcDataStore implements DataStore {
     public void persistTestRunTriggers(final String historyId, final List<TestRunTrigger> triggers) {
         Connection connection = getConnection();
         try {
-            ensureTestRunHistoryTableExists(connection); // also ensures the trigger table
+            schemaManager.ensureTestRunHistoryTableExists(connection); // also ensures the trigger table
             try (PreparedStatement delete = connection.prepareStatement(
                     "DELETE FROM " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER
                             + " WHERE " + COL_HISTORY_ID + " = ?")) {
@@ -1721,7 +1578,7 @@ public class JdbcDataStore implements DataStore {
         }
         Connection connection = getConnection();
         try {
-            ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureTestRunHistoryTableExists(connection);
             String placeholders = String.join(",", Collections.nCopies(historyIds.size(), "?"));
             String sql = "SELECT " + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", "
                     + COL_TRIGGER_NAME + ", " + COL_TEST_COUNT + " FROM "
@@ -1771,7 +1628,7 @@ public class JdbcDataStore implements DataStore {
      * would leave the tables cleared but the new plan unwritten, so every runner would find
      * nothing to claim and exit successfully - a green build that ran no tests.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before starting the transaction, since this can
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before starting the transaction, since this can
      * be the first call any caller makes on a freshly created per-branch schema. It must run
      * before {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
      * transaction would silently break the atomicity this method depends on.
@@ -1800,7 +1657,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
             // it inside the transaction would silently break atomicity.
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             connection.setAutoCommit(false);
             try {
                 String[] tablesToClear = {
@@ -1884,107 +1741,6 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Bind a nullable long parameter, using {@code setNull} with {@link Types#BIGINT} when the
-     * value is absent so both vendors store a real SQL NULL rather than zero.
-     *
-     * @param statement the statement to bind on
-     * @param index the one-based parameter index
-     * @param value the value to bind, or null
-     * @throws SQLException if binding fails
-     */
-    private static void setNullableLong(PreparedStatement statement, int index, Long value)
-            throws SQLException {
-        if (value == null) {
-            statement.setNull(index, Types.BIGINT);
-        } else {
-            statement.setLong(index, value);
-        }
-    }
-
-    /**
-     * Bind a nullable int parameter, using {@code setNull} with {@link Types#INTEGER} when the
-     * value is absent so both vendors store a real SQL NULL rather than zero.
-     *
-     * @param statement the statement to bind on
-     * @param index the one-based parameter index
-     * @param value the value to bind, or null
-     * @throws SQLException if binding fails
-     */
-    private static void setNullableInt(PreparedStatement statement, int index, Integer value)
-            throws SQLException {
-        if (value == null) {
-            statement.setNull(index, Types.INTEGER);
-        } else {
-            statement.setInt(index, value);
-        }
-    }
-
-    /**
-     * Bind a nullable string parameter, using {@code setNull} with {@link Types#VARCHAR} when the
-     * value is absent. {@code setString(index, null)} is accepted by both drivers in practice, but
-     * binding the type explicitly keeps the null path unambiguous for the driver's parameter
-     * inference, which Postgres is stricter about.
-     *
-     * @param statement the statement to bind on
-     * @param index the one-based parameter index
-     * @param value the value to bind, or null
-     * @throws SQLException if binding fails
-     */
-    private static void setNullableString(PreparedStatement statement, int index, String value)
-            throws SQLException {
-        if (value == null) {
-            statement.setNull(index, Types.VARCHAR);
-        } else {
-            statement.setString(index, value);
-        }
-    }
-
-    /**
-     * Bind the run's library-impact drain result as a binary parameter, serialized with the same
-     * {@link LibraryImpactDrainResultSerializer} encoding the Maven plugin-to-fork handoff file
-     * uses, so the drain a plan already performed is stored exactly once and in one form. A run
-     * that drained nothing binds SQL NULL rather than a serialized empty object, so the read side
-     * can treat null as "nothing to clean up".
-     *
-     * @param statement the statement to bind on
-     * @param index the one-based parameter index
-     * @param drainResult the drain result to store, or null if nothing was drained
-     * @throws SQLException if binding fails
-     * @throws IOException if the drain result cannot be serialized - deliberately not swallowed,
-     *                     since the drain cannot be repeated and storing nothing would lose its
-     *                     cleanup permanently
-     */
-    private static void setDrainResult(PreparedStatement statement, int index,
-                                       LibraryImpactDrainResult drainResult)
-            throws SQLException, IOException {
-        if (drainResult == null) {
-            statement.setNull(index, Types.VARBINARY);
-        } else {
-            statement.setBytes(index, LibraryImpactDrainResultSerializer.toBytes(drainResult));
-        }
-    }
-
-    /**
-     * Read the library-impact drain result stored on a run row, deserializing the binary column
-     * written by {@link #setDrainResult}.
-     *
-     * @param resultSet the result set positioned on the run row
-     * @return the stored drain result, or null if the column was SQL NULL
-     * @throws SQLException if the column cannot be read
-     * @throws TiaPersistenceException if the stored bytes cannot be deserialized, since a caller
-     *                                 silently given no drain result would skip cleanup that
-     *                                 nothing else can reconstruct
-     */
-    private static LibraryImpactDrainResult getDrainResult(ResultSet resultSet) throws SQLException {
-        byte[] bytes = resultSet.getBytes(COL_DRAIN_RESULT);
-        try {
-            return LibraryImpactDrainResultSerializer.fromBytes(bytes);
-        } catch (IOException | ClassNotFoundException e) {
-            throw new TiaPersistenceException(e);
-        }
-    }
-
-    /**
      * Build a {@link DistributedRun} from the current row of a {@code SELECT *} against
      * {@code tia_distributed_run}. Shared by {@link #readDistributedRun} and
      * {@link #readAllDistributedRuns} so the two cannot drift apart on how a run row maps.
@@ -2017,38 +1773,9 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Read a nullable long column, distinguishing SQL NULL from zero via
-     * {@link ResultSet#wasNull()}.
-     *
-     * @param resultSet the result set positioned on the row
-     * @param column the column name
-     * @return the value, or null if the column was SQL NULL
-     * @throws SQLException if the column cannot be read
-     */
-    private static Long getNullableLong(ResultSet resultSet, String column) throws SQLException {
-        long value = resultSet.getLong(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    /**
-     * Read a nullable int column, distinguishing SQL NULL from zero via
-     * {@link ResultSet#wasNull()}. The distinction matters for the history row's group count: null
-     * means "this run was not distributed", zero would mean "distributed across no groups".
-     *
-     * @param resultSet the result set positioned on the row
-     * @param column the column name
-     * @return the value, or null if the column was SQL NULL
-     * @throws SQLException if the column cannot be read
-     */
-    private static Integer getNullableInt(ResultSet resultSet, String column) throws SQLException {
-        int value = resultSet.getInt(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
      * call any caller makes on a freshly created per-branch schema and the distributed-run
      * tables are otherwise only created there.
      *
@@ -2072,7 +1799,7 @@ public class JdbcDataStore implements DataStore {
         String sql = "SELECT " + COL_DRAIN_RESULT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
                 + " WHERE " + COL_RUN_ID + " = ?";
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -2091,7 +1818,7 @@ public class JdbcDataStore implements DataStore {
     public DistributedRun readDistributedRun(final String runId) {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " WHERE " + COL_RUN_ID + " = ?";
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -2109,7 +1836,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
      * call any caller makes on a freshly created per-branch schema and the distributed-run
      * tables are otherwise only created there.
      *
@@ -2122,7 +1849,7 @@ public class JdbcDataStore implements DataStore {
                 + " = ? ORDER BY " + COL_GROUP_NUMBER;
         List<DistributedRunGroup> groups = new ArrayList<>();
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -2140,7 +1867,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
      * call any caller makes on a freshly created per-branch schema and the distributed-run
      * tables are otherwise only created there.
      *
@@ -2155,7 +1882,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_TEST_SUITE_NAME;
         List<String> suiteNames = new ArrayList<>();
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 statement.setInt(2, groupNumber);
@@ -2174,7 +1901,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
      * call any caller makes on a freshly created per-branch schema and the distributed-run
      * tables are otherwise only created there.
      *
@@ -2185,7 +1912,7 @@ public class JdbcDataStore implements DataStore {
         String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
         List<DistributedRun> runs = new ArrayList<>();
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql);
                  ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
@@ -2208,7 +1935,7 @@ public class JdbcDataStore implements DataStore {
      * staged" from "staged as empty". Mirrors {@link #persistTestRunTriggers}'s
      * delete-then-batch-insert shape, keyed by run id instead of history id.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} first, since this can be the first call any
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since this can be the first call any
      * caller makes on a freshly created per-branch schema.
      *
      * @param runId the distributed run these triggers belong to
@@ -2219,7 +1946,7 @@ public class JdbcDataStore implements DataStore {
         TestRunSelectionDetails toPersist = details == null ? TestRunSelectionDetails.empty() : details;
         Connection connection = getConnection();
         try {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement delete = connection.prepareStatement(
                     "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " WHERE " + COL_RUN_ID + " = ?")) {
                 delete.setString(1, runId);
@@ -2274,7 +2001,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} first, since this can be the first call any
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since this can be the first call any
      * caller makes on a freshly created per-branch schema.
      *
      * @param runId the distributed run to read the staged breakdown for
@@ -2285,7 +2012,7 @@ public class JdbcDataStore implements DataStore {
     public TestRunSelectionDetails readDistributedRunSelectionDetails(final String runId) {
         Connection connection = getConnection();
         try {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             boolean countersFound = false;
             int numModifiedTestFiles = 0;
             int numNewTestFiles = 0;
@@ -2348,7 +2075,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before the first read, since claiming can be the
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before the first read, since claiming can be the
      * first call any caller makes on a freshly created per-branch schema.
      *
      * <p>Deliberately does not wrap the reads and the compare-and-swap update in one transaction:
@@ -2403,7 +2130,7 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
 
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
 
             // Step 0: a runner key that already holds a CLAIMED group in this run is a CI job retry
             // re-claiming its own group - return it unchanged rather than attempting a new claim.
@@ -2509,7 +2236,7 @@ public class JdbcDataStore implements DataStore {
      * #completeGroup} is guarded on. {@code actual_duration_ms} is written as {@code
      * COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry) sum
      * instead of the last one overwriting the ones before it - retry time is real time. The {@code
-     * COALESCE} is load-bearing: the plan write binds it with {@link #setNullableLong} as SQL
+     * COALESCE} is load-bearing: the plan write binds it with {@link JdbcRows#setNullableLong} as SQL
      * {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column. {@code
      * suites_failed} is written as a plain {@code = ?}, since it is current state rather than a
      * counter and a passing retry must be able to shrink it back to zero. {@code suites_ran} is
@@ -2533,7 +2260,7 @@ public class JdbcDataStore implements DataStore {
      * deliberate: it is what leaves a retry's cost outside the suite-attributable total and inside
      * the group's overhead remainder.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} first, since reporting progress could be the
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since reporting progress could be the
      * first contact any caller in this process makes with a freshly created per-branch schema.
      *
      * @param runId the distributed run the group belongs to
@@ -2567,7 +2294,7 @@ public class JdbcDataStore implements DataStore {
                 + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
 
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
 
             try (PreparedStatement statement = connection.prepareStatement(progressSql)) {
                 statement.setLong(1, actualDurationMs);
@@ -2627,7 +2354,7 @@ public class JdbcDataStore implements DataStore {
      * claim timestamp, estimate and the figures {@link #reportGroupProgress} accumulated rather
      * than only this call's inputs.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} first, since a runner completing its group could
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since a runner completing its group could
      * be the first contact any caller in this process makes with a freshly created per-branch
      * schema.
      *
@@ -2647,7 +2374,7 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
 
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
 
             // A full run's (seed or forced) assigned suite names come from a raw disk scan that
             // over-includes classes JUnit never reports as observed - abstract bases, fixtures,
@@ -2741,7 +2468,7 @@ public class JdbcDataStore implements DataStore {
      * empty staging table and drop every method id the on-disk catalogue lacks. See the sealing
      * material in the distributed test runs chapter of {@code WIKI.md}.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} first, since electing a sealer could be the first
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since electing a sealer could be the first
      * contact any caller in this process makes with a freshly created per-branch schema.
      *
      * @param runId the distributed run to elect a sealer for
@@ -2757,7 +2484,7 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ? AND " + COL_STATUS + " <> ?)";
 
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
 
             try (PreparedStatement statement = connection.prepareStatement(electSql)) {
                 statement.setString(1, runnerKey);
@@ -2786,7 +2513,7 @@ public class JdbcDataStore implements DataStore {
         String sql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN + " SET " + COL_STATUS + " = ? WHERE "
                 + COL_RUN_ID + " = ?";
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, DistributedRunStatus.SEALED.name());
                 statement.setString(2, runId);
@@ -2799,7 +2526,7 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * Build a {@link DistributedRunGroup} from the current row of a {@code SELECT *} against
-     * {@link #TABLE_TIA_DISTRIBUTED_RUN_GROUP}. Shared by {@link #claimNextPendingGroup} and
+     * {@link TiaSchema#TABLE_TIA_DISTRIBUTED_RUN_GROUP}. Shared by {@link #claimNextPendingGroup} and
      * {@link #readDistributedRunGroups} so the two cannot drift apart on how a group row maps. It
      * also means the group returned after a successful claim (or an already-claimed lookup) is read
      * back from the table rather than reconstructed field-by-field from what the caller asked for -
@@ -2836,7 +2563,7 @@ public class JdbcDataStore implements DataStore {
      * transaction, so a failure partway through leaves the previously-staged rows untouched rather
      * than half of this call's rows landing and half not.
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before starting the transaction, since staging can
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before starting the transaction, since staging can
      * be the first call any caller makes on a freshly created per-branch schema. It must run before
      * {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
      * transaction would silently break the atomicity this method depends on.
@@ -2881,7 +2608,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
             // it inside the transaction would silently break atomicity.
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             connection.setAutoCommit(false);
             try {
                 if (!orderedMethodsTracked.isEmpty()) {
@@ -2932,7 +2659,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before querying, since this can be the first call
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first call
      * any caller makes on a freshly created per-branch schema and the staging table is otherwise
      * only created there.
      *
@@ -2946,7 +2673,7 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ?";
         Map<Integer, MethodImpactTracker> staged = new HashMap<>();
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -2974,7 +2701,7 @@ public class JdbcDataStore implements DataStore {
                 + " WHERE " + COL_RUN_ID + " = ?";
         Set<Integer> covered = new HashSet<>();
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, runId);
                 try (ResultSet resultSet = statement.executeQuery()) {
@@ -2992,7 +2719,7 @@ public class JdbcDataStore implements DataStore {
     /**
      * {@inheritDoc}
      *
-     * <p>Calls {@link #ensureSchema(Connection)} before deleting, since this can be the first call
+     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before deleting, since this can be the first call
      * any caller makes on a freshly created per-branch schema.
      *
      * @param runId the distributed run to clear; deleting an unknown run is a no-op
@@ -3000,7 +2727,7 @@ public class JdbcDataStore implements DataStore {
     @Override
     public void deleteStagedMethodTrackers(final String runId) {
         try (Connection connection = getConnection()) {
-            ensureSchema(connection);
+            schemaManager.ensureSchema(connection);
             for (String table : new String[]{TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
                     TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD}) {
                 try (PreparedStatement statement = connection.prepareStatement(
@@ -3486,7 +3213,7 @@ public class JdbcDataStore implements DataStore {
     }
 
     /**
-     * Check whether the {@code tia_id_block} counter row for {@link #ID_BLOCK_SOURCE_CLASS}
+     * Check whether the {@code tia_id_block} counter row for {@link TiaSchema#ID_BLOCK_SOURCE_CLASS}
      * already exists. Used both to short-circuit {@link #seedSourceClassIdBlockIfAbsent(Connection)}
      * before it does any work, and afterwards to tell a genuinely lost seed race (row now exists,
      * tolerate the failure) apart from a real failure (row still absent, rethrow) - checked by
@@ -3887,7 +3614,7 @@ public class JdbcDataStore implements DataStore {
         try {
             // Bootstrap the schema (create on first contact, idempotent migrations on
             // existing DBs). A freshly created DB has no mapping - return the empty TiaData.
-            if (!ensureSchema(connection)){
+            if (!schemaManager.ensureSchema(connection)){
                 return tiaData;
             } else {
                 long startQueryTime = System.currentTimeMillis();
@@ -3987,41 +3714,6 @@ public class JdbcDataStore implements DataStore {
         }
 
         return sourceMethods;
-    }
-
-    /**
-     * Build a method tracker from the current row of a query over {@code tia_source_method} or
-     * {@code tia_distributed_run_method_stage}. The row must include the method name, the start/end
-     * line numbers and the (nullable) exact line ranges.
-     *
-     * @param resultSet the result set positioned on the row to read
-     * @return the tracker for the row
-     * @throws SQLException if a column can't be read
-     */
-    private MethodImpactTracker readMethodTracker(ResultSet resultSet) throws SQLException {
-        return new MethodImpactTracker(
-                resultSet.getString(COL_METHOD_NAME),
-                resultSet.getInt(COL_LINE_NUMBER_START),
-                resultSet.getInt(COL_LINE_NUMBER_END),
-                LineRanges.parse(resultSet.getString(COL_LINE_RANGES)));
-    }
-
-    /**
-     * Build a method tracker from the current row of a full {@code tia_source_method} query,
-     * including the per-method run stats. Kept apart from {@link #readMethodTracker(ResultSet)}
-     * because the distributed staging table and the targeted select-tests query don't carry the
-     * stats columns. See the "Method run stats" chapter in {@code WIKI.md}.
-     *
-     * @param resultSet the result set positioned on a {@code tia_source_method} row selected with
-     *                  every column
-     * @return the tracker for the row, carrying its executed and triggered run counts
-     * @throws SQLException if a column can't be read
-     */
-    private MethodImpactTracker readCatalogueMethodTracker(ResultSet resultSet) throws SQLException {
-        MethodImpactTracker tracker = readMethodTracker(resultSet);
-        tracker.setExecutedRunCount(resultSet.getLong(COL_EXECUTED_RUN_COUNT));
-        tracker.setTriggeredRunCount(resultSet.getLong(COL_TRIGGERED_RUN_COUNT));
-        return tracker;
     }
 
     /**
@@ -4166,904 +3858,6 @@ public class JdbcDataStore implements DataStore {
             }
         }
         return testSuites;
-    }
-
-    private void createTiaDB(){
-        log.info("Creating the Tia DB");
-        String createCoreTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_CORE + " (" +
-                COL_COMMIT_VALUE + " VARCHAR(255) PRIMARY KEY, " +
-                COL_BRANCH + " VARCHAR(255), " +
-                COL_LAST_UPDATED + " TIMESTAMP WITH TIME ZONE, " +
-                COL_NUM_RUNS + " BIGINT, " +
-                COL_AVG_RUN_TIME + " BIGINT, " +
-                COL_NUM_SUCCESS_RUNS + " BIGINT," +
-                COL_NUM_FAIL_RUNS + " BIGINT, " +
-                COL_ALL_TESTS_RUN_TIME + " BIGINT DEFAULT 0, " +
-                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0, " +
-                COL_FIXED_OVERHEAD_MS + " BIGINT DEFAULT 0, " +
-                COL_CAPTURE_OVERHEAD_PER_SUITE_MS + " BIGINT DEFAULT 0, " +
-                COL_NUM_OVERHEAD_MEASUREMENTS + " BIGINT DEFAULT 0)";
-
-        String createTestSuitesFailedTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITES_FAILED + " " +
-                "(" + COL_TEST_SUITE_NAME + " VARCHAR(255) PRIMARY KEY)";
-
-        // method_name is declared unbounded (VARCHAR with no length) because it stores a method's
-        // full descriptor including its complete parameter-type list, which can exceed any fixed
-        // width for high-arity methods and constructors.
-        String createSourceMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_METHOD + " " +
-                "(" + COL_ID + " INT PRIMARY KEY, " +
-                COL_METHOD_NAME + " VARCHAR, " +
-                COL_LINE_NUMBER_START + " INT, " +
-                COL_LINE_NUMBER_END + " INT, " +
-                COL_LINE_RANGES + " VARCHAR, " +
-                COL_EXECUTED_RUN_COUNT + " BIGINT DEFAULT 0, " +
-                COL_TRIGGERED_RUN_COUNT + " BIGINT DEFAULT 0)";
-
-        String createTestSuiteTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + " " +
-                "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
-                COL_NAME + " VARCHAR(500), " +
-                COL_SOURCE_FILENAME + " VARCHAR(500), " +
-                COL_NUM_RUNS + " BIGINT, " +
-                COL_AVG_RUN_TIME + " BIGINT, " +
-                COL_NUM_SUCCESS_RUNS + " BIGINT, " +
-                COL_NUM_FAIL_RUNS + " BIGINT, " +
-                COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE, " +
-                COL_UNSEALED + " BOOLEAN DEFAULT FALSE)";
-
-        // Unique index on tia_test_suite.name. This is the conflict target for the suite upsert
-        // (H2 MERGE ... KEY(name) / Postgres INSERT ... ON CONFLICT (name)). Postgres requires the
-        // ON CONFLICT target to be backed by a real unique constraint or index, so the constraint
-        // MUST sit on name. It was historically (mistakenly) created on the vestigial, never-written
-        // source_filename column; H2's lenient MERGE KEY masked that, Postgres's ON CONFLICT did not.
-        String createTestSuiteNameIndexSql = "CREATE UNIQUE INDEX IF NOT EXISTS " + TABLE_TIA_TEST_SUITE + "_" + COL_NAME + "_idx ON " +
-                TABLE_TIA_TEST_SUITE + " (" + COL_NAME + ")";
-
-        String createSourceClassTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS + " " +
-                "(" + COL_ID + " " + dialect.identityColumnDefinition() + ", " +
-                COL_TIA_TEST_SUITE_ID + " BIGINT, " +
-                COL_SOURCE_FILENAME + " VARCHAR(500))";
-
-        // Index on tia_source_class.tia_test_suite_id is essential for the suite-scoped
-        // "DELETE FROM tia_source_class WHERE tia_test_suite_id = ?" run on every suite persist:
-        // without it, each delete is a full scan of all tia_source_class rows - observed at ~30%
-        // of CPU on a 940K-row tia_source_class table.
-        String createSourceClassTestSuiteIndexSql = buildCreateSourceClassTestSuiteIndexSql();
-
-        String createSourceClassMethodTableSql = "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_SOURCE_CLASS_METHOD +
-                " (" + COL_TIA_SOURCE_CLASS_ID + " BIGINT, " +
-                COL_TIA_SOURCE_METHOD_ID + " INT, " +
-                "PRIMARY KEY (" + COL_TIA_SOURCE_CLASS_ID + ", " + COL_TIA_SOURCE_METHOD_ID + "))";
-
-        // Indexes backing the targeted select-tests queries (changed-files-to-tracked-methods
-        // filename lookup and methods-to-covering-suites method-id lookup). Created here for new
-        // DBs; existing DBs gain them via
-        // ensureTargetedQueryIndexesExist on first contact.
-        String createSourceClassFilenameIndexSql = buildCreateSourceClassFilenameIndexSql();
-        String createSourceClassMethodMethodIdIndexSql = buildCreateSourceClassMethodMethodIdIndexSql();
-
-        String createLibraryTableSql = buildCreateLibraryTableSql();
-        String createPendingLibraryMethodTableSql = buildCreatePendingLibraryImpactedMethodTableSql();
-        String createPendingLibraryForcedSelectionTableSql = buildCreatePendingLibraryForcedSelectionTableSql();
-        String createLibraryPublishTableSql = buildCreateLibraryPublishTableSql();
-        String createTestRunHistoryTableSql = buildCreateTestRunHistoryTableSql();
-        String createTestRunHistoryIndexSql = buildCreateTestRunHistoryIndexSql();
-
-        try {
-            Connection connection = getConnection();
-            Statement statement = connection.createStatement();
-            statement.executeUpdate(createCoreTableSql);
-            statement.executeUpdate(createSourceMethodTableSql);
-            statement.executeUpdate(createTestSuitesFailedTableSql);
-            statement.executeUpdate(createTestSuiteTableSql);
-            statement.executeUpdate(createTestSuiteNameIndexSql);
-            statement.executeUpdate(createSourceClassTableSql);
-            statement.executeUpdate(createSourceClassTestSuiteIndexSql);
-            statement.executeUpdate(createSourceClassMethodTableSql);
-            statement.executeUpdate(createSourceClassFilenameIndexSql);
-            statement.executeUpdate(createSourceClassMethodMethodIdIndexSql);
-            statement.executeUpdate(createLibraryTableSql);
-            statement.executeUpdate(createPendingLibraryMethodTableSql);
-            statement.executeUpdate(createPendingLibraryForcedSelectionTableSql);
-            statement.executeUpdate(createLibraryPublishTableSql);
-            statement.executeUpdate(createTestRunHistoryTableSql);
-            statement.executeUpdate(createTestRunHistoryIndexSql);
-            connection.close();
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        log.info("Finished creating the Tia DB");
-    }
-
-    private boolean checkTiaDBExists(Connection connection) throws SQLException {
-        return checkTableExists(connection, TABLE_TIA_CORE);
-    }
-
-    /**
-     * Check whether a table exists, delegating to the dialect so vendor identifier case-folding is
-     * handled correctly (H2 folds unquoted names to upper case; other vendors differ).
-     *
-     * @param connection the open connection to query metadata on
-     * @param tableName the unquoted table name as written in the DDL
-     * @return true if the table exists
-     * @throws SQLException if metadata access fails
-     */
-    private boolean checkTableExists(Connection connection, String tableName) throws SQLException {
-        return dialect.tableExists(connection, tableName);
-    }
-
-    /**
-     * Build the DDL for the {@code tia_library} table.
-     */
-    private String buildCreateLibraryTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_LIBRARY + " ("
-                + COL_GROUP_ARTIFACT + " VARCHAR(512) PRIMARY KEY, "
-                + COL_PROJECT_DIR + " VARCHAR(1000), "
-                + COL_SOURCE_DIRS_CSV + " VARCHAR(2000), "
-                + COL_MAPPING_BASELINE_COMMIT + " VARCHAR(128), "
-                + COL_LAST_APPLIED_SEQ + " BIGINT)";
-    }
-
-    /**
-     * Ensure the {@code tia_library} table exists, creating it if necessary.
-     * Called before insert/merge operations on the library table to handle
-     * databases that were created before this feature was added.
-     */
-    private void ensureLibraryTableExists(Connection connection) throws SQLException {
-        if (!checkTableExists(connection, TABLE_TIA_LIBRARY)) {
-            Statement statement = connection.createStatement();
-            statement.executeUpdate(buildCreateLibraryTableSql());
-            log.debug("Created {} table in existing Tia DB", TABLE_TIA_LIBRARY);
-        }
-    }
-
-    /**
-     * Build the DDL for the {@code tia_pending_library_impacted_method} table.
-     */
-    private String buildCreatePendingLibraryImpactedMethodTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD + " ("
-                + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
-                + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
-                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
-                + COL_TIA_SOURCE_METHOD_ID + " INT NOT NULL, "
-                + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + ", " + COL_TIA_SOURCE_METHOD_ID + "), "
-                + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
-    }
-
-    /**
-     * Ensure the {@code tia_pending_library_impacted_method} table exists, creating
-     * it and its parent {@code tia_library} table if necessary.
-     */
-    private void ensurePendingLibraryImpactedMethodTableExists(Connection connection) throws SQLException {
-        ensureLibraryTableExists(connection);
-        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD)) {
-            Statement statement = connection.createStatement();
-            statement.executeUpdate(buildCreatePendingLibraryImpactedMethodTableSql());
-            log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_IMPACTED_METHOD);
-        }
-    }
-
-    /**
-     * Build the DDL for the {@code tia_pending_library_forced_selection} table - one row per
-     * (library build, rule, suite-name pattern); RUN_ALL stores a single row with a NULL pattern.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the forced-selection table.
-     */
-    private String buildCreatePendingLibraryForcedSelectionTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION + " ("
-                + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
-                + COL_STAMP_VERSION + " VARCHAR(128) NOT NULL, "
-                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
-                + COL_RULE_NAME + " VARCHAR(256) NOT NULL, "
-                + COL_MODE + " VARCHAR(32) NOT NULL, "
-                + COL_SUITE_NAME_PATTERN + " VARCHAR(512), "
-                + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY
-                + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
-    }
-
-    /**
-     * Ensure the {@code tia_pending_library_forced_selection} table exists, creating it and its
-     * parent {@code tia_library} table if necessary.
-     *
-     * @param connection the open JDBC connection.
-     * @throws SQLException if the table cannot be created.
-     */
-    private void ensurePendingLibraryForcedSelectionTableExists(Connection connection) throws SQLException {
-        ensureLibraryTableExists(connection);
-        if (!checkTableExists(connection, TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION)) {
-            Statement statement = connection.createStatement();
-            statement.executeUpdate(buildCreatePendingLibraryForcedSelectionTableSql());
-            log.debug("Created {} table in existing Tia DB", TABLE_TIA_PENDING_LIBRARY_FORCED_SELECTION);
-        }
-    }
-
-    /**
-     * Build the DDL for the {@code tia_library_publish} table - the publish ledger, one row per
-     * published build of a tracked library, ordered per library by {@code publish_seq}.
-     * See the publish-ledger section of the library publish-time stamping chapter in {@code WIKI.md}.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the publish ledger
-     */
-    private String buildCreateLibraryPublishTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_LIBRARY_PUBLISH + " ("
-                + COL_GROUP_ARTIFACT + " VARCHAR(512) NOT NULL, "
-                + COL_PUBLISH_SEQ + " BIGINT NOT NULL, "
-                + COL_PUBLISHED_VERSION + " VARCHAR(128) NOT NULL, "
-                + COL_JAR_HASH + " VARCHAR(128), "
-                + COL_COMMIT_VALUE + " VARCHAR(128), "
-                + COL_PUBLISHED_AT + " BIGINT NOT NULL, "
-                + "PRIMARY KEY (" + COL_GROUP_ARTIFACT + ", " + COL_PUBLISH_SEQ + "), "
-                + "FOREIGN KEY (" + COL_GROUP_ARTIFACT + ") REFERENCES " + TABLE_TIA_LIBRARY + "(" + COL_GROUP_ARTIFACT + ") ON DELETE CASCADE)";
-    }
-
-    /**
-     * Ensure the {@code tia_library_publish} table exists, creating it and its parent
-     * {@code tia_library} table (plus the pending-stamp table the atomic publish write also
-     * inserts into) if necessary. Mirrors the on-demand creation guard the sibling library
-     * tables use so a publish persisted before the schema bootstrap ran still succeeds.
-     *
-     * @param connection the H2 connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureLibraryPublishTableExists(Connection connection) throws SQLException {
-        ensurePendingLibraryImpactedMethodTableExists(connection);
-        if (!checkTableExists(connection, TABLE_TIA_LIBRARY_PUBLISH)) {
-            Statement statement = connection.createStatement();
-            statement.executeUpdate(buildCreateLibraryPublishTableSql());
-            log.debug("Created {} table in existing Tia DB", TABLE_TIA_LIBRARY_PUBLISH);
-        }
-    }
-
-    /**
-     * Build the DDL for the {@code tia_test_run_history} table.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the history table
-     */
-    private String buildCreateTestRunHistoryTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_HISTORY + " ("
-                + COL_ID + " VARCHAR(64) NOT NULL PRIMARY KEY, "
-                + COL_RUN_TIMESTAMP + " BIGINT NOT NULL, "
-                + COL_BRANCH + " VARCHAR(255), "
-                + COL_COMMIT_VALUE + " VARCHAR(255), "
-                + COL_NUM_SUITES_RAN + " INT, "
-                + COL_NUM_SUITES_IGNORED + " INT, "
-                + COL_NUM_SUITES_FAILED + " INT, "
-                + COL_DURATION_MS + " BIGINT, "
-                + COL_UPDATED_DB_MAPPING + " BOOLEAN, "
-                + COL_TIME_SAVINGS + " BIGINT DEFAULT 0, "
-                + COL_SAVINGS_PERCENT + " INT DEFAULT 0, "
-                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0, "
-                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0, "
-                // Distributed builds only; null on a single-host run, which is what makes such a
-                // row indistinguishable from one written before distributed runs existed.
-                + COL_RUN_ID + " VARCHAR(255), "
-                + COL_WALL_CLOCK_MS + " BIGINT, "
-                + COL_GROUP_COUNT + " INT, "
-                + COL_GROUPS_AVAILABLE + " INT, "
-                // Where the run came from. Nullable throughout: null means "not known", which is
-                // what a row written before these columns existed, a run whose hostname would not
-                // resolve, and a distributed build (no single host ran it) all genuinely are.
-                + COL_RUN_SOURCE + " VARCHAR(32), "
-                + COL_HOST_NAME + " VARCHAR(255), "
-                // The selection-breakdown counters. Nullable with no DEFAULT: a row written before
-                // this feature, or an all-tests run, reads back null - "not recorded" - rather than
-                // a made-up zero.
-                + COL_NUM_MODIFIED_TEST_FILES + " INT, "
-                + COL_NUM_NEW_TEST_FILES + " INT, "
-                + COL_NUM_PREVIOUSLY_FAILED + " INT, "
-                + COL_NUM_UNSEALED_MAPPING + " INT, "
-                + COL_NUM_PENDING_LIBRARY + " INT, "
-                // True for a retry of failed tests (a Surefire rerun or a Gradle test-retry round),
-                // which is credited no savings.
-                + COL_RERUN + " BOOLEAN DEFAULT FALSE, "
-                // How the run's selection was decided (SELECTIVE, SEED, SELECT_ALL or RESEED).
-                + COL_SELECTION_MODE + " VARCHAR(16))";
-    }
-
-    /**
-     * Build the DDL for the index on {@code tia_test_run_history.run_timestamp}. Backs the
-     * default sort by recency in the report read path ({@code ORDER BY run_timestamp DESC}).
-     *
-     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the timestamp index
-     */
-    private String buildCreateTestRunHistoryIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS " + IDX_TEST_RUN_HISTORY_TS + " ON "
-                + TABLE_TIA_TEST_RUN_HISTORY + " (" + COL_RUN_TIMESTAMP + ")";
-    }
-
-    /**
-     * Ensure the {@code tia_test_run_history} table and its timestamp index exist on an
-     * already-populated DB. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS}; called
-     * on every load and before each insert so DBs created before this feature gain the
-     * table on first contact.
-     *
-     * @param connection the H2 connection to issue the DDL on
-     * @throws SQLException if either DDL statement fails
-     */
-    private void ensureTestRunHistoryTableExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(buildCreateTestRunHistoryTableSql());
-        statement.executeUpdate(buildCreateTestRunHistoryIndexSql());
-        // Migration: add the per-run savings columns to DBs created before this feature. Old rows
-        // default to 0 - their original baselines are unrecoverable.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_TIME_SAVINGS + " BIGINT DEFAULT 0");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_SAVINGS_PERCENT + " INT DEFAULT 0");
-        // Migration: add the distributed-build columns to DBs created before distributed runs
-        // existed. No DEFAULT, so old rows read back null - which is correct, they were not
-        // distributed - rather than as a build split across zero groups.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_RUN_ID + " VARCHAR(255)");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_WALL_CLOCK_MS + " BIGINT");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_GROUP_COUNT + " INT");
-        // Migration: add the wall-clock savings columns and the groups available they are
-        // measured against.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_WALL_CLOCK_SAVINGS + " BIGINT DEFAULT 0");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_WALL_CLOCK_SAVINGS_PERCENT + " INT DEFAULT 0");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_GROUPS_AVAILABLE + " INT");
-        // Migration: add the run-origin columns to DBs created before them. No DEFAULT, so old rows
-        // read back null rather than being retro-labelled as something nobody actually recorded.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_RUN_SOURCE + " VARCHAR(32)");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_HOST_NAME + " VARCHAR(255)");
-        // Migration: add the selection-breakdown counters to DBs created before this feature. No
-        // DEFAULT, so old rows read back null - "not recorded" - rather than a made-up zero.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_NUM_MODIFIED_TEST_FILES + " INT");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_NUM_NEW_TEST_FILES + " INT");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_NUM_PREVIOUSLY_FAILED + " INT");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_NUM_UNSEALED_MAPPING + " INT");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_NUM_PENDING_LIBRARY + " INT");
-        // Migration: add the rerun flag. Old rows default to false - reruns were not told apart
-        // before this column, so each old row is read as the run it was recorded as.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_RERUN + " BOOLEAN DEFAULT FALSE");
-        // Migration: add the selection mode. No DEFAULT, so old rows read back null - the mode
-        // was not recorded for them - rather than being retro-labelled selective.
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_RUN_HISTORY + " ADD COLUMN IF NOT EXISTS "
-                + COL_SELECTION_MODE + " VARCHAR(16)");
-        ensureTestRunHistoryTriggerTableExists(connection);
-    }
-
-    /**
-     * Create the run-history trigger child table if it does not exist. One row per changed method
-     * and per fired static rule, keyed by the history row it belongs to, cascade-deleted with it.
-     *
-     * @param connection the open connection to create the table on
-     * @throws SQLException if the DDL fails
-     */
-    private void ensureTestRunHistoryTriggerTableExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(buildCreateTestRunHistoryTriggerTableSql());
-    }
-
-    /**
-     * Build the DDL for the {@code tia_test_run_history_trigger} table: one row per selection
-     * trigger (a changed source method or a fired static rule) attributed to a history row,
-     * foreign-keyed to it so the trigger rows are cascade-deleted with their parent.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the trigger table
-     */
-    private String buildCreateTestRunHistoryTriggerTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER + " ("
-                + COL_HISTORY_ID + " VARCHAR(64) NOT NULL, "
-                + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
-                + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
-                + COL_TEST_COUNT + " INT NOT NULL, "
-                + "FOREIGN KEY (" + COL_HISTORY_ID + ") REFERENCES " + TABLE_TIA_TEST_RUN_HISTORY
-                + "(" + COL_ID + ") ON DELETE CASCADE)";
-    }
-
-    /**
-     * DDL for the index on {@code tia_source_class.tia_test_suite_id}. Uses
-     * {@code CREATE INDEX IF NOT EXISTS} so it's safe to call repeatedly - both for new DBs
-     * (called from {@code createTiaDB}) and for migrating existing DBs missing the index.
-     */
-    private static String buildCreateSourceClassTestSuiteIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS " + COL_TIA_TEST_SUITE_ID + "_idx ON "
-                + TABLE_TIA_SOURCE_CLASS + " (" + COL_TIA_TEST_SUITE_ID + ")";
-    }
-
-    /**
-     * Migration: ensure the {@code tia_source_class.tia_test_suite_id} index exists on
-     * an already-populated DB. Without this index, the suite-scoped
-     * {@code DELETE FROM tia_source_class WHERE tia_test_suite_id = ?} degrades to a full scan of
-     * {@code tia_source_class}.
-     */
-    private void ensureSourceClassTestSuiteIndexExists(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(buildCreateSourceClassTestSuiteIndexSql());
-    }
-
-    /**
-     * DDL for the index on {@code tia_source_class.source_filename}. Backs the targeted
-     * select-tests query that resolves changed source files to their tracked methods
-     * (the changed-files-to-tracked-methods lookup) - without it the filename {@code IN} predicate scans every source-class row.
-     * Named with the {@code idx_} prefix to keep it distinct from the other schema-global H2 index
-     * names ({@code source_filename} is also a column on {@code tia_source_class}).
-     *
-     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the filename index
-     */
-    private static String buildCreateSourceClassFilenameIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS idx_source_class_filename ON "
-                + TABLE_TIA_SOURCE_CLASS + " (" + COL_SOURCE_FILENAME + ")";
-    }
-
-    /**
-     * DDL for the index on {@code tia_source_class_method.tia_source_method_id}. Backs the
-     * targeted select-tests query that resolves impacted method ids to their covering test
-     * suites (the methods-to-covering-suites lookup). The table's composite primary key leads with
-     * {@code tia_source_class_id}, so a method-id-leading lookup cannot use it.
-     *
-     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the method-id index
-     */
-    private static String buildCreateSourceClassMethodMethodIdIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS idx_source_class_method_method_id ON "
-                + TABLE_TIA_SOURCE_CLASS_METHOD + " (" + COL_TIA_SOURCE_METHOD_ID + ")";
-    }
-
-    /**
-     * Migration: ensure the two indexes backing the targeted select-tests queries exist on an
-     * already-populated DB. Idempotent via {@code CREATE INDEX IF NOT EXISTS}. Note for large
-     * existing DBs: the first contact after an upgrade builds these indexes over the full
-     * edge table (millions of rows on large projects), which blocks that first caller for the
-     * build duration.
-     *
-     * @param connection the H2 connection to issue the DDL on
-     * @throws SQLException if either DDL statement fails
-     */
-    private void ensureTargetedQueryIndexesExist(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate(buildCreateSourceClassFilenameIndexSql());
-        statement.executeUpdate(buildCreateSourceClassMethodMethodIdIndexSql());
-    }
-
-    /**
-     * Migration: ensure the {@code tia_test_suite.developer_disabled} column exists on an
-     * already-populated DB created before the flag was added. Idempotent via
-     * {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to {@code FALSE}.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureTestSuiteDeveloperDisabledColumnExists(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
-                    COL_DEVELOPER_DISABLED + " BOOLEAN DEFAULT FALSE");
-        }
-    }
-
-    /**
-     * Migration: ensure the {@code tia_test_suite.unsealed} column exists on an already-populated
-     * DB created before the flag was added. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
-     * pre-existing rows default to {@code FALSE}, which is correct - their mapping rows were
-     * written by runs that did seal.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureTestSuiteUnsealedColumnExists(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_TEST_SUITE + " ADD COLUMN IF NOT EXISTS " +
-                    COL_UNSEALED + " BOOLEAN DEFAULT FALSE");
-        }
-    }
-
-    /**
-     * Migration: ensure the {@code tia_source_method.line_ranges} column exists on a DB created
-     * before constructors and static initializers carried exact line ranges. Idempotent via
-     * {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows stay {@code NULL}, so their methods keep
-     * matching by start-end line until the next mapping update rewrites the catalogue. See the
-     * "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureSourceMethodLineRangesColumnExists(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
-                    COL_LINE_RANGES + " VARCHAR");
-        }
-    }
-
-    /**
-     * Migration: ensure the {@code tia_source_method.executed_run_count} and
-     * {@code tia_source_method.triggered_run_count} columns exist on a DB created before the
-     * per-method run stats were recorded. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
-     * pre-existing rows default to {@code 0} and start counting from the next mapping-update run.
-     * See the "Method run stats" chapter in {@code WIKI.md}.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureSourceMethodRunCountColumnsExist(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
-                    COL_EXECUTED_RUN_COUNT + " BIGINT DEFAULT 0");
-            statement.executeUpdate("ALTER TABLE " + TABLE_TIA_SOURCE_METHOD + " ADD COLUMN IF NOT EXISTS " +
-                    COL_TRIGGERED_RUN_COUNT + " BIGINT DEFAULT 0");
-        }
-    }
-
-    /**
-     * Migration: ensure the {@code tia_id_block} table exists. It holds one row per
-     * application-assigned id space, recording the next unallocated value, so concurrent writers
-     * can reserve disjoint id blocks instead of each reading {@code MAX(id)} and colliding.
-     * Idempotent via {@code CREATE TABLE IF NOT EXISTS}.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if the DDL statement fails
-     */
-    private void ensureIdBlockTableExists(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + TABLE_TIA_ID_BLOCK + " ("
-                    + COL_BLOCK_NAME + " VARCHAR(100) PRIMARY KEY, "
-                    + COL_NEXT_VALUE + " BIGINT NOT NULL)");
-        }
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run} table, which holds one row per logical
-     * distributed build. The row is inserted {@code OPEN} in the same transaction as its groups,
-     * so a runner never observes a half-written plan.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the run table
-     */
-    private String buildCreateDistributedRunTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
-                + COL_BRANCH + " VARCHAR(255) NOT NULL, "
-                + COL_COMMIT_VALUE + " VARCHAR(255) NOT NULL, "
-                + COL_STATUS + " VARCHAR(16) NOT NULL, "
-                + COL_GROUP_COUNT + " INT NOT NULL, "
-                + COL_TARGET_RUN_TIME_MS + " BIGINT, "
-                + COL_ESTIMATED_TOTAL_MS + " BIGINT NOT NULL, "
-                + COL_CREATED_AT + " BIGINT NOT NULL, "
-                + COL_SEALED_BY + " VARCHAR(255), "
-                + COL_SEALED_AT + " BIGINT, "
-                + COL_DRAIN_RESULT + " " + dialect.binaryColumnType() + ", "
-                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE', "
-                + COL_GROUPS_AVAILABLE + " INT, "
-                + COL_RUN_SOURCE + " VARCHAR(32))";
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_group} table, one row per runner slice.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the group table
-     */
-    private String buildCreateDistributedRunGroupTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
-                + COL_GROUP_NUMBER + " INT NOT NULL, "
-                + COL_STATUS + " VARCHAR(16) NOT NULL, "
-                + COL_RUNNER_KEY + " VARCHAR(255), "
-                + COL_CLAIMED_AT + " BIGINT, "
-                + COL_COMPLETED_AT + " BIGINT, "
-                + COL_ESTIMATED_MS + " BIGINT NOT NULL, "
-                + COL_ACTUAL_DURATION_MS + " BIGINT, "
-                + COL_SUITES_RAN + " INT DEFAULT 0, "
-                + COL_SUITES_FAILED + " INT DEFAULT 0, "
-                + COL_SUITES_OBSERVED + " INT DEFAULT 0, "
-                + COL_SUITES_DURATION_MS + " BIGINT DEFAULT 0, "
-                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + "))";
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_group_suite} table, which records which
-     * suites belong to which group.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the group-suite table
-     */
-    private String buildCreateDistributedRunGroupSuiteTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
-                + COL_GROUP_NUMBER + " INT NOT NULL, "
-                + COL_TEST_SUITE_NAME + " VARCHAR(500) NOT NULL, "
-                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + "))";
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_method_stage} table. Runners stage their
-     * method trackers here so the sealer can write the method catalogue once, after the barrier.
-     * Created alongside the other distributed-run tables so the schema is a single migration.
-     * The {@code method_name} column is declared unbounded (VARCHAR with no length) because a
-     * method descriptor includes its full parameter-type list and can exceed any fixed width for
-     * high-arity methods and constructors.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the method staging table
-     */
-    private String buildCreateDistributedRunMethodStageTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
-                + COL_ID + " INT NOT NULL, "
-                + COL_METHOD_NAME + " VARCHAR, "
-                + COL_LINE_NUMBER_START + " INT, "
-                + COL_LINE_NUMBER_END + " INT, "
-                + COL_LINE_RANGES + " VARCHAR, "
-                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_covered_method} table. Runners stage the ids
-     * of the methods their suites executed here, one row per id per run, so the sealer can count
-     * each method's executed runs from the union. See the "Method run stats" chapter in
-     * {@code WIKI.md}.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the covered method table
-     */
-    private String buildCreateDistributedRunCoveredMethodTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
-                + COL_ID + " INT NOT NULL, "
-                + "PRIMARY KEY (" + COL_RUN_ID + ", " + COL_ID + "))";
-    }
-
-    /**
-     * Build the DDL for the index backing group lookups by status within one run. Both the claim
-     * query and the barrier check filter one run's groups by status, and the composite primary
-     * key leads with {@code run_id} but has no status component.
-     *
-     * @return the {@code CREATE INDEX IF NOT EXISTS} statement for the group status index
-     */
-    private String buildCreateDistributedRunGroupStatusIndexSql() {
-        return "CREATE INDEX IF NOT EXISTS " + IDX_DISTRIBUTED_RUN_GROUP_STATUS + " ON "
-                + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " (" + COL_RUN_ID + ", " + COL_STATUS + ")";
-    }
-
-    /**
-     * Build the migration adding {@code tia_distributed_run.selection_mode} to a run table created
-     * before modes were recorded. Idempotent via {@code ADD COLUMN IF NOT EXISTS}, and a no-op on a
-     * table {@link #buildCreateDistributedRunTableSql} just created. Pre-existing rows read
-     * {@code SELECTIVE}, the safe way round: a run wrongly read as selective reports every tracked
-     * suite it was not assigned as ignored and so cannot become an all-tests run. Tia is pre-release,
-     * so the {@code seed_run} flag it replaces is not backfilled; a seed run left open across the
-     * upgrade must be re-planned.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddSelectionModeColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
-                + COL_SELECTION_MODE + " VARCHAR(16) DEFAULT 'SELECTIVE'";
-    }
-
-    /**
-     * Build the migration dropping the {@code seed_run} column that {@code selection_mode}
-     * replaced. Idempotent via {@code DROP COLUMN IF EXISTS}.
-     *
-     * @return the {@code ALTER TABLE ... DROP COLUMN IF EXISTS} statement
-     */
-    private String buildDropSeedRunColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " DROP COLUMN IF EXISTS seed_run";
-    }
-
-    /**
-     * Build the migration that backfills the {@code tia_distributed_run.groups_available} column
-     * onto a run table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT
-     * EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunTableSql} just created.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddGroupsAvailableColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
-                + COL_GROUPS_AVAILABLE + " INT";
-    }
-
-    /**
-     * Build the migration that backfills the {@code tia_distributed_run.run_source} column onto a
-     * run table created before the column existed. Idempotent via {@code ADD COLUMN IF NOT
-     * EXISTS}, and a no-op on a table {@link #buildCreateDistributedRunTableSql} just created.
-     * Pre-existing rows read back null, which the sealer treats as "not recorded" and falls back to
-     * resolving the source from its own environment - the behaviour before the column existed.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddDistributedRunSourceColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN + " ADD COLUMN IF NOT EXISTS "
-                + COL_RUN_SOURCE + " VARCHAR(32)";
-    }
-
-    /**
-     * Build the migration that backfills the {@code tia_distributed_run_method_stage.line_ranges}
-     * column onto a staging table created before constructors and static initializers carried
-     * exact line ranges. Idempotent via {@code ADD COLUMN IF NOT EXISTS}; the staging write names
-     * the column, so a store without it would fail the next runner's stage.
-     *
-     * @return the {@code ALTER TABLE ... ADD COLUMN IF NOT EXISTS} statement for the column
-     */
-    private String buildAddMethodStageLineRangesColumnSql() {
-        return "ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE + " ADD COLUMN IF NOT EXISTS "
-                + COL_LINE_RANGES + " VARCHAR";
-    }
-
-    /**
-     * Ensure the four distributed-run tables, the group-status index, the additive {@code
-     * selection_mode}, {@code groups_available} and {@code run_source} columns, and the method
-     * staging table's {@code line_ranges} column exist, and drop the {@code seed_run} column
-     * {@code selection_mode} replaced. Idempotent via {@code CREATE TABLE/INDEX IF NOT EXISTS},
-     * {@code ADD COLUMN IF NOT EXISTS} and {@code DROP COLUMN IF EXISTS}, so it both creates
-     * everything on a new database and migrates a database created before these were recorded.
-     *
-     * <p>The group table's {@code suites_observed} and {@code suites_duration_ms} columns carry no
-     * such migration: {@link #buildCreateDistributedRunGroupTableSql} names them both, and Tia is
-     * pre-release with no external databases to preserve, so a database is simply created with
-     * them. {@code selection_mode}, {@code groups_available} and {@code run_source} are added
-     * because the plan write names them, so a store without any of them would fail the next plan.
-     *
-     * <p>All ten DDL statements are batched onto one {@link Statement} and sent with a single
-     * {@code executeBatch} call. {@code ensureSchema} runs on every read path, so on a server-mode
-     * or Postgres connection this collapses what would otherwise be ten wire round trips - paid on
-     * every build whether or not distributed runs are in use - into one.
-     *
-     * <p>Also ensures the two run-id-keyed selection-breakdown tables via {@link
-     * #ensureDistributedRunSelectionTablesExist}, since they belong to the same distributed-run
-     * schema even though {@link #persistDistributedRunPlan} does not write them itself.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if any DDL statement fails
-     */
-    private void ensureDistributedRunTablesExist(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.addBatch(buildCreateDistributedRunTableSql());
-            statement.addBatch(buildCreateDistributedRunGroupTableSql());
-            statement.addBatch(buildCreateDistributedRunGroupSuiteTableSql());
-            statement.addBatch(buildCreateDistributedRunMethodStageTableSql());
-            statement.addBatch(buildCreateDistributedRunCoveredMethodTableSql());
-            statement.addBatch(buildCreateDistributedRunGroupStatusIndexSql());
-            statement.addBatch(buildAddSelectionModeColumnSql());
-            statement.addBatch(buildDropSeedRunColumnSql());
-            statement.addBatch(buildAddGroupsAvailableColumnSql());
-            statement.addBatch(buildAddDistributedRunSourceColumnSql());
-            statement.addBatch(buildAddMethodStageLineRangesColumnSql());
-            statement.executeBatch();
-        }
-        ensureDistributedRunSelectionTablesExist(connection);
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_selection} table: one row per distributed
-     * run holding the same five scalar selection-source counters {@code
-     * tia_test_run_history} stores, staged here by the planner so the sealer can later copy them
-     * onto the build's single history row - see the "Run history details" chapter in {@code
-     * WIKI.md}.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-counters table
-     */
-    private String buildCreateDistributedRunSelectionTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL PRIMARY KEY, "
-                + COL_NUM_MODIFIED_TEST_FILES + " INT, "
-                + COL_NUM_NEW_TEST_FILES + " INT, "
-                + COL_NUM_PREVIOUSLY_FAILED + " INT, "
-                + COL_NUM_UNSEALED_MAPPING + " INT, "
-                + COL_NUM_PENDING_LIBRARY + " INT)";
-    }
-
-    /**
-     * Build the DDL for the {@code tia_distributed_run_trigger} table: one row per selection
-     * trigger staged for a distributed run, mirroring {@code tia_test_run_history_trigger}'s shape
-     * but keyed by run id rather than history id, and with no foreign key - the run-id-keyed
-     * tables are cleared explicitly by {@link #persistDistributedRunSelectionDetails} and by
-     * {@link #persistDistributedRunPlan}'s {@code tablesToClear}, not by a cascade.
-     *
-     * @return the {@code CREATE TABLE IF NOT EXISTS} statement for the selection-trigger table
-     */
-    private String buildCreateDistributedRunTriggerTableSql() {
-        return "CREATE TABLE IF NOT EXISTS " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
-                + COL_RUN_ID + " VARCHAR(255) NOT NULL, "
-                + COL_TRIGGER_TYPE + " VARCHAR(16) NOT NULL, "
-                + COL_TRIGGER_NAME + " VARCHAR(1024) NOT NULL, "
-                + COL_TRIGGER_METHOD_ID + " INT, "
-                + COL_TEST_COUNT + " INT NOT NULL)";
-    }
-
-    /**
-     * Ensure the two run-id-keyed selection-breakdown tables exist: {@code
-     * tia_distributed_run_selection} (the counters row) and {@code tia_distributed_run_trigger}
-     * (the per-trigger rows), and that the trigger table carries the {@code trigger_method_id}
-     * column the seal reads to count each changed method's triggered runs. Idempotent via
-     * {@code CREATE TABLE IF NOT EXISTS} and {@code ADD COLUMN IF NOT EXISTS}.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if any DDL statement fails
-     */
-    private void ensureDistributedRunSelectionTablesExist(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.addBatch(buildCreateDistributedRunSelectionTableSql());
-            statement.addBatch(buildCreateDistributedRunTriggerTableSql());
-            // Migration for a trigger table created before triggers carried the changed method's
-            // id. Pre-existing rows belong to an earlier build's plan and read back with no id.
-            statement.addBatch("ALTER TABLE " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
-                    + " ADD COLUMN IF NOT EXISTS " + COL_TRIGGER_METHOD_ID + " INT");
-            statement.executeBatch();
-        }
-    }
-
-    /**
-     * Migration: ensure the {@code tia_core.all_tests_run_time} and {@code tia_core.num_all_tests_runs}
-     * columns exist on an already-populated DB created before the all-tests-run stats were added.
-     * Idempotent via {@code ADD COLUMN IF NOT EXISTS}; pre-existing rows default to 0.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if either DDL statement fails
-     */
-    private void ensureTiaCoreAllTestsStatsColumnsExist(Connection connection) throws SQLException {
-        Statement statement = connection.createStatement();
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
-                COL_ALL_TESTS_RUN_TIME + " BIGINT DEFAULT 0");
-        statement.executeUpdate("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
-                COL_NUM_ALL_TESTS_RUNS + " BIGINT DEFAULT 0");
-    }
-
-    /**
-     * Migration: ensure the three {@code tia_core} columns carrying the two-part overhead model
-     * exist on a DB created before it was added. Idempotent via {@code ADD COLUMN IF NOT EXISTS};
-     * pre-existing rows default to 0, which is exactly the "never measured" state the estimate falls
-     * back from, so an existing project keeps its current behaviour until its first distributed run
-     * supplies the measurement.
-     *
-     * @param connection the connection to issue the DDL on
-     * @throws SQLException if any DDL statement fails
-     */
-    private void ensureTiaCoreOverheadModelColumnsExist(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
-                    COL_FIXED_OVERHEAD_MS + " BIGINT DEFAULT 0");
-            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
-                    COL_CAPTURE_OVERHEAD_PER_SUITE_MS + " BIGINT DEFAULT 0");
-            statement.addBatch("ALTER TABLE " + TABLE_TIA_CORE + " ADD COLUMN IF NOT EXISTS " +
-                    COL_NUM_OVERHEAD_MEASUREMENTS + " BIGINT DEFAULT 0");
-            statement.executeBatch();
-        }
-    }
-
-    /**
-     * Ensure the Tia schema is ready for use on this connection: create the DB on first
-     * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
-     * This is the single schema-bootstrap entry point - both the full-load path
-     * ({@code readTiaDataFromDB}) and the targeted query methods call it, so neither depends
-     * on the other having run first. Memoized per datastore instance: the schema can't
-     * un-migrate within a JVM, so repeat calls skip the DDL round trips.
-     *
-     * @param connection the connection to check and migrate on
-     * @return {@code true} if the Tia DB already existed before this call (or an earlier call
-     *         on this instance bootstrapped it), {@code false} if it was just created empty
-     * @throws SQLException if the existence check or any migration DDL fails
-     */
-    private boolean ensureSchema(Connection connection) throws SQLException {
-        if (schemaEnsured) {
-            return true;
-        }
-
-        boolean dbExisted = checkTiaDBExists(connection);
-        if (!dbExisted) {
-            log.debug("The Tia DB doesn't currently exist at {}", connectionProvider.jdbcUrl());
-            createTiaDB();
-        }
-        ensureSourceClassTestSuiteIndexExists(connection);
-        ensureTestRunHistoryTableExists(connection);
-        ensureTargetedQueryIndexesExist(connection);
-        ensureTestSuiteDeveloperDisabledColumnExists(connection);
-        ensureTestSuiteUnsealedColumnExists(connection);
-        ensureSourceMethodLineRangesColumnExists(connection);
-        ensureSourceMethodRunCountColumnsExist(connection);
-        ensureTiaCoreAllTestsStatsColumnsExist(connection);
-        ensureTiaCoreOverheadModelColumnsExist(connection);
-        ensureIdBlockTableExists(connection);
-        ensureDistributedRunTablesExist(connection);
-
-        schemaEnsured = true;
-        return dbExisted;
     }
 
     /**
