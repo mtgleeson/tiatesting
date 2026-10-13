@@ -7,10 +7,7 @@ import org.tiatesting.core.library.LibraryImpactDrainResult;
 import org.tiatesting.core.model.ClassImpactTracker;
 import org.tiatesting.core.model.DistributedRun;
 import org.tiatesting.core.model.DistributedRunGroup;
-import org.tiatesting.core.model.SelectionMode;
-import org.tiatesting.core.model.DistributedRunGroupStatus;
 import org.tiatesting.core.model.DistributedRunPlan;
-import org.tiatesting.core.model.DistributedRunStatus;
 import org.tiatesting.core.model.LibraryPublish;
 import org.tiatesting.core.model.LineRanges;
 import org.tiatesting.core.model.MethodIdSet;
@@ -60,6 +57,9 @@ public class JdbcDataStore implements DataStore {
     private final SchemaManager schemaManager;
     private final TestRunHistoryRepository testRunHistoryRepository;
     private final LibraryRepository libraryRepository;
+    private final DistributedRunRepository distributedRunRepository;
+    private final DistributedRunGroupRepository distributedRunGroupRepository;
+    private final DistributedMethodStagingRepository distributedMethodStagingRepository;
 
     /**
      * Construct a datastore over a vendor-neutral SQL dialect and connection provider. The dialect
@@ -81,6 +81,9 @@ public class JdbcDataStore implements DataStore {
         this.schemaManager = new SchemaManager(dialect, this::getConnection, connectionProvider.jdbcUrl());
         this.testRunHistoryRepository = new TestRunHistoryRepository(dialect, this::getConnection, schemaManager);
         this.libraryRepository = new LibraryRepository(dialect, this::getConnection, schemaManager);
+        this.distributedRunRepository = new DistributedRunRepository(dialect, this::getConnection, schemaManager);
+        this.distributedRunGroupRepository = new DistributedRunGroupRepository(dialect, this::getConnection, schemaManager);
+        this.distributedMethodStagingRepository = new DistributedMethodStagingRepository(dialect, this::getConnection, schemaManager);
 
         String schemaDescription = (schema == null || schema.trim().isEmpty())
                 ? "the connection's default schema"
@@ -959,1131 +962,161 @@ public class JdbcDataStore implements DataStore {
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Clears the four plan tables plus the two run-id-keyed selection-breakdown tables before
-     * inserting, so the plan tables hold exactly one run and a replanned run never keeps a
-     * previous run's staged breakdown. Tia isolates each branch in its own schema, so every row
-     * cleared belongs to this branch's previous build - sealed or abandoned - and this is the only
-     * retention mechanism the distributed tables have. This method itself does not write a new
-     * breakdown - {@link #persistDistributedRunSelectionDetails} does that in a separate call once
-     * this one returns.
-     *
-     * <p>All of it runs under one transaction. The rollback catches {@link Exception} rather than
-     * {@link SQLException} deliberately: an unchecked exception that escaped without rolling back
-     * would leave the tables cleared but the new plan unwritten, so every runner would find
-     * nothing to claim and exit successfully - a green build that ran no tests.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before starting the transaction, since this can
-     * be the first call any caller makes on a freshly created per-branch schema. It must run
-     * before {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
-     * transaction would silently break the atomicity this method depends on.
-     *
-     * @param plan the validated plan to persist
+     * <p>Delegates to {@link DistributedRunRepository#persistDistributedRunPlan}.
      */
     @Override
     public void persistDistributedRunPlan(final DistributedRunPlan plan) {
-        String runSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN + " ("
-                + COL_RUN_ID + ", " + COL_BRANCH + ", " + COL_COMMIT_VALUE + ", " + COL_STATUS + ", "
-                + COL_GROUP_COUNT + ", " + COL_TARGET_RUN_TIME_MS + ", " + COL_ESTIMATED_TOTAL_MS + ", "
-                + COL_CREATED_AT + ", " + COL_SEALED_BY + ", " + COL_SEALED_AT + ", " + COL_DRAIN_RESULT
-                + ", " + COL_SELECTION_MODE + ", " + COL_GROUPS_AVAILABLE + ", " + COL_RUN_SOURCE
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        String groupSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " ("
-                + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_STATUS + ", " + COL_RUNNER_KEY + ", "
-                + COL_CLAIMED_AT + ", " + COL_COMPLETED_AT + ", " + COL_ESTIMATED_MS + ", "
-                + COL_ACTUAL_DURATION_MS + ", " + COL_SUITES_RAN + ", " + COL_SUITES_FAILED + ", "
-                + COL_SUITES_OBSERVED + ", " + COL_SUITES_DURATION_MS
-                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        String suiteSql = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE + " ("
-                + COL_RUN_ID + ", " + COL_GROUP_NUMBER + ", " + COL_TEST_SUITE_NAME + ") VALUES (?, ?, ?)";
-
-        DistributedRun run = plan.getRun();
-        Connection connection = getConnection();
-        try {
-            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
-            // it inside the transaction would silently break atomicity.
-            schemaManager.ensureSchema(connection);
-            connection.setAutoCommit(false);
-            try {
-                String[] tablesToClear = {
-                        TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE,
-                        TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
-                        TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD,
-                        TABLE_TIA_DISTRIBUTED_RUN_GROUP,
-                        TABLE_TIA_DISTRIBUTED_RUN,
-                        TABLE_TIA_DISTRIBUTED_RUN_SELECTION,
-                        TABLE_TIA_DISTRIBUTED_RUN_TRIGGER
-                };
-                try (Statement clearStatement = connection.createStatement()) {
-                    for (String table : tablesToClear) {
-                        clearStatement.executeUpdate(dialect.clearTableTransactionallySql(table));
-                    }
-                }
-                try (PreparedStatement statement = connection.prepareStatement(runSql)) {
-                    statement.setString(1, run.getRunId());
-                    statement.setString(2, run.getBranch());
-                    statement.setString(3, run.getCommitValue());
-                    statement.setString(4, run.getStatus().name());
-                    statement.setInt(5, run.getGroupCount());
-                    setNullableLong(statement, 6, run.getTargetRunTimeMs());
-                    statement.setLong(7, run.getEstimatedTotalMs());
-                    statement.setLong(8, run.getCreatedAtMs());
-                    statement.setString(9, run.getSealedBy());
-                    setNullableLong(statement, 10, run.getSealedAtMs());
-                    setDrainResult(statement, 11, plan.getDrainResult());
-                    statement.setString(12, run.getSelectionMode().name());
-                    statement.setInt(13, run.getGroupsAvailable());
-                    setNullableString(statement, 14, run.getRunSource());
-                    statement.executeUpdate();
-                }
-                try (PreparedStatement statement = connection.prepareStatement(groupSql)) {
-                    for (DistributedRunGroup group : plan.getGroups()) {
-                        statement.setString(1, group.getRunId());
-                        statement.setInt(2, group.getGroupNumber());
-                        statement.setString(3, group.getStatus().name());
-                        statement.setString(4, group.getRunnerKey());
-                        setNullableLong(statement, 5, group.getClaimedAtMs());
-                        setNullableLong(statement, 6, group.getCompletedAtMs());
-                        statement.setLong(7, group.getEstimatedMs());
-                        setNullableLong(statement, 8, group.getActualDurationMs());
-                        statement.setInt(9, group.getSuitesRan());
-                        statement.setInt(10, group.getSuitesFailed());
-                        statement.setInt(11, group.getSuitesObserved());
-                        statement.setLong(12, group.getSuitesDurationMs());
-                        statement.addBatch();
-                    }
-                    statement.executeBatch();
-                }
-                try (PreparedStatement statement = connection.prepareStatement(suiteSql)) {
-                    for (Map.Entry<Integer, List<String>> entry : plan.getSuitesByGroup().entrySet()) {
-                        for (String suiteName : entry.getValue()) {
-                            statement.setString(1, run.getRunId());
-                            statement.setInt(2, entry.getKey());
-                            statement.setString(3, suiteName);
-                            statement.addBatch();
-                        }
-                    }
-                    statement.executeBatch();
-                }
-                connection.commit();
-            } catch (Exception e) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollbackFailure) {
-                    e.addSuppressed(rollbackFailure);
-                }
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException closeFailure) {
-                throw new TiaPersistenceException(closeFailure);
-            }
-        }
-    }
-
-    /**
-     * Build a {@link DistributedRun} from the current row of a {@code SELECT *} against
-     * {@code tia_distributed_run}. Shared by {@link #readDistributedRun} and
-     * {@link #readAllDistributedRuns} so the two cannot drift apart on how a run row maps.
-     *
-     * <p>Deliberately does not decode the {@code drain_result} blob. Every runner in the build
-     * reads a run row to claim its group, and only the sealer consumes the drain result, so
-     * decoding it here would make a blob the runners never look at - one written by a planner on a
-     * different Tia version, say - fail every claim in the build. {@link
-     * #readDistributedRunDrainResult} decodes it for the one caller that wants it.
-     *
-     * @param resultSet the result set, positioned on a run row
-     * @return the run the row describes
-     * @throws SQLException if any column cannot be read
-     */
-    private static DistributedRun mapRunRow(ResultSet resultSet) throws SQLException {
-        return new DistributedRun(
-                resultSet.getString(COL_RUN_ID),
-                resultSet.getString(COL_BRANCH),
-                resultSet.getString(COL_COMMIT_VALUE),
-                DistributedRunStatus.valueOf(resultSet.getString(COL_STATUS)),
-                resultSet.getInt(COL_GROUP_COUNT),
-                resultSet.getInt(COL_GROUPS_AVAILABLE),
-                getNullableLong(resultSet, COL_TARGET_RUN_TIME_MS),
-                resultSet.getLong(COL_ESTIMATED_TOTAL_MS),
-                resultSet.getLong(COL_CREATED_AT),
-                resultSet.getString(COL_SEALED_BY),
-                getNullableLong(resultSet, COL_SEALED_AT),
-                SelectionMode.fromStoredName(resultSet.getString(COL_SELECTION_MODE)),
-                resultSet.getString(COL_RUN_SOURCE));
+        distributedRunRepository.persistDistributedRunPlan(plan);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
-     * call any caller makes on a freshly created per-branch schema and the distributed-run
-     * tables are otherwise only created there.
-     *
-     * @param runId the run identifier
-     * @return the run, or null if no run is planned under that id
-     */
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Reads and decodes the {@code drain_result} blob on its own rather than as part of
-     * {@link #readDistributedRun}, so that the Java deserialization it performs is paid, and can
-     * fail, only for the sealer that actually applies the cleanup - never for the runners that
-     * merely read the run row to claim a group.
-     *
-     * @param runId the run identifier
-     * @return the drain result stored with the plan, or null if the run drained nothing or no run
-     *         is planned under that id
+     * <p>Delegates to {@link DistributedRunRepository#readDistributedRunDrainResult}.
      */
     @Override
     public LibraryImpactDrainResult readDistributedRunDrainResult(final String runId) {
-        String sql = "SELECT " + COL_DRAIN_RESULT + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
-                + " WHERE " + COL_RUN_ID + " = ?";
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    if (!resultSet.next()) {
-                        return null;
-                    }
-                    return getDrainResult(resultSet);
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-    }
-
-    @Override
-    public DistributedRun readDistributedRun(final String runId) {
-        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " WHERE " + COL_RUN_ID + " = ?";
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    if (!resultSet.next()) {
-                        return null;
-                    }
-                    return mapRunRow(resultSet);
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
+        return distributedRunRepository.readDistributedRunDrainResult(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
-     * call any caller makes on a freshly created per-branch schema and the distributed-run
-     * tables are otherwise only created there.
-     *
-     * @param runId the run identifier
-     * @return the run's groups in group-number order, empty if the run is unknown
+     * <p>Delegates to {@link DistributedRunRepository#readDistributedRun}.
+     */
+    @Override
+    public DistributedRun readDistributedRun(final String runId) {
+        return distributedRunRepository.readDistributedRun(runId);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Delegates to {@link DistributedRunGroupRepository#readDistributedRunGroups}.
      */
     @Override
     public List<DistributedRunGroup> readDistributedRunGroups(final String runId) {
-        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " WHERE " + COL_RUN_ID
-                + " = ? ORDER BY " + COL_GROUP_NUMBER;
-        List<DistributedRunGroup> groups = new ArrayList<>();
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    while (resultSet.next()) {
-                        groups.add(mapGroupRow(resultSet));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        return groups;
+        return distributedRunGroupRepository.readDistributedRunGroups(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
-     * call any caller makes on a freshly created per-branch schema and the distributed-run
-     * tables are otherwise only created there.
-     *
-     * @param runId the run identifier
-     * @param groupNumber the group's zero-based index within the run
-     * @return the group's suite names in name order, empty if the group is unknown
+     * <p>Delegates to {@link DistributedRunGroupRepository#readDistributedRunGroupSuites}.
      */
     @Override
     public List<String> readDistributedRunGroupSuites(final String runId, final int groupNumber) {
-        String sql = "SELECT " + COL_TEST_SUITE_NAME + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? ORDER BY "
-                + COL_TEST_SUITE_NAME;
-        List<String> suiteNames = new ArrayList<>();
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                statement.setInt(2, groupNumber);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    while (resultSet.next()) {
-                        suiteNames.add(resultSet.getString(COL_TEST_SUITE_NAME));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        return suiteNames;
+        return distributedRunGroupRepository.readDistributedRunGroupSuites(runId, groupNumber);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first
-     * call any caller makes on a freshly created per-branch schema and the distributed-run
-     * tables are otherwise only created there.
-     *
-     * @return the runs currently planned, most recently created first, empty if there are none
+     * <p>Delegates to {@link DistributedRunRepository#readAllDistributedRuns}.
      */
     @Override
     public List<DistributedRun> readAllDistributedRuns() {
-        String sql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN + " ORDER BY " + COL_CREATED_AT + " DESC";
-        List<DistributedRun> runs = new ArrayList<>();
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql);
-                 ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    runs.add(mapRunRow(resultSet));
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        return runs;
+        return distributedRunRepository.readAllDistributedRuns();
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Idempotent per {@code runId}: deletes whatever was previously staged in both the
-     * counters table and the trigger table, then writes {@code details} (or {@link
-     * TestRunSelectionDetails#empty()} if {@code details} is null) - a counters row is always
-     * written, so a read always finds a definite row rather than having to distinguish "not
-     * staged" from "staged as empty". Mirrors {@link #persistTestRunTriggers}'s
-     * delete-then-batch-insert shape, keyed by run id instead of history id.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since this can be the first call any
-     * caller makes on a freshly created per-branch schema.
-     *
-     * @param runId the distributed run these triggers belong to
-     * @param details the breakdown to stage; null is treated as {@link TestRunSelectionDetails#empty()}
+     * <p>Delegates to {@link DistributedRunRepository#persistDistributedRunSelectionDetails}.
      */
     @Override
     public void persistDistributedRunSelectionDetails(final String runId, final TestRunSelectionDetails details) {
-        TestRunSelectionDetails toPersist = details == null ? TestRunSelectionDetails.empty() : details;
-        Connection connection = getConnection();
-        try {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement delete = connection.prepareStatement(
-                    "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " WHERE " + COL_RUN_ID + " = ?")) {
-                delete.setString(1, runId);
-                delete.executeUpdate();
-            }
-            try (PreparedStatement delete = connection.prepareStatement(
-                    "DELETE FROM " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE " + COL_RUN_ID + " = ?")) {
-                delete.setString(1, runId);
-                delete.executeUpdate();
-            }
-            String insertCounters = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION + " ("
-                    + COL_RUN_ID + ", " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES + ", "
-                    + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
-                    + COL_NUM_PENDING_LIBRARY + ") VALUES (?, ?, ?, ?, ?, ?)";
-            try (PreparedStatement ps = connection.prepareStatement(insertCounters)) {
-                ps.setString(1, runId);
-                ps.setInt(2, toPersist.getNumModifiedTestFiles());
-                ps.setInt(3, toPersist.getNumNewTestFiles());
-                ps.setInt(4, toPersist.getNumPreviouslyFailed());
-                ps.setInt(5, toPersist.getNumUnsealedMapping());
-                ps.setInt(6, toPersist.getNumPendingLibrary());
-                ps.executeUpdate();
-            }
-            List<TestRunTrigger> triggers = toPersist.getTriggers();
-            if (!triggers.isEmpty()) {
-                String insertTrigger = "INSERT INTO " + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " ("
-                        + COL_RUN_ID + ", " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                        + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + ") VALUES (?, ?, ?, ?, ?)";
-                try (PreparedStatement ps = connection.prepareStatement(insertTrigger)) {
-                    for (TestRunTrigger t : triggers) {
-                        ps.setString(1, runId);
-                        ps.setString(2, t.getType().name());
-                        ps.setString(3, t.getName());
-                        setNullableInt(ps, 4, t.getMethodId());
-                        ps.setInt(5, t.getTestCount());
-                        ps.addBatch();
-                    }
-                    ps.executeBatch();
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        distributedRunRepository.persistDistributedRunSelectionDetails(runId, details);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since this can be the first call any
-     * caller makes on a freshly created per-branch schema.
-     *
-     * @param runId the distributed run to read the staged breakdown for
-     * @return the staged breakdown, or {@link TestRunSelectionDetails#empty()} if nothing was
-     *         staged for that run id
+     * <p>Delegates to {@link DistributedRunRepository#readDistributedRunSelectionDetails}.
      */
     @Override
     public TestRunSelectionDetails readDistributedRunSelectionDetails(final String runId) {
-        Connection connection = getConnection();
-        try {
-            schemaManager.ensureSchema(connection);
-            boolean countersFound = false;
-            int numModifiedTestFiles = 0;
-            int numNewTestFiles = 0;
-            int numPreviouslyFailed = 0;
-            int numUnsealedMapping = 0;
-            int numPendingLibrary = 0;
-            String countersSql = "SELECT " + COL_NUM_MODIFIED_TEST_FILES + ", " + COL_NUM_NEW_TEST_FILES
-                    + ", " + COL_NUM_PREVIOUSLY_FAILED + ", " + COL_NUM_UNSEALED_MAPPING + ", "
-                    + COL_NUM_PENDING_LIBRARY + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_SELECTION
-                    + " WHERE " + COL_RUN_ID + " = ?";
-            try (PreparedStatement ps = connection.prepareStatement(countersSql)) {
-                ps.setString(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) {
-                        countersFound = true;
-                        numModifiedTestFiles = rs.getInt(COL_NUM_MODIFIED_TEST_FILES);
-                        numNewTestFiles = rs.getInt(COL_NUM_NEW_TEST_FILES);
-                        numPreviouslyFailed = rs.getInt(COL_NUM_PREVIOUSLY_FAILED);
-                        numUnsealedMapping = rs.getInt(COL_NUM_UNSEALED_MAPPING);
-                        numPendingLibrary = rs.getInt(COL_NUM_PENDING_LIBRARY);
-                    }
-                }
-            }
-
-            List<TestRunTrigger> triggers = new ArrayList<>();
-            String triggerSql = "SELECT " + COL_TRIGGER_TYPE + ", " + COL_TRIGGER_NAME + ", "
-                    + COL_TRIGGER_METHOD_ID + ", " + COL_TEST_COUNT + " FROM "
-                    + TABLE_TIA_DISTRIBUTED_RUN_TRIGGER + " WHERE "
-                    + COL_RUN_ID + " = ? ORDER BY " + COL_TEST_COUNT + " DESC";
-            try (PreparedStatement ps = connection.prepareStatement(triggerSql)) {
-                ps.setString(1, runId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        triggers.add(new TestRunTrigger(
-                                TestRunTrigger.Type.valueOf(rs.getString(COL_TRIGGER_TYPE)),
-                                rs.getString(COL_TRIGGER_NAME),
-                                getNullableInt(rs, COL_TRIGGER_METHOD_ID),
-                                rs.getInt(COL_TEST_COUNT)));
-                    }
-                }
-            }
-
-            if (!countersFound && triggers.isEmpty()) {
-                return TestRunSelectionDetails.empty();
-            }
-            return new TestRunSelectionDetails(triggers, numModifiedTestFiles, numNewTestFiles,
-                    numPreviouslyFailed, numUnsealedMapping, numPendingLibrary,
-                    SelectionMode.SELECTIVE);
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                throw new TiaPersistenceException(e);
-            }
-        }
+        return distributedRunRepository.readDistributedRunSelectionDetails(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before the first read, since claiming can be the
-     * first call any caller makes on a freshly created per-branch schema.
-     *
-     * <p>Deliberately does not wrap the reads and the compare-and-swap update in one transaction:
-     * the safety property does not come from transaction isolation, it comes from the {@code status
-     * = 'PENDING'} predicate on the single-row update in step 2 below, which the database always
-     * evaluates against the latest committed row regardless of what transaction issued it. Wrapping
-     * the loop in a transaction would only add lock contention between racing runners without
-     * changing the outcome.
-     *
-     * <p>Follows the exact three-step protocol from the "Distributed test runs" chapter in {@code
-     * WIKI.md}: (0) return the group this runner key already holds, if it is still {@code CLAIMED};
-     * (1) read the lowest-numbered {@code PENDING} group number; (2) attempt a single-row update
-     * guarded by
-     * {@code status = 'PENDING'} - rowcount 1 means this runner won it, rowcount 0 means another
-     * runner won it first and step 1 is retried. The retry loop is bounded by the run's total group
-     * count: every failed attempt permanently removes one group from the candidate pool for this
-     * runner (a group that lost {@code PENDING} status never regains it), so no single runner can
-     * ever need more attempts than there are groups. A bound violation therefore means the group
-     * table is not converging as expected rather than ordinary contention, and is reported as a
-     * {@link TiaPersistenceException} rather than spinning forever.
-     *
-     * <p>Step 0 hands a group back only while it is still {@code CLAIMED}, and that is both halves
-     * of one rule. A runner key holding a {@code CLAIMED} group is the CI job retry the step exists
-     * for. A runner key holding a group in any other status has already finished with it: returning
-     * it would have the runner re-run its suites and then fail {@link #completeGroup}'s {@code
-     * status = 'CLAIMED'} predicate, leaving the run unable to seal, so this returns {@code null}
-     * instead - and {@code null} rather than a fresh {@code PENDING} group, because taking a second
-     * group would leave this runner key on two group rows, and step 0's own {@code SELECT} is
-     * unfiltered, unordered and unlimited: it takes the first row {@code ResultSet.next()} offers as
-     * the answer, so a runner key on two rows makes every later step-0 read for it non-deterministic.
-     * One runner key holds at most one group, and that is what keeps this step answerable.
-     *
-     * @param runId the distributed run to claim a group from
-     * @param runnerKey the calling runner's stable identity
-     * @param claimedAtMs UTC epoch millis to record as the claim time
-     * @return the claimed group, or {@code null} when the run has no group left to claim or this
-     *         runner key already holds a group it has finished with
+     * <p>Delegates to {@link DistributedRunGroupRepository#claimNextPendingGroup}.
      */
     @Override
     public DistributedRunGroup claimNextPendingGroup(final String runId, final String runnerKey,
                                                       final long claimedAtMs) {
-        String claimedByRunnerSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_RUNNER_KEY + " = ?";
-        String countGroupsSql = "SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ?";
-        String minPendingSql = "SELECT MIN(" + COL_GROUP_NUMBER + ") FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_STATUS + " = ?";
-        String claimSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
-                + COL_RUNNER_KEY + " = ?, " + COL_CLAIMED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND "
-                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ?";
-        String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
-
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-
-            // Step 0: a runner key that already holds a CLAIMED group in this run is a CI job retry
-            // re-claiming its own group - return it unchanged rather than attempting a new claim.
-            // Any other status means this runner already finished with that group, and it gets
-            // nothing: handing the group back would re-run its suites and then fail completeGroup's
-            // status = 'CLAIMED' predicate, so the run could never seal, while falling through to a
-            // fresh PENDING group would leave this runner key holding two group rows - and this
-            // SELECT is unfiltered, unordered and unlimited, taking whatever resultSet.next() hands
-            // back as the answer, so from that point on every step-0 read for this runner is
-            // non-deterministic. Returning null keeps one runner key to at most one group.
-            // The status is read here rather than filtered in the SELECT precisely so the two cases
-            // can be told apart - a filtered query answering "no row" cannot distinguish a runner
-            // that holds a finished group from one that holds none.
-            try (PreparedStatement statement = connection.prepareStatement(claimedByRunnerSql)) {
-                statement.setString(1, runId);
-                statement.setString(2, runnerKey);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    if (resultSet.next()) {
-                        DistributedRunGroup heldGroup = mapGroupRow(resultSet);
-                        return heldGroup.getStatus() == DistributedRunGroupStatus.CLAIMED
-                                ? heldGroup : null;
-                    }
-                }
-            }
-
-            int groupCount;
-            try (PreparedStatement statement = connection.prepareStatement(countGroupsSql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    resultSet.next();
-                    groupCount = resultSet.getInt(1);
-                }
-            }
-            if (groupCount == 0) {
-                // Either the run id is unknown, or (should never happen) it was planned with no
-                // groups at all - either way there is nothing to claim.
-                return null;
-            }
-
-            for (int attempt = 0; attempt < groupCount; attempt++) {
-                // Step 1: the lowest-numbered PENDING group is always the next candidate, so every
-                // runner converges on the same claim order rather than fanning out unpredictably.
-                Integer candidateGroupNumber;
-                try (PreparedStatement statement = connection.prepareStatement(minPendingSql)) {
-                    statement.setString(1, runId);
-                    statement.setString(2, DistributedRunGroupStatus.PENDING.name());
-                    try (ResultSet resultSet = statement.executeQuery()) {
-                        resultSet.next();
-                        int value = resultSet.getInt(1);
-                        candidateGroupNumber = resultSet.wasNull() ? null : value;
-                    }
-                }
-                if (candidateGroupNumber == null) {
-                    // Every group has already been claimed by some runner.
-                    return null;
-                }
-
-                // Step 2: the compare-and-swap. The status = 'PENDING' predicate on this single-row
-                // update is the entire safety mechanism - two runners racing for the same candidate
-                // both attempt this update, the database serialises them, and only one sees rowcount
-                // 1. The loser (rowcount 0) falls through to retry step 1.
-                int rowsUpdated;
-                try (PreparedStatement statement = connection.prepareStatement(claimSql)) {
-                    statement.setString(1, DistributedRunGroupStatus.CLAIMED.name());
-                    statement.setString(2, runnerKey);
-                    statement.setLong(3, claimedAtMs);
-                    statement.setString(4, runId);
-                    statement.setInt(5, candidateGroupNumber);
-                    statement.setString(6, DistributedRunGroupStatus.PENDING.name());
-                    rowsUpdated = statement.executeUpdate();
-                }
-
-                if (rowsUpdated == 1) {
-                    try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
-                        statement.setString(1, runId);
-                        statement.setInt(2, candidateGroupNumber);
-                        try (ResultSet resultSet = statement.executeQuery()) {
-                            resultSet.next();
-                            return mapGroupRow(resultSet);
-                        }
-                    }
-                }
-                // rowsUpdated == 0: another runner won the candidate group between this attempt's
-                // step 1 read and its step 2 update - loop back and re-read the current minimum.
-            }
-
-            throw new TiaPersistenceException("claimNextPendingGroup for run '" + runId
-                    + "' did not converge within " + groupCount
-                    + " attempt(s), its natural bound (the run's total group count). Every failed "
-                    + "attempt should permanently remove one group from the candidate pool, so this "
-                    + "means the group table is not converging as expected rather than ordinary "
-                    + "claim contention.");
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
+        return distributedRunGroupRepository.claimNextPendingGroup(runId, runnerKey, claimedAtMs);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>One guarded single-row {@code UPDATE ... WHERE run_id = ? AND group_number = ? AND status
-     * = 'CLAIMED' AND runner_key = ?}, the same straggler-protection predicate {@link
-     * #completeGroup} is guarded on. {@code actual_duration_ms} is written as {@code
-     * COALESCE(column, 0) + ?} so several calls in the same JVM (one per Surefire retry) sum
-     * instead of the last one overwriting the ones before it - retry time is real time. The {@code
-     * COALESCE} is load-bearing: the plan write binds it with {@link JdbcRows#setNullableLong} as SQL
-     * {@code NULL}, so the first report of a JVM adds onto a real {@code NULL} column. {@code
-     * suites_failed} is written as a plain {@code = ?}, since it is current state rather than a
-     * counter and a passing retry must be able to shrink it back to zero. {@code suites_ran} is
-     * written as {@code GREATEST(COALESCE(column, 0), ?)}: it counts the <em>distinct</em> suites
-     * the runner executed, which the caller draws from the JVM's shared tracker map - already
-     * cumulative across every test plan - so a retry re-reports the same suites rather than adding
-     * new ones, and a Gradle test-retry round, a fresh JVM that ran only the retried suites,
-     * reports fewer. Summing would count a retried suite once per attempt, where the build's one
-     * history row counts its failed suites once. {@code suites_observed} is written the same way
-     * and for the same reason: the set it is drawn from ({@link
-     * org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()}) is already cumulative
-     * per JVM - summing it across retries would double-count. {@code GREATEST} rather than a plain
-     * {@code = ?} replace is what keeps a same-JVM retry's report from ever regressing the stored
-     * value below an earlier, more-complete one; see {@link DataStore#reportGroupProgress} for the
-     * precondition this still assumes (one JVM per group) and what several JVMs reporting against
-     * the same group do to it. {@code suites_duration_ms} is written the same way and for the same
-     * reason: it is summed from the JVM's shared suite-tracker map, which already carries every
-     * suite timed by every test plan this JVM has made, so a retry re-reports the same total rather
-     * than a fresh increment - accumulating it would double-count the first attempt's suites while
-     * {@code actual_duration_ms} legitimately grows by the retry's own window. That asymmetry is
-     * deliberate: it is what leaves a retry's cost outside the suite-attributable total and inside
-     * the group's overhead remainder.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since reporting progress could be the
-     * first contact any caller in this process makes with a freshly created per-branch schema.
-     *
-     * @param runId the distributed run the group belongs to
-     * @param groupNumber the group's zero-based index within the run
-     * @param runnerKey the calling runner's stable identity
-     * @param actualDurationMs this call's measured test-execution time, in ms, added to whatever
-     *                         is already stored
-     * @param suitesRan the number of distinct suites the runner has executed so far, written as
-     *                  the greater of this value and whatever was already stored
-     * @param suitesFailed the number of suites currently failing, replacing whatever was stored
-     * @param suitesObserved the number of suites the runner has observed so far (finished or
-     *                       skipped), written as the greater of this value and whatever was already
-     *                       stored - not summed, since the caller's own set is already cumulative
-     *                       across retries
-     * @param suitesDurationMs the summed measured run time of every suite this runner has timed so
-     *                         far, written as the greater of this value and whatever was already
-     *                         stored - not summed, for the same reason as {@code suitesObserved}
-     * @return {@code true} when the guarded update applied, {@code false} when this runner's
-     *         claim is no longer live
+     * <p>Delegates to {@link DistributedRunGroupRepository#reportGroupProgress}.
      */
     @Override
     public boolean reportGroupProgress(final String runId, final int groupNumber, final String runnerKey,
                                        final long actualDurationMs, final int suitesRan,
                                        final int suitesFailed, final int suitesObserved,
                                        final long suitesDurationMs) {
-        String progressSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_ACTUAL_DURATION_MS
-                + " = COALESCE(" + COL_ACTUAL_DURATION_MS + ", 0) + ?, " + COL_SUITES_RAN + " = GREATEST(COALESCE("
-                + COL_SUITES_RAN + ", 0), ?), " + COL_SUITES_FAILED + " = ?, " + COL_SUITES_OBSERVED
-                + " = GREATEST(COALESCE(" + COL_SUITES_OBSERVED + ", 0), ?), " + COL_SUITES_DURATION_MS
-                + " = GREATEST(COALESCE(" + COL_SUITES_DURATION_MS + ", 0), ?) WHERE " + COL_RUN_ID + " = ? AND "
-                + COL_GROUP_NUMBER + " = ? AND " + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ?";
-
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-
-            try (PreparedStatement statement = connection.prepareStatement(progressSql)) {
-                statement.setLong(1, actualDurationMs);
-                statement.setInt(2, suitesRan);
-                statement.setInt(3, suitesFailed);
-                statement.setInt(4, suitesObserved);
-                statement.setLong(5, suitesDurationMs);
-                statement.setString(6, runId);
-                statement.setInt(7, groupNumber);
-                statement.setString(8, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(9, runnerKey);
-                return statement.executeUpdate() == 1;
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
+        return distributedRunGroupRepository.reportGroupProgress(runId, groupNumber, runnerKey, actualDurationMs, suitesRan, suitesFailed, suitesObserved, suitesDurationMs);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>One guarded single-row {@code UPDATE} whose {@code WHERE} clause carries two predicates,
-     * so the completeness check and the status flip are atomic:
-     * {@code run_id = ? AND group_number = ? AND status = 'CLAIMED' AND runner_key = ?} is the
-     * straggler protection, unchanged from before this group's progress was split out; {@code
-     * suites_observed >= (SELECT COUNT(*) FROM tia_distributed_run_group_suite WHERE run_id = ?
-     * AND group_number = ?)} is the completeness guard, comparing what {@link #reportGroupProgress}
-     * has recorded against the group's assigned suite count.
-     *
-     * <p>The guard reads {@code suites_observed}, not {@code suites_ran}, deliberately.
-     * {@code suites_ran} counts only suites that finished, and a class-level {@code @Disabled}
-     * suite (or one excluded by a Surefire/Gradle filter, or deleted since the last mapping run)
-     * never finishes even though the planner still assigned it to this group - guarding on
-     * {@code suites_ran} would then block a group forever on a suite Tia never expected to run.
-     * {@code suites_observed} is what {@link
-     * org.tiatesting.core.testrunner.TestRunResult#getSuitesObserved()} reports - every suite the
-     * runner's own JVM saw finish or saw skipped, never a project-wide directory scan - so a group
-     * whose runner has seen every assigned suite completes even when it executed fewer of them.
-     * {@code suites_observed}'s DDL is {@code INT DEFAULT 0} and every write to it (the plan write
-     * and {@link #reportGroupProgress}) binds a primitive {@code setInt}, so it is never actually
-     * SQL {@code NULL} - a group that never reported reads {@code 0}, and {@code 0 >= assignedCount}
-     * is false for any group with at least one assigned suite, blocking it as intended without
-     * needing three-valued-logic reasoning about a {@code NULL} this column cannot hold.
-     * Row count is the entire answer, exactly as for {@link #claimNextPendingGroup} and
-     * {@link #electSealer}.
-     *
-     * <p>On a seed run the completeness predicate is loosened from {@code suites_observed >=
-     * assignedCount} to {@code suites_observed >= LEAST(1, assignedCount)}: a seed run's assigned
-     * suite names come from a disk scan that over-includes non-test classes the runner never
-     * observes, so requiring observed to reach the full assigned count would leave every group open
-     * forever. A group assigned real suites must therefore have observed at least one; a group
-     * assigned nothing completes with nothing observed. Non-seed runs are unchanged.
-     *
-     * <p>Row count 0 returns {@code null} without reading anything back, since there is by
-     * definition nothing this runner wrote to return. Row count 1 re-reads the row through
-     * {@link #mapGroupRow} rather than reconstructing it, so the returned group carries the stored
-     * claim timestamp, estimate and the figures {@link #reportGroupProgress} accumulated rather
-     * than only this call's inputs.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since a runner completing its group could
-     * be the first contact any caller in this process makes with a freshly created per-branch
-     * schema.
-     *
-     * @param runId the distributed run the group belongs to
-     * @param groupNumber the group's zero-based index within the run
-     * @param runnerKey the calling runner's stable identity
-     * @param completedAtMs UTC epoch millis to record as the completion time
-     * @return the updated group, or {@code null} when this runner's claim is no longer live or the
-     *         group has not reported enough progress to close
+     * <p>Delegates to {@link DistributedRunGroupRepository#completeGroup}.
      */
     @Override
     public DistributedRunGroup completeGroup(final String runId, final int groupNumber, final String runnerKey,
                                              final long completedAtMs) {
-        String assignedCountSubquery = "(SELECT COUNT(*) FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP_SUITE
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?)";
-        String groupByNumberSql = "SELECT * FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ?";
-
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-
-            // A full run's (seed or forced) assigned suite names come from a raw disk scan that
-            // over-includes classes JUnit never reports as observed - abstract bases, fixtures,
-            // anonymous $ classes - so observed can never reach assigned and the group would never
-            // complete. On a full run the guard therefore takes what the runners observed as the
-            // run's source of truth: the group need only have observed at least one suite (or, when
-            // it was assigned nothing at all, nothing). Both inputs - the mode and the assigned count
-            // - are fixed at plan time, so reading the mode separately from the conditional update
-            // cannot race the guard. See the distributed test runs chapter in WIKI.md.
-            boolean fullRun = readIsFullRun(connection, runId);
-            String observedThreshold = fullRun
-                    ? "LEAST(1, " + assignedCountSubquery + ")"
-                    : assignedCountSubquery;
-            String completeSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN_GROUP + " SET " + COL_STATUS + " = ?, "
-                    + COL_COMPLETED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_GROUP_NUMBER + " = ? AND "
-                    + COL_STATUS + " = ? AND " + COL_RUNNER_KEY + " = ? AND " + COL_SUITES_OBSERVED
-                    + " >= " + observedThreshold;
-
-            int rowsUpdated;
-            try (PreparedStatement statement = connection.prepareStatement(completeSql)) {
-                statement.setString(1, DistributedRunGroupStatus.COMPLETED.name());
-                statement.setLong(2, completedAtMs);
-                statement.setString(3, runId);
-                statement.setInt(4, groupNumber);
-                statement.setString(5, DistributedRunGroupStatus.CLAIMED.name());
-                statement.setString(6, runnerKey);
-                statement.setString(7, runId);
-                statement.setInt(8, groupNumber);
-                rowsUpdated = statement.executeUpdate();
-            }
-
-            if (rowsUpdated == 0) {
-                // Either this runner's claim is no longer live, or the group has not yet reported
-                // enough progress to be considered finished. The caller must now write nothing.
-                return null;
-            }
-
-            try (PreparedStatement statement = connection.prepareStatement(groupByNumberSql)) {
-                statement.setString(1, runId);
-                statement.setInt(2, groupNumber);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    resultSet.next();
-                    return mapGroupRow(resultSet);
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-    }
-
-    /**
-     * Read whether a distributed run was planned as a full run (seed or forced), on the caller's
-     * own connection. A full run's group assignments come from a disk scan that over-includes
-     * non-test classes, so its completion guard is loosened to observed-as-truth - see
-     * {@link #completeGroup}. Read only on the completion path, which runs once per group at the
-     * end of a build, never on a hot read path.
-     *
-     * @param connection the open connection to read on
-     * @param runId the distributed run to read the mode for
-     * @return true when the run row records a full-run mode; false when it does not, or no such
-     *         run row exists
-     * @throws SQLException if the read fails
-     */
-    private boolean readIsFullRun(final Connection connection, final String runId) throws SQLException {
-        String sql = "SELECT " + COL_SELECTION_MODE + " FROM " + TABLE_TIA_DISTRIBUTED_RUN
-                + " WHERE " + COL_RUN_ID + " = ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, runId);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next()
-                        && SelectionMode.fromStoredName(resultSet.getString(1)).isFullRun();
-            }
-        }
+        return distributedRunGroupRepository.completeGroup(runId, groupNumber, runnerKey, completedAtMs);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>One conditional single-row {@code UPDATE}, and its row count is the entire answer. The
-     * {@code sealed_by IS NULL} predicate makes at most one runner win; the {@code NOT EXISTS
-     * (SELECT 1 FROM tia_distributed_run_group WHERE run_id = ? AND status <> 'COMPLETED')}
-     * predicate makes that runner the last one, which is what guarantees the {@code SELECT
-     * DISTINCT} the sealer runs over the edge table sees every group's edges. The database
-     * evaluates both against the latest committed row, so racing runners serialise on this
-     * statement and exactly one sees row count 1.
-     *
-     * <p>Nothing is read before or instead of the update, deliberately. Row count 0 covers both
-     * "another runner won" and "my run row no longer exists because a newer build superseded it",
-     * and the row count is the only signal that separates the two from winning. Falling back to a
-     * read would let a straggler sealer conclude it should proceed, rebuild the catalogue from an
-     * empty staging table and drop every method id the on-disk catalogue lacks. See the sealing
-     * material in the distributed test runs chapter of {@code WIKI.md}.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} first, since electing a sealer could be the first
-     * contact any caller in this process makes with a freshly created per-branch schema.
-     *
-     * @param runId the distributed run to elect a sealer for
-     * @param runnerKey the calling runner's stable identity
-     * @param sealedAtMs UTC epoch millis to record as the election time
-     * @return {@code true} when this runner won the election, {@code false} when it must do nothing
+     * <p>Delegates to {@link DistributedRunRepository#electSealer}.
      */
     @Override
     public boolean electSealer(final String runId, final String runnerKey, final long sealedAtMs) {
-        String electSql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN + " SET " + COL_SEALED_BY + " = ?, "
-                + COL_SEALED_AT + " = ? WHERE " + COL_RUN_ID + " = ? AND " + COL_SEALED_BY + " IS NULL"
-                + " AND NOT EXISTS (SELECT 1 FROM " + TABLE_TIA_DISTRIBUTED_RUN_GROUP
-                + " WHERE " + COL_RUN_ID + " = ? AND " + COL_STATUS + " <> ?)";
-
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-
-            try (PreparedStatement statement = connection.prepareStatement(electSql)) {
-                statement.setString(1, runnerKey);
-                statement.setLong(2, sealedAtMs);
-                statement.setString(3, runId);
-                statement.setString(4, runId);
-                statement.setString(5, DistributedRunGroupStatus.COMPLETED.name());
-                return statement.executeUpdate() == 1;
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
+        return distributedRunRepository.electSealer(runId, runnerKey, sealedAtMs);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Unguarded on purpose, unlike the two operations above: only the runner that already won
-     * {@link #electSealer} reaches this call, so the mutual exclusion has already happened and a
-     * second predicate here would guard nothing. An unknown run id simply updates no rows.
-     *
-     * @param runId the distributed run to mark sealed
+     * <p>Delegates to {@link DistributedRunRepository#markDistributedRunSealed}.
      */
     @Override
     public void markDistributedRunSealed(final String runId) {
-        String sql = "UPDATE " + TABLE_TIA_DISTRIBUTED_RUN + " SET " + COL_STATUS + " = ? WHERE "
-                + COL_RUN_ID + " = ?";
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, DistributedRunStatus.SEALED.name());
-                statement.setString(2, runId);
-                statement.executeUpdate();
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-    }
-
-    /**
-     * Build a {@link DistributedRunGroup} from the current row of a {@code SELECT *} against
-     * {@link TiaSchema#TABLE_TIA_DISTRIBUTED_RUN_GROUP}. Shared by {@link #claimNextPendingGroup} and
-     * {@link #readDistributedRunGroups} so the two cannot drift apart on how a group row maps. It
-     * also means the group returned after a successful claim (or an already-claimed lookup) is read
-     * back from the table rather than reconstructed field-by-field from what the caller asked for -
-     * the estimated time, suites-ran and suites-failed columns are not part of the claim call's
-     * inputs and must come from the stored row.
-     *
-     * @param resultSet the result set, positioned on the row to map
-     * @return the mapped group
-     * @throws SQLException if a column cannot be read
-     */
-    private static DistributedRunGroup mapGroupRow(ResultSet resultSet) throws SQLException {
-        return new DistributedRunGroup(
-                resultSet.getString(COL_RUN_ID),
-                resultSet.getInt(COL_GROUP_NUMBER),
-                DistributedRunGroupStatus.valueOf(resultSet.getString(COL_STATUS)),
-                resultSet.getString(COL_RUNNER_KEY),
-                getNullableLong(resultSet, COL_CLAIMED_AT),
-                getNullableLong(resultSet, COL_COMPLETED_AT),
-                resultSet.getLong(COL_ESTIMATED_MS),
-                getNullableLong(resultSet, COL_ACTUAL_DURATION_MS),
-                resultSet.getInt(COL_SUITES_RAN),
-                resultSet.getInt(COL_SUITES_FAILED),
-                resultSet.getInt(COL_SUITES_OBSERVED),
-                resultSet.getLong(COL_SUITES_DURATION_MS));
+        distributedRunRepository.markDistributedRunSealed(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Written as one upsert batch via {@link SqlDialect#upsert}, keyed on {@code (run_id, id)}:
-     * several runners can stage overlapping method ids concurrently (two runners covering the same
-     * changed method independently), and a plain {@code INSERT} would fail on the composite
-     * primary key the second time the same id is staged. The whole batch commits as one
-     * transaction, so a failure partway through leaves the previously-staged rows untouched rather
-     * than half of this call's rows landing and half not.
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before starting the transaction, since staging can
-     * be the first call any caller makes on a freshly created per-branch schema. It must run before
-     * {@code setAutoCommit(false)}: H2 implicitly commits on DDL, so issuing it inside the
-     * transaction would silently break the atomicity this method depends on.
-     *
-     * <p>The rollback catches {@link Exception} rather than {@link SQLException} deliberately: an
-     * unchecked exception that escaped without rolling back would leave the run's staged rows
-     * incomplete, which is exactly the silent under-selection failure the staging table exists to
-     * avoid.
-     *
-     * <p>The batch loop iterates the method ids in ascending order rather than the caller-supplied
-     * map's own iteration order. Row locks within the upsert are taken in the order rows are
-     * written, and a plain {@code HashMap}'s iteration order depends on its capacity, which depends
-     * on how many entries that particular runner happened to observe - so two runners staging the
-     * same two ids can genuinely visit them in opposite order. When that happens under Postgres,
-     * each runner holds the lock the other wants and waits for the lock it holds to be released,
-     * which Postgres detects and resolves by aborting one transaction; under server-mode H2 the same
-     * conflict surfaces as a lock-wait timeout instead. Sorting to one global order before the loop
-     * means every runner takes the shared rows' locks in the same sequence, so the second runner to
-     * reach a contended row simply waits for the first to commit rather than the two deadlocking
-     * against each other. This is not an optional tidiness pass - removing the sort reintroduces the
-     * deadlock. The covered method ids are upserted in ascending order for the same reason, after
-     * the trackers.
-     *
-     * @param runId the distributed run to stage under
-     * @param methodsTracked the trackers this runner observed, keyed by method id; may be empty
-     * @param coveredMethodIds the ids of the methods this runner's suites executed; may be empty
+     * <p>Delegates to {@link DistributedMethodStagingRepository#persistStagedMethodTrackers}.
      */
     @Override
     public void persistStagedMethodTrackers(final String runId, final Map<Integer, MethodImpactTracker> methodsTracked,
                                             final Set<Integer> coveredMethodIds) {
-        List<String> columns = Arrays.asList(COL_RUN_ID, COL_ID, COL_METHOD_NAME,
-                COL_LINE_NUMBER_START, COL_LINE_NUMBER_END, COL_LINE_RANGES);
-        List<String> keyColumns = Arrays.asList(COL_RUN_ID, COL_ID);
-        String sql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE, columns, keyColumns);
-        String coveredSql = dialect.upsert(TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD, keyColumns, keyColumns);
-        // Ascending-id order, not the caller's map order: see the deadlock-avoidance note on this
-        // method's javadoc above.
-        Map<Integer, MethodImpactTracker> orderedMethodsTracked = new TreeMap<>(methodsTracked);
-        Set<Integer> orderedCoveredMethodIds = new TreeSet<>(coveredMethodIds);
-
-        Connection connection = getConnection();
-        try {
-            // H2 implicitly commits on DDL, so this must run before setAutoCommit(false) - running
-            // it inside the transaction would silently break atomicity.
-            schemaManager.ensureSchema(connection);
-            connection.setAutoCommit(false);
-            try {
-                if (!orderedMethodsTracked.isEmpty()) {
-                    try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                        for (Map.Entry<Integer, MethodImpactTracker> entry : orderedMethodsTracked.entrySet()) {
-                            MethodImpactTracker tracker = entry.getValue();
-                            statement.setString(1, runId);
-                            statement.setInt(2, entry.getKey());
-                            statement.setString(3, tracker.getMethodName());
-                            statement.setInt(4, tracker.getLineNumberStart());
-                            statement.setInt(5, tracker.getLineNumberEnd());
-                            statement.setString(6, LineRanges.format(tracker.getLineRanges()));
-                            statement.addBatch();
-                        }
-                        statement.executeBatch();
-                    }
-                }
-                if (!orderedCoveredMethodIds.isEmpty()) {
-                    try (PreparedStatement statement = connection.prepareStatement(coveredSql)) {
-                        for (Integer methodId : orderedCoveredMethodIds) {
-                            statement.setString(1, runId);
-                            statement.setInt(2, methodId);
-                            statement.addBatch();
-                        }
-                        statement.executeBatch();
-                    }
-                }
-                connection.commit();
-            } catch (Exception e) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollbackFailure) {
-                    e.addSuppressed(rollbackFailure);
-                }
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new TiaPersistenceException(e);
-        } finally {
-            try {
-                connection.close();
-            } catch (SQLException closeFailure) {
-                throw new TiaPersistenceException(closeFailure);
-            }
-        }
+        distributedMethodStagingRepository.persistStagedMethodTrackers(runId, methodsTracked, coveredMethodIds);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before querying, since this can be the first call
-     * any caller makes on a freshly created per-branch schema and the staging table is otherwise
-     * only created there.
-     *
-     * @param runId the distributed run to read
-     * @return the staged trackers keyed by method id, empty if nothing was staged
+     * <p>Delegates to {@link DistributedMethodStagingRepository#readStagedMethodTrackers}.
      */
     @Override
     public Map<Integer, MethodImpactTracker> readStagedMethodTrackers(final String runId) {
-        String sql = "SELECT " + COL_ID + ", " + COL_METHOD_NAME + ", " + COL_LINE_NUMBER_START + ", "
-                + COL_LINE_NUMBER_END + ", " + COL_LINE_RANGES + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE
-                + " WHERE " + COL_RUN_ID + " = ?";
-        Map<Integer, MethodImpactTracker> staged = new HashMap<>();
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    while (resultSet.next()) {
-                        MethodImpactTracker tracker = readMethodTracker(resultSet);
-                        staged.put(resultSet.getInt(COL_ID), tracker);
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        return staged;
+        return distributedMethodStagingRepository.readStagedMethodTrackers(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * @param runId the distributed run to read
-     * @return the staged covered method ids, empty if nothing was staged
+     * <p>Delegates to {@link DistributedMethodStagingRepository#readStagedCoveredMethodIds}.
      */
     @Override
     public Set<Integer> readStagedCoveredMethodIds(final String runId) {
-        String sql = "SELECT " + COL_ID + " FROM " + TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD
-                + " WHERE " + COL_RUN_ID + " = ?";
-        Set<Integer> covered = new HashSet<>();
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setString(1, runId);
-                try (ResultSet resultSet = statement.executeQuery()) {
-                    while (resultSet.next()) {
-                        covered.add(resultSet.getInt(COL_ID));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
-        return covered;
+        return distributedMethodStagingRepository.readStagedCoveredMethodIds(runId);
     }
 
     /**
      * {@inheritDoc}
-     *
-     * <p>Calls {@link SchemaManager#ensureSchema(Connection)} before deleting, since this can be the first call
-     * any caller makes on a freshly created per-branch schema.
-     *
-     * @param runId the distributed run to clear; deleting an unknown run is a no-op
+     * <p>Delegates to {@link DistributedMethodStagingRepository#deleteStagedMethodTrackers}.
      */
     @Override
     public void deleteStagedMethodTrackers(final String runId) {
-        try (Connection connection = getConnection()) {
-            schemaManager.ensureSchema(connection);
-            for (String table : new String[]{TABLE_TIA_DISTRIBUTED_RUN_METHOD_STAGE,
-                    TABLE_TIA_DISTRIBUTED_RUN_COVERED_METHOD}) {
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "DELETE FROM " + table + " WHERE " + COL_RUN_ID + " = ?")) {
-                    statement.setString(1, runId);
-                    statement.executeUpdate();
-                }
-            }
-        } catch (SQLException e) {
-            throw new TiaPersistenceException(e);
-        }
+        distributedMethodStagingRepository.deleteStagedMethodTrackers(runId);
     }
 
     /**
