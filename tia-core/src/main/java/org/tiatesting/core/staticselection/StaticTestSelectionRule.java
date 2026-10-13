@@ -1,15 +1,21 @@
 package org.tiatesting.core.staticselection;
 
+import org.tiatesting.core.staticselection.pom.PomChangeCategory;
+
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
  * A single static-test-selection rule. When any of the changed file paths in a Tia run matches
  * {@link #getFilePathPattern()}, the rule force-runs a set of test suites determined by
- * {@link #getMode()}.
+ * {@link #getMode()}. A POM-aware rule ({@link #isPomAware()}) also requires the matched POM's
+ * changes to include one of its {@link #getPomChanges() categories}; see the "Static test
+ * selection" chapter in {@code WIKI.md}.
  *
  * <p>Patterns are pre-compiled at construction so the hot read path in test selection only
  * pays for matching, not compilation.
@@ -19,6 +25,9 @@ import java.util.regex.PatternSyntaxException;
  * can never cause a test to be skipped.
  */
 public class StaticTestSelectionRule {
+
+    /** The file-path pattern a POM-aware rule uses when none is configured: any {@code pom.xml}. */
+    public static final String DEFAULT_POM_FILE_PATH_PATTERN = "(^|/)pom\\.xml$";
 
     /**
      * Optional user-supplied name for this rule, used in log messages. When {@code null} or
@@ -47,28 +56,65 @@ public class StaticTestSelectionRule {
     private final List<Pattern> suiteNamePatterns;
 
     /**
+     * The POM change categories this rule reacts to. Empty for a plain path rule, which fires on
+     * any change to a matching file. When non-empty the rule is POM-aware: it fires only when a
+     * matching file's changes include one of these categories (see {@link PomChangeCategory#covers}).
+     */
+    private final Set<PomChangeCategory> pomChanges;
+
+    /**
      * Construct a static test selection rule from raw regex strings, compiling each one at
      * construction time. Validates mode-specific constraints and rejects modes that are not
      * yet implemented.
      *
      * @param name optional human-readable rule name used in log messages; may be {@code null}
      *             or blank, in which case the file-path pattern is used as the rule's display name.
-     * @param filePathPatternRegex the regex matched against changed file paths; must be non-null
-     *                             and non-blank.
+     * @param filePathPatternRegex the regex matched against changed file paths; required unless
+     *                             {@code pomChanges} is non-empty, in which case a blank value
+     *                             defaults to {@link #DEFAULT_POM_FILE_PATH_PATTERN}.
      * @param mode the selection mode; must be non-null. {@link StaticTestSelectionRuleMode#ANNOTATIONS_TAGS}
      *             is reserved for a future stage and is rejected here.
      * @param suiteNamePatternRegexes the suite-name regex patterns; required and non-empty when
      *                                {@code mode} is {@link StaticTestSelectionRuleMode#SUITE_NAMES},
      *                                must be empty (or {@code null}) for other modes.
+     * @param pomChanges the POM change categories that make the rule fire; {@code null} or empty
+     *                   for a plain path rule. Must not contain {@link PomChangeCategory#OTHER}.
      * @throws IllegalArgumentException if validation fails or any regex fails to compile.
      * @throws UnsupportedOperationException if {@code mode} is {@link StaticTestSelectionRuleMode#ANNOTATIONS_TAGS}.
      */
     public StaticTestSelectionRule(final String name, final String filePathPatternRegex,
                                    final StaticTestSelectionRuleMode mode,
-                                   final List<String> suiteNamePatternRegexes) {
-        if (filePathPatternRegex == null || filePathPatternRegex.trim().isEmpty()) {
-            throw new IllegalArgumentException("Static test selection rule: file path pattern is required.");
+                                   final List<String> suiteNamePatternRegexes,
+                                   final Set<PomChangeCategory> pomChanges) {
+        this.pomChanges = pomChanges == null || pomChanges.isEmpty()
+                ? Collections.<PomChangeCategory>emptySet()
+                : Collections.unmodifiableSet(EnumSet.copyOf(pomChanges));
+        if (this.pomChanges.contains(PomChangeCategory.OTHER)) {
+            throw new IllegalArgumentException("Static test selection rule: POM change category OTHER can't be"
+                    + " configured on its own - use FUNCTIONAL, which includes it.");
         }
+        boolean blankPattern = filePathPatternRegex == null || filePathPatternRegex.trim().isEmpty();
+        if (blankPattern && this.pomChanges.isEmpty()) {
+            throw new IllegalArgumentException("Static test selection rule: file path pattern is required"
+                    + " (or set pomChanges for a POM-aware rule).");
+        }
+        String effectivePattern = blankPattern ? DEFAULT_POM_FILE_PATH_PATTERN : filePathPatternRegex;
+        validateMode(effectivePattern, mode);
+        this.filePathPattern = compilePattern(effectivePattern, "file path pattern");
+        this.mode = mode;
+        this.suiteNamePatterns = compileSuiteNamePatternsForMode(mode, suiteNamePatternRegexes, effectivePattern);
+        this.name = (name != null && !name.trim().isEmpty()) ? name.trim() : effectivePattern;
+    }
+
+    /**
+     * Validate the mode for a rule identified by its effective file-path pattern.
+     *
+     * @param filePathPatternRegex the effective file-path pattern, used in error messages.
+     * @param mode the selection mode.
+     * @throws IllegalArgumentException if the mode is missing.
+     * @throws UnsupportedOperationException if the mode is {@link StaticTestSelectionRuleMode#ANNOTATIONS_TAGS}.
+     */
+    private static void validateMode(final String filePathPatternRegex, final StaticTestSelectionRuleMode mode) {
         if (mode == null) {
             throw new IllegalArgumentException("Static test selection rule '" + filePathPatternRegex
                     + "': mode is required (one of RUN_ALL, SUITE_NAMES).");
@@ -77,11 +123,6 @@ public class StaticTestSelectionRule {
             throw new UnsupportedOperationException("Static test selection rule '" + filePathPatternRegex
                     + "': mode ANNOTATIONS_TAGS is not yet supported. Use RUN_ALL or SUITE_NAMES.");
         }
-
-        this.filePathPattern = compilePattern(filePathPatternRegex, "file path pattern");
-        this.mode = mode;
-        this.suiteNamePatterns = compileSuiteNamePatternsForMode(mode, suiteNamePatternRegexes, filePathPatternRegex);
-        this.name = (name != null && !name.trim().isEmpty()) ? name.trim() : filePathPatternRegex;
     }
 
     /**
@@ -160,5 +201,20 @@ public class StaticTestSelectionRule {
      */
     public List<Pattern> getSuiteNamePatterns() {
         return suiteNamePatterns;
+    }
+
+    /**
+     * @return the POM change categories the rule reacts to; empty for a plain path rule.
+     */
+    public Set<PomChangeCategory> getPomChanges() {
+        return pomChanges;
+    }
+
+    /**
+     * @return {@code true} when the rule fires only for categorised POM changes rather than any
+     *         change to a matching file.
+     */
+    public boolean isPomAware() {
+        return !pomChanges.isEmpty();
     }
 }

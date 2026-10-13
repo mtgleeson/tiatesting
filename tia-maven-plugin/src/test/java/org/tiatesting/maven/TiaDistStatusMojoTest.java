@@ -15,6 +15,7 @@ import org.tiatesting.core.persistence.JdbcDataStore;
 import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 import org.tiatesting.core.persistence.h2.H2ConnectionSettings;
+import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
 
 import java.io.ByteArrayOutputStream;
@@ -342,6 +343,20 @@ class TiaDistStatusMojoTest {
         @Override
         public Set<String> getChangedFilePaths(String baseChangeNum, boolean checkLocalChanges) {
             return Collections.emptySet();
+        }
+
+        /**
+         * Content-by-path loading is not exercised by these tests.
+         *
+         * @param paths unused.
+         * @param baseChangeNum unused.
+         * @param checkLocalChanges unused.
+         * @return never returns.
+         */
+        @Override
+        public Map<String, FileContentPair> loadFileContents(final Set<String> paths, final String baseChangeNum,
+                                                             final boolean checkLocalChanges) {
+            throw new UnsupportedOperationException("loadFileContents is not used by this test");
         }
 
         /**
