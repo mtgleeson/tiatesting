@@ -118,8 +118,9 @@ public class MethodImpactAnalyzer {
      * is split by other members) is instead matched against those ranges - see
      * {@link #diffTouchesLineRanges(DiffContext, int[])}.
      *
-     * A method matched by start-end has its begin widened upwards over any blank and comment-only
-     * lines above its first code line - see {@link #widenStartOverBlankAndCommentLines(int, List)}.
+     * A method matched by start-end has its begin widened upwards to the top of its declaration -
+     * over blank and comment lines above its first code line, then over its signature and annotation
+     * lines - see {@link #widenStartToDeclaration(int, List)}.
      *
      * @param diffContext the parsed diff hunk carrying the impacted line range
      * @param methodsTrackedForSourceFile the tracked methods (by id) for the changed file
@@ -147,10 +148,10 @@ public class MethodImpactAnalyzer {
             }
 
             // start-end widened by one line either side, to catch changes to the method name line and
-            // the closing brace, then upwards over blank and comment lines between the signature and the
-            // first code line
+            // the closing brace, then upwards to the top of the method's declaration (its annotations and
+            // a multi-line signature)
             int[] matchedLineRange = methodImpactTracker.getMatchedLineRanges();
-            int methodLineBegin = widenStartOverBlankAndCommentLines(matchedLineRange[0], originalFileLines);
+            int methodLineBegin = widenStartToDeclaration(matchedLineRange[0], originalFileLines);
             int methodLineEnd = matchedLineRange[1];
             log.debug("Method {}, diffLineBegin: {}, diffLineEnd: {}, methodLineBegin: {}, methodLineEnd: {}", methodImpactTracker.getMethodName(), diffLineBegin, diffLineEnd, methodLineBegin, methodLineEnd);
 
@@ -167,20 +168,28 @@ public class MethodImpactAnalyzer {
     }
 
     /**
-     * Widen a method's matched begin line upwards over the blank and comment-only lines directly above
-     * it. JaCoCo's first line for a method is its first line with code, not its signature, so blank or
-     * comment lines between the signature and that first code line aren't part of the stored range,
-     * and the one-line padding only covers one of them. Without this, code added (or a blank line
-     * replaced) near the top of such a method wouldn't impact it. The walk stops at the first line that
-     * has anything else on it - normally the signature line - and includes it. This only widens the
-     * range, so at worst a comment edit selects a few extra tests.
+     * Widen a method's matched begin line upwards to the top of the method's declaration. JaCoCo's
+     * first line for a method is its first line with code, not its signature, and the one-line padding
+     * only reaches the line above that. Without widening, code added below the signature above blank or
+     * comment lines, a modifier on an earlier line of a multi-line signature, or an annotation edit
+     * (e.g. {@code @Transactional}) wouldn't impact the method. Two walks, both upwards:
+     * <ol>
+     *   <li>Over the blank and comment-only lines directly above the padded begin, stopping at and
+     *       including the first line with anything else on it - normally the signature line.</li>
+     *   <li>Unless that line ends the previous member (it ends with <code>;</code> or <code>&#125;</code>, as for a
+     *       one-line method or a constructor whose first line is its signature), on over the lines
+     *       directly above it that belong to the declaration - see
+     *       {@link #isDeclarationLine(String)}. This stops at a blank line, at a comment (the method's
+     *       Javadoc) and at the end of the previous member.</li>
+     * </ol>
+     * This only widens the range, so at worst a few extra tests are selected.
      * See the "Constructor and static initializer line ranges" chapter in {@code WIKI.md}.
      *
      * @param matchedLineBegin the 1-based padded begin line (the line before the first code line)
      * @param originalFileLines the original (pre-change) file content, line 1 at index 0
      * @return the 1-based widened begin line, never greater than {@code matchedLineBegin}
      */
-    static int widenStartOverBlankAndCommentLines(final int matchedLineBegin, final List<String> originalFileLines){
+    static int widenStartToDeclaration(final int matchedLineBegin, final List<String> originalFileLines){
         if (matchedLineBegin < 1 || matchedLineBegin > originalFileLines.size()) {
             // the stored lines don't fit the file (stale mapping) - keep the padded begin
             return matchedLineBegin;
@@ -188,6 +197,15 @@ public class MethodImpactAnalyzer {
 
         int lineNumber = matchedLineBegin;
         while (lineNumber > 1 && isBlankOrCommentLine(originalFileLines.get(lineNumber - 1))) {
+            lineNumber--;
+        }
+
+        if (endsStatementOrBlock(codeWithoutTrailingComment(originalFileLines.get(lineNumber - 1)))) {
+            // the walk landed on the previous member's last line, not this method's signature
+            return lineNumber;
+        }
+
+        while (lineNumber > 1 && isDeclarationLine(originalFileLines.get(lineNumber - 2))) {
             lineNumber--;
         }
         return lineNumber;
@@ -205,6 +223,52 @@ public class MethodImpactAnalyzer {
         String trimmed = line.trim();
         return trimmed.isEmpty() || trimmed.startsWith("//") || trimmed.startsWith("/*")
                 || trimmed.startsWith("*");
+    }
+
+    /**
+     * Whether a source line above a method's signature still belongs to the method's declaration: an
+     * annotation (including the lines of a multi-line annotation) or an earlier line of a multi-line
+     * signature. A blank or comment line doesn't, nor does a line ending a statement or block
+     * (<code>;</code> or <code>&#125;</code>), nor one opening a block (<code>&#123;</code>, e.g. the class
+     * declaration) - except an annotation line opening an array argument, such as
+     * <code>@SuppressWarnings(&#123;</code>.
+     *
+     * @param line the source line
+     * @return true when the line is part of the declaration below it
+     */
+    private static boolean isDeclarationLine(final String line){
+        if (isBlankOrCommentLine(line)) {
+            return false;
+        }
+        String code = codeWithoutTrailingComment(line);
+        if (endsStatementOrBlock(code)) {
+            return false;
+        }
+        return !code.endsWith("{") || code.startsWith("@");
+    }
+
+    /**
+     * Whether a line of code ends a statement or a block, i.e. it is the last line of a member.
+     *
+     * @param code the trimmed code, without a trailing line comment
+     * @return true when the code ends with <code>;</code> or <code>&#125;</code>
+     */
+    private static boolean endsStatementOrBlock(final String code){
+        return code.endsWith(";") || code.endsWith("}");
+    }
+
+    /**
+     * Trim a source line and drop a trailing line comment, so the line's last code character can be
+     * checked. A {@code //} inside a string literal is cut too; that can only leave a line looking
+     * unterminated, which widens the range rather than narrowing it.
+     *
+     * @param line the source line
+     * @return the trimmed code before any {@code //}
+     */
+    private static String codeWithoutTrailingComment(final String line){
+        String trimmed = line.trim();
+        int commentStart = trimmed.indexOf("//");
+        return commentStart < 0 ? trimmed : trimmed.substring(0, commentStart).trim();
     }
 
     /**

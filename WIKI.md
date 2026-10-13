@@ -63,7 +63,7 @@ wiki can also be read front to back.
 - [Constructor and static initializer line ranges](wiki/initializer-line-ranges.md) - why a field
   declared after other methods stretches a constructor's line range over them, the exact line
   ranges Tia records and matches instead, and how a method's begin line is widened over the blank
-  and comment lines above its first code line.
+  and comment lines, annotations and multi-line signature above its first code line.
 - [Method run stats](wiki/method-run-stats.md) - the per-method executed-run and triggered-run
   counts: which runs count, how the seal accumulates them, how the triggering method ids reach it,
   what resets them, and the measured disk and run-time cost.
