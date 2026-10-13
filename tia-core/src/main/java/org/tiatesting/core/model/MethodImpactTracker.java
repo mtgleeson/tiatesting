@@ -93,7 +93,9 @@ public class MethodImpactTracker {
      * The lines a source change must touch to impact this method. For a method with exact line
      * ranges (see {@link #lineRanges}) that is those ranges. Otherwise it is the method's first to
      * last code line widened by one line either side, so edits to its signature line and closing
-     * brace also count - the allowance the diff matcher has always applied to start-end matching.
+     * brace also count. When matching a diff, the diff matcher further widens the begin of a
+     * start-end range up to the top of the method's declaration, which needs the source and so isn't
+     * reflected here. See the "Matching a diff to tracked methods" chapter in {@code WIKI.md}.
      *
      * @return flat inclusive {@code [start, end, ...]} pairs in ascending order; never {@code null}
      */
