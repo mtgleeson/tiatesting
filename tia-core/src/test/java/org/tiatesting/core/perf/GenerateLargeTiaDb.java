@@ -60,7 +60,7 @@ public final class GenerateLargeTiaDb {
         }
 
         // Schema creation is triggered the first time getTiaData() is invoked on a missing DB
-        // (readTiaDataFromDB checks tia_core's existence and creates all tables if absent).
+        // (getTiaData checks tia_core's existence and creates all tables if absent).
         long t0 = System.currentTimeMillis();
         JdbcDataStore bootstrap = new JdbcDataStore(new H2Dialect(),
                 new H2ConnectionProvider(H2ConnectionSettings.embedded(parsed.outDb)),
