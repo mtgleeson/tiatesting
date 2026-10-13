@@ -131,7 +131,7 @@ class DatastoreEquivalenceTest {
      *       temp-directory H2 database each run gets); rows left by a previous run or by unrelated
      *       spike seeding would otherwise appear as extra tracked suites on the Postgres side only
      *       and break the equivalence assertion for reasons unrelated to the dialect path.</li>
-     *   <li>{@code JdbcDataStore.ensureSchema} only (re)runs the {@code CREATE TABLE} DDL when
+     *   <li>{@code SchemaManager.ensureSchema} only (re)runs the {@code CREATE TABLE} DDL when
      *       {@code tia_core} is absent, so a stale {@code tia_test_suite} created before the
      *       {@code UNIQUE(name)} index fix would survive a truncate and the suite upsert's
      *       {@code ON CONFLICT (name)} would still fail. Dropping the table forces the corrected

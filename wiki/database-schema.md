@@ -2,7 +2,7 @@
 
 Tia stores everything in a single H2 database (embedded file or server mode) - or the equivalent
 Postgres schema, see the [pluggable datastore](pluggable-datastore.md) chapter. All DDL lives in
-`JdbcDataStore` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The tables
+`SchemaManager` (`createTiaDB` plus the `buildCreate*TableSql` / `ensure*` helpers). The tables
 fall into four clusters: the **mapping** cluster (what test covers what code - the bulk of the
 data), the **library-impact** cluster (see the
 [library publish-time stamping](library-publish-time-stamping.md) chapter), the **distributed-run**

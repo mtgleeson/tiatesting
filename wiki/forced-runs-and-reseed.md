@@ -88,7 +88,7 @@ rebuilding `tia_source_method` gives the same method the same id.
 
 ### The re-seed clear-out
 
-The clear-out runs **inside the seal transaction** (`JdbcDataStore.persistSealedRunData`), after the
+The clear-out runs **inside the seal transaction** (`SealRepository.persistSealedRunData`), after the
 method catalogue is written and before the unsealed flags are cleared. Nothing changes if the run
 fails before sealing, a failure inside the seal rolls the whole thing back, and concurrent readers
 never see an empty mapping. See [Persist flow and crash safety](persist-flow-and-crash-safety.md).

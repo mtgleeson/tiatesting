@@ -89,7 +89,7 @@ Open `/tmp/tia.jfr` in JDK Mission Control.
 
 The dominant wedges to look for, in priority order:
 
-- **`JdbcDataStore.getTestSuitesData` / `lambda$getTestSuitesData$0`** - the bulk-load reducer. If a large fraction of CPU lives here, the read path itself is the bottleneck.
+- **`MappingReader.getTestSuitesData` / `lambda$getTestSuitesData$0`** - the bulk-load reducer. If a large fraction of CPU lives here, the read path itself is the bottleneck.
 - **`JdbcDataStore.getSourceClasses`** (historical, no longer present in current code) - used to be 87% of CPU when the loader did N+1 per-suite queries via parallelStream. If it reappears in a future profile, the bulk-join rewrite has regressed.
 - **`MVSortedTempResult.next` / `Page$NonLeaf.writeUnsavedRecursive`** - H2 spilling a sorted result set to a temp file. Indicates an `ORDER BY` whose sort can't be folded into an index. Fix: drop the `ORDER BY` and let the reducer cope with arbitrary row order.
 - **`MVSecondaryIndex.find`** at high percentage with low `SingleFileStore.readFully` underneath - H2 doing index probes that aren't paying off (e.g. nested-loop join on a column that has no index). Fix: add the index.

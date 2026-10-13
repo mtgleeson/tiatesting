@@ -918,7 +918,7 @@ class SchemaManager {
      * Ensure the Tia schema is ready for use on this connection: create the DB on first
      * contact and run the idempotent migrations (missing tables and indexes) on existing DBs.
      * This is the single schema-bootstrap entry point - both the full-load path
-     * ({@code readTiaDataFromDB}) and the targeted query methods call it, so neither depends
+     * ({@code JdbcDataStore.getTiaData}) and the targeted query methods call it, so neither depends
      * on the other having run first. Memoized per datastore instance: the schema can't
      * un-migrate within a JVM, so repeat calls skip the DDL round trips.
      *
