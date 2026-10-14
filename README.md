@@ -282,11 +282,11 @@ dependencies {
 }
 ```
 
-If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5 or 6, set the framework explicitly - detection picks Spock when both are declared:
+If a project declares both Spock and JUnit Jupiter but its Tia tests are JUnit 5 or 6, set the framework explicitly - detection picks Spock when both are declared. `junit6` is accepted as another name for `junit5`; both select the same JUnit support:
 
 ```
 tia {
-    testFramework = 'junit5'
+    testFramework = 'junit5'   // or 'junit6'
 }
 ```
 
@@ -803,7 +803,7 @@ Two Surefire settings can hide this output even when a binding is present:
 |tiaRunSource|runSource|<string>|The label recorded in the history row's `run_source` column, overriding Tia's own detection. Leave unset unless the detection gets it wrong: Tia reads the CI marker environment variables (which a forked test JVM inherits), so a CI job is already labelled `CI` and a developer's machine `LOCAL` with nothing configured. Set it to distinguish a build the detection cannot tell apart from any other (a nightly, a performance rig), or to label a CI system Tia does not recognise. Can also be supplied as the `TIA_RUN_SOURCE` environment variable, which reaches the forked test JVM by inheritance. Set one of the two when tests run inside a Docker container or a hosted build service (e.g. Google Cloud Build), which do not pass the CI system's marker variables through, e.g. `docker run -e TIA_RUN_SOURCE=CI`. A distributed build takes its source from the plan step, so there it only needs to be set where the plan runs.| detected: `CI` when a CI marker environment variable is present, else `LOCAL`                 |false|
 |tiaBuildDir|N/A|<string>|The build path for the project. Used for saving files used internally by Tia. Currently only used for Maven.| ${project.build.directory}/tia                                                                |true|
 |tiaVcs|vcs|git, perforce|The version control system to read changes from. Optional: when unset, a configured server URI means Perforce and a `.git` entry in the project directory or a parent means Git. See [Choosing the version control system](#choosing-the-version-control-system).| detected |false|
-|N/A|testFramework|spock, junit5|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. `junit5` covers JUnit 5 and JUnit 6. Needed when the framework is only declared through a BOM or platform, or when a JUnit 5 or 6 project also declares Spock (detection picks Spock when both are declared).| detected |false|
+|N/A|testFramework|spock, junit5, junit6|Gradle only. The test framework Tia wires into the test tasks, overriding detection from the declared test dependencies. `junit5` covers JUnit 5 and JUnit 6, and `junit6` is another name for it. Needed when the framework is only declared through a BOM or platform, or when a JUnit 5 or 6 project also declares Spock (detection picks Spock when both are declared).| detected |false|
 |tiaVcsServerUri|vcsServerUri|<string>|Specifies the server address of the VCS system as `host:port`, the same form as `P4PORT` (for example `perforce.example.com:1666`; Tia adds the `p4java://` protocol itself). Only currently used for Perforce; setting it selects Perforce when `tiaVcs` / `vcs` is unset.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsUserName|vcsUserName|<string>|Specifies the username for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the value in the 'p4 set' command.                        |false|
 |tiaVcsPassword|vcsPassword|<string>|Specifies the password for connecting to the VCS system. Only currently used for Perforce.| For Perforce it will default to use the locally cached p4 ticket in the users home directory. |false|
