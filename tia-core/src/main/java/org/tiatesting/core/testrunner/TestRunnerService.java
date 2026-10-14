@@ -54,6 +54,15 @@ public class TestRunnerService {
      * "Persist flow and crash safety" chapter in {@code WIKI.md} for the failure-mode
      * taxonomy and the per-call atomicity guarantees that the H2 backend provides.
      *
+     * <p><b>Closing the datastore.</b> Whether the writes succeed or throw, the datastore is
+     * closed before this returns. For an embedded H2 file that is the graceful {@code SHUTDOWN}
+     * that flushes the store and marks the file cleanly closed: the embedded URL keeps the database
+     * open for the life of the JVM and never closes it on exit, so a test JVM that only persisted
+     * left the file as if it had crashed, and H2's recovery on the next read-write open could
+     * rewrite it back to an older version, losing this run's history row and commit advance. A
+     * later persist in the same JVM (a retry round) reopens the database on its first connection.
+     * Server-mode and Postgres closes are no-ops.
+     *
      * <p><b>Empty runs.</b> A run that executed none of the suites Tia expected it to -
      * {@link TestRunResult#ranNoExpectedSuites()} - persists nothing but a {@code ran=0} history row:
      * no stats, no full-suite baseline, no seal and so no commit advance, no failed-set update and no
@@ -80,6 +89,35 @@ public class TestRunnerService {
                                    final long runStartTimestampMs,
                                    final TestRunResult testRunResult,
                                    final DistributedRunnerContext distributedRunnerContext){
+        try {
+            writeTestRunData(updateDBMapping, updateDBTestRunHistory, commitValue, branch,
+                    runStartTimestampMs, testRunResult, distributedRunnerContext);
+        } finally {
+            dataStore.close();
+        }
+    }
+
+    /**
+     * Write the data accumulated by a Tia test run, in the order {@link #persistTestRunData}
+     * describes: a distributed runner's share, an empty run's history row, or the suite mapping,
+     * failed set, seal and history row of an ordinary run.
+     *
+     * @param updateDBMapping          should the test-suite to source-code mapping and the run
+     *                                 stats be updated
+     * @param updateDBTestRunHistory   should this run write a row to {@code tia_test_run_history}
+     * @param commitValue              the VCS commit / changelist the run was against
+     * @param branch                   the VCS branch the run targeted
+     * @param runStartTimestampMs      UTC epoch millis when the test run started
+     * @param testRunResult            the collected results of the test run
+     * @param distributedRunnerContext the distributed runner's context, or {@code null} for an
+     *                                 ordinary single-host run
+     */
+    private void writeTestRunData(final boolean updateDBMapping,
+                                  final boolean updateDBTestRunHistory,
+                                  final String commitValue, final String branch,
+                                  final long runStartTimestampMs,
+                                  final TestRunResult testRunResult,
+                                  final DistributedRunnerContext distributedRunnerContext){
         // Capture the run duration up front, before any DB read/write below. This is the
         // test-execution wall clock (test-plan start to here); it deliberately excludes Tia's own
         // mapping/seal persist work that follows, which on a seed run is seconds of bulk inserts.
