@@ -26,6 +26,52 @@ test {
     useJUnitPlatform()
 }
 
+// JUnit 6 compatibility: the Java 8 listener, run by the JUnit 6 launcher on a Java 17+ JVM (JUnit
+// 6's baseline). The suite is compiled for Java 17 against JUnit 6; main stays Java 8 against JUnit 5.
+sourceSets {
+    junit6Test {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    junit6TestImplementation.extendsFrom implementation
+    junit6TestRuntimeOnly.extendsFrom runtimeOnly
+}
+
+dependencies {
+    junit6TestImplementation platform("org.junit:junit-bom:$junit6Version")
+    junit6TestImplementation 'org.junit.jupiter:junit-jupiter'
+    junit6TestImplementation 'org.junit.platform:junit-platform-launcher'
+    // The listener logs through SLF4J, which main only compiles against.
+    junit6TestImplementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
+    junit6TestRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
+// A locally installed JDK: Gradle's own detection, or org.gradle.java.installations.paths.
+def junit6TestJava = JavaLanguageVersion.of(Integer.parseInt(junit6TestJavaVersion))
+
+tasks.named('compileJunit6TestJava') {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = junit6TestJava }
+    options.release = 17
+}
+
+def junit6Test = tasks.register('junit6Test', Test) {
+    description = 'Runs the Tia listener under the JUnit 6 launcher on a Java 17+ JVM.'
+    group = 'verification'
+    testClassesDirs = sourceSets.junit6Test.output.classesDirs
+    classpath = sourceSets.junit6Test.runtimeClasspath
+    javaLauncher = javaToolchains.launcherFor { languageVersion = junit6TestJava }
+    useJUnitPlatform()
+    // The fixtures are run by the test through its own launcher, never directly.
+    exclude 'org/tiatesting/junit/junit5/junit6fixtures/**'
+}
+
+tasks.named('check') {
+    dependsOn junit6Test
+}
+
 publishing {
     publications {
         mavenJava(MavenPublication) {
