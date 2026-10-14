@@ -4,7 +4,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.tiatesting.core.model.MethodImpactTracker;
-import org.tiatesting.core.persistence.dialect.PostgresDialect;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -64,27 +63,23 @@ class PostgresMethodStagingTest {
     }
 
     /**
-     * Drop the method-staging table so each test starts from a clean schema, forcing its DDL to
-     * re-execute against real Postgres on every test run. Does not rely on
-     * {@link PostgresPersistTest#cleanPostgres()} because its hard-coded {@code DROP TABLE} list
-     * does not include the distributed-run tables - a previous test's staged rows would otherwise
-     * leak into the next test. Selects the per-branch schema first, mirroring
-     * {@link PostgresDistributedPlanTest#cleanDistributedTables()}, since the store's tables live
-     * there rather than in the raw connection's default {@code public} schema; a drop issued
-     * against the default schema would silently no-op.
+     * Drop the per-branch schema so each test starts from an empty store and the current DDL is
+     * recreated in full on first contact. The whole schema is dropped rather than individual
+     * tables because {@code SchemaManager.ensureSchema} creates tables only when {@code tia_core}
+     * is absent, so a partial drop would leave the store missing tables.
      *
      * @throws SQLException if the cleanup connection or the drop statement fails
      */
     private static void cleanMethodStageTable() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
-            statement.executeUpdate("DROP TABLE IF EXISTS tia_distributed_run_method_stage CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH, null)
+                    + " CASCADE");
         }
     }
 
     /**
-     * Skip when Postgres is unreachable, drop the method-staging table, and open a fresh
+     * Skip when Postgres is unreachable, drop the branch schema, and open a fresh
      * Postgres-backed store through the production factory, so each test starts from a clean
      * schema and the current DDL is recreated on first contact.
      *

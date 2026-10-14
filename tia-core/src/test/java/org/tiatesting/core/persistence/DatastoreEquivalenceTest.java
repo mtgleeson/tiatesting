@@ -18,7 +18,6 @@ import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TestSuiteTracker;
 import org.tiatesting.core.model.TiaData;
 import org.tiatesting.core.model.TrackedLibrary;
-import org.tiatesting.core.persistence.dialect.PostgresDialect;
 import org.tiatesting.core.staticselection.StaticTestSelectionRuleMode;
 import org.tiatesting.core.vcs.FileContentPair;
 import org.tiatesting.core.vcs.VCSReader;
@@ -124,33 +123,18 @@ class DatastoreEquivalenceTest {
     }
 
     /**
-     * Drop the Tia tables so the next seed recreates the schema from the current DDL. Two reasons
-     * this must DROP rather than merely truncate:
-     * <ul>
-     *   <li>The Postgres instance is a persistent, shared scratch database (unlike the fresh
-     *       temp-directory H2 database each run gets); rows left by a previous run or by unrelated
-     *       spike seeding would otherwise appear as extra tracked suites on the Postgres side only
-     *       and break the equivalence assertion for reasons unrelated to the dialect path.</li>
-     *   <li>{@code SchemaManager.ensureSchema} only (re)runs the {@code CREATE TABLE} DDL when
-     *       {@code tia_core} is absent, so a stale {@code tia_test_suite} created before the
-     *       {@code UNIQUE(name)} index fix would survive a truncate and the suite upsert's
-     *       {@code ON CONFLICT (name)} would still fail. Dropping the table forces the corrected
-     *       DDL (with the name unique index) to be applied on the next connection.</li>
-     * </ul>
+     * Drop the per-branch schema so each test starts from an empty store and the current DDL is
+     * recreated in full on first contact. The whole schema is dropped rather than individual
+     * tables because {@code SchemaManager.ensureSchema} creates tables only when {@code tia_core}
+     * is absent, so a partial drop would leave the store missing tables.
      *
      * @throws SQLException if the cleanup connection or the drop statement fails
      */
     private static void cleanPostgres() throws SQLException {
         try (Connection connection = DriverManager.getConnection(POSTGRES_URL, POSTGRES_USER, POSTGRES_PASSWORD);
              Statement statement = connection.createStatement()) {
-            // the store's tables now live in the per-branch schema (see DataStoreFactory), not the
-            // default "public" schema a raw connection starts in - select it before dropping.
-            statement.execute(new PostgresDialect().selectSchemaSql(BranchSchema.schemaName(BRANCH, null)));
-            statement.executeUpdate("DROP TABLE IF EXISTS tia_source_class_method, tia_source_class, "
-                    + "tia_test_suite, tia_test_suites_failed, tia_source_method, tia_core, "
-                    + "tia_pending_library_impacted_method, tia_pending_library_forced_selection, "
-                    + "tia_library_publish, tia_library, tia_test_run_history_trigger, "
-                    + "tia_test_run_history CASCADE");
+            statement.executeUpdate("DROP SCHEMA IF EXISTS " + BranchSchema.schemaName(BRANCH, null)
+                    + " CASCADE");
         }
     }
 

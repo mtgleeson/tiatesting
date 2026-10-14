@@ -10,9 +10,6 @@ import org.tiatesting.core.persistence.connection.H2ConnectionProvider;
 import org.tiatesting.core.persistence.dialect.H2Dialect;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -22,8 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Tests the persistence of the per-method run stats (the {@code executed_run_count} and
  * {@code triggered_run_count} columns on {@code tia_source_method}) in {@link JdbcDataStore}:
- * round trips through the full and by-id catalogue reads, and the migration that adds the columns
- * to a DB created without them. Uses a temp-directory embedded H2 database per test.
+ * round trips through the full and by-id catalogue reads. Uses a temp-directory embedded H2 database per test.
  */
 class JdbcDataStoreMethodRunStatsTest {
 
@@ -95,41 +91,6 @@ class JdbcDataStoreMethodRunStatsTest {
         // then
         assertEquals(12, read.getExecutedRunCount());
         assertEquals(3, read.getTriggeredRunCount());
-    }
-
-    /**
-     * A DB whose catalogue predates the run-count columns gains them on next contact: the
-     * pre-existing row reads back with zero counts, and new counts can be written.
-     *
-     * @throws Exception if the raw JDBC column drop fails
-     */
-    @Test
-    void migrationAddsRunCountColumns() throws Exception {
-        // given - seed a method, then drop the columns to simulate a pre-migration DB. The engine
-        // is kept alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh
-        // datastore opened against the same file.
-        dataStore.persistSourceMethods(catalogue(5, 5));
-        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
-                settings.getUsername(), settings.getPassword());
-             Statement statement = connection.createStatement()) {
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
-            statement.executeUpdate("ALTER TABLE tia_source_method DROP COLUMN executed_run_count");
-            statement.executeUpdate("ALTER TABLE tia_source_method DROP COLUMN triggered_run_count");
-        }
-
-        // when - a fresh datastore re-runs ensureSchema, which must re-add both columns
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings),
-                BranchSchema.schemaName("test", null));
-        MethodImpactTracker legacyRead = migrated.getTiaData().getMethodsTracked().get(METHOD_ID);
-        migrated.persistSourceMethods(catalogue(7, 2));
-        MethodImpactTracker rewrittenRead = migrated.getMethodsTracked().get(METHOD_ID);
-        migrated.close();
-
-        // then
-        assertEquals(0, legacyRead.getExecutedRunCount());
-        assertEquals(0, legacyRead.getTriggeredRunCount());
-        assertEquals(7, rewrittenRead.getExecutedRunCount());
-        assertEquals(2, rewrittenRead.getTriggeredRunCount());
     }
 
     /**

@@ -23,14 +23,14 @@ class TestRunHistoryRepository extends JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      */
     TestRunHistoryRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
         super(dialect, connections, schemaManager);
     }
 
     /**
-     * Upsert one run-history row, ensuring the history tables exist first. Implements {@link DataStore#persistTestRunHistoryEntry}.
+     * Upsert one run-history row, bootstrapping the schema first. Implements {@link DataStore#persistTestRunHistoryEntry}.
      *
      * @param entry the history row to write
      */
@@ -38,7 +38,7 @@ class TestRunHistoryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            schemaManager.ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureSchema(connection);
             String sql = dialect.upsert(TABLE_TIA_TEST_RUN_HISTORY,
                     Arrays.asList(COL_ID, COL_RUN_TIMESTAMP, COL_BRANCH, COL_COMMIT_VALUE,
                             COL_NUM_SUITES_RAN, COL_NUM_SUITES_IGNORED, COL_NUM_SUITES_FAILED,
@@ -65,8 +65,7 @@ class TestRunHistoryRepository extends JdbcRepository {
             ps.setInt(11, entry.getSavingsPercent());
             ps.setLong(12, entry.getWallClockSavingsMs());
             ps.setInt(13, entry.getWallClockSavingsPercent());
-            // A single-host run binds SQL NULL for all four, so its row stays exactly what it was
-            // before distributed runs existed.
+            // A single-host run binds SQL NULL for all four.
             setNullableString(ps, 14, entry.getRunId());
             setNullableLong(ps, 15, entry.getWallClockMs());
             setNullableInt(ps, 16, entry.getGroupCount());
@@ -75,8 +74,8 @@ class TestRunHistoryRepository extends JdbcRepository {
             // is stored as SQL NULL rather than as a placeholder several unrelated runs would share.
             setNullableString(ps, 18, entry.getRunOrigin().getRunSource());
             setNullableString(ps, 19, entry.getRunOrigin().getHostName());
-            // Nullable for the same reason: a row written before this feature, or an all-tests run
-            // with nothing to attribute, stores SQL NULL rather than a made-up zero.
+            // Nullable for the same reason: an all-tests run with nothing to attribute stores SQL
+            // NULL rather than a made-up zero.
             setNullableInt(ps, 20, entry.getNumModifiedTestFiles());
             setNullableInt(ps, 21, entry.getNumNewTestFiles());
             setNullableInt(ps, 22, entry.getNumPreviouslyFailed());
@@ -109,9 +108,7 @@ class TestRunHistoryRepository extends JdbcRepository {
         Connection connection = getConnection();
 
         try {
-            // Ensure table exists for older DBs that pre-date this feature; reads return empty
-            // until the first insert.
-            schemaManager.ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureSchema(connection);
 
             String sql = "SELECT * FROM " + TABLE_TIA_TEST_RUN_HISTORY
                     + " ORDER BY " + COL_RUN_TIMESTAMP + " DESC";
@@ -172,7 +169,7 @@ class TestRunHistoryRepository extends JdbcRepository {
     void persistTestRunTriggers(final String historyId, final List<TestRunTrigger> triggers) {
         Connection connection = getConnection();
         try {
-            schemaManager.ensureTestRunHistoryTableExists(connection); // also ensures the trigger table
+            schemaManager.ensureSchema(connection);
             try (PreparedStatement delete = connection.prepareStatement(
                     "DELETE FROM " + TABLE_TIA_TEST_RUN_HISTORY_TRIGGER
                             + " WHERE " + COL_HISTORY_ID + " = ?")) {
@@ -232,7 +229,7 @@ class TestRunHistoryRepository extends JdbcRepository {
         }
         Connection connection = getConnection();
         try {
-            schemaManager.ensureTestRunHistoryTableExists(connection);
+            schemaManager.ensureSchema(connection);
             String placeholders = String.join(",", Collections.nCopies(historyIds.size(), "?"));
             String sql = "SELECT " + COL_HISTORY_ID + ", " + COL_TRIGGER_TYPE + ", "
                     + COL_TRIGGER_NAME + ", " + COL_TEST_COUNT + " FROM "

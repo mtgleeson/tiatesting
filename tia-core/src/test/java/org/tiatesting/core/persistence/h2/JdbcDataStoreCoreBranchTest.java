@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Round-trip and migration tests for the {@code tia_core.branch} column in {@link JdbcDataStore}.
+ * Round-trip tests for the {@code tia_core.branch} column in {@link JdbcDataStore}.
  * Uses a temp-directory embedded H2 database per test for isolation.
  */
 class JdbcDataStoreCoreBranchTest {

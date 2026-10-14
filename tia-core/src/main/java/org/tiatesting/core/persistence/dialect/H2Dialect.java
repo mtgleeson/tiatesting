@@ -91,7 +91,7 @@ public final class H2Dialect implements SqlDialect {
      * always contains {@code _}. Passing the schema/table name straight through as a pattern can
      * therefore false-match a sibling schema (e.g. schema {@code tia_v1_2} used as a pattern
      * matches the literal schema {@code tia_v1x2}), wrongly reporting a fresh branch schema as
-     * already migrated. To avoid that, the result set is iterated and each row's
+     * already created. To avoid that, the result set is iterated and each row's
      * {@code TABLE_SCHEM}/{@code TABLE_NAME} is checked for an exact (non-pattern) match rather
      * than trusting {@code rs.next()} from the pattern query.
      */

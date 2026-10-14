@@ -11,7 +11,7 @@ import java.util.function.Supplier;
  * Base for the JDBC repositories {@link JdbcDataStore} delegates to. Each repository owns the
  * reads and writes for one area of the Tia schema; this base carries what they all share - the
  * connection source (already pinned to the per-branch schema), the SQL dialect, and the
- * {@link SchemaManager} that bootstraps and migrates the schema.
+ * {@link SchemaManager} that bootstraps the schema.
  */
 abstract class JdbcRepository {
     // Upper bound on parameterized IN-clause size for the targeted queries. Keeps each
@@ -28,7 +28,7 @@ abstract class JdbcRepository {
      *
      * @param dialect the SQL dialect rendering vendor-specific statements
      * @param connections opens a connection with the per-branch schema selected
-     * @param schemaManager bootstraps and migrates the schema before first use
+     * @param schemaManager bootstraps the schema before first use
      */
     JdbcRepository(SqlDialect dialect, Supplier<Connection> connections, SchemaManager schemaManager) {
         this.dialect = dialect;

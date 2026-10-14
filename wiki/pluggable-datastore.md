@@ -26,10 +26,13 @@ Three pieces divide the responsibility:
   implementation that replaced the H2-specific one) is written entirely against this interface -
   it has no vendor-specific branches of its own. `JdbcDataStore` itself is a thin facade: it owns
   connection acquisition (the per-branch schema below) and delegates each area of the schema to a
-  package-private repository built on `JdbcRepository` - `SchemaManager` (DDL and migrations),
+  package-private repository built on `JdbcRepository` - `SchemaManager` (DDL),
   `MappingReader` / `MappingWriter` (the suite-to-method mapping), `SealRepository` (the core row
   and the seal transaction), `LibraryRepository`, `TestRunHistoryRepository`, and the three
-  distributed-run repositories. Table and column names live in `TiaSchema`.
+  distributed-run repositories. Table and column names live in `TiaSchema`. `SchemaManager`
+  creates every table and index in one batch when `tia_core` is absent and runs no DDL on an
+  existing database: there are no schema migrations. Tia is pre-release, so after a schema change
+  an existing database is dropped (or its branch schema is) and re-seeded rather than upgraded.
 - **`ConnectionProvider`** (`org.tiatesting.core.persistence.connection`) - how to obtain a
   `java.sql.Connection`. `H2ConnectionProvider` carries H2's embedded-vs-server-mode split: engine
   options (`PAGE_SIZE`, `CACHE_SIZE`, `DB_CLOSE_DELAY`, `DB_CLOSE_ON_EXIT`) only in embedded mode,
