@@ -2,7 +2,7 @@
 
 ### One Tia binary serves JUnit 5 and JUnit 6
 
-JUnit 6 is still Jupiter on the JUnit Platform. The group ids (`org.junit.jupiter`, `org.junit.platform`), the `LauncherSessionListener` service hook, and `org.junit.jupiter.api.Disabled` are all unchanged. So Tia supports both majors with the same modules, `tia-junit5` (the listener) and `tia-junit5-agent` (the `@Disabled` agent), and with the same Gradle `testFramework = 'junit5'` name. Detection on Gradle needs no change because it matches the `org.junit.jupiter` group.
+JUnit 6 is still Jupiter on the JUnit Platform. The group ids (`org.junit.jupiter`, `org.junit.platform`), the `LauncherSessionListener` service hook, and `org.junit.jupiter.api.Disabled` are all unchanged. So Tia supports both majors with the same modules, `tia-junit5` (the listener) and `tia-junit5-agent` (the `@Disabled` agent), and with the same Gradle `testFramework = 'junit5'` adapter. `testFramework = 'junit6'` is an alias for it (`TestFrameworkAdapter.aliases()`), so JUnit 6 users need not wonder whether `junit5` covers them. Detection on Gradle needs no change because it matches the `org.junit.jupiter` group.
 
 Both modules stay Java 8 bytecode and compile against the JUnit 5 Platform API. They only call APIs that JUnit 6 kept unchanged: `LauncherSessionListener`, `LauncherSession.getLauncher()`, `Launcher.registerTestExecutionListeners`, `TestPlan.getParent(TestIdentifier)`, `TestPlan.getDescendants`, `TestIdentifier.getUniqueId()` / `getSource()` / `isContainer()`, plus `ClassSource`, `MethodSource` and `TestExecutionResult`. JUnit comes from the user's project at run time, so:
 

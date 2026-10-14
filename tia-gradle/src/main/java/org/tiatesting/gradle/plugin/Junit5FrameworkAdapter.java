@@ -9,6 +9,8 @@ import org.tiatesting.core.agent.AgentOptions;
 import org.tiatesting.core.agent.SelectionHandoff;
 
 import java.io.File;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * JUnit 5 and JUnit 6 (both Jupiter on the JUnit Platform, served by the same Tia modules): the
@@ -23,6 +25,9 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
 
     /** Name users select JUnit 5 or JUnit 6 by. */
     public static final String NAME = "junit5";
+
+    /** Alternative name for JUnit 6 projects; selects this same adapter. */
+    public static final String JUNIT6_ALIAS = "junit6";
 
     /** Group of the Tia agent artifact. */
     static final String AGENT_GROUP = "org.tiatesting";
@@ -47,6 +52,17 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     @Override
     public String name() {
         return NAME;
+    }
+
+    /**
+     * Lets a JUnit 6 project write {@code testFramework = 'junit6'}: JUnit 6 is served by this same
+     * adapter, so the alias only spares users wondering whether {@code junit5} covers them.
+     *
+     * @return {@code [junit6]}
+     */
+    @Override
+    public List<String> aliases() {
+        return Collections.singletonList(JUNIT6_ALIAS);
     }
 
     /**

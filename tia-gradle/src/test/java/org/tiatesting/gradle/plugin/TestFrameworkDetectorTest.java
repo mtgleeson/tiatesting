@@ -67,6 +67,18 @@ class TestFrameworkDetectorTest {
     }
 
     @Test
+    void junit6OverrideSelectsTheJunit5Adapter() {
+        // given - a JUnit 6 project that also declares Spock
+        List<String> groups = Arrays.asList("org.spockframework", "org.junit.jupiter");
+
+        // when
+        TestFrameworkAdapter adapter = TestFrameworkDetector.detect(" JUnit6 ", groups);
+
+        // then
+        assertEquals(Junit5FrameworkAdapter.NAME, adapter.name());
+    }
+
+    @Test
     void overrideWinsOverDetection() {
         // given - only JUnit 5 declared, e.g. Spock arriving through a platform
         List<String> groups = Collections.singletonList("org.junit.jupiter");
@@ -89,7 +101,7 @@ class TestFrameworkDetectorTest {
 
         // then
         assertTrue(exception.getMessage().contains("testFramework"), exception.getMessage());
-        assertTrue(exception.getMessage().contains("[spock, junit5]"), exception.getMessage());
+        assertTrue(exception.getMessage().contains("[spock, junit5, junit6]"), exception.getMessage());
     }
 
     @Test
@@ -103,6 +115,6 @@ class TestFrameworkDetectorTest {
 
         // then
         assertTrue(exception.getMessage().contains("'testng'"), exception.getMessage());
-        assertTrue(exception.getMessage().contains("[spock, junit5]"), exception.getMessage());
+        assertTrue(exception.getMessage().contains("[spock, junit5, junit6]"), exception.getMessage());
     }
 }

@@ -4,6 +4,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -20,7 +21,7 @@ import java.util.stream.Collectors;
  * <p>Spock wins when both Spock and JUnit Jupiter are declared: Spock 2 runs on the JUnit Platform
  * and Spock projects routinely declare {@code org.junit.jupiter} too, so the pair is far more often a
  * Spock project than a JUnit 5 or 6 one. A JUnit 5 or 6 project that also declares Spock sets
- * {@code testFramework = 'junit5'}. Detection warns whenever it has to make that choice, and an
+ * {@code testFramework = 'junit5'} (or {@code 'junit6'}, an alias for the same adapter). Detection warns whenever it has to make that choice, and an
  * explicit {@code testFramework} silences the warning.
  */
 public final class TestFrameworkDetector {
@@ -49,10 +50,10 @@ public final class TestFrameworkDetector {
         if (override != null && !override.trim().isEmpty()) {
             String name = override.trim().toLowerCase(Locale.ROOT);
             return adapters.stream()
-                    .filter(adapter -> adapter.name().equals(name))
+                    .filter(adapter -> selectableNames(adapter).contains(name))
                     .findFirst()
                     .orElseThrow(() -> new GradleException("Unknown Tia test framework '" + override
-                            + "'. Supported values: " + names(adapters) + "."));
+                            + "'. Supported values: " + supportedValues(adapters) + "."));
         }
 
         List<TestFrameworkAdapter> detected = adapters.stream()
@@ -86,6 +87,31 @@ public final class TestFrameworkDetector {
     }
 
     /**
+     * The names an adapter can be selected by: its own name, then its aliases.
+     *
+     * @param adapter the adapter
+     * @return its selectable names, e.g. {@code [junit5, junit6]}
+     */
+    private static List<String> selectableNames(final TestFrameworkAdapter adapter) {
+        List<String> selectable = new ArrayList<>();
+        selectable.add(adapter.name());
+        selectable.addAll(adapter.aliases());
+        return selectable;
+    }
+
+    /**
+     * List every value {@code testFramework} accepts, aliases included, for the messages that tell
+     * users what to set.
+     *
+     * @param adapters the supported adapters
+     * @return the accepted values, e.g. {@code [spock, junit5, junit6]}
+     */
+    private static String supportedValues(final List<TestFrameworkAdapter> adapters) {
+        return adapters.stream().flatMap(adapter -> selectableNames(adapter).stream())
+                .collect(Collectors.toList()).toString();
+    }
+
+    /**
      * List adapters by name, for the detection messages.
      *
      * @param adapters the adapters to name
@@ -103,6 +129,6 @@ public final class TestFrameworkDetector {
      * @return the hint naming the setting that picks the framework explicitly
      */
     private static String settingHint(final List<TestFrameworkAdapter> adapters) {
-        return "Set tia { testFramework = ... } to one of " + names(adapters) + " to choose explicitly.";
+        return "Set tia { testFramework = ... } to one of " + supportedValues(adapters) + " to choose explicitly.";
     }
 }
