@@ -16,15 +16,11 @@ import org.tiatesting.core.model.TestRunTrigger;
 import org.tiatesting.core.model.TiaData;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -355,43 +351,6 @@ class JdbcDataStoreTestRunHistoryTest {
     }
 
     /**
-     * A history table predating the run-origin columns gains them via migration on next contact, and
-     * the pre-existing rows read back null rather than being retro-labelled with an origin nobody
-     * recorded.
-     */
-    @Test
-    void migrationAddsTheRunOriginColumnsAndOldRowsReadNull() throws Exception {
-        // given - persist a row, then drop the columns to simulate a pre-migration DB. The engine
-        // stays alive for the JVM (DB_CLOSE_DELAY=-1), so the drop is visible to a fresh datastore
-        // against the same file.
-        dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, false));
-
-        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
-                settings.getUsername(), settings.getPassword());
-             Statement statement = connection.createStatement()) {
-            // a raw JDBC connection defaults to the vendor's default schema, not the branch schema
-            // JdbcDataStore selects on its own connections - select it explicitly before altering
-            // the unqualified table name.
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
-            statement.executeUpdate("ALTER TABLE tia_test_run_history DROP COLUMN run_source");
-            statement.executeUpdate("ALTER TABLE tia_test_run_history DROP COLUMN host_name");
-        }
-
-        // when - a fresh datastore re-runs the history DDL on read, which must re-add them
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
-        List<TestRunHistoryEntry> result = migrated.readTestRunHistory();
-        migrated.close();
-
-        // then
-        assertEquals(1, result.size());
-        RunOrigin round = result.get(0).getRunOrigin();
-        assertNull(round.getRunSource(), "a pre-migration row must not be retro-labelled");
-        assertNull(round.getHostName(), "a pre-migration row must not be retro-labelled");
-    }
-
-    /**
      * The rerun flag round-trips: a row recorded for a retry of failed tests reads back as a rerun.
      */
     @Test
@@ -408,35 +367,6 @@ class JdbcDataStoreTestRunHistoryTest {
         // then
         assertEquals(1, result.size());
         assertTrue(result.get(0).isRerun());
-    }
-
-    /**
-     * A history table predating the rerun column gains it via migration on next contact, and the
-     * pre-existing rows read back as not being reruns.
-     *
-     * @throws Exception if the raw JDBC connection used to drop the column fails
-     */
-    @Test
-    void migrationAddsTheRerunColumnAndOldRowsReadAsNotReruns() throws Exception {
-        // given
-        dataStore.persistTestRunHistoryEntry(TestRunHistoryEntry.create(
-                "main", "abc123", 1_700_000_000_000L, 10, 2, 1, 5_000L, true, 4_000L, 80,
-                RunOrigin.of(RunOrigin.SOURCE_CI, "build-agent-3"), null, false));
-        try (Connection connection = DriverManager.getConnection(new H2ConnectionProvider(settings).jdbcUrl(),
-                settings.getUsername(), settings.getPassword());
-             Statement statement = connection.createStatement()) {
-            statement.execute(new H2Dialect().selectSchemaSql(BranchSchema.schemaName("test", null)));
-            statement.executeUpdate("ALTER TABLE tia_test_run_history DROP COLUMN rerun");
-        }
-
-        // when
-        JdbcDataStore migrated = new JdbcDataStore(new H2Dialect(), new H2ConnectionProvider(settings), BranchSchema.schemaName("test", null));
-        List<TestRunHistoryEntry> result = migrated.readTestRunHistory();
-        migrated.close();
-
-        // then
-        assertEquals(1, result.size());
-        assertFalse(result.get(0).isRerun());
     }
 
     /**

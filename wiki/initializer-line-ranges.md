@@ -79,10 +79,6 @@ field (or initializer block) after another member.
 - **`select-tests` read path**: one extra, mostly-null column in the changed-files query; ranges are
   parsed only for the split initializers of changed files, and matching adds a null check per method.
 - **Seal**: each catalogue row's insert gains `, NULL` or a short range string.
-- **Migration**: one `ADD COLUMN IF NOT EXISTS` per datastore instance (memoized). On Postgres this
-  takes a table lock even when the column exists, so it can briefly queue behind a concurrent seal
-  rewriting `tia_source_method` - the same behaviour as the existing `tia_test_suite` and `tia_core`
-  migrations.
 
 ### How a diff is matched
 
