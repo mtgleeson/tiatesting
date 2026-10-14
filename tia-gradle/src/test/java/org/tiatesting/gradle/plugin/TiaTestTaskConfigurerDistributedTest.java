@@ -488,7 +488,8 @@ class TiaTestTaskConfigurerDistributedTest {
                 .withType(TiaPlugin.class).stream().findFirst().orElseThrow(IllegalStateException::new);
         plugin.adapter = new SpockFrameworkAdapter() {
             @Override
-            public void handOffSelection(final Test task, final SelectionHandoff handoff) {
+            public void handOffSelection(final Project project, final Test task,
+                                         final SelectionHandoff handoff) {
                 throw new IllegalStateException("agent jar not resolvable");
             }
         };
