@@ -9,10 +9,13 @@ apply from: rootProject.file('buildSrc/shared.gradle')
 
 dependencies {
     implementation project(':tia-core')
-    implementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: junit5PlatformVersion
+    // Compiled against only: the test runner supplies the launcher matching the project's JUnit
+    // (5 or 6), so Tia never chooses its version.
+    compileOnly group: 'org.junit.platform', name: 'junit-platform-launcher', version: junit5PlatformVersion
     compileOnly group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion // don't include in transitive dependencies
 
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter', version: junit5EngineVersion
+    testImplementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: junit5PlatformVersion
     testImplementation 'org.mockito:mockito-core:4.11.0'
     // slf4j-api is compileOnly above, so the listener's logger needs a binding (and the api it
     // binds to) on the test runtime classpath.
@@ -34,4 +37,27 @@ publishing {
             }
         }
     }
+}
+
+// The test runner (Surefire, Gradle) supplies the JUnit Platform launcher matching the project's
+// JUnit. A version published here lands on every project's test classpath and can mismatch the
+// project's engine: on Maven, JUnit 6 next to a 1.x launcher fails test discovery.
+tasks.register('verifyPublishedPom') {
+    description = 'Fails if the published POM declares a JUnit dependency, which would pin the ' +
+            'JUnit version on the projects that use this module.'
+    def pomTask = tasks.named('generatePomFileForMavenJavaPublication')
+    dependsOn pomTask
+    doLast {
+        def pom = new groovy.xml.XmlSlurper().parse(pomTask.get().destination)
+        def junit = pom.dependencies.dependency
+                .findAll { it.groupId.text().startsWith('org.junit') }
+                .collect { it.groupId.text() + ':' + it.artifactId.text() }
+        if (!junit.isEmpty()) {
+            throw new GradleException("The published POM must not declare JUnit, but declares: " + junit)
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifyPublishedPom'
 }
