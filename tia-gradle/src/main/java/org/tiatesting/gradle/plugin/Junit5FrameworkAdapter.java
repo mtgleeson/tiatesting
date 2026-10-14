@@ -11,7 +11,8 @@ import org.tiatesting.core.agent.SelectionHandoff;
 import java.io.File;
 
 /**
- * JUnit 5: the selection reaches the worker JVM through {@code tia-junit5-agent}, as on Maven. The
+ * JUnit 5 and JUnit 6 (both Jupiter on the JUnit Platform, served by the same Tia modules): the
+ * selection reaches the worker JVM through {@code tia-junit5-agent}, as on Maven. The
  * agent's {@code premain} reads the hand-off files named in its options, marks the ignored suites
  * {@code @Disabled} so they report as skipped, and publishes the rest as system properties for the
  * {@code tia-junit5} listener. The other settings already arrive as test task system properties, so
@@ -20,7 +21,7 @@ import java.io.File;
  */
 public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
 
-    /** Name users select JUnit 5 by. */
+    /** Name users select JUnit 5 or JUnit 6 by. */
     public static final String NAME = "junit5";
 
     /** Group of the Tia agent artifact. */
@@ -39,7 +40,7 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
     private File agentJar;
 
     /**
-     * The name users select JUnit 5 by in {@code tia { testFramework = ... }}.
+     * The name users select JUnit 5 or JUnit 6 by in {@code tia { testFramework = ... }}.
      *
      * @return {@code junit5}
      */
@@ -50,7 +51,8 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
 
     /**
      * The group of JUnit Jupiter, whose presence among a project's declared test dependencies makes
-     * detection pick JUnit 5 (unless Spock is declared too).
+     * detection pick this adapter (unless Spock is declared too). JUnit 6 keeps the group, so JUnit 5
+     * and JUnit 6 projects are detected alike.
      *
      * @return {@code org.junit.jupiter}
      */
