@@ -95,12 +95,13 @@ public class Junit5FrameworkAdapter implements TestFrameworkAdapter {
      * always follows the JaCoCo agent's provider, which the jacoco plugin registered when the task
      * was configured.
      *
+     * @param project the test task's project, whose repositories the agent is resolved from
      * @param testTask the test task whose forks receive the selection
      * @param handoff the written hand-off files
      */
     @Override
-    public void handOffSelection(final Test testTask, final SelectionHandoff handoff) {
-        String argument = "-javaagent:" + agentJar(testTask.getProject()).getAbsolutePath() + "="
+    public void handOffSelection(final Project project, final Test testTask, final SelectionHandoff handoff) {
+        String argument = "-javaagent:" + agentJar(project).getAbsolutePath() + "="
                 + agentOptions(handoff).toCommandLineOptionsString();
         agentArgumentProvider(testTask).setArgument(argument);
     }

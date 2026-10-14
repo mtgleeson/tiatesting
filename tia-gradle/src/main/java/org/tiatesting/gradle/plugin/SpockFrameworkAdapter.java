@@ -1,5 +1,6 @@
 package org.tiatesting.gradle.plugin;
 
+import org.gradle.api.Project;
 import org.gradle.api.tasks.testing.Test;
 import org.tiatesting.core.agent.SelectionHandoff;
 
@@ -40,11 +41,12 @@ public class SpockFrameworkAdapter implements TestFrameworkAdapter {
      * Name the hand-off files in the system properties {@code TiaSpockGlobalExtension} reads. The
      * drain result property is only set when a drain result was written.
      *
+     * @param project the test task's project, unused: Spock needs nothing resolved from it
      * @param testTask the test task whose forks receive the selection
      * @param handoff the written hand-off files
      */
     @Override
-    public void handOffSelection(final Test testTask, final SelectionHandoff handoff) {
+    public void handOffSelection(final Project project, final Test testTask, final SelectionHandoff handoff) {
         testTask.systemProperty(SelectionHandoff.PROP_IGNORED_TESTS_FILE,
                 handoff.getIgnoredTestsFile().getAbsolutePath());
         testTask.systemProperty(SelectionHandoff.PROP_SELECTED_TESTS_FILE,
