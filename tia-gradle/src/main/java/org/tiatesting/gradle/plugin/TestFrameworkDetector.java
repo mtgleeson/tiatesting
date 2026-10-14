@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  *
  * <p>Spock wins when both Spock and JUnit Jupiter are declared: Spock 2 runs on the JUnit Platform
  * and Spock projects routinely declare {@code org.junit.jupiter} too, so the pair is far more often a
- * Spock project than a JUnit 5 one. A JUnit 5 project that also declares Spock sets
+ * Spock project than a JUnit 5 or 6 one. A JUnit 5 or 6 project that also declares Spock sets
  * {@code testFramework = 'junit5'}. Detection warns whenever it has to make that choice, and an
  * explicit {@code testFramework} silences the warning.
  */
